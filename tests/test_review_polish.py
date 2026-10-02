@@ -39,7 +39,7 @@ def test_evidence_numbers_are_the_cards(screens):  # noqa: F811
     p, g, n = cards(screens[D.LINE_A])
     # Review four, ruling 1: the card and its evidence lead with the
     # Overall score's record; the measurements' count follows.
-    assert "Overall score: 13 / 15 in range" in p["lines"]
+    assert "13 / 15 in range" in p["lines"]      # review story 2: the strip's short line
     ev = p["help"].split("\n\n")[1]
     assert ev.startswith("Evidence: Overall score 13/15 in range, skill 0.36 (n = 15); "
                          "measurements 33/35")
@@ -52,7 +52,9 @@ def test_off_names_the_measurements(screens):  # noqa: F811
     p = cards(screens[D.LINE_B])[0]
     # Review four, ruling 1: the red line is the Overall score's; the
     # measurements' misses a plain line under it.
-    assert p["lines"] == [":red[**Overall score: 3 / 16 missed**]",
+    # Review story 2: the strip's line drops "Overall score:" (its label
+    # says Predictions); the plain line sits under the trust answer.
+    assert p["lines"] == [":red[**3 / 16 missed**]",
                           "Measurements miss more than expected"]
 
 

@@ -238,9 +238,11 @@ def test_short_captions_and_withheld_reasons():
 def test_a_sparkline_under_two_rounds_is_withheld_with_its_reason():
     opt = D.load(D.SNACK)
     assert U.spark_chart(opt, None, "progress") is None
+    # Review story 2: the strip draws no sparkline at all (the improving
+    # chart sits right under it); the builder stays, withheld as before.
     src = open(U.__file__).read()
-    body = src[src.index("def _card_body"):src.index("def predictions_spark_frame")]
-    assert "wording.PLOT_SPARK_WAIT" in body
+    body = src[src.index("def _places"):src.index("def _next_body")]
+    assert "spark_chart" not in body and "_card_body" not in src
 
 
 def test_sparklines_name_their_rounds_and_the_95_aim(specs):

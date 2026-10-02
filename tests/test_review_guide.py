@@ -20,6 +20,7 @@ import wording
 from food_bo import FoodOptimizer
 from tests import demo_projects as D
 from tests.test_app_ui import APP_PATH, _tab_primaries
+from tests.test_review_cards import cards
 from ui_helpers import REVIEW_DUE_KEY, open_rows
 
 # The cards' (Predictions, Progress) words and the Next card's word when it
@@ -83,8 +84,8 @@ def walked(tmp_path_factory):
                 at = _app(name, wording.TAB_INSIGHTS)
                 # Review story: the screen shows Progress, Predictions, Next;
                 # read in the (Predictions, Progress, Next) order pinned below.
-                p, g, n = [s.value for s in at.tabs[REVIEW].subheader[:3]]
-                words = [g, p, n]
+                # Review story 2: the words are the status strip's.
+                words = [c["word"] for c in cards(at)]
                 review_lit = _tab_primaries(at, REVIEW)
                 _go(at, wording.TAB_BATCH)
                 links = [b for b in at.tabs[BATCH].button if b.key == "link_review_status"]

@@ -60,24 +60,11 @@ def line_a(tmp_path_factory):
         os.chdir(here)
 
 
-def _charts_by_card(at):
-    """Charts per card (review four: only the cards' row; Q1 and Q2 sit in
-    a second row of columns)."""
-    from tests.test_review_cards import _card_row
-    row = _card_row(at.tabs[3])
-
-    class _Wrap:
-        children = {0: row}
-    out = {}
-    for el, folds, col in _leaves(_Wrap):
-        if col is not None and not folds and "chart" in el.type:
-            out[col] = out.get(col, 0) + 1
-    return out
-
-
-def test_only_the_progress_card_has_a_sparkline(line_a):
-    by_card = _charts_by_card(line_a)
-    # Review story: Progress first, then Predictions, then Next.
-    assert by_card.get(0, 0) == 1, by_card    # Progress
-    assert 1 not in by_card, by_card          # Predictions
-    assert 2 not in by_card, by_card          # Next
+def test_the_strip_has_no_sparkline(line_a):
+    """Review story 2: the Progress sparkline went with the cards; the
+    improving chart sits right under the strip. No chart above the first
+    section."""
+    for el, folds, _ in _leaves(line_a.tabs[3]):
+        if el.type == "markdown" and el.value.startswith("#### "):
+            break
+        assert "chart" not in el.type, el.type

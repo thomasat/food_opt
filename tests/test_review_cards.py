@@ -34,19 +34,23 @@ from tests.test_app_ui import APP_PATH
 _HIDDEN = wording.HERO_HIDDEN_ICON + " "
 # Review story: the Progress line goes from the start (the first scored
 # Round's best) to the best, one decimal each; one number with one Round.
+# Review story 2: the cards became the strip and What next?. Per status:
+# the strip's word and line ("of 100" on a 0–100 score; Predictions
+# without "Overall score:"; a warning line when there is one), then the
+# lines under its section's answer; Next, What next?'s lines.
 EXPECTED = {
     D.SNACK: (
         "Review after Round 1 · 3 formulations",
         [("Predictions", "Not yet", ["3 / 5 formulations scored"]),
-         ("Progress", "Too early", ["Best 96.0 · Formulations 1 and 3"]),
+         ("Progress", "Too early", ["Best 96.0 of 100"]),
          ("Next", "Make Round 2", ["No Round open"])],
         "Where the app looks next", ["Appears after 5 scored formulations."]),
     D.LINE_A: (
         "Review after Round 5 · 20 formulations · Round 6 open · Formulation 19 waiting",
         # Review four, ruling 1: the Overall score's record (was the
         # measurements' 33 / 35).
-        [("Predictions", "Reliable", ["Overall score: 13 / 15 in range"]),
-         ("Progress", "No new best", ["87.8 → 90.5 · Formulation 15"]),
+        [("Predictions", "Reliable", ["13 / 15 in range"]),
+         ("Progress", "No new best", ["87.8 → 90.5 of 100"]),
          ("Next", "Record Round 6", ["4 formulations open", "Round 7: Repeat Formulation 15"])],
         "How the app chose Round 6", ["Suggestions go where expected gain peaks."]),
     D.LINE_B: (
@@ -54,9 +58,9 @@ EXPECTED = {
         # Review four, ruling 1: the Overall score missed 3 of 16 (tail
         # 0.04: More misses than expected, Not yet); the measurements' 8 / 36
         # a plain line. The disagreeing Repeat stays the Next card's, red.
-        [("Predictions", "Not yet", [":red[**Overall score: 3 / 16 missed**]",
+        [("Predictions", "Not yet", [":red[**3 / 16 missed**]",
                                      "Measurements miss more than expected"]),
-         ("Progress", "Flat", ["87.8 → 90.1 · same for 2 Rounds"]),
+         ("Progress", "Flat", ["87.8 → 90.1 of 100"]),
          ("Next", ":red[Check panel first]", [":red[**Before Round 6**]",
                                               ":red[**Formulation 11's Repeat: 10.5 lower**]"])],
         "How the app chose Round 6", [_HIDDEN + wording.HERO_HIDDEN["verdict"]]),
@@ -67,20 +71,20 @@ EXPECTED = {
         # evidence (Line C's one Repeat pair has 1 df); it asks for a Repeat.
         [("Predictions", "Not yet", ["No better than averaging",
                                      "Repeat Formulation 18 to check noise"]),
-         ("Progress", "Within noise", ["87.3 → 89.8 · +2.5 (needs 3.2)"]),
+         ("Progress", "Within noise", ["87.3 → 89.8 of 100"]),
          ("Next", "Record Round 6", ["4 formulations open", "Guided search, not a forecast"])],
         "How the app chose Round 6", [_HIDDEN + wording.HERO_HIDDEN["noise"]]),
     D.UPGRADE: (
         "Review after Round 3 · 7 formulations · Formulation 8 waiting",
         [("Predictions", "Not yet", ["2 / 10 formulations checked"]),
-         ("Progress", "Too early", ["Best 90.5 · Formulation 6",
-                                    ":red[**Rounds 1–2 lack Cook loss**]"]),
+         # A warning takes the strip's line (never folded).
+         ("Progress", "Too early", [":red[**Rounds 1–2 lack Cook loss**]"]),
          ("Next", "Make Round 4", ["No Round open"])],
         "Where the app looks next", [_HIDDEN + wording.HERO_HIDDEN["skill"]]),
     D.TIMING: (
         "Review after Round 12 · 60 formulations",
-        [("Predictions", "Reliable", ["Overall score: 54 / 55 in range"]),   # ruling 1
-         ("Progress", "Flat", ["91.6 → 92.5 · same for 7 Rounds"]),
+        [("Predictions", "Reliable", ["54 / 55 in range"]),   # ruling 1
+         ("Progress", "Flat", ["91.6 → 92.5 of 100"]),
          ("Next", "Make Round 13", ["No Round open"])],
         "Where the app looks next", ["Suggestions go where expected gain peaks."]),
     D.PROCESS_ONLY: (
@@ -90,8 +94,8 @@ EXPECTED = {
         # one card: demo build).
         # Review four, ruling 1: the Overall score missed 4 of 16 (tail
         # 0.007): Off, on the score the suggestions use.
-        [("Predictions", ":red[Off]", [":red[**Overall score: 4 / 16 missed**]"]),
-         ("Progress", "Within noise", ["85.1 → 87.9 · +1.9 (needs 3.2)"]),
+        [("Predictions", ":red[Off]", [":red[**4 / 16 missed**]"]),
+         ("Progress", "Within noise", ["85.1 → 87.9 of 100"]),
          ("Next", "Record Round 6", ["4 trials open", "Round 7: Repeat Trial 21"])],
         "How the app chose Round 6", [_HIDDEN + wording.HERO_HIDDEN["skill"]]),
 }
@@ -156,47 +160,113 @@ def _text(el):
     return ""
 
 
-def _card_row(node):
-    """The first block whose children are columns: the cards' row (review
-    four: Q1 and Q2 sit in a second row of columns below it)."""
-    kids = list(getattr(node, "children", {}).values())
-    if any(k.type == "column" for k in kids):
-        return node
-    for k in kids:
-        found = _card_row(k) if getattr(k, "children", None) else None
-        if found is not None:
-            return found
-    return None
+_LABEL = re.compile(r"^(?::red\[\*\*(?P<red>.+?)\*\*\]|\*\*(?P<word>.+?)\*\*)\s*(?P<line>.*)$")
+
+
+def strip(at):
+    """Review story 2: the status strip, in screen order — [{label, help,
+    word, line, key}] per item (word ':red[…]' when drawn red, line as
+    drawn, ':red[**…**]' for a warning) — and the strip's buttons
+    [(type, label)], read from the leaves above the first section."""
+    items, buttons, cur = [], [], None
+    labels = {wording.CARD_PROGRESS, wording.CARD_PREDICTIONS, wording.CARD_NEXT}
+    for el, folds, _ in _leaves(at.tabs[3]):
+        text = _text(el)
+        if el.type == "markdown" and text.startswith("#### "):
+            break
+        if el.type == "caption" and text in labels:
+            cur = {"label": text, "help": el.proto.help or None, "word": None, "line": None,
+                   "key": None}
+            items.append(cur)
+        elif el.type == "button" and el.key and el.key.startswith(ui_insights.SEE_CHART_KEY):
+            m = _LABEL.match(el.label)
+            cur["word"] = f":red[{m['red']}]" if m["red"] else m["word"]
+            cur["line"], cur["key"] = m["line"], el.key
+        elif el.type == "button" and items:     # the header's method link comes first
+            buttons.append((el.proto.type, el.label))
+    return items, buttons
+
+
+def section(at, title):
+    """[(element, text)] under one "#### " heading, in screen order."""
+    out, on = [], False
+    for el, folds, _ in _leaves(at.tabs[3]):
+        text = _text(el)
+        if el.type == "markdown" and text.startswith("#### "):
+            on = text[5:] == title
+            continue
+        if el.type == "expander":
+            on = False
+        if on:
+            out.append((el, text))
+    return out
+
+
+def _extras(at, title):
+    """The card's further lines under a section's answer line."""
+    rows = section(at, title)
+    got, seen = [], False
+    for el, text in rows:
+        if el.type == "markdown" and el.proto.help and not seen:
+            seen = True
+            continue
+        if seen and el.type == "markdown" and not el.proto.help and not text.startswith("**"):
+            got.append(text)
+            continue
+        if seen:
+            break
+    return got
 
 
 def cards(at, order="role"):
-    """[(label, word, [lines], help)] per card: in screen (column) order
-    with order="screen"; else Predictions, Progress, Next, the order the
-    tests unpack them in (review story: the screen shows Progress first)."""
-    out = {}
-    row = _card_row(at.tabs[3])
-
-    class _Wrap:
-        children = {0: row} if row is not None else {}
-    for el, folds, col in _leaves(_Wrap):
-        if col is None or folds:
-            continue
-        card = out.setdefault(col, {"label": None, "word": None, "lines": [], "help": None,
-                                    "buttons": []})
-        if el.type == "caption" and card["label"] is None:
-            card["label"] = el.value
-        elif el.type in ("subheader", "heading") or (el.type == "markdown" and
-                                                    card["word"] is None and el.proto.help):
-            card["word"], card["help"] = el.value, el.proto.help
-        elif el.type == "markdown":
-            card["lines"].append(el.value)
-        elif el.type == "button":
-            card["buttons"].append((el.proto.type, el.label))
-    found = [out[k] for k in sorted(out)]
+    """[{label, word, lines, help, buttons}] per status (review story 2:
+    the cards became the strip and What next?): the strip's label, word
+    and "?"; lines, the strip's line then the further lines under its
+    section's answer (Progress, Predictions) or What next?'s lines (Next);
+    buttons, What next?'s. In screen order with order="screen"; else
+    Predictions, Progress, Next, the order the tests unpack them in."""
+    items, _ = strip(at)
+    found = []
+    for it in items:
+        card = {"label": it["label"], "word": it["word"], "help": it["help"], "lines": [],
+                "buttons": []}
+        if it["label"] == wording.CARD_NEXT:
+            rows = _next_rows(at)
+            card["lines"] = [t for el, t in rows if el.type == "markdown"]
+            card["buttons"] = [(el.proto.type, el.label) for el, _ in rows
+                               if el.type == "button"]
+            card["next_word"] = next((t for el, t in rows if el.type in ("subheader", "heading")),
+                                     None)
+            card["next_help"] = next((el.proto.help for el, t in rows
+                                      if el.type in ("subheader", "heading")), None)
+        else:
+            if it["line"]:
+                card["lines"].append(it["line"])
+            title = _title_of(at, it["label"])
+            card["lines"] += [t for t in _extras(at, title) if t != it["line"]]
+        found.append(card)
     if order == "screen":
         return found
     rank = {wording.CARD_PREDICTIONS: 0, wording.CARD_PROGRESS: 1, wording.CARD_NEXT: 2}
     return sorted(found, key=lambda c: rank.get(c["label"], 3))
+
+
+def _headings(at):
+    return [_text(el)[5:] for el, _, _ in _leaves(at.tabs[3])
+            if el.type == "markdown" and _text(el).startswith("#### ")]
+
+
+def _title_of(at, label):
+    """The section a strip item lands on, as the screen names it (Trial
+    for a process-only study)."""
+    heads = _headings(at)
+    want = {wording.CARD_PROGRESS: wording.Q2_TITLE,
+            wording.CARD_PREDICTIONS: wording.Q1_TITLE}[label]
+    return next((h for h in heads if h == want), want)
+
+
+def _next_rows(at):
+    return section(at, wording.Q5_TITLE)
 
 
 def outside(at):
@@ -226,23 +296,26 @@ def test_the_header_is_one_short_line(screens, name):
 
 
 @pytest.mark.parametrize("name", D.ALL)
-def test_one_primary_button_and_it_is_the_next_cards(screens, name):
+def test_one_primary_button_and_it_is_the_strips(screens, name):
     at = screens[name]
     primaries = [el.label for el, _, _ in _leaves(at.tabs[3])
                  if el.type == "button" and el.proto.type == "primary"]
     assert len(primaries) == 1
-    nxt = cards(at)[2]
-    assert ("primary", primaries[0]) in nxt["buttons"]
+    # Review story 2: at the strip's right end; What next? has no second.
+    _, buttons = strip(at)
+    assert buttons == [("primary", primaries[0])]
+    assert ("primary", primaries[0]) not in cards(at)[2]["buttons"]
 
 
 @pytest.mark.parametrize("name", D.ALL)
 def test_word_limits(screens, name):
-    """Owner's rule: a card line at most 6 words, a big word at most 5 (the
-    hero's lines went with the hero: review four)."""
+    """Owner's rule: a big word at most 5 words; a line at most 10 (review
+    story 2: a status line's limit; it was a card line's 6, and "of 100"
+    takes two more: '88.4 → 96.4 of 100 · same for 3 Rounds')."""
     for c in cards(screens[name]):
         assert _words(c["word"]) <= 5, c["word"]
         for line in c["lines"]:
-            assert _words(line) <= 6, line
+            assert _words(line) <= 10, line
 
 
 @pytest.mark.parametrize("name", D.ALL)

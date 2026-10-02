@@ -33,6 +33,8 @@ QUESTIONS = [wording.Q1_TITLE, wording.Q2_TITLE, wording.Q3_TITLE, wording.Q4_TI
 # Review story: the screen asks them as a story — improving first, then
 # trust, drivers, what was tried.
 STORY = [wording.Q2_TITLE, wording.Q1_TITLE, wording.Q3_TITLE, wording.Q4_TITLE]
+# Review story 2: What next? closes the story (the Next card's content).
+STORY += [wording.Q5_TITLE]
 CHART = ("arrow_vega_lite_chart", "vega_lite_chart")
 
 
@@ -74,6 +76,8 @@ def test_four_questions_in_order_one_chart_each(screens, name):  # noqa: F811
         elif q == wording.Q2_TITLE:
             # Review story: the best so far and Closer to target, side by side.
             assert charts == 2, (q, items)
+        elif q == wording.Q5_TITLE:
+            assert charts == 0, (q, items)       # review story 2: words and buttons
         else:
             assert charts == 1, (q, items)
 
@@ -114,18 +118,22 @@ def test_captions_and_labels_within_the_limits(screens, name):  # noqa: F811
 @pytest.mark.parametrize("name", D.ALL)
 def test_each_card_links_to_its_question(screens, name):  # noqa: F811
     at = screens[name]
-    for c in cards(at):
-        assert ("tertiary", wording.SEE_CHART) in c["buttons"], c
-    keys = {b.key for b in at.tabs[3].button}
+    # Review story 2: each strip item is itself the link (its word and line,
+    # one tertiary button, keyed as the old "See chart ↓").
+    buttons = {b.key: b for b in at.tabs[3].button}
     for which in ("predictions", "progress", "next"):
-        assert f"{U.SEE_CHART_KEY}_{which}" in keys
-    # Predictions -> Q1, Progress -> Q2, Next -> Q3, each landing on the
-    # keyed place its section is drawn in (the links from Results and
-    # Make a round land on the first two).
+        b = buttons[f"{U.SEE_CHART_KEY}_{which}"]
+        assert b.proto.type == "tertiary"
+        assert b.proto.help.startswith("Scrolls to: ")
+    # Predictions -> Q1, Progress -> Q2, Next -> What next?, each landing
+    # on the keyed place its section is drawn in (the links from Results
+    # and Make a round land on the first two).
     assert U.SECTION_KEYS == {"predictions": U.TRUST_SECTION, "progress": U.STAND_SECTION,
-                              "next": U.DRIVES_SECTION, "tried": U.EXPLORED_PLACE}
+                              "drives": U.DRIVES_SECTION, "tried": U.EXPLORED_PLACE,
+                              "next": U.NEXT_SECTION}
     assert U._QUESTIONS["predictions"] == wording.Q1_TITLE
-    assert U._QUESTIONS["next"] == wording.Q3_TITLE
+    assert U._QUESTIONS["drives"] == wording.Q3_TITLE
+    assert U._QUESTIONS["next"] == wording.Q5_TITLE
 
 
 def test_a_card_link_lands_on_its_question(screens):  # noqa: F811
@@ -136,7 +144,7 @@ def test_a_card_link_lands_on_its_question(screens):  # noqa: F811
     def spy(label, section="top", fold=None, state=None):
         landed["section"] = section
         return real(label, section, fold, state)
-    for which, key in (("progress", U.STAND_SECTION), ("next", U.DRIVES_SECTION)):
+    for which, key in (("progress", U.STAND_SECTION), ("next", U.NEXT_SECTION)):
         [b] = [b for b in at.tabs[3].button if b.key == f"{U.SEE_CHART_KEY}_{which}"]
         U.ask_tab = spy
         try:
@@ -146,7 +154,7 @@ def test_a_card_link_lands_on_its_question(screens):  # noqa: F811
         assert not at.exception
         # The callback is bound with its section (on_click args).
         assert at.session_state["main_tab"] == wording.TAB_INSIGHTS
-    src = U.see_chart_link.__code__.co_names
+    src = U._strip_item.__code__.co_names
     assert "SECTION_KEYS" in src and "ask_tab" in src
 
 
@@ -230,12 +238,14 @@ def test_score_verdict_rule():
                                 for v in ("unreliable", "caution", "within", "wide")}
 
 
+# Review story 2: the strip's line, without "Overall score:" (the label
+# says Predictions; the answer line and the "?" still name the score).
 CARDS = {
-    D.LINE_A: ("Reliable", ["Overall score: 13 / 15 in range"]),
-    D.LINE_B: ("Not yet", [":red[**Overall score: 3 / 16 missed**]",
+    D.LINE_A: ("Reliable", ["13 / 15 in range"]),
+    D.LINE_B: ("Not yet", [":red[**3 / 16 missed**]",
                            "Measurements miss more than expected"]),
-    D.PROCESS_ONLY: (":red[Off]", [":red[**Overall score: 4 / 16 missed**]"]),
-    D.TIMING: ("Reliable", ["Overall score: 54 / 55 in range"]),
+    D.PROCESS_ONLY: (":red[Off]", [":red[**4 / 16 missed**]"]),
+    D.TIMING: ("Reliable", ["54 / 55 in range"]),
 }
 
 
@@ -526,11 +536,11 @@ def test_the_more_pickers_have_a_label_and_placeholder():
     assert U._more_kind(opt, insights.path_choices(opt)) == "settings"
 
 
-def test_cards_size_to_content_with_the_links_on_one_row():
+def test_the_strip_is_one_row_each_item_its_own_link():
     import inspect
     src = inspect.getsource(U._places)
-    # Equal heights left the Predictions card half empty beside a tall Next
-    # card; each card now sizes to its content and its link sits on the
-    # label's row, so the three links line up.
-    assert 'height="stretch"' not in src
-    assert src.index("see_chart_link(opt, which)") < src.index("_card_body(opt, None, which)")
+    # Review story 2: the cards became one strip, one row, the primary at
+    # its right end; each item is itself the link to its section.
+    assert 'height="stretch"' not in src and "horizontal=True" in src
+    assert src.index("_strip_item(opt, None, None, which)") < src.index("_foot(opt)")
+    assert "on_click=ask_tab" in inspect.getsource(U._strip_item)

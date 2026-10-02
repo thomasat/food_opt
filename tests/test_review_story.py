@@ -14,6 +14,10 @@ the same order (Progress · Predictions · Next).
 - What have we tried?: the search path (one dot plot per row, Rounds down),
   the parallel coordinates on a "Show as lines" toggle.
 
+Review story 2: the cards became one status strip above the charts
+(Progress · Predictions · Next, the one primary at its right end) and the
+closing section What next? (the Next card's word, lines and secondaries).
+
 A synthetic project (the demo projects) runs in CI; the yogurt pilot's
 checks skip without the confidential files, and assert no pilot names."""
 import json
@@ -32,10 +36,12 @@ from food_bo import FoodOptimizer
 from tests import demo_projects as D
 from tests.test_app_ui import APP_PATH
 from tests.test_food_bo import _BANNED
-from tests.test_review_cards import _install, _leaves, _text, cards
+from tests.test_review_cards import _install, _leaves, _text, cards, section, strip
 from tests.test_review_diag import ALL10, PILOT, R6, needs_pilot
 
 STORY = [wording.Q2_TITLE, wording.Q1_TITLE, wording.Q3_TITLE, wording.Q4_TITLE]
+# Review story 2: the story ends on the action.
+STORY += [wording.Q5_TITLE]
 CHART = ("arrow_vega_lite_chart", "vega_lite_chart")
 
 
@@ -97,7 +103,7 @@ def test_sections_and_cards_in_story_order(screens, name):
     # The cards in the same order, Next last.
     labels = [c["label"] for c in cards(at, order="screen")]
     assert labels == [wording.CARD_PROGRESS, wording.CARD_PREDICTIONS, wording.CARD_NEXT]
-    assert U.SECTION_ORDER == ("progress", "predictions", "next", "tried")
+    assert U.SECTION_ORDER == ("progress", "predictions", "drives", "tried", "next")
     assert U._STATUS_ORDER == ("progress", "predictions", "next")
 
 
@@ -222,6 +228,11 @@ def test_the_progress_card_goes_from_start_to_best():
     assert wording.card_progress("87.8", "90.5", "same for 2 Rounds") == \
         "87.8 → 90.5 · same for 2 Rounds"
     assert wording.card_progress(None, "96.0", "Formulation 1") == "Best 96.0 · Formulation 1"
+    # Review story 2: "of 100" on a 0–100 score only.
+    assert wording.score_of("96.4", 100.0) == "96.4 of 100"
+    assert wording.score_of("9.2", 10.0) == "9.2"
+    assert wording.card_progress("88.4", wording.score_of("96.4", 100), "same for 3 Rounds") == \
+        "88.4 → 96.4 of 100 · same for 3 Rounds"
 
 
 # ------------------------------------------------------------------ #
@@ -446,7 +457,13 @@ def test_pilot_story(pilot):
     got = sections(at)
     assert list(got) == STORY
     line = next(t for k, t in got[wording.Q2_TITLE] if k == "markdown")
-    assert re.fullmatch(r"\*\*Flat\.\*\* \d+\.\d → \d+\.\d · same for \d Rounds\.", line)
+    # Review story 2: "of 100", so Flat at 96.4 reads as near the ceiling.
+    assert re.fullmatch(r"\*\*Flat\.\*\* \d+\.\d → \d+\.\d of 100 · same for \d Rounds\.", line)
+    items, _ = strip(at)
+    # The strip, by pattern only (no pilot numbers in the repository).
+    assert [i["word"] for i in items][:2] == ["Flat", "Reliable"]
+    assert re.fullmatch(r"\d+\.\d → \d+\.\d of 100", items[0]["line"]), items[0]
+    assert re.fullmatch(r"(\d+) / (\d+) in range", items[1]["line"]), items[1]
     line = next(t for k, t in got[wording.Q1_TITLE] if k == "markdown")
     assert re.fullmatch(r"\*\*Reliable\.\*\* \d+ of \d+ landed in their predicted range\.",
                         line)
@@ -455,3 +472,88 @@ def test_pilot_story(pilot):
     before = cards(_open(R6), order="screen")
     assert [c["word"] for c in before[:2]] == ["No new best", "Not yet"]
     assert re.fullmatch(r"(\d+) / \1 in range · needs 10", before[1]["lines"][0])
+
+
+# ------------------------------------------------------------------ #
+#  Review story 2: the strip above the charts, What next? at the end
+# ------------------------------------------------------------------ #
+
+@pytest.mark.parametrize("name", [D.LINE_A, D.SNACK, D.PROCESS_ONLY])
+def test_the_strip_has_three_items_and_the_one_primary(screens, name):
+    at = screens[name]
+    items, buttons = strip(at)
+    assert [i["label"] for i in items] == [wording.CARD_PROGRESS, wording.CARD_PREDICTIONS,
+                                           wording.CARD_NEXT]
+    for i in items:
+        assert i["word"] and i["help"] and "\n\n" in i["help"], i
+        assert i["key"] == f"{U.SEE_CHART_KEY}_{i['label'].lower()}"
+    # The page's one primary sits at the strip's right end, and nowhere else.
+    assert [t for t, _ in buttons] == ["primary"], buttons
+    primaries = [el.label for el, _, _ in _leaves(at.tabs[3])
+                 if el.type == "button" and el.proto.type == "primary"]
+    assert primaries == [buttons[0][1]]
+
+
+@pytest.mark.parametrize("name", [D.LINE_A, D.SNACK, D.PROCESS_ONLY])
+def test_no_chart_above_the_first_section_and_what_next_last(screens, name):
+    at = screens[name]
+    heads = [_text(el)[5:] for el, _, _ in _leaves(at.tabs[3])
+             if el.type == "markdown" and _text(el).startswith("#### ")]
+    assert heads[-1] == wording.Q5_TITLE and heads[0] == wording.Q2_TITLE
+    for el, _, _ in _leaves(at.tabs[3]):
+        if el.type == "markdown" and _text(el).startswith("#### "):
+            break
+        assert el.type not in CHART and el.type != "subheader", el.type
+    # What next? holds the Next word with its "?" and no primary.
+    rows = section(at, wording.Q5_TITLE)
+    heads = [el for el, _ in rows if el.type == "subheader"]
+    assert len(heads) == 1 and heads[0].proto.help
+    assert not [el for el, _ in rows if el.type == "button" and el.proto.type == "primary"]
+
+
+def test_what_next_holds_the_secondary_actions(screens):
+    at = screens[D.LINE_A]
+    nxt = cards(at)[2]
+    assert nxt["next_word"] == nxt["word"] == "Record Round 6"
+    assert nxt["next_help"] == nxt["help"]
+    assert "Round 7: Repeat Formulation 15" in nxt["lines"]
+    # The Set up secondary and the one link sit here, never in the strip.
+    keys = [el.key for el, _ in section(at, wording.Q5_TITLE) if el.type == "button"]
+    assert keys and set(keys) <= {"insights_change_setup", "insights_why_link",
+                                  U.REPEAT_LINK_KEY, "insights_explored_link"}, keys
+    _, buttons = strip(at)
+    assert all(t == "primary" for t, _ in buttons)
+
+
+@pytest.mark.parametrize("name", [D.LINE_A, D.SNACK, D.PROCESS_ONLY])
+def test_strip_word_limits(screens, name):
+    items, _ = strip(screens[name])
+    for i in items:
+        assert _words(i["label"]) <= 5, i
+        assert _words(f"{i['word']} {i['line']}") <= 10, i
+    for el, text in section(screens[name], wording.Q5_TITLE):
+        if el.type in ("markdown", "subheader"):
+            assert _words(text) <= 10, text
+        if el.type == "button":
+            assert _words(text) <= 5, text
+
+
+def test_strip_helpers():
+    class _C:
+        word, tone, lines = "Flat", None, [("x", False)]
+    assert U.strip_label(_C, "88.4 → 96.4 of 100", False) == "**Flat** 88.4 → 96.4 of 100"
+    _C.word, _C.tone = "Check panel first", "off"
+    assert U.strip_label(_C, "", False) == ":red[**Check panel first**]"
+    _C.word, _C.tone = "Not yet", None
+    assert U.strip_label(_C, "3 / 16 missed", True) == "**Not yet** :red[**3 / 16 missed**]"
+    assert wording.strip_short("Overall score: 13 / 15 in range") == "13 / 15 in range"
+    assert wording.strip_progress(None, "96.0 of 100") == "Best 96.0 of 100"
+    for text in (wording.Q5_TITLE, wording.SEE_CHART_HELP, wording.EV_METHOD,
+                 wording.REVIEW_STATUS_HELP, wording.GAIN_REASON_NOT_YET,
+                 wording.GAIN_REASON_OFF, wording.tip_hero_hidden("x"),
+                 wording.tip_gain_greyed("x"), wording.strip_jump_help(wording.Q2_TITLE)):
+        assert not any(p.search(text) for p in _BANNED), text
+        assert "card" not in text.lower(), text
+    src = open(wording.__file__).read()
+    assert src.index("# --- review story ---") < src.index("# --- review story 2 ---") < \
+        src.index("def strip_progress(")
