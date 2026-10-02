@@ -1360,12 +1360,13 @@ def _why_fold(opt, preds):
                        help=say(wording.why_gain_greyed_said(
                            wording.why_gain_said(wording.WHY_CHECKING))))
         else:
-            reason = ui_insights.withheld(opt, score, checks)
+            # Review four polish: the profiler's rule (gain_grey), read off
+            # the Predictions card's word, so the line never contradicts it.
+            reason = ui_insights.gain_grey(opt, score, checks)
             grey = reason is not None
             if grey:
                 st.caption(say(wording.why_gain_greyed(reason)), help=say(
-                    wording.why_gain_greyed_said(wording.why_gain_said(
-                        why_withheld_line(opt, score, checks, reason)))))
+                    wording.why_gain_greyed_said(why_greyed_line(opt, score, checks, reason))))
         frame, value_col = why_frame(opt, why, preds)
         help_text = (wording.OPTIMISTIC_SCORE_HELP if why.kind == "qucb"
                      else wording.tip_expected_gain(why.kind))
@@ -1400,6 +1401,16 @@ def _why_fold(opt, preds):
 
 
 _GUARD_WORDS = {"floor": wording.GUARD_FLOOR, "noise": wording.GUARD_NOISE}
+
+
+def why_greyed_line(opt, score, checks, reason):
+    """Why these' greyed column's "?" (`reason`, ui_insights.gain_grey's):
+    the Predictions card's word, or the noise guard's triggers."""
+    if reason in ("not_yet", "off"):
+        gate = insights.skill_gate(opt, checks) if reason == "not_yet" else None
+        return wording.why_greyed_line(
+            reason, None if gate is None else ui_insights.gain_reason("skill", gate))
+    return wording.why_gain_said(why_withheld_line(opt, score, checks, "guard"))
 
 
 def why_withheld_line(opt, score, checks, reason):

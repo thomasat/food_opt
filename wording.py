@@ -8512,13 +8512,18 @@ def ev_predictions(inside, total, skill_text=None, n=None, m_inside=None, m_tota
 # Ruling 2: Expected gain is never hidden. Where the old rules withheld it,
 # it is drawn in grey with one line saying why; suggestions are made the
 # same way regardless. At most 10 words each; the full reason in its "?".
+# Review four polish: greyed by the Predictions card's own word (ruling 1,
+# the Overall score's record), never the measurements' verdict, so the line
+# never contradicts the card: "not_yet" and "off" are its two words short of
+# Reliable; "noise" the noise guard.
 GAIN_GREYED = {
     "noise": "Expected gain greyed: may be noise. See Next.",
-    # Ruling 1 reads Predictions on the Overall score; the old gain rule
-    # reads the measurements' verdict, so the line names the measurements.
-    "verdict": "Expected gain greyed while measurements miss. See Next.",
-    "skill": "Expected gain greyed until predictions beat averaging.",
+    "not_yet": "Expected gain greyed: predictions not yet reliable.",
+    "off": "Expected gain greyed: predictions are Off.",
 }
+GAIN_REASON_NOT_YET = "the Predictions card does not read Reliable yet"
+GAIN_REASON_OFF = ("the Predictions card reads Off: the Overall score misses its 95 % range "
+                   "more often than expected")
 
 
 def tip_gain_greyed(reason):
@@ -8528,8 +8533,16 @@ def tip_gain_greyed(reason):
 
 
 def why_gain_greyed(reason):
-    """Make a round's Why these line when the gain is greyed."""
-    return f"Expected gain greyed: {_WHY_GAIN_SHORT.get(reason, _WHY_GAIN_SHORT['noise'])}."
+    """Make a round's Why these line when the gain is greyed: the profiler's
+    own line (GAIN_GREYED), so the two never differ."""
+    return GAIN_GREYED.get(reason, GAIN_GREYED["noise"])
+
+
+def why_greyed_line(reason, detail=None):
+    """Why these' greyed column's "?" for the Predictions card's word;
+    `detail`: the skill gate's reason in Progress's words, when it holds."""
+    why = GAIN_REASON_OFF if reason == "off" else GAIN_REASON_NOT_YET
+    return f"Expected gain is greyed: {why}" + (f" ({detail})." if detail else ".")
 
 
 def ev_profiler(n, ref, ref_no, acquisition="qlognei"):
@@ -8552,3 +8565,51 @@ def why_gain_greyed_said(line):
     shown greyed, never hidden, and the suggestions made the same way."""
     line = line.replace("Expected gain is not shown", "Expected gain is greyed", 1)
     return f"{line} Suggestions are made the same way regardless."
+
+
+# Review four polish: Q4 coloured by role, not by score — the owner found
+# the score colours "all look very similar". The ink line is Best so far,
+# mid-grey the next best few, light grey every other tested one.
+TRIED_NEXT_BEST = "Next best"
+
+
+def tried_caption_roles():
+    """Q4's caption: what the empty space means."""
+    return f"One line per {FORMULATION_CAP}; gaps are untested."
+
+
+def tip_tried_roles(settings_only=False):
+    """Q4's caption "?": how to read a line, by its colour."""
+    what = "process setting" if settings_only else "ingredient and process setting"
+    return (f"Each line is one {FORMULATION_CAP}. It crosses one axis per {what} at its "
+            f"amount, Lowest at the bottom and Highest at the top, and ends at its "
+            f"{OVERALL_SCORE_COLUMN} on the right (0 at the bottom). Thick ink: Best so far. "
+            f"Mid-grey: the next best few. Light grey: every other tested {FORMULATION}. "
+            f"Orange: this {ROUND_CAP}'s suggestions, not yet scored, ending before the score "
+            f"axis. Grey dashed: waiting for results or {NOT_SCORED}. Empty stretches of an "
+            "axis show amounts not tried yet. The Fill to total row is not drawn: it follows "
+            "the others. BO term: parallel coordinates of the design points.")
+
+
+# Q2's x axis: Formulations in the order made, each Round's start a light rule.
+Q2_X_TITLE = f"{FORMULATION_CAP} (in order made)"
+
+
+def round_tick(n):
+    """A Round's label above Q2's chart: 'R3'."""
+    return f"R{n}"
+
+
+# The profiler's "+N more" pickers: a label and a placeholder each, at
+# most 5 and 4 words (Streamlit's own placeholder read "Choose options").
+def profiler_more_label(kind):
+    """'More ingredients' / 'More settings' / 'More ingredients or settings'
+    / 'More measurements'."""
+    return {"ingredients": "More ingredients", "settings": "More settings",
+            "both": "More ingredients or settings", "rows": "More measurements"}[kind]
+
+
+def profiler_more_placeholder(kind):
+    return {"ingredients": "Add an ingredient", "settings": "Add a setting",
+            "both": "Add a column", "rows": "Add a measurement"}[kind]
+

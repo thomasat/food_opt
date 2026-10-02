@@ -931,10 +931,15 @@ def _places(opt, gate=False):
     p = _Places()
     p.card = {}
     for which, col in zip(_STATUS_ORDER, st.columns(3)):
-        # Review polish: the three cards one height (the row's tallest).
-        with col, st.container(border=True, key=f"{CARD_KEY}_{which}", gap="xsmall",
-                               height="stretch"):
-            st.caption(_say(opt, _CARD_LABELS[which]))
+        # Review four polish: each card sized to its content (one height for
+        # the three left the Predictions card half empty beside a tall Next
+        # card); its "See chart ↓" on the label's row, so the three links
+        # line up.
+        with col, st.container(border=True, key=f"{CARD_KEY}_{which}", gap="xsmall"):
+            with st.container(horizontal=True, horizontal_alignment="distribute",
+                              vertical_alignment="center", gap="small"):
+                st.caption(_say(opt, _CARD_LABELS[which]), width="content")
+                see_chart_link(opt, which)
             p.card[which] = st.empty()
             with p.card[which].container(gap="xxsmall"):
                 _card_body(opt, None, which)
@@ -944,7 +949,6 @@ def _places(opt, gate=False):
                 p.link = st.empty()
                 with p.link.container():
                     p.why = _why_link(opt)
-            see_chart_link(opt, which)
     method_link(opt)
     p.bar = st.empty()
     p.q = {}
@@ -2159,7 +2163,9 @@ def progress_chart(opt):
     # round of data and nothing on the chart said what either number was.
     # Whole-number ticks, each once (spec 2026-09-30 §2.3, expert #8), and a
     # y axis that fits the scores rather than starting at 0.
-    x = alt.X(f"{formulation}:Q", title=formulation,
+    # Review four polish: Q2 asks about Rounds, so the axis says the order
+    # and each Round is marked (round_marks).
+    x = alt.X(f"{formulation}:Q", title=_say(opt, wording.Q2_X_TITLE),
               axis=alt.Axis(format="d", values=formulation_ticks(frame[formulation])))
     values = [v for v in list(frame[score]) + list(frame[best]) if v is not None and v == v]
     y_title = (zoomed(wording.PLOT_MEASURED_SCORE, min(values), max(values),
@@ -2170,6 +2176,7 @@ def progress_chart(opt):
     grey, _ = mark("neutral")
     ink, _ = mark("bar_latest")
     kinds = alt.Scale(domain=[each, best_name], range=[grey, ink])
+    marks = round_marks(opt, list(frame[formulation]))
     legend = alt.Legend(title=None, orient="top", labelLimit=0)
     colour = alt.Color("series:N", scale=kinds, legend=legend)
     # Titled and rounded (0.8.0 review fixes §6): a measured Overall score
@@ -2189,8 +2196,45 @@ def progress_chart(opt):
                  .encode(x=x, y=alt.Y(f"{best}:Q", title=y_title, scale=alt.Scale(zero=False)),
                          color=alt.Color("best_series:N", scale=kinds, legend=legend),
                          tooltip=[no_tip, alt.Tooltip(f"{best}:Q", title=best, format=".1f")]))
-    return titled(alt.layer(score_line, dots, best_line).properties(height=220),
+    layers = [score_line, dots, best_line]
+    if marks:
+        rules, labels = marks
+        light, _ = _TRIED_GREYS[theme()]
+        # The rules on the Formulation field itself (one scale); their own
+        # axis along the top names the Rounds (marks above the plot as text
+        # pushed the bottom axis out of Streamlit's fitted height).
+        mids = [m for m, _ in labels]
+        expr = " : ".join(f"abs(datum.value - {m}) < 0.01 ? '{t}'" for m, t in labels) + " : ''"
+        top = alt.X(f"{formulation}:Q", title=None,
+                    axis=alt.Axis(orient="top", values=mids, labelExpr=expr, ticks=False,
+                                  domain=False, grid=False, labelFontSize=9, labelPadding=2,
+                                  labelColor=muted()))
+        frame_rules = (alt.Chart(pd.DataFrame({formulation: rules}))
+                       .mark_rule(color=light, strokeWidth=1, tooltip=False).encode(x=top))
+        return titled(alt.layer(frame_rules, alt.layer(*layers)).resolve_axis(x="independent")
+                      .properties(height=220), _say(opt, wording.PLOT_PROGRESS))
+    return titled(alt.layer(*layers).properties(height=220),
                   _say(opt, wording.PLOT_PROGRESS))
+
+
+def round_marks(opt, numbers):
+    """(rule positions, [(x, label)]) for Q2's Rounds: a light rule between
+    two Rounds (halfway between their Formulations), 'R3' over each Round's
+    middle — every other label past 12 Rounds. None with one Round or none."""
+    rounds = (list(opt.batch_history) + [None] * len(numbers))[:len(numbers)]
+    groups = []          # [round, first x, last x]
+    for r, x in zip(rounds, numbers):
+        if groups and groups[-1][0] == r:
+            groups[-1][2] = x
+        else:
+            groups.append([r, x, x])
+    named = [g for g in groups if g[0] is not None]
+    if len(named) < 2:
+        return None
+    rules = [(a[2] + b[1]) / 2 for a, b in zip(groups, groups[1:])]
+    step = 2 if len(named) > 12 else 1
+    labels = [((g[1] + g[2]) / 2, wording.round_tick(g[0])) for g in named[::step]]
+    return rules, labels
 
 
 # At most this many ticks on the Progress chart's Formulation axis.
@@ -2967,12 +3011,37 @@ def _wrap(text, width=14):
     return "\n".join(out)
 
 
-def _line_kind(line):
+# Review four polish (owner: the score colours "all look very similar"):
+# Q4 coloured by role. Every other tested line thin and light grey (context,
+# so an untested stretch reads as empty space); the next best few mid-grey;
+# Best so far thick ink; this Round's suggestions orange. (light grey, mid-
+# grey) per theme: light #cfd3d9 / #7d838e on white; dark #444a54 / #9aa0aa
+# on #0e1117 — the mid-grey and the ink reach 3:1, the context lines need not.
+_TRIED_GREYS = {"light": ("#cfd3d9", "#7d838e"), "dark": ("#444a54", "#9aa0aa")}
+
+
+def next_best_count(scored):
+    """How many tested lines after Best so far are drawn mid-grey: 3 to 5,
+    about one in six of the tested ones."""
+    return max(3, min(5, scored // 6))
+
+
+def _next_best(lines):
+    """The formulation numbers of the next best few tested lines, by score
+    (Best so far itself left out)."""
+    tested = sorted((l for l in lines if l.state == "tested" and not l.best
+                     and l.score is not None), key=lambda l: -l.score)
+    return {l.formulation for l in tested[:next_best_count(len(tested) + 1)]}
+
+
+def _line_kind(line, nexts=()):
     if line.state == "suggested":
         return wording.TRIED_SUGGESTED
     if line.state != "tested":
         return wording.TRIED_WAITING
-    return wording.TRIED_BEST if line.best else wording.TRIED_SCORED
+    if line.best:
+        return wording.TRIED_BEST
+    return wording.TRIED_NEXT_BEST if line.formulation in nexts else wording.TRIED_SCORED
 
 
 def _line_score_text(opt, line):
@@ -2995,12 +3064,13 @@ def tried_frame(opt, axes, lines):
     score_label = _say(opt, wording.OVERALL_SCORE_COLUMN)
     labels = [_wrap(_axis_label(a)) for a in axes] + [score_label]
     rows = []
+    nexts = _next_best(lines)
     for order, line in enumerate(lines):
         amounts = "; ".join(
             f"{a.name} {line.values[a.name]}" if a.options is not None
             else f"{a.name} {_axis_end(opt, a, line.values[a.name])}" for a in axes)
         common = {"no": line.formulation, "round": _round_label(line.round),
-                  "role": _line_kind(line), "best": line.best,
+                  "role": _line_kind(line, nexts), "best": line.best,
                   "score": None if line.score is None else round(line.score, 2),
                   "score_text": _line_score_text(opt, line), "amounts": amounts,
                   "order": order}
@@ -3045,10 +3115,10 @@ def tried_chart(opt, axes, lines):
     varying ingredient and process setting, its Lowest at the bottom and
     its Highest at the top (written at the ends, with the unit), a choice's
     options spaced evenly; the last axis the Overall score, 0 to the
-    ceiling. Each scored formulation is a line coloured by its Overall score
-    (score_colours); waiting or Not scored, grey dashed; this Round's
-    suggestions, bold orange, ending before the score; Best so far thick.
-    None without an axis or a line."""
+    ceiling. Coloured by role (review four polish): every tested line thin
+    light grey, the next best few mid-grey, Best so far thick ink; waiting or
+    Not scored, grey dashed; this Round's suggestions, orange, ending before
+    the score. None without an axis or a line."""
     if not axes or not lines:
         return None
     df, ends, labels = tried_frame(opt, axes, lines)
@@ -3074,16 +3144,18 @@ def tried_chart(opt, axes, lines):
                 not opt.has_ingredients())))]
     grey, grey_o = mark("neutral")
     ink, _ = mark("bar_latest")
+    light, mid = _TRIED_GREYS[theme()]
     text_c = muted()
-    scored = df[df["score"].notna()]
-    dom = ([float(scored["score"].min()), float(scored["score"].max())] if len(scored)
-           else [0.0, float(opt.utility_ceiling())])
-    if dom[1] - dom[0] < 1e-9:
-        dom = [dom[0] - 1, dom[1] + 1]
-    kinds = [k for k in (wording.TRIED_BEST, wording.TRIED_WAITING, wording.TRIED_SUGGESTED)
-             if k in set(df["role"])]
-    look = {wording.TRIED_BEST: (ink, [1, 0]), wording.TRIED_WAITING: (grey, [4, 3]),
-            wording.TRIED_SUGGESTED: (outline_colour(), [1, 0])}
+    # Review four polish: one legend, by role — ink, greys and orange; no
+    # score colours (the last axis carries the score).
+    order = (wording.TRIED_BEST, wording.TRIED_NEXT_BEST, wording.TRIED_SCORED,
+             wording.TRIED_SUGGESTED, wording.TRIED_WAITING)
+    look = {wording.TRIED_BEST: (ink, [1, 0], 4, 1.0),
+            wording.TRIED_NEXT_BEST: (mid, [1, 0], 2, 1.0),
+            wording.TRIED_SCORED: (light, [1, 0], 1 if many else 1.3, 1.0),
+            wording.TRIED_SUGGESTED: (outline_colour(), [1, 0], 3, 1.0),
+            wording.TRIED_WAITING: (grey, [4, 3], 1.5, 1.0)}
+    kinds = [k for k in order if k in set(df["role"])]
     stroke = alt.Scale(domain=kinds or [""], range=[look[k][0] for k in kinds] or [grey])
     dash = alt.Scale(domain=kinds or [""], range=[look[k][1] for k in kinds] or [[1, 0]])
     kind_legend = alt.Legend(title=None, orient="bottom", labelLimit=0, symbolStrokeWidth=3,
@@ -3093,41 +3165,18 @@ def tried_chart(opt, axes, lines):
         alt.Chart(axes_df).mark_rule(color=grey, opacity=grey_o, strokeWidth=1.5, tooltip=False)
         .encode(x=x, y=alt.Y("t0:Q", scale=t_scale, axis=None), y2="t1:Q"),
     ]
-
-    def lines_of(kind_filter, **mark_kw):
-        return (alt.Chart(df).mark_line(**mark_kw)
-                .encode(x=x, y=y, detail="no:N", order=alt.Order("k:Q"), tooltip=tips)
-                .transform_filter(kind_filter))
-
-    plain = alt.FieldOneOfPredicate(field="role", oneOf=[wording.TRIED_SCORED])
-    layers.append(lines_of(plain, strokeWidth=1 if many else 1.6,
-                           opacity=0.55 if many else 0.9)
-                  .encode(color=alt.Color("score:Q", scale=score_scale(dom),
-                                          title=_say(opt, wording.OVERALL_SCORE_COLUMN),
-                                          legend=alt.Legend(orient="right",
-                                                            gradientLength=160))))
-    waiting = alt.FieldEqualPredicate(field="role", equal=wording.TRIED_WAITING)
-    if wording.TRIED_WAITING in kinds:
-        layers.append(lines_of(waiting, strokeWidth=1.5, opacity=1)
-                      .encode(stroke=alt.Stroke("role:N", scale=stroke, legend=kind_legend),
-                              strokeDash=alt.StrokeDash("role:N", scale=dash,
-                                                        legend=kind_legend)))
-    best = alt.FieldEqualPredicate(field="role", equal=wording.TRIED_BEST)
-    if wording.TRIED_BEST in kinds:
-        # A casing in the ink colour, the score colour inside it: thick, and
-        # readable on either page whatever its score colour.
-        layers.append(lines_of(best, strokeWidth=6, opacity=1)
-                      .encode(stroke=alt.Stroke("role:N", scale=stroke, legend=kind_legend),
-                              strokeDash=alt.StrokeDash("role:N", scale=dash,
-                                                        legend=kind_legend)))
-        layers.append(lines_of(best, strokeWidth=3, opacity=1)
-                      .encode(color=alt.Color("score:Q", scale=score_scale(dom), legend=None)))
-    picks = alt.FieldEqualPredicate(field="role", equal=wording.TRIED_SUGGESTED)
-    if wording.TRIED_SUGGESTED in kinds:
-        layers.append(lines_of(picks, strokeWidth=3, opacity=1)
-                      .encode(stroke=alt.Stroke("role:N", scale=stroke, legend=kind_legend),
-                              strokeDash=alt.StrokeDash("role:N", scale=dash,
-                                                        legend=kind_legend)))
+    # Drawn light to strong, Best so far on top.
+    for k in (wording.TRIED_SCORED, wording.TRIED_WAITING, wording.TRIED_NEXT_BEST,
+              wording.TRIED_SUGGESTED, wording.TRIED_BEST):
+        if k not in kinds:
+            continue
+        _, _, width, opacity = look[k]
+        layers.append(
+            alt.Chart(df).mark_line(strokeWidth=width, opacity=opacity)
+            .encode(x=x, y=y, detail="no:N", order=alt.Order("k:Q"), tooltip=tips,
+                    stroke=alt.Stroke("role:N", scale=stroke, legend=kind_legend),
+                    strokeDash=alt.StrokeDash("role:N", scale=dash, legend=kind_legend))
+            .transform_filter(alt.FieldEqualPredicate(field="role", equal=k)))
     text = lambda where, **kw: (alt.Chart(ends[ends["where"] == where])
                                 .mark_text(color=text_c, fontSize=10, tooltip=False, **kw)
                                 .encode(x=x, y=alt.Y("t:Q", scale=t_scale, axis=None),
@@ -3136,8 +3185,7 @@ def tried_chart(opt, axes, lines):
     if (ends["where"] == "option").any():
         layers.append(text("option", align="left", dx=5, baseline="middle"))
     heading = wording.PLOT_TRIED_SETTINGS if not opt.has_ingredients() else wording.PLOT_TRIED
-    return titled(alt.layer(*layers).resolve_scale(color="independent", stroke="shared")
-                  .properties(height=300), _say(opt, heading))
+    return titled(alt.layer(*layers).properties(height=300), _say(opt, heading))
 
 
 # ---- How the app chooses ------------------------------------------ #
@@ -3160,23 +3208,38 @@ def suggestion_model(opt, fitted):
 
 
 def chooses_reason(opt, fitted):
-    """Why the bottom panel is withheld, in words, or None — the Expected
-    improvement layer's rule (layers_offered), reason by reason."""
-    if wording.LAYER_GAIN in layers_offered(opt, fitted):
-        return None
-    score = (fitted or {}).get(insights.SCORE)
-    checks = checks_for(opt, "trust") or ()
-    rule = explore_withheld(opt, score, checks)
-    if rule == "hidden":
-        return wording.CHOOSES_REASON_NOISE
+    """Why the profiler's Expected gain row is greyed or not drawn, in
+    words, or None. Not drawn: a cold Round, an upper-bound acquisition.
+    Greyed (review four polish): gain_grey's reasons — the Predictions
+    card's word short of Reliable, or the noise guard."""
     if opt.pending_batch and opt.pending_batch_no is not None and \
             bo_views.generation(opt, opt.pending_batch_no).regime != "warm":
         return wording.CHOOSES_REASON_COLD
-    why = withheld(opt, score, checks)
-    if why is not None:
-        gate = insights.skill_gate(opt, checks) if why == "skill" else None
-        return gain_reason(why, gate)
-    return wording.CHOOSES_REASON_UCB
+    if bo_views.acquisition(opt) == "qucb":
+        return wording.CHOOSES_REASON_UCB
+    why = gain_grey(opt, (fitted or {}).get(insights.SCORE), checks_for(opt, "trust") or ())
+    return None if why is None else _GREY_REASON[why]
+
+
+def gain_grey(opt, score, checks):
+    """Review four polish: why Expected gain is greyed, or None — the
+    Predictions card's word when it is not Reliable ("not_yet" or "off",
+    insights.score_predictions: the Overall score's record, ruling 1), else
+    "noise" when the noise guard fires (a skill gate the card's word has
+    passed reads "not_yet"). The profiler's gain row and Make a round's Why
+    these both read this one rule; the suggestions are made the same way
+    regardless."""
+    word = insights.score_predictions(opt, checks)
+    if word != "reliable":
+        return word
+    guard = insights.noise_guard(opt, score, checks)
+    if any(r in guard.reasons for r in insights._NOISE_TRIGGERS):
+        return "noise"
+    return "not_yet" if guard.fires else None
+
+
+_GREY_REASON = {"noise": wording.GAIN_REASON_GUARD, "not_yet": wording.GAIN_REASON_NOT_YET,
+                "off": wording.GAIN_REASON_OFF}
 
 
 def _first_pick(opt):
@@ -4176,8 +4239,12 @@ def hero_reason_key(reason):
         return "cold"
     if reason == wording.CHOOSES_REASON_UCB:
         return "ucb"
+    if reason == wording.GAIN_REASON_OFF:
+        return "off"
     if reason == wording.GAIN_REASON_VERDICT:
         return "verdict"
+    if reason == wording.GAIN_REASON_NOT_YET:
+        return "not_yet"
     return "skill"
 
 
@@ -4349,7 +4416,7 @@ def gain_greyable(reason):
     """Ruling 2: a withheld reason under which the gain is still drawn,
     in grey (the noise guard, the verdict, the skill gate); a cold Round
     or an upper-bound acquisition has no gain to draw."""
-    return reason is not None and hero_reason_key(reason) in ("noise", "verdict", "skill")
+    return reason is not None and hero_reason_key(reason) not in ("cold", "ucb")
 
 
 def _row_title(opt, name):
@@ -4646,6 +4713,12 @@ def profile_cached(opt, fitted, ref):
     return value
 
 
+def _more_kind(opt, names):
+    """The "+N more" columns' kind: "ingredients", "settings" or "both"."""
+    settings = [insights.is_setting(opt, n) for n in names]
+    return "settings" if all(settings) else "both" if any(settings) else "ingredients"
+
+
 def _profiler(opt, computed):
     """The fold's body: the reference selector (with a suggestion to draw
     through), the profiler, its caption, the lines it needs, and "+N more"
@@ -4683,14 +4756,20 @@ def _profiler(opt, computed):
         left, right = st.columns(2)
         if extra_cols:
             _keep_all_offered(PROFILE_MORE_KEY, extra_cols)
-            shown += left.multiselect(_say(opt, wording.profiler_more(len(extra_cols))),
-                                      extra_cols, key=PROFILE_MORE_KEY,
+            # Review four polish: a label and a placeholder of its own
+            # (Streamlit's read "Choose options").
+            kind = _more_kind(opt, extra_cols)
+            shown += left.multiselect(wording.profiler_more_label(kind), extra_cols,
+                                      key=PROFILE_MORE_KEY,
+                                      placeholder=wording.profiler_more_placeholder(kind),
                                       help=_say(opt, wording.profiler_more_help(
                                           not opt.has_ingredients())))
         if extra_rows:
             _keep_all_offered(PROFILE_MORE_ROWS_KEY, extra_rows)
-            rows_shown += right.multiselect(_say(opt, wording.profiler_more(len(extra_rows))),
-                                            extra_rows, key=PROFILE_MORE_ROWS_KEY,
+            rows_shown += right.multiselect(wording.profiler_more_label("rows"), extra_rows,
+                                            key=PROFILE_MORE_ROWS_KEY,
+                                            placeholder=wording.profiler_more_placeholder(
+                                                "rows"),
                                             help=_say(opt, wording.profiler_more_help(
                                                 rows=True)))
     # The chart too, once per profile, picks and theme: building it is most
@@ -4862,5 +4941,5 @@ def _tried_section(opt, slot):
             return
         show_chart(_untitled(chart))
         settings_only = not opt.has_ingredients()
-        st.caption(_say(opt, wording.tried_caption(settings_only)),
-                   help=_say(opt, wording.tip_tried(settings_only)))
+        st.caption(_say(opt, wording.tried_caption_roles()),
+                   help=_say(opt, wording.tip_tried_roles(settings_only)))

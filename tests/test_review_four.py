@@ -283,8 +283,11 @@ class TestGain:
     """One Line A fit for the class (its session_state patch is undone
     before the AppTest tests below)."""
 
+    # Review four polish (re-pinned): the greyed reasons are the noise
+    # guard's and the Predictions card's two words short of Reliable (was
+    # the measurements' verdict).
     @pytest.mark.parametrize("reason", [wording.CHOOSES_REASON_NOISE,
-                                        wording.GAIN_REASON_VERDICT])
+                                        wording.GAIN_REASON_NOT_YET, wording.GAIN_REASON_OFF])
     def test_gain_is_greyed_not_hidden(self, line_a, reason):
         _greyed(line_a, reason)
 
@@ -323,7 +326,9 @@ def test_the_greyed_lines_say_why_and_that_suggestions_are_the_same():
     for text in wording.GAIN_GREYED.values():
         assert _words(text) <= 10 and "greyed" in text
     assert "Suggestions are made the same way regardless" in wording.tip_gain_greyed("x")
-    assert wording.why_gain_greyed("verdict").startswith("Expected gain greyed")
+    # Review four polish: Why these says the profiler's own line.
+    for reason in ("noise", "not_yet", "off"):
+        assert wording.why_gain_greyed(reason) == wording.GAIN_GREYED[reason]
 
 
 def test_make_a_round_greys_the_gain_column():
@@ -394,7 +399,13 @@ def test_new_strings_pass_the_vocabulary_guard():
              wording.on_score("In Round 3, 9 of 10 results landed."),
              wording.measures_sentence(27, 36, 4, True), wording.measures_sentence(27, 36, 4),
              wording.ev_predictions(10, 12, "0.69", 12, 27, 36), *wording.GAIN_GREYED.values(),
-             wording.tip_gain_greyed("x"), wording.why_gain_greyed("skill"),
+             wording.tip_gain_greyed("x"), wording.why_gain_greyed("not_yet"),
+             wording.why_greyed_line("off"), wording.why_greyed_line("not_yet"),
+             wording.GAIN_REASON_NOT_YET, wording.GAIN_REASON_OFF, wording.TRIED_NEXT_BEST,
+             wording.tried_caption_roles(), wording.tip_tried_roles(),
+             wording.tip_tried_roles(True), wording.Q2_X_TITLE, wording.round_tick(3),
+             *[f(k) for f in (wording.profiler_more_label, wording.profiler_more_placeholder)
+               for k in ("ingredients", "settings", "both", "rows")],
              wording.ev_profiler(20, "Suggestion 1", 21), wording.ev_tried(20)]
     for text in texts:
         assert not any(p.search(text) for p in _BANNED), text
@@ -405,3 +416,112 @@ def test_new_strings_pass_the_vocabulary_guard():
     # Process-only studies say Trial.
     opt = D.load(D.PROCESS_ONLY)
     assert "trials" in wording.for_project(opt, wording.Q_WAIT)
+
+
+# ------------------------------------------------------------------ #
+#  Review four polish (2026-10-02)
+# ------------------------------------------------------------------ #
+
+@pytest.mark.parametrize("word, reasons, want", [
+    ("reliable", [], None),
+    # The measurements' own verdict no longer greys: only the card's word.
+    ("not_yet", [], "not_yet"),
+    ("off", [], "off"),
+    ("reliable", ["noise"], "noise"),
+    ("reliable", ["floor", "skill"], "noise"),
+    ("reliable", ["skill"], "not_yet"),
+    ("not_yet", ["noise"], "not_yet"),     # the card's word first: never contradicted
+])
+def test_gain_greying_follows_the_predictions_card(monkeypatch, word, reasons, want):
+    monkeypatch.setattr(insights, "score_predictions", lambda opt, checks: word)
+    monkeypatch.setattr(insights, "noise_guard",
+                        lambda opt, score, checks=(), *a, **k: insights.Guard(list(reasons)))
+    assert U.gain_grey(object(), None, ()) == want
+
+
+def test_the_profiler_and_why_these_read_one_rule():
+    import inspect
+    import ui_batch
+    assert "gain_grey(" in inspect.getsource(U.chooses_reason)
+    src = inspect.getsource(ui_batch._why_fold)
+    assert "ui_insights.gain_grey(opt, score, checks)" in src
+    assert "ui_insights.withheld(" not in src
+    # Each reason the rule gives has its profiler line, and its key back.
+    for key, reason in U._GREY_REASON.items():
+        assert U.hero_reason_key(reason) == key and U.gain_greyable(reason)
+        assert key in wording.GAIN_GREYED
+
+
+@pytest.mark.parametrize("name", [D.LINE_A, D.LINE_B])
+def test_score_predictions_is_the_cards_word(tmp_path, monkeypatch, name):
+    """insights.score_predictions reads what status_facts reads (Line A
+    Reliable, Line B Not yet: Line B's gain stays greyed, its line now the
+    card's word, not the measurements')."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(insights_jobs, "_JOBS", {})
+    monkeypatch.setattr(insights_jobs, "_INFLIGHT", {})
+    monkeypatch.setattr(U.st, "session_state", {})
+    with bo_views.fresh():
+        opt = D.load(name)
+        checks = U.checks_here(opt)
+        facts = insights.status_facts(opt, checks)
+        assert insights.score_predictions(opt, checks) == facts.predictions
+        assert facts.predictions == ("reliable" if name == D.LINE_A else "not_yet")
+
+
+def test_q4_is_coloured_by_role():
+    opt = D.load(D.LINE_A)
+    lines = insights.tried_lines(opt)
+    df, _, _ = U.tried_frame(opt, insights.tried_axes(opt), lines)
+    roles = set(df["role"])
+    assert {wording.TRIED_BEST, wording.TRIED_NEXT_BEST, wording.TRIED_SCORED} <= roles
+    tested = [l for l in lines if l.state == "tested"]
+    nexts = set(df.loc[df["role"] == wording.TRIED_NEXT_BEST, "no"])
+    assert len(nexts) == U.next_best_count(len(tested))
+    assert 3 <= U.next_best_count(5) <= U.next_best_count(30) == 5
+    # The next best are the highest scores after Best so far.
+    ranked = sorted((l for l in tested if not l.best), key=lambda l: -l.score)
+    assert nexts == {l.formulation for l in ranked[:len(nexts)]}
+    spec = json.dumps(U.tried_chart(opt, insights.tried_axes(opt), lines).to_dict())
+    light, mid = U._TRIED_GREYS[U.theme()]
+    for colour in (light, mid, U.mark("bar_latest")[0], U.outline_colour()):
+        assert colour in spec
+    # No score ramp, no gradient legend: the Overall score is the last axis.
+    assert not any(c in spec for c in U.score_colours())
+    assert '"gradient' not in spec
+    assert _words(wording.tried_caption_roles()) <= 8
+
+
+def test_q2_marks_its_rounds():
+    opt = D.load(D.LINE_A)
+    spec = U.progress_chart(opt).to_dict()
+    text = json.dumps(spec)
+    assert wording.Q2_X_TITLE in text and _words(wording.Q2_X_TITLE) <= 5
+    rules, labels = U.round_marks(opt, [int(n) for n in opt.formulation_ids])
+    rounds = [r for r in dict.fromkeys(opt.batch_history) if r is not None]
+    assert [t for _, t in labels] == [wording.round_tick(r) for r in rounds]
+    assert len(rules) == len(rounds) - 1
+    assert "'R1'" in text
+    # One Round: nothing to mark.
+    assert U.round_marks(D.load(D.SNACK), [1, 2, 3]) is None
+
+
+def test_the_more_pickers_have_a_label_and_placeholder():
+    import inspect
+    src = inspect.getsource(U._profiler)
+    assert src.count("placeholder=wording.profiler_more_placeholder(") == 2
+    for kind in ("ingredients", "settings", "both", "rows"):
+        assert _words(wording.profiler_more_label(kind)) <= 5
+        assert _words(wording.profiler_more_placeholder(kind)) <= 4
+    opt = D.load(D.PROCESS_ONLY)
+    assert U._more_kind(opt, insights.path_choices(opt)) == "settings"
+
+
+def test_cards_size_to_content_with_the_links_on_one_row():
+    import inspect
+    src = inspect.getsource(U._places)
+    # Equal heights left the Predictions card half empty beside a tall Next
+    # card; each card now sizes to its content and its link sits on the
+    # label's row, so the three links line up.
+    assert 'height="stretch"' not in src
+    assert src.index("see_chart_link(opt, which)") < src.index("_card_body(opt, None, which)")

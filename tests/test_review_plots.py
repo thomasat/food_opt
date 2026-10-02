@@ -188,10 +188,14 @@ def test_one_colour_per_meaning_across_charts(specs):
     # The model: blue.
     for name in ("profile",):
         assert blue in _colours(specs[name]), name
-    # An Overall score: the one ramp, never Vega's blues (the model's).
-    ramp = [c.lower() for c in U.score_colours()]
+    # Review four polish (re-pinned): Q4 is coloured by role, not by score
+    # (the owner: the score colours "all look very similar") — ink, two
+    # greys and orange, no score ramp and never Vega's blues.
+    ramp = {c.lower() for c in U.score_colours()}
+    light, mid = U._TRIED_GREYS[U.theme()]
     for name in ("tried",):
-        assert set(ramp) <= _colours(specs[name]), name
+        assert not ramp & _colours(specs[name]), name
+        assert {light, mid} <= _colours(specs[name]), name
         assert '"blues"' not in str(specs[name]).replace("'", '"'), name
     # No default palette: every colour channel with a field has its range.
     for name, spec in specs.items():

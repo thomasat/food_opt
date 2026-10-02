@@ -135,10 +135,16 @@ def test_suggestions_are_bold_orange_waiting_grey_dashed_best_thick():
     width = lambda kind: max(_mark(m)["strokeWidth"] for m in by_kind[kind])
     assert width(wording.TRIED_SUGGESTED) >= 3
     assert width(wording.TRIED_BEST) > width(wording.TRIED_SCORED)
-    # Scored lines are coloured by the Overall score on the score colours.
+    # Review four polish (re-pinned; was coloured by the Overall score):
+    # coloured by role — every other tested line light grey, the next best
+    # few mid-grey and wider, Best so far ink and widest.
+    light, mid = U._TRIED_GREYS[U.theme()]
+    assert look[wording.TRIED_SCORED] == light and look[wording.TRIED_NEXT_BEST] == mid
+    assert look[wording.TRIED_BEST] == U.mark("bar_latest")[0]
+    assert (width(wording.TRIED_BEST) > width(wording.TRIED_NEXT_BEST)
+            > width(wording.TRIED_SCORED))
     [plain] = by_kind[wording.TRIED_SCORED]
-    assert plain["encoding"]["color"]["field"] == "score"
-    assert plain["encoding"]["color"]["scale"]["range"] == U.score_colours()
+    assert "color" not in plain["encoding"]
 
 
 def test_the_line_tooltip_reads_formulation_round_score_and_amounts():
@@ -156,11 +162,14 @@ def test_the_line_tooltip_reads_formulation_round_score_and_amounts():
 
 
 def test_many_lines_are_thin_and_semi_transparent():
+    """Review four polish (re-pinned): many tested lines are thin and light
+    grey (was thin and semi-transparent score colours)."""
     opt = D.load(D.TIMING)
     assert len(insights.tried_lines(opt)) > U._MANY_LINES
-    plain = next(m for m in _line_layers(_tried(opt)) if "color" in m["encoding"]
-                 and m["encoding"]["color"].get("legend") is not None)
-    assert _mark(plain)["strokeWidth"] <= 1 and _mark(plain)["opacity"] < 1
+    plain = next(m for m in _line_layers(_tried(opt))
+                 if m.get("transform", [{}])[0].get("filter", {}).get("equal")
+                 == wording.TRIED_SCORED)
+    assert _mark(plain)["strokeWidth"] <= 1
 
 
 @pytest.mark.parametrize("which", ["light", "dark"])

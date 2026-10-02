@@ -150,6 +150,9 @@ from tests.test_094_make_a_round import _app, _fold, _open_round, _rerun  # noqa
 
 def _why_caption(monkeypatch, gate, reasons=("skill",)):
     opt = _open_round()
+    # Review four polish: the fold greys by the Predictions card's word;
+    # pinned here at Not yet, so the skill gate's own reason is its detail.
+    monkeypatch.setattr(insights, "score_predictions", lambda *a, **k: "not_yet")
     monkeypatch.setattr(insights, "noise_guard",
                         lambda *a, **k: insights.Guard(list(reasons), gate))
     monkeypatch.setattr(insights, "skill_gate", lambda *a, **k: gate)
@@ -167,24 +170,26 @@ def test_the_why_fold_says_too_few_checks(monkeypatch):
     line = wording.why_guard_line(gate_reason=wording.gain_reason_too_few(6))
     assert line == ("Expected gain is not shown: fewer than 10 Round-ahead checks of "
                     "the Overall score so far (6).")
-    # Ftue fix C: the fold says it under its own column name.
-    assert wording.why_gain_greyed_said(wording.why_gain_said(line)) in _why_caption(monkeypatch, gate)
+    # Review four polish (re-pinned): greyed by the card's word, the A3
+    # reason said after it.
+    line = wording.why_greyed_line("not_yet", wording.gain_reason_too_few(6))
+    assert wording.why_gain_greyed_said(line) in _why_caption(monkeypatch, gate)
 
 
 def test_the_why_fold_says_skill_under_0_20(monkeypatch):
     fact = insights.SkillFact(0.09, 24, [3, 4, 5, 6, 7, 8], "unclear")
     gate = insights.SkillGate("unclear", 24, fact)
-    line = wording.why_guard_line(gate_reason=wording.gain_reason_unclear("0.09", 24))
-    # Ftue fix C: the fold says it under its own column name.
-    assert wording.why_gain_greyed_said(wording.why_gain_said(line)) in _why_caption(monkeypatch, gate)
+    # Review four polish (re-pinned): the card's word, then the A3 reason.
+    line = wording.why_greyed_line("not_yet", wording.gain_reason_unclear("0.09", 24))
+    assert wording.why_gain_greyed_said(line) in _why_caption(monkeypatch, gate)
 
 
 def test_the_why_fold_says_no_skill(monkeypatch):
     fact = insights.SkillFact(-0.4, 24, [3, 4, 5, 6, 7, 8], "no_skill")
     gate = insights.SkillGate("no_skill", 24, fact)
-    line = wording.why_guard_line(gate_reason=wording.GAIN_REASON_SKILL)
-    # Ftue fix C: the fold says it under its own column name.
-    assert wording.why_gain_greyed_said(wording.why_gain_said(line)) in _why_caption(monkeypatch, gate)
+    # Review four polish (re-pinned): the card's word, then the A3 reason.
+    line = wording.why_greyed_line("not_yet", wording.GAIN_REASON_SKILL)
+    assert wording.why_gain_greyed_said(line) in _why_caption(monkeypatch, gate)
 
 
 def test_the_why_fold_and_progress_give_one_reason(monkeypatch):

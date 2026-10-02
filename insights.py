@@ -1484,6 +1484,19 @@ def score_prediction_row(scored, verdict, fact, checked):
     return "reliable"
 
 
+def score_predictions(opt, checks):
+    """The Predictions card's word key ("reliable", "not_yet" or "off"), as
+    status_facts reads it (review four polish: Expected gain is greyed by
+    this word, so its line never contradicts the card)."""
+    checks = list(checks or ())
+    h = headline(opt, checks)
+    verdict = score_verdict_state(opt, h, checks)
+    fact = skill(opt, checks) if checks else None
+    checked = sum(1 for c in checks if c.name == SCORE and c.fully_measured)
+    return PREDICTION_STATUS[score_prediction_row(opt.complete_count(), verdict, fact,
+                                                  checked)]
+
+
 def status_facts(opt, checks, standing=None, gain=None):
     """W1 (review R-B1): the facts of the three status lines, worst rule
     first, from headline, verdict_state, skill, disagreeing_repeat,
