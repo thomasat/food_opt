@@ -4,7 +4,7 @@ path gain the suggestion model's Uncertainty and Expected gain layers
 (through a suggestion still to make, by default), the Predicted score layer
 outlines what is predicted above Best so far and says when its colours are
 within the model's own uncertainty, and the Progress chart fold shows the
-expected improvement by Round."""
+expected gain by Round."""
 import json
 
 import pytest
@@ -107,7 +107,7 @@ def test_the_guard_takes_the_model_layers_away(monkeypatch):
 
 
 def test_an_unreliable_verdict_takes_the_expected_improvement_layer_away(monkeypatch):
-    """Fix round 1: as Progress withholds its expected improvement. The
+    """Fix round 1: as Progress withholds its expected gain. The
     Uncertainty layer stays, as the explored–unexplored map does (spec
     2026-10-01 rev. 2, review R-I16, which overrides e2e I4 for that layer
     only; test_107_w3_explored)."""
@@ -268,7 +268,7 @@ def test_the_within_noise_caption_on_the_demo_lines(line, said):
 
 
 # ------------------------------------------------------------------ #
-#  §3.2 Expected improvement by Round in the Progress chart fold (M8, M11)
+#  §3.2 Expected gain by Round in the Progress chart fold (M8, M11)
 # ------------------------------------------------------------------ #
 
 def _progress(at):

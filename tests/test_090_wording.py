@@ -154,7 +154,7 @@ def test_headings_are_nouns():
     assert W.FOLD_MEASURED_CHART == "Measured against predicted (chart)"
     assert W.FOLD_PROGRESS_CHART == "Progress chart"
     assert W.FOLD_METHOD == "Method and definitions"
-    assert W.GAIN_HEADING == "Expected improvement by Round"
+    assert W.GAIN_HEADING == "Expected gain by Round"
     assert W.OVERLAY_NAME == "Predicted above Best so far"
     assert W.round_measured_against_predicted(6) == "Round 6: measured against predicted"
     assert W.LINK_PREDICTION_CHECK == "Prediction check"
@@ -241,7 +241,7 @@ def test_exact_texts_from_the_audit():
 
 
 def test_the_new_lines_from_the_rulings():
-    """Review I2 (skill states), I3 (guard lines), I5 (expected improvement)."""
+    """Review I2 (skill states), I3 (guard lines), I5 (expected gain)."""
     # Insights for a first-time user (ftue spec §4, review R-I7, M11): the
     # scale's two ends ride with the number, the one sanctioned edit of the
     # verbatim figures (T0).
@@ -267,17 +267,17 @@ def test_the_new_lines_from_the_rulings():
     assert W.guard_skill_line() == (
         "Ingredient effects are not reported until Round-ahead predictions are clearly "
         "better than the average of earlier results (skill 0.20 needed).")
-    assert W.EXPECTED_IMPROVEMENT == "Expected improvement (model, one formulation)"
+    assert W.EXPECTED_IMPROVEMENT == "Expected gain (model, one formulation)"
     # 0.8.0 e2e fixes A5 (review I6): what the statistic is.
     assert W.gain_line("0.12", 6, W.beat_by()) == (
-        "Expected improvement, Round 6: 0.12 points (model, one formulation): the model's "
+        "Expected gain, Round 6: 0.12 points (model, one formulation): the model's "
         "average gain of one new formulation over the model's best tested formulation, "
         "counting no gain as zero; under the 1-point noise threshold.")
     # Fix round 1 (ledger ruling C1): above the threshold with no predicted gain.
     # Final review M-2: precise, the number once, and not the same sentence twice.
     progress = W.gain_line("1.08", 13, W.beat_by(), above=True, predicted_none=True)
     assert progress == (
-        "Expected improvement, Round 13: 1.08 points (model, one formulation): the model's "
+        "Expected gain, Round 13: 1.08 points (model, one formulation): the model's "
         "average gain of one new formulation over the model's best tested formulation, "
         "counting no gain as zero; above the 1-point noise threshold. It comes from the "
         "model's uncertainty, not from a higher predicted score.")
@@ -285,19 +285,19 @@ def test_the_new_lines_from_the_rulings():
     nxt = W.next_explore(13, 3)
     assert nxt == (
         "Record the 3 formulations still open in Round 13: the model's uncertainty, not a "
-        "higher predicted score, puts their expected improvement above the noise threshold.")
+        "higher predicted score, puts their expected gain above the noise threshold.")
     assert nxt not in progress and "1.08" not in nxt
     assert W.next_explore() == (
         "Make the next Round: the model's uncertainty, not a higher predicted score, puts its "
-        "expected improvement above the noise threshold.")
+        "expected gain above the noise threshold.")
     # Final review I-1: with no Round open the figure is the next Round's.
     assert W.gain_line("0.37", None, W.beat_by()).startswith(
-        "Expected improvement, next Round: 0.37 points (model, one formulation): ")
+        "Expected gain, next Round: 0.37 points (model, one formulation): ")
     assert W.gain_line("0.37", None, W.beat_by()).endswith("under the 1-point noise threshold.")
     assert W.MODEL_SD == "Model sd (points)"                        # final review M-3
     # T56 m3: a machine zero is said as under 0.01 points, with no reading.
     assert W.gain_line_tiny(12, W.beat_by()) == (
-        "Expected improvement, Round 12: under 0.01 points (model, one formulation), under "
+        "Expected gain, Round 12: under 0.01 points (model, one formulation), under "
         "the 1-point noise threshold.")
     assert W.start_suggested(23, edited=True) == "Formulation 23 (edited, still to make)"
     assert "Best so far's measured 90.45" in W.gain_line("0.30", 6, W.beat_by(),

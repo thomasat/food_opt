@@ -19,7 +19,7 @@ STATISTIC_NAMES = tuple(re.compile(p) for p in (
     r"95\s*%", r"\bintervals?\b", r"\bskill\b", r"noise threshold", r"\bS[Dd]\b", r"\bsd\b",
     r"\bdf\b", r"\bn = ", r"(?i)mean error", r"(?i)\bbias\b", r"(?i)round-ahead", r"(?i)\bmedian\b",
     r"(?i)half-width", r"(?i)standardi[sz]ed", r"(?i)calibrat", r"(?i)posterior",
-    r"(?i)predictive", r"(?i)expected improvement", r"(?i)\bverdict\b", r"(?i)active bounds?",
+    r"(?i)predictive", r"(?i)expected gain", r"(?i)\bverdict\b", r"(?i)active bounds?",
     r"(?i)local effect", r"(?i)one-factor", r"(?i)correlation length", r"(?i)lengthscale",
     r"(?i)gaussian process", r"(?i)\bkernel\b", r"(?i)cross-validat", r"qLog", r"R²",
     r"(?i)p-value", r"(?i)regression to the mean", r"(?i)acquisition", r"As expected",

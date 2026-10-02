@@ -241,7 +241,7 @@ def test_the_next_tooltip_names_its_numbers_on_explore(project):
                                  headline=insights.headline(opt, checks), next=step,
                                  best=insights.best_facts(opt))
     tip = ui_insights.tooltip_for(opt, "next", facts)
-    assert "Expected improvement: 1.1 points" in tip
+    assert "Expected gain: 1.1 points" in tip
     assert wording.TIP_THRESHOLD_ASSUMED in tip
 
 

@@ -3,7 +3,7 @@ work at 60 formulations x 4 measurements (the owner's bench shape), with
 4 workers, inside generous bounds — the first answers (the verdict, the
 predicted best and the next step) under 3 s, the whole tab under 10 s,
 a reopened project (the next Round's
-expected improvement included) under 1 s, and a saved Round under 6 s. The pool's own
+expected gain included) under 1 s, and a saved Round under 6 s. The pool's own
 start (about 2 s, once per app launch) is not counted. On the owner's Mac
 (M4 Pro) the figures are about 2.8, 4.7, 0.01 and 1.4 s.
 FOODOPT_SKIP_TIMING=1 skips it; FOODOPT_TIMING_WORKERS sets the pool."""
@@ -93,7 +93,7 @@ def test_sixty_by_four(pool):
     fitted, checks = _whole(opt, memo, rounds)
     whole = time.perf_counter() - t0
 
-    # The next Round's expected improvement is saved with them (spec
+    # The next Round's expected gain is saved with them (spec
     # 2026-10-01 C1): a reopen reads it instead of fitting and searching.
     gain = bo_views.next_gain_for(opt)
     insights_cache.save(opt.project_name, insights_cache.Saved(

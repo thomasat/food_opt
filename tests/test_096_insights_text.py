@@ -139,13 +139,13 @@ def test_method_and_details_define_the_new_terms(tabs):
 
 
 # ------------------------------------------------------------------ #
-#  §3.2 Expected improvement by Round (review I4, I5, M8)
+#  §3.2 Expected gain by Round (review I4, I5, M8)
 # ------------------------------------------------------------------ #
 
 def test_line_a_says_the_expected_improvement_of_its_open_round(tabs):
     md, _ = _texts(tabs[demo.LINE_A])
-    [line] = [m for m in md if m.startswith("Expected improvement")]
-    assert line.startswith("Expected improvement, Round 6: 0.12 points (model, one "
+    [line] = [m for m in md if m.startswith("Expected gain")]
+    assert line.startswith("Expected gain, Round 6: 0.12 points (model, one "
                            "formulation): ")
     assert "; under the 1-point noise threshold." in line
     assert line.endswith("Recomputed from today's records.")
@@ -178,7 +178,7 @@ def timing_generated(tmp_path_factory):
 
 def test_after_generate_progress_and_next_step_say_one_thing(timing_generated):
     """Fix round 1 (T56 C1, ledger ruling): nothing predicted beyond the
-    noise threshold, an expected improvement above it. Progress shows both,
+    noise threshold, an expected gain above it. Progress shows both,
     with one sentence on where the second comes from; Next step is not
     "close to the top" but the explore row."""
     at, opt = timing_generated
@@ -187,8 +187,8 @@ def test_after_generate_progress_and_next_step_say_one_thing(timing_generated):
     # be assumed, once: here, since line 1 does not name the threshold.
     assert any("Predicted gain over Best so far: none beyond "
                + wording.beat_by(None, assumed=True) + "." in m for m in md)
-    [line] = [m for m in md if m.startswith("Expected improvement")]
-    assert line.startswith(f"Expected improvement, Round {opt.pending_batch_no}: ")
+    [line] = [m for m in md if m.startswith("Expected gain")]
+    assert line.startswith(f"Expected gain, Round {opt.pending_batch_no}: ")
     assert line.endswith("above the 1-point noise threshold. It comes from the model's "
                          "uncertainty, not from a higher predicted score.")
     after = md[md.index(f"##### {wording.Q_NEXT}") + 1]
@@ -229,7 +229,7 @@ def timing_recorded_flat(tmp_path_factory):
 
 def test_a_round_recorded_flat_withholds_the_figure_under_the_a3_gate(timing_recorded_flat):
     """0.8.0 e2e fixes (review I4): skill 0.16 is not clearly better than the
-    average, so the expected improvement is withheld, saying why, and Next
+    average, so the expected gain is withheld, saying why, and Next
     step does not offer "close to the top" from the model's predicted best."""
     at, opt, r, _ = timing_recorded_flat
     md, _ = _texts(at)
@@ -242,14 +242,14 @@ def test_a_round_recorded_flat_withholds_the_figure_under_the_a3_gate(timing_rec
 
 
 def test_a_round_recorded_flat_is_not_explored_again(timing_recorded_flat):
-    """Final review I-1: with no Round open the expected improvement is the
+    """Final review I-1: with no Round open the expected gain is the
     next Round's, from today's rows (ask()'s own first-pick search on the
     model the next Generate fits), not Round 13's pre-results 1.08. It is
     under the noise threshold, so Next step is close to the top."""
     _, opt, r, at = timing_recorded_flat
     md, _ = _texts(at)
-    [line] = [m for m in md if m.startswith("Expected improvement")]
-    assert line.startswith("Expected improvement, next Round: ")
+    [line] = [m for m in md if m.startswith("Expected gain")]
+    assert line.startswith("Expected gain, next Round: ")
     assert "under the 1-point noise threshold" in line
     assert not any("still expects" in m or "model's uncertainty" in m for m in md)
     after = md[md.index(f"##### {wording.Q_NEXT}") + 1]
@@ -260,8 +260,8 @@ def test_a_round_recorded_flat_is_not_explored_again(timing_recorded_flat):
     with bo_views.fresh():
         want = bo_views.next_optimum(opt, bo_views.next_model(opt))
     assert at.session_state[ui_insights.GAIN_KEY][1].gain == pytest.approx(want, abs=1e-9)
-    assert line.startswith(f"Expected improvement, next Round: {want:.2f} points")
-    # Round 13's own figure stays as history, in Expected improvement by Round.
+    assert line.startswith(f"Expected gain, next Round: {want:.2f} points")
+    # Round 13's own figure stays as history, in Expected gain by Round.
     with insights.memo_in_use({}):
         history = bo_views.round_history(opt)
     assert history[-1].round == r and history[-1].gain > 1.0

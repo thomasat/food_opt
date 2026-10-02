@@ -496,7 +496,7 @@ def test_a_new_setting_without_a_baseline_brings_the_column_back(burger):
 
 
 # ------------------------------------------------------------------ #
-#  01 O9: a withheld expected improvement has no "Recomputed" line
+#  01 O9: a withheld expected gain has no "Recomputed" line
 # ------------------------------------------------------------------ #
 
 def _why_fold_captions(monkeypatch, gate, reasons=("skill",), folder=None):
@@ -515,7 +515,7 @@ def _why_fold_captions(monkeypatch, gate, reasons=("skill",), folder=None):
 
 
 def test_a_withheld_expected_improvement_still_says_what_is_recomputed(monkeypatch, tmp_path):
-    """O9, then last-fix review R-1: the expected improvement is withheld,
+    """O9, then last-fix review R-1: the expected gain is withheld,
     but Model sd and the map still come from the recomputed model, and
     one line says so."""
     gate = insights.SkillGate("wait", 6)

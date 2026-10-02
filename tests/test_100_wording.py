@@ -154,7 +154,7 @@ def test_the_frozen_strings_did_not_move(name, value):
 def test_import_aliases_are_frozen():
     """B1: a file written for these must keep loading."""
     assert W.FILL_TO_TOTAL_IMPORT_ALIASES == ("fill to total", "= rest", "=rest")
-    assert W.LAYER_GAIN_FORMER == "Expected gain"
+    assert W.LAYER_GAIN_FORMER == "Expected improvement"   # charts proto: one name, Expected gain
 
 
 def test_one_vocabulary_for_role_and_compared_with():
@@ -216,7 +216,7 @@ def test_exact_texts_from_the_rulings():
         "the average of earlier results (skill 0.09, n = 24; 0.20 needed).")
     # I6: the expected-improvement sentence, {ref} both ways.
     assert W.gain_line("2.66", None, W.beat_by()) == (
-        "Expected improvement, next Round: 2.66 points (model, one formulation): the model's "
+        "Expected gain, next Round: 2.66 points (model, one formulation): the model's "
         "average gain of one new formulation over the model's best tested formulation, "
         "counting no gain as zero; under the 1-point noise threshold.")
     assert "over Best so far's measured 91.69, counting no gain as zero" in W.gain_line(
@@ -224,8 +224,8 @@ def test_exact_texts_from_the_rulings():
     for text in (W.gain_line("2.66", 6, W.beat_by()), W.HOW_EXPECTED_IMPROVEMENT,
                  W.EXPECTED_IMPROVEMENT_HELP):
         assert "beats" not in text and "best single" not in text, text
-    assert (W.LAYER_GAIN, W.LAYER_GAIN_LEGEND) == ("Expected improvement",
-                                                   "Expected improvement (points)")
+    assert (W.LAYER_GAIN, W.LAYER_GAIN_LEGEND) == ("Expected gain",
+                                                   "Expected gain (points)")
     # I7: the Repeats line, two decimals.
     assert W.best_repeats_line(14, ["67.30", "66.34", "75.61"], "75.17") == (
         "Repeats of Formulation 14: 67.30, 66.34, 75.61 (mean with Formulation 14: 75.17).")

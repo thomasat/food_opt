@@ -3,7 +3,7 @@ refresh, "BO-views refresh", items 2, 6, 7 and 8): the Why map's dashed
 line is Best so far's predicted Repeat, the Insights outline's reference,
 for every acquisition; "regression to the mean" only in Method and
 details; the Why fold never shows roles it withdraws once the checks are
-in; and the next Round's expected improvement never holds up the first
+in; and the next Round's expected gain never holds up the first
 answers right after launch."""
 import concurrent.futures as cf
 import json
@@ -232,7 +232,7 @@ def _columns(at):
 def test_line_b_opened_before_the_checks_says_why_and_shows_the_roles(monkeypatch):
     """Line B opened on Make a round while the workers have the Overall
     score's models but not the verdict's: the fold says the Prediction
-    check is still being calculated and shows no expected improvement;
+    check is still being calculated and shows no expected gain;
     once the checks are in it gives the verdict's reason. The roles are
     model-free from the 0.8.0 e2e fixes (A2, review I3; this reverts
     11152ff's role part), so they are shown at every point, in the
@@ -278,7 +278,7 @@ def test_without_workers_the_open_fold_works_out_its_own_checks():
 
 def test_the_verdict_is_drawn_before_the_figure_is_worked_out(monkeypatch):
     """Insights draws the Prediction check and Best so far's lines before
-    the next Round's expected improvement is calculated (about 1.5 s at
+    the next Round's expected gain is calculated (about 1.5 s at
     60 x 4), so the first answers never wait for it."""
     opt = _burger(rounds=5, noise=0.6)
     # A model with skill, so the figure is worked out at all (A3 gate, 0.8.0

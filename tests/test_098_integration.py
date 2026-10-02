@@ -115,7 +115,7 @@ def pool():
 def test_the_views_at_sixty_by_four(pool):
     """With the models already fitted by the workers (the speed spec's own
     timing covers those): the §3.2 line, the pool, the Why fold for an open
-    Round of 6 (an exact rebuild) and the whole Expected improvement by
+    Round of 6 (an exact rebuild) and the whole Expected gain by
     Round history. CI bounds; on the owner's Mac about 0.02, 1.2, 0.4 and
     1.9 s."""
     opt = speed_projects.bench(60, 4)

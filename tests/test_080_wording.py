@@ -133,7 +133,7 @@ def test_exact_texts_from_the_spec():
     2026-10-01 rev. 2, the Overrides clause of review I1): the Repeat row's
     check is conditional, the bias and misses rows advise no check, the
     score line names its own Rounds (every Round checked), the 1-point
-    threshold says it is assumed, and the expected improvement is said as
+    threshold says it is assumed, and the expected gain is said as
     the average gain it is. Rewritten again for Insights for a first-time
     user (spec 2026-10-01 rev. 2, review M11; T0): next_untested points
     under Progress figures; the first screen's own texts are pinned in
@@ -179,7 +179,7 @@ def test_exact_texts_from_the_spec():
     # Overrides (review I1 row A5): never "the best single new formulation
     # beats … by".
     assert w.gain_line("2.66", None, w.beat_by()) == (
-        "Expected improvement, next Round: 2.66 points (model, one formulation): the model's "
+        "Expected gain, next Round: 2.66 points (model, one formulation): the model's "
         "average gain of one new formulation over the model's best tested formulation, "
         "counting no gain as zero; under the 1-point noise threshold.")
     assert w.stand_best("90.65", 15, 4) == (

@@ -165,8 +165,8 @@ def test_an_own_formulation_is_labelled_and_valued_alone():
 ])
 def test_the_fold_withholds_by_progresss_rule(monkeypatch, reasons, state, line):
     """Review I4, fix round 1: the fold keeps its model-free columns and
-    withholds the expected improvement exactly when Progress withholds its
-    expected improvement, with the same reason. The role is model-free from
+    withholds the expected gain exactly when Progress withholds its
+    expected gain, with the same reason. The role is model-free from
     the 0.8.0 e2e fixes (A2, review I3), so it stays."""
     opt = _open_round()
     monkeypatch.setattr(insights, "noise_guard", lambda *a, **k: insights.Guard(reasons))
@@ -331,7 +331,7 @@ def test_e3_never_fits_or_waits(monkeypatch):
 @pytest.mark.parametrize("gain,shown", [(1.5, False), (0.4, True), (None, True)])
 def test_e3_weighs_the_expected_improvement_insights_shows(monkeypatch, gain, shown):
     """Fix round 1 (ledger ruling C1): "close to the top" above Generate
-    only when the expected improvement Insights shows is at or under the
+    only when the expected gain Insights shows is at or under the
     noise threshold too; above it Next step is the explore row, which is
     another Round, so E3 says nothing."""
     opt = _burger(rounds=4)
@@ -420,7 +420,7 @@ def test_the_cold_line_says_values_in_a_process_only_study():
     """T0 review M-8."""
     assert wording.why_cold(True) == "Chosen to cover the allowed values; no model yet."
     assert wording.gain_cold(2, values=True).endswith("the allowed values: no expected "
-                                                      "improvement yet.")
+                                                      "gain yet.")
 
 
 def test_e3_sits_under_generate(monkeypatch):

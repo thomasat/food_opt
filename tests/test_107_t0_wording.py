@@ -329,7 +329,7 @@ def test_the_fold_labels_and_links():
     """§2, 02 §4, R-I4, R-I14."""
     assert W.FOLD_PREDICTION_FIGURES == "Prediction figures — 95 % intervals, mean error, skill"
     assert W.FOLD_PROGRESS_FIGURES == (
-        "Progress figures — expected improvement, Repeats, noise threshold")
+        "Progress figures — expected gain, Repeats, noise threshold")
     assert (W.FOLD_NEXT_REASONING, W.FOLD_MEASURED_CHART, W.FOLD_METHOD, W.FOLD_EXPLORED) == (
         "Next-step reasoning", "Measured against predicted (chart)", "Method and definitions",
         "Explored and unexplored")

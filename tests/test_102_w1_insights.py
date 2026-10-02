@@ -757,7 +757,7 @@ def test_the_02_round_3_tab_says_assumed_once_and_asks_for_a_repeat(tabs):
                             "threshold (assumed: no Repeats yet;") for t in texts)
     nxt = texts[texts.index(f"##### {wording.Q_NEXT}") + 1]
     assert nxt.endswith(wording.NEXT_REPEAT_TO_MEASURE)
-    # Fewer than 10 checks: effects and the expected improvement wait.
+    # Fewer than 10 checks: effects and the expected gain wait.
     assert wording.gain_unreliable(wording.gain_reason_too_few(4)) in texts
 
 

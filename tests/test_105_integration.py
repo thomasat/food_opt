@@ -5,7 +5,7 @@ left.
 - Sticky flashes (W2, review I10) survive the reruns the app makes itself
   (W3's poller, keep_up's two reruns) and come down at the user's next
   rerun of any kind: a click, a widget, a fold that reruns.
-- The Why fold (W2) gives the exact reason the expected improvement is
+- The Why fold (W2) gives the exact reason the expected gain is
   withheld, from W1's skill gate: too few checks, skill under 0.20, no
   skill, the guard or the verdict, as Progress gives it.
 - Make a round's E3 kinds lose the dead "bias".
@@ -160,7 +160,7 @@ def _why_caption(monkeypatch, gate, reasons=("skill",)):
 def test_the_why_fold_says_too_few_checks(monkeypatch):
     gate = insights.SkillGate("wait", 6)
     line = wording.why_guard_line(gate_reason=wording.gain_reason_too_few(6))
-    assert line == ("Expected improvement is not shown: fewer than 10 Round-ahead checks of "
+    assert line == ("Expected gain is not shown: fewer than 10 Round-ahead checks of "
                     "the Overall score so far (6).")
     # Ftue fix C: the fold says it under its own column name.
     assert wording.why_gain_said(line) in _why_caption(monkeypatch, gate)

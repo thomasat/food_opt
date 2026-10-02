@@ -396,7 +396,7 @@ def test_a_withheld_gain_is_said_in_the_folds_own_words(monkeypatch):
     assert wording.EXPECTED_GAIN not in frame.columns
     captions = [c.value for c in fold.caption]
     assert wording.why_gain_said(wording.why_guard_line([wording.GUARD_FLOOR])) in captions
-    assert not any(c.startswith("Expected improvement") for c in captions)
+    assert not any(c.startswith("Expected improvement") for c in captions)   # the former name
 
 
 # ------------------------------------------------------------------ #

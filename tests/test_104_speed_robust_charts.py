@@ -2,7 +2,7 @@
 speed, robustness and charts.
 
 - C3: a cache entry holding a non-finite number is dropped and refitted.
-- C1: the next Round's expected improvement is kept beside the project.
+- C1: the next Round's expected gain is kept beside the project.
 - C1: the progress line counts only what is really being fitted.
 - C2: a broken pool is replaced on the next need, up to a cap.
 - D1: the charts' meaning-carrying marks have theme tokens at 3:1.
@@ -152,7 +152,7 @@ def test_a_non_finite_number_is_never_written():
 
 
 # ------------------------------------------------------------------ #
-#  C1: the next Round's expected improvement kept beside the project
+#  C1: the next Round's expected gain kept beside the project
 #  (review I11)
 # ------------------------------------------------------------------ #
 
@@ -300,7 +300,7 @@ def jobs(monkeypatch):
 def skilled(monkeypatch):
     """A model with skill (integration with W1's A3 gate, review I4): this
     5-Round project has fewer than 10 Overall-score checks, so the gate
-    would withhold the expected improvement these tests persist. Stood in
+    would withhold the expected gain these tests persist. Stood in
     the way W1 stands it in for the effect lines (test_080_try_one)."""
     monkeypatch.setattr(insights, "skill_gate", lambda opt, checks, fact=None: None)
 
@@ -729,7 +729,7 @@ def test_the_triangles_score_legend_says_model_mean(scored):
 
 
 def test_a_session_holding_the_former_layer_name_reads_as_the_new_one(burger, monkeypatch):
-    """Review I6: "Expected gain" is now "Expected improvement"; a session
+    """Review I6, then charts proto: "Expected improvement" is now "Expected gain"; a session
     from before the rename must not break the radio or fall back."""
     from types import SimpleNamespace
     state = {}
@@ -759,7 +759,7 @@ def test_progress_says_calculating_only_while_the_search_is_to_run(burger, monke
     bo_views._CACHE.clear()
     monkeypatch.setattr(ui_insights, "withheld", lambda *a: "guard")
     assert not ui_insights._gain_pending(burger, computed)
-    assert wording.gain_pending() == "Expected improvement, next Round: calculating…"
+    assert wording.gain_pending() == "Expected gain, next Round: calculating…"
 
 
 def test_a_failed_request_finds_its_pool_already_broken(fresh_pool, monkeypatch):
