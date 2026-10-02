@@ -5737,6 +5737,36 @@ def card_for(opt, facts, which):
     return card
 
 
+REVIEW_CHECKING = "checking"
+
+
+def review_status(opt):
+    """Review guide: Make a round's one line, the cards' own words —
+    (text, warn), warn when the Predictions or the Next card is drawn red
+    (Off, Check panel first); REVIEW_CHECKING while the workers are still
+    fitting what the cards read; None with nothing scored, or when the
+    checks are not worked out and there are no workers to work them out
+    (the line never fits a model: it is read from what Review has)."""
+    if opt.complete_count() == 0:
+        return None
+    with insights.memo_in_use(memo(opt)):
+        if opt.complete_count() < insights.MIN_ROWS:
+            facts = insights.status_facts(opt, ())      # Review's gate, model-free
+        else:
+            checks = checks_for(opt, "stand")
+            if checks is None:
+                return REVIEW_CHECKING if waiting(opt, "stand") else None
+            facts = screen_facts(opt, checks)
+    if facts is None or facts.progress is None:
+        return None
+    pred, nxt = predictions_card(opt, facts), next_card(opt, facts)
+    prog = progress_card(opt, facts)
+    warn = pred.tone == "off" or nxt.tone == "off"
+    text = wording.review_status_line(pred.word, prog.word,
+                                      nxt.word if nxt.tone == "off" else None)
+    return _say(opt, text), warn
+
+
 def _card_body(opt, facts, which):
     """One card's place: the big word (with the "?"), its lines, warnings
     in their own colour, and the sparkline."""

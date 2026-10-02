@@ -349,6 +349,18 @@ SCROLL_KEY = "_scroll_to"
 # The data_key Insights was last opened with (app.py): Make a round's E3
 # link is not offered again until the data changes (04 §3, ping-pong).
 INSIGHTS_OPENED_KEY = "_insights_opened"
+# Review guide: the Round whose results were just saved (Save results or
+# Save uploaded results, whole Round or part), until 4 · Review is opened.
+# While it is set, Results' one lit button is "Review Round N" and the
+# Review tab carries a dot.
+REVIEW_DUE_KEY = "_review_due"
+# The dot itself: CSS on the fourth tab's button, so its label (the tabs
+# widget's value) never changes.
+REVIEW_DOT_STYLE = """<style>
+[data-testid="stTabs"] [role="tablist"] > button[role="tab"]:nth-of-type(4) p::after {
+  content: " \\2022"; color: var(--st-primary-color, #ff4b4b);
+}
+</style>"""
 # Ftue fix C: where the links land. A keyed expander carries no st-key-
 # class in the page (Streamlit 1.55), so each fold a link lands on sits in
 # a keyed container of its own, the place the page scrolls to: Make a
@@ -389,6 +401,16 @@ def go_to_tab(label, section="top"):
     st.session_state[SCROLL_KEY] = section
     st.session_state.pop(_STICKY_KEY, None)
     st.rerun()
+
+
+def review_due(opt):
+    """Review guide: the Round whose results were just saved, until 4 ·
+    Review is opened (REVIEW_DUE_KEY), or None. Only a Round this project
+    holds results for."""
+    no = st.session_state.get(REVIEW_DUE_KEY)
+    if no is None or no not in {int(b) for b in opt.batch_history if b is not None}:
+        return None
+    return no
 
 
 def ask_tab(label, section="top", fold=None, state=None):

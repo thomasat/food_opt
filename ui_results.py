@@ -17,11 +17,11 @@ import wording
 import custom_records
 from food_bo import ROUND_FIELD, WORKBOOK_MIME
 from ui_helpers import (
-    COPY_KEPT, TAB_BATCH, TAB_SETUP, amount_range_placeholder,
+    COPY_KEPT, TAB_BATCH, TAB_SETUP, amount_range_placeholder, ask_tab,
     best_formulation_no, best_move_sentence,
     bounds_caution, clear_selection, confirm_action, confirmation_open,
     SCROLL_KEY, clear_scale_total, disarm, flash, fmt_amount, fmt_setting, goal_line,
-    entry_label, go_to_tab, link, number_list, open_rows, other_confirmation,
+    entry_label, go_to_tab, link, review_due, number_list, open_rows, other_confirmation,
     park_clear,
     plural, preserve_tab_forms, readiness, render_flash, saved_ok, scale_error,
     table_height, take_clear, waiting_text,
@@ -1179,7 +1179,17 @@ def _foot_label(opt):
     return wording.START_NEXT_BATCH
 
 
-def _foot(opt, correcting=False, typed=False):
+def _review_button(opt, no, lit):
+    """Review guide: after Save results, the screen's one lit button opens
+    4 · Review (Set up → Make a round → Results → Review → Make a round).
+    A callback, as every link is: no half-typed box on this tab is lost."""
+    st.button(wording.review_round_label(no), type="primary" if lit else "secondary",
+              disabled=confirmation_open(), key="review_round",
+              help=wording.REVIEW_ROUND_HELP,
+              on_click=ask_tab, args=(wording.TAB_INSIGHTS,))
+
+
+def _foot(opt, correcting=False, typed=False, review=False):
     label = _foot_label(opt)
     # While a confirmation is armed, its "Yes" is the one coloured button and
     # answering it is the one thing to do; the next batch can wait a click.
@@ -1193,7 +1203,9 @@ def _foot(opt, correcting=False, typed=False):
     # typed into that formulation's box (`typed`), then grey but enabled.
     ready, _ = readiness(opt)
     enabled = ready and not confirmation_open() and not correcting
-    lit = enabled and not typed
+    # Review guide: while a Round is due a Review, "Review Round N" is
+    # the lit one and this waits a step, enabled.
+    lit = enabled and not typed and not review
     if st.button(label, type="primary" if lit else "secondary",
                  disabled=not enabled, key="foot_batch") and enabled:
         go_to_tab(TAB_BATCH)
@@ -1628,6 +1640,11 @@ def render(opt, storage):
         return
     if not opt.objectives:
         st.info(wording.for_project(opt, wording.ADD_MEASUREMENT_RESCORE_INFO))
+    # Review guide: the one lit button after Save results, at the top where
+    # Save results lands; drawn last, like the foot, so a confirmation armed
+    # below greys it on the same run.
+    due = review_due(opt)
+    review_slot = st.container() if due is not None else None
     said_partial, missing, settled = _best(opt)
     # A measurement's range too narrow, or an ingredient's amount capped too
     # low, is often exactly what a formulation on screen reveals — so the
@@ -1672,7 +1689,11 @@ def render(opt, storage):
         typed = missing is not None and any(
             st.session_state.get(_missing_key(missing['number'], n)) is not None
             for n in missing['names'])
-        _foot(opt, pending is not None, typed)
+        _foot(opt, pending is not None, typed, review=due is not None)
+    if review_slot is not None:
+        with review_slot:
+            _review_button(opt, due, lit=not confirmation_open() and pending is None
+                           and not typed)
     if pending is not None:
         with pending['slot']:
             _save_correction(opt, storage, pending)

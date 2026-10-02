@@ -33,7 +33,7 @@ import altair as alt
 import bo_views
 import insights
 import ui_insights
-from ui_helpers import INSIGHTS_OPENED_KEY, link
+from ui_helpers import INSIGHTS_OPENED_KEY, REVIEW_DUE_KEY, ask_tab, link, review_due
 # Ftue fix C: the Why fold's and the Add fold's places, and the Repeat
 # link's request.
 from ui_helpers import ADD_OWN_KEY, ADD_OWN_PLACE, REPEAT_REQUEST_KEY, WHY_PLACE
@@ -326,7 +326,51 @@ def last_generate_count(opt):
     return min(10, max(1, n))
 
 
-def _no_batch(opt):
+def _review_status(opt, due=None, lit=False):
+    """Review guide: one line above the suggestions (or above Generate) in
+    the Review cards' own words — 'Last Round: Predictions Reliable ·
+    Progress Flat' — and the link "Open Review". Red when a card is (Off,
+    Check panel first). Drawn while the workers fit as "Checking
+    predictions…", so the line is there from the first draw and never moves
+    the lit button under the pointer. True when drawn: its link is then
+    the screen's one link to Review (R-I4), and E2's and E3's sentences
+    keep their place without theirs.
+
+    `due`: a Round part-saved here and not yet reviewed (Save results kept
+    the Round open, so the reader lands back on this screen): the link is
+    then the button "Review Round N", lit (`lit`) until a result is typed,
+    when Save results is the lit one again."""
+    got = ui_insights.review_status(opt)
+    if got is None and due is None:
+        return False
+    if got == ui_insights.REVIEW_CHECKING:
+        text, warn = wording.REVIEW_STATUS_CHECKING, False
+    else:
+        text, warn = got if got is not None else (None, False)
+    with st.container(horizontal=True, gap="small", vertical_alignment="center",
+                      key="review_status"):
+        if text:
+            st.caption(wording.review_status_warn(text) if warn else text, width="content",
+                       help=wording.REVIEW_STATUS_HELP)
+        if due is None:
+            link(wording.OPEN_REVIEW, wording.TAB_INSIGHTS, key="link_review_status")
+        else:
+            st.button(wording.review_round_label(due), key="review_round_batch",
+                      type="primary" if lit else "secondary",
+                      disabled=confirmation_open(), help=wording.REVIEW_ROUND_HELP,
+                      on_click=ask_tab, args=(wording.TAB_INSIGHTS,))
+    return True
+
+
+def _review_lit(opt, due):
+    """Review guide: "Review Round N" is this screen's lit button while the
+    Round is due a Review and nothing is typed, uploaded or armed: the
+    sheets' rule (_downloads), which it then takes over from."""
+    return (due is not None and not _any_value_typed(opt) and not confirmation_open()
+            and not _upload_pending(opt))
+
+
+def _no_batch(opt, tab_open=False):
     # The opening value comes from session state (see app.py's _FORM_FRESH):
     # Streamlit warns on screen when a widget carries both a `value=` and a
     # session-state entry, and a project switch assigns these keys.
@@ -337,6 +381,7 @@ def _no_batch(opt):
     # not drawn while a Round is open, so Streamlit forgets it, and it came
     # back at 3 after every Round. Seeded once per project and latest
     # Round; a count typed here is the reader's until then.
+    linked = _review_status(opt) if tab_open else False
     records = opt.generation_records()
     seed = (opt.project_name, max(records) if records else None)
     if st.session_state.get(_COUNT_SEED) != seed or "how_many" not in st.session_state:
@@ -355,7 +400,7 @@ def _no_batch(opt):
     # Under Generate, never above it (T47 review minor 8): a line that
     # lands once the checks are in must not move the lit button under
     # the pointer.
-    _next_step_line(opt)
+    _next_step_line(opt, linked)
     # The Repeat link's request waits for Generate (ftue fix C): one line.
     request = _repeat_request(opt)
     if request is not None:
@@ -413,7 +458,7 @@ def _memo_score(opt):
         return insights.fit(opt, insights.SCORE, rows)
 
 
-def _next_step_line(opt):
+def _next_step_line(opt, linked=False):
     """E3 (spec 2026-09-30-bo-views §5; 04 §3): above Generate, when
     Insights' Next step is something other than making the next Round, its
     own first sentence, then one text-style link — "Next step" to Progress
@@ -431,8 +476,8 @@ def _next_step_line(opt):
     rounds = insights.headline(opt, checks).rounds if checks else None
     text, _ = ui_insights.next_step_text(opt, step, rounds)
     st.caption(wording.for_project(opt, wording.first_sentence(text)))
-    if st.session_state.get(INSIGHTS_OPENED_KEY) == insights.data_key(opt):
-        return
+    if linked or st.session_state.get(INSIGHTS_OPENED_KEY) == insights.data_key(opt):
+        return                      # linked: the status line's is the one link
     higher = step.kind in ("close", "untested")
     link(wording.LINK_NEXT_STEP if higher else wording.LINK_PREDICTION_CHECK,
          wording.TAB_INSIGHTS, section=ui_insights.STAND_SECTION if higher else "top",
@@ -1059,7 +1104,7 @@ def _draw_table(opt, slot, frame):
                    hide_index=True, key="batch_table", height=table_height(len(frame)))
 
 
-def _show_predictions(opt, later):
+def _show_predictions(opt, later, linked=False):
     """Without workers, fit (once per data_key, shared with Insights) and
     draw the table again in its place with the Predicted Overall score
     column; with workers still fitting, leave the "…" for the poller's
@@ -1083,7 +1128,7 @@ def _show_predictions(opt, later):
             st.caption(wording.for_project(opt, ui_insights.track_short(t)),
                        help=wording.for_project(opt, ui_insights.track_text(t)) + "\n\n"
                        + track_help(opt, t))
-            if _warns(t):
+            if _warns(t) and not linked:
                 # E2 (04 §3, review I1, I7): the one link on this screen.
                 link(wording.LINK_PREDICTION_CHECK, wording.TAB_INSIGHTS, key="link_trust")
         if _a_suggestion_below_best(opt, preds):
@@ -1426,7 +1471,7 @@ def _downloads(opt, scale_to, sized, said_size=False):
     # The sheets are the lit thing until the first result is typed, and they
     # step aside while a confirmation is waiting for an answer.
     lit = (not _any_value_typed(opt) and not confirmation_open()
-           and not _upload_pending(opt))
+           and not _upload_pending(opt) and review_due(opt) is None)
     print_pack = st.checkbox(wording.for_project(opt, wording.PRINT_PACK_CHECKBOX), key="workbook_print_pack")
     # One line, and it follows the box: the file a tick produces has no
     # sheet called Results (spec 2026-09-30 §3, audit V12). The sheet
@@ -1694,7 +1739,7 @@ def _save_results(opt, kept, left_out, to_record):
         # A move would rerun past app.py's end-of-script check and hide it.
         return
     saved = [row['formulation'] for row in kept]
-    _after_save(opt)
+    _after_save(opt, batch_no)
     if open_rows(opt):
         flash('success', wording.upload_partial_flash(
             len(kept) + len(left_out), len(opt.pending_batch),
@@ -1712,11 +1757,14 @@ def _save_results(opt, kept, left_out, to_record):
     go_to_tab(TAB_RESULTS)
 
 
-def _after_save(opt):
+def _after_save(opt, batch_no=None):
     """After Save results or Save uploaded results (review I10): Results'
-    View formulation box back on Best so far (ui_results.reset_view)."""
+    View formulation box back on Best so far (ui_results.reset_view); and
+    (review guide) the Round now due a Review, whole or part saved."""
     import ui_results     # ui_results is a sibling tab, drawn after this one
     ui_results.reset_view(opt)
+    if batch_no is not None:
+        st.session_state[REVIEW_DUE_KEY] = batch_no
 
 
 def _read_results_file(opt, uploaded):
@@ -1968,7 +2016,7 @@ def _upload(opt):
             if extra_records and not parsed and not left_out:
                 flash("success", wording.CUSTOM_SAVED)
                 st.rerun()
-            _after_save(opt)
+            _after_save(opt, batch_no)
             # A row ticked Not scored has been dealt with, and open_rows
             # counts only the scored ones — without this the file that
             # finished a batch left it open on a row it had just recorded.
@@ -2022,7 +2070,7 @@ def render(opt, storage, tab_open=False):
         _incomplete(missing)
         return
     if not opt.pending_batch:
-        _no_batch(opt)
+        _no_batch(opt, tab_open)
         _own_formulation(opt)
         return
 
@@ -2048,6 +2096,9 @@ def render(opt, storage, tab_open=False):
     sized = getattr(opt, 'pending_batch_total', None) is not None
 
     _title(opt)
+    # Review guide: filled after the confirmation below is asked, so an
+    # armed one greys "Review Round N" on the same run.
+    status_slot = st.container()
     st.markdown(wording.for_project(opt, wording.STEP_MAKE_HEADING))
     # Above the table: the size is what the table is a table of.
     _batch_size_control(opt, opt.one_amount_unit(), typed, scale_to,
@@ -2087,6 +2138,11 @@ def render(opt, storage, tab_open=False):
         preserve=True,
     )
 
+    linked = False
+    if tab_open:
+        with status_slot:
+            due = review_due(opt)
+            linked = _review_status(opt, due, _review_lit(opt, due))
     with print_slot:
         _downloads(opt, scale_to, sized, said_size)
     with record_slot:
@@ -2101,4 +2157,4 @@ def render(opt, storage, tab_open=False):
     elif tab_open:
         # Only while this tab is open (a hidden tab never fits a model), and
         # only now: the table, Save results and the upload are already up.
-        _show_predictions(opt, later)
+        _show_predictions(opt, later, linked)
