@@ -8179,3 +8179,84 @@ def path_head_at_limit(name, end, amount_text):
 def plot_at_end(amount_text, n, total):
     """What you've tried: an axis end where most lines sit."""
     return f"{amount_text} ({n} of {total})"
+
+
+# --- review profiler ---
+# The prediction profiler (prototype, 2026-10-02): one small panel per
+# ingredient or process setting (columns) and per result (rows), each line
+# moving that one row from its Lowest to its Highest through the reference
+# formulation. It replaces Try one's path and Compare all.
+PLOT_PROFILER = "What drives each result?"
+PROFILER_CAPTION = "Steeper line: bigger effect. Band: uncertainty."
+PROFILER_THROUGH = "Lines drawn through"
+PROFILER_REF_BEST = BEST_SO_FAR_COLUMN
+PROFILER_REF_PICK = "Suggestion 1"
+PROFILER_TESTED = "Tested near here"
+PROFILER_GAIN_ROW = "Expected gain"
+PROFILER_GAIN_AXIS = "Expected gain (points)"
+PROFILER_SCORE_ROW = "Overall score (of 100)"
+PROFILER_STOPPED = "limit"
+
+
+def profiler_more(n):
+    """The multiselect for the panels left out, at most 5 words."""
+    return f"+{n} more"
+
+
+def profiler_more_help(kind_settings=False, rows=False):
+    if rows:
+        return ("The rows shown are the measurements with the largest Share of score; "
+                "pick more to add their rows.")
+    what = "process settings" if kind_settings else "ingredients or process settings"
+    return (f"The columns shown are the {what} that move the predicted Overall score "
+            "most; pick more to add their columns.")
+
+
+def profiler_fill_note(fill):
+    """Under the chart, at most 8 words: the Fill to total row has no column."""
+    return f"{fill} fills to the total: no column."
+
+
+def profiler_at_end(end):
+    """A panel's note when the reference sits at a limit of its row."""
+    return f"at its {end}"
+
+
+def profiler_row_target(target_text):
+    return f"target {target_text}"
+
+
+PROFILER_ROW_LOWER = "lower is better"
+PROFILER_ROW_HIGHER = "higher is better"
+
+
+def profiler_help(ref, ref_no, fill=None, fixed=(), gain=True, settings_only=False):
+    """The caption's "?": how to read every panel."""
+    what = "process setting" if settings_only else "ingredient or process setting"
+    lines = [f"Each column moves one {what} from its Lowest to its Highest, starting from "
+             f"{ref} ({FORMULATION_CAP} {ref_no}); everything else stays as it is there.",
+             "Each row is one result: the blue line is the predicted value, the light band "
+             "its 95 % likely range of a result. A steep line means that row matters; a flat "
+             "one, that it hardly does here.",
+             f"The vertical line marks {ref}'s own amount; a dashed line, the measurement's "
+             "target. Grey: nothing tested near here, so the line is a guess there. Grey "
+             f"rings: {FORMULATION}s tested near the line, at their measured Overall score."]
+    if fill:
+        lines.append(f"{fill} fills to the Formulation total, so it moves with each column "
+                     "and has none of its own.")
+    if fixed:
+        lines.append("Fixed rows have no column: " + ", ".join(fixed) + ".")
+    if gain:
+        lines.append("Bottom row: the expected gain along each line, the quantity the app "
+                     "chooses suggestions by (as in the chart at the top).")
+    return " ".join(lines)
+
+
+def profiler_bo(mean, low, high):
+    """The tooltip's expert line at one point of a panel."""
+    return (f"GP posterior mean {mean:.2f}, 95 % posterior predictive interval "
+            f"{low:.2f} to {high:.2f} (calibrated); one-factor slice")
+
+
+def profiler_bo_gain(gain):
+    return f"qLogNEI acquisition value {gain:.3f} along a one-factor slice"
