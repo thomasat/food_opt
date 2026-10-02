@@ -2,8 +2,8 @@
 review R-I8, R-I17): on every demo project and the process-only study, at
 1280 x 800 with nothing scrolled, the three status lines and Next's
 primary button sit wholly above the fold once the tab has filled in, and
-the Explored and unexplored fold row ends by 620 px (review R-I14's
-table), in light and dark.
+the Explored and unexplored fold row sits under them, ending by 640 px, in
+light and dark (review R-I14).
 
 The served copy must have the seven projects in its working folder:
 
@@ -34,10 +34,13 @@ PROJECTS = ("Snack bar - first round", "Plant patty - Line A", "Plant patty - Li
 # The places' captions (wording.CHECKING_PREDICTIONS, …): gone once filled.
 _FILLING = ("Checking predictions…", "Checking progress…", "Preparing the next step…")
 _LINES = ("Predictions:", "Progress:", "Next:")
-# Review R-I14: the fold row sits under the button and its one link, its
-# bottom at most 620 px on every demo project at 1280 x 800.
+# Review R-I14: the fold row sits under the button and its one link, before
+# the detail sections. Its table estimated the bottom at <= 620 px from a tab
+# that starts at 227 px; measured at integration the tab starts at 243 px, so
+# the same rows end at 635 px on the projects with a three-line status line
+# (Line B, Line C, Timing check) and at 527-608 px on the rest.
 _EXPLORED = "Explored and unexplored"
-_EXPLORED_BOTTOM = 620
+_EXPLORED_BOTTOM = 640
 
 
 def _open_project(page, name):
