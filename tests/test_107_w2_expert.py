@@ -309,7 +309,9 @@ def test_line_b_names_the_repeat_and_the_bias(project):
     assert facts.prediction_row == "off_coverage"
     pred = ui_insights.tooltip_for(opt, "predictions", facts)
     assert "26 of 36 Round-ahead values" in pred and "up to 4 misses in 36" in pred
-    assert "mean error −5.5 points" in pred
+    # Ftue fix A (cold read I5): −5.5 is 2.45 standard errors, under
+    # t_{0.975, 3} = 3.18, so no bias clause.
+    assert facts.bias is None and "mean error −5.5 points" not in pred
     nxt = ui_insights.tooltip_for(opt, "next", facts)
     assert facts.next.kind == "repeat"
     assert ("Formulation 21, a Repeat of Formulation 11, differs by 10.5 points: more than "
@@ -500,7 +502,10 @@ def test_the_predicted_score_column_names_its_statistics():
     assert "95 % posterior predictive interval" in tip
 
 
-def test_the_track_line_help(project):
+def test_the_track_line_help(project, monkeypatch):
+    # Line B's bias shows under the earlier 2-standard-error rule only
+    # (ftue fix A, cold read I5); the help with a bias is checked under it.
+    monkeypatch.setattr(insights, "t_critical", lambda df, p=0.975: 2.0)
     opt, checks = project(D.LINE_B)
     t = insights.round_track(opt, checks)
     tip = ui_batch.track_help(opt, t)

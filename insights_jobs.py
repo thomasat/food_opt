@@ -449,7 +449,7 @@ def _requests(opt, spec):
     X, Y = insights.xy(opt, spec.name, list(spec.rows))
     cfg = getattr(opt, "bo_config", None)
     out = [{"kind": "main", "cfg": cfg, "X": X.tolist(), "Y": Y.tolist()}]
-    for kept, held in insights.folds(len(spec.rows)):
+    for kept, held in insights.cv_folds(opt, spec.rows):
         out.append({"kind": "fold", "cfg": cfg, "X": X[kept].tolist(), "Y": Y[kept].tolist(),
                     "Xt": X[held].tolist(), "Yt": Y[held].tolist()})
     return out

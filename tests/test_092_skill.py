@@ -407,8 +407,10 @@ def test_the_noise_trigger_needs_three_pairs_and_a_fitted_noise(monkeypatch, lin
     3 pairs or more; never under fixed_tiny, whose noise is fixed."""
     opt, checks, _ = lines[demo.LINE_A]
     fitted = SimpleNamespace(model=_Noise(0.4))
+    # Independent pairs: as many degrees of freedom as pairs (ftue fix A,
+    # cold read I11: the gate counts df).
     yard = lambda pairs: (lambda o, c=(), name=insights.SCORE:
-                          insights.Yardstick(1.0, 1.0, pairs, pairs >= 3))
+                          insights.Yardstick(1.0, 1.0, pairs, pairs >= 3, df=pairs))
     monkeypatch.setattr(insights, "noise_yardstick", yard(3))
     assert insights.noise_guard(opt, fitted, checks).reasons == ["noise"]
     monkeypatch.setattr(insights, "noise_yardstick", yard(2))

@@ -349,7 +349,8 @@ def test_three_pairs_measure_the_threshold_and_say_their_df():
     for i, v in zip((0, 1, 2), (70.0, 72.0, 71.0)):
         opt.Y_history[i] = v
     y = insights.noise_yardstick(opt)
-    assert (y.pairs, y.from_repeats, y.assumed, y.df, y.groups) == (3, True, False, 2, 1)
+    # Ftue fix A (cold read I11): 3 pairs on 2 df do not yet measure it.
+    assert (y.pairs, y.from_repeats, y.assumed, y.df, y.groups) == (3, False, True, 2, 1)
     assert ui_insights.repeats_text(y) == wording.stand_repeats(
         f"{y.sd:.1f}", 3, df=2, groups=1)
     assert "(3 results of 1 formulation, 2 df)" in ui_insights.repeats_text(y)
@@ -662,8 +663,14 @@ def test_the_steady_bias_on_the_campaign_projects(project, name, line):
     assert ui_insights.steady_bias_text(opt, checks) == line
 
 
-def test_03_clean_says_its_bias_both_ways_without_advice(project):
+def test_03_clean_says_its_bias_both_ways_without_advice(project, monkeypatch):
+    """Under the t rule (ftue fix A, cold read I5) 03 clean's Crumbliness
+    bias no longer shows; its Overall score's still does. The both-ways
+    wording is checked under the earlier 2-standard-error rule."""
     opt, checks = project(E.BAR_CLEAN)
+    assert ui_insights.steady_bias_text(opt, checks) == (
+        "Predictions have run low: Overall score by about 2.1 points (Rounds 3–8).")
+    monkeypatch.setattr(insights, "t_critical", lambda df, p=0.975: 2.0)
     line = ui_insights.steady_bias_text(opt, checks)
     assert line.startswith("Predictions have run high: Crumbliness")
     assert "; low: Overall score by about 2.1 points" in line and line.endswith("(Rounds 3–8).")

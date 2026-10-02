@@ -25,6 +25,7 @@ from botorch.fit import fit_gpytorch_mll
 from botorch.optim import optimize_acqf
 from botorch.utils.transforms import normalize, unnormalize
 from gpytorch.mlls import ExactMarginalLogLikelihood
+from scipy.special import ndtri, stdtrit
 
 import wording
 from food_bo import CLOSE_TO_THE_BEST, FoodOptimizer, number_list
@@ -114,7 +115,7 @@ FIT_OPTIONS = {"ftol": 1e-6}
 # Part of every model_key: bump it whenever a change here could change a
 # fitted model's numbers, and a saved fit from before is never used again.
 # That includes a torch, gpytorch or botorch upgrade (review A M-6).
-MODEL_SALT = "0.8.0-speed-1"
+MODEL_SALT = "0.8.0-ftue-fa-folds-1"
 # The fitted models a caller keeps (insights_jobs, the saved cache): model_key
 # -> {"state": hyper_state(gp), "widen": float} or {"error": str}. Set with
 # memo_in_use(); None: every fit is made fresh, as before.
@@ -194,10 +195,12 @@ def rebuild(opt, name, rows, state):
 def model_key(opt, name, use):
     """Everything one display model and its widening depend on: the model
     settings, the output, each training row (make-up and results), the
-    folds, the fit options and MODEL_SALT."""
+    folds (their number and each row's Round, which groups them: ftue fix
+    A, cold read I9), the fit options and MODEL_SALT."""
     return _digest({"salt": MODEL_SALT, "settings": _digest(_model_settings(opt)),
                     "name": name, "rows": [_row_key(opt, i) for i in use],
-                    "folds": FOLDS, "fit": FIT_OPTIONS})
+                    "folds": FOLDS, "rounds": [_round_of(opt, i) for i in use],
+                    "fit": FIT_OPTIONS})
 
 
 def fit(opt, name, rows):
@@ -232,15 +235,70 @@ def fit(opt, name, rows):
 FOLDS = 5
 
 
-def folds(n):
-    """[(kept, held)] positions of n rows: row k goes to fold k % FOLDS; a
-    fold with nothing held is left out."""
+def _round_of(opt, i):
+    return opt.batch_history[i] if i < len(opt.batch_history) else None
+
+
+def fold_units(opt, rows):
+    """One label per position of `rows`: the rows that must be held out
+    together (ftue fix A, cold read I9). A Round's formulations sit close
+    together, and a Repeat is a near copy, so a row held out with its Round
+    or its Repeat left in training is predicted too well and the widening
+    comes out too small. Each Round is one unit (a row with no Round is its
+    own); when every row is in one Round (the cold start) each row is its
+    own unit. Then every Repeat group (repeat_groups) joins the units of
+    its rows into one."""
+    labels = [("round", r) if r is not None else ("row", i)
+              for i, r in ((i, _round_of(opt, i)) for i in rows)]
+    if len(set(labels)) < 2:
+        labels = [("row", i) for i in rows]
+    parent = list(range(len(rows)))
+
+    def root(p):
+        while parent[p] != p:
+            parent[p] = parent[parent[p]]
+            p = parent[p]
+        return p
+
+    def join(a, b):
+        parent[root(b)] = root(a)
+
+    first = {}
+    for p, label in enumerate(labels):
+        if label in first:
+            join(first[label], p)
+        else:
+            first[label] = p
+    where = {i: p for p, i in enumerate(rows)}
+    for group in repeat_groups(opt, list(rows)):
+        for i in group[1:]:
+            join(where[group[0]], where[i])
+    return [root(p) for p in range(len(rows))]
+
+
+def folds(units):
+    """[(kept, held)] positions for cross-validation, from fold_units'
+    labels (an int n: n rows, each its own unit): the units, in the order
+    they first appear, are dealt to FOLDS folds in turn, so a
+    Round, and a Repeat group, is always held out whole (ftue fix A, cold
+    read I9; before, row k went to fold k % FOLDS). A fold with nothing
+    held or nothing kept is left out."""
+    if isinstance(units, int):
+        units = list(range(units))
+    fold = {u: j % FOLDS for j, u in enumerate(dict.fromkeys(units))}
     out = []
-    for k in range(FOLDS):
-        held = [p for p in range(n) if p % FOLDS == k]
-        if held:
-            out.append(([p for p in range(n) if p % FOLDS != k], held))
+    for f in range(FOLDS):
+        held = [p for p, u in enumerate(units) if fold[u] == f]
+        kept = [p for p, u in enumerate(units) if fold[u] != f]
+        if held and kept:
+            out.append((kept, held))
     return out
+
+
+def cv_folds(opt, rows):
+    """folds(fold_units(opt, rows)): the folds the widening of a model
+    fitted on `rows` is worked out from, here and in insights_jobs."""
+    return folds(fold_units(opt, list(rows)))
 
 
 def held_z(gp, Xt, Yt):
@@ -261,11 +319,12 @@ def fold_z(build, X, Y, Xt, Yt):
 
 def _cv_z(opt, name, use):
     """Standardised misses of each row when it was held out: rows go to
-    FOLDS folds by row order (folds()), and each fold is predicted by a
-    model fitted on the others. A fold whose fit fails is skipped. Only
-    `use` is ever seen, so a Round-ahead check stays honest."""
+    FOLDS folds a Round, and a Repeat group, at a time (cv_folds), and each
+    fold is predicted by a model fitted on the others. A fold whose fit
+    fails is skipped. Only `use` is ever seen, so a Round-ahead check stays
+    honest."""
     z = []
-    for kept, held in folds(len(use)):
+    for kept, held in cv_folds(opt, use):
         try:
             gp = _fit_gp(opt, name, [use[p] for p in kept])
             z.extend(held_z(gp, *xy(opt, name, [use[p] for p in held])))
@@ -387,6 +446,10 @@ class Check:
     # Overall score's before-the-fact widening, spec 2026-09-30 §9 I1); a
     # miss in standard deviations is still (measured - raw_mean) / sd.
     widen: float = 1.0
+    # The Round-ahead model's fitted noise as an sd in the output's units
+    # (fitted_noise_sd); None when the noise is not fitted (fixed_tiny).
+    # Ftue fix A, cold read I7: the Repeat check's σ.
+    noise: float | None = None
 
 
 def _row_key(opt, i):
@@ -409,6 +472,8 @@ def round_keys(opt):
     rows = [_row_key(opt, i) for i in range(len(opt.Y_history))]
     return {r: _digest({"settings": settings, "round": r, "first": first,
                         "train": rows[:first],
+                        # The training rows' Rounds group the folds (I9).
+                        "train_rounds": [_round_of(opt, i) for i in range(first)],
                         "targets": [(i, rows[i]) for i, b in enumerate(opt.batch_history)
                                     if b == r]})
             for r, first in round_order(opt)}
@@ -418,10 +483,15 @@ def _check_round(opt, r, first, names):
     checks = []
     train = list(range(first))
     targets = [i for i, b in enumerate(opt.batch_history) if b == r]
+    tiny = (getattr(opt, "bo_config", None) or {}).get("noise") == "fixed_tiny"
     for name in names:
         fitted = fit(opt, name, train)
         if fitted.model is None:
             continue
+        try:
+            noise = None if tiny else fitted_noise_sd(fitted.model)
+        except Exception:
+            noise = None
         rows = [i for i in targets if measured(opt, name, i) is not None]
         try:
             # At the make-ups the models learn (model_X): a Round made at
@@ -434,7 +504,7 @@ def _check_round(opt, r, first, names):
             checks.append(Check(
                 int(opt.formulation_ids[i]), r, name, p.mean, p.low, p.high,
                 value, p.low <= value <= p.high, opt.fully_measured(i),
-                p.raw_mean, p.sd))
+                p.raw_mean, p.sd, noise=noise))
     return checks
 
 
@@ -537,6 +607,10 @@ class ScoreRecord:
     # The standard error of mean_miss with the Round as the unit from
     # ROUND_UNIT_MIN Rounds (review B1); None: gap_sd / √total is used.
     se: float | None = None
+    # se's degrees of freedom (ftue fix A, cold read I5): Rounds − 1 when
+    # each Round's mean error is one value, else values − 1. None: worked
+    # out from rounds and total (bias_df).
+    df: int | None = None
 
 
 SCORE_RECORD_MIN = 5
@@ -610,10 +684,12 @@ def error_record(checks, name, rounds=None):
         means = [statistics.fmean(c.measured - c.predicted for c in mine if c.round == r)
                  for r in order]
         se = statistics.stdev(means) / math.sqrt(len(means))
+        df = len(means) - 1
     else:
         se = None if sd is None else sd / math.sqrt(len(gaps))
+        df = len(gaps) - 1
     return ScoreRecord(sum(c.inside for c in mine), len(mine), sum(gaps) / len(gaps), sd,
-                       order, se)
+                       order, se, df)
 
 
 def score_record(checks, rounds):
@@ -625,20 +701,49 @@ def score_record(checks, rounds):
     return error_record(checks, SCORE, rounds)
 
 
+def t_critical(df, p=0.975):
+    """Student's t quantile t_{p, df}: 3.18 at 3 df, 2.57 at 5, 1.96 in the
+    limit (ftue fix A, cold read I5)."""
+    return float(stdtrit(df, p))
+
+
+def bias_df(record):
+    """The degrees of freedom of `record`'s standard error (cold read I5):
+    record.df, else Rounds − 1 from ROUND_UNIT_MIN Rounds (each Round's mean
+    error one value), else values − 1."""
+    df = getattr(record, "df", None)
+    if df is not None:
+        return df
+    rounds = getattr(record, "rounds", None) or []
+    return len(rounds) - 1 if len(rounds) >= ROUND_UNIT_MIN else record.total - 1
+
+
+def bias_t(record):
+    """(t_{0.975, df}, df): how many standard errors a steady bias must
+    beat (ftue fix A, cold read I5), for the screen to say. None for a
+    record with no degrees of freedom."""
+    df = bias_df(record)
+    return None if df is None or df < 1 else (t_critical(df), df)
+
+
 def bias_gap(record, yardstick):
     """The average gap when it is a steady bias, else None (answer-key
     read-through: one rule for Insights and Make a round; review B1). It
     must be more than `yardstick` (the noise threshold: how much Repeats
     differ, 1 point without them for the Overall score; 0 for a measurement
-    with no Repeat SD, so no floor) AND more than 2 standard errors: the
-    record's Round-unit one (record.se), else 2 x sd / sqrt(n) of the gaps,
-    so a few large misses, or one off Round, are not a bias."""
+    with no Repeat SD, so no floor) AND more than t_{0.975, df} standard
+    errors (ftue fix A, cold read I5: 2 standard errors at 4 Rounds, 3 df,
+    flagged a bias that is not there about 1 time in 7): the record's
+    Round-unit one (record.se, df = Rounds − 1), else sd / sqrt(n) of the
+    gaps (df = n − 1), so a few large misses, or one off Round, are not a
+    bias."""
     if record is None or yardstick is None or abs(record.mean_miss) <= yardstick:
         return None
     se = getattr(record, "se", None)
     if se is None and record.gap_sd is not None:
         se = record.gap_sd / math.sqrt(record.total)
-    if se is not None and abs(record.mean_miss) <= 2 * se:
+    t = bias_t(record)
+    if se is not None and t is not None and abs(record.mean_miss) <= t[0] * se:
         return None
     return record.mean_miss
 
@@ -662,11 +767,12 @@ class Bias:
 
 def _noise_floor(opt, name, matches=None, without=()):
     """The noise threshold of `name` for the bias rule (review I2): the
-    Repeat SD from YARDSTICK_PAIRS pairs (at least REPEAT_SD_SHOWN), else 1
-    point for the Overall score and no floor (0) for a measurement."""
+    Repeat SD from YARDSTICK_DF degrees of freedom (at least
+    REPEAT_SD_SHOWN), else 1 point for the Overall score and no floor (0)
+    for a measurement."""
     spread = repeat_sd(opt, name, matches, without)
     if (spread.sd is not None and spread.sd >= REPEAT_SD_SHOWN
-            and spread.pairs >= YARDSTICK_PAIRS):
+            and spread.df >= YARDSTICK_DF):
         return spread.sd
     return 1.0 if name == SCORE else 0.0
 
@@ -674,15 +780,16 @@ def _noise_floor(opt, name, matches=None, without=()):
 def steady_bias(opt, checks, flagged=None):
     """Every output whose predictions ran steadily high or low over every
     Round checked (review B1): bias_gap of its error_record against its
-    noise floor, a disagreeing Repeat left out of the Repeat SD. The Overall
-    score first, then the measurements in Results' order. A fact for one
-    line, never advice: a steady bias is the model's (its optimism at its
-    own maximum, or its mean shrinking towards the average), not the
-    bench's. `flagged`: disagreeing_repeat's answer when the caller has it."""
+    noise floor, a disagreeing Repeat kept in the Repeat SD (ftue fix A,
+    cold read I7). The Overall score first, then the measurements in
+    Results' order. A fact for one line, never advice: a steady bias is the
+    model's (its optimism at its own maximum, or its mean shrinking towards
+    the average), not the bench's. `flagged`: accepted for callers, no
+    longer used."""
     if not checks:
         return []
-    flagged = disagreeing_repeat(opt, checks) if flagged is None else flagged
-    without = () if not flagged else (flagged.row,)
+    # Ftue fix A (cold read I7): a disagreeing Repeat stays in the Repeat SD.
+    without = ()
     out, matches = [], None
     for name in [SCORE] + [o['name'] for o in opt.measurements_by_importance()]:
         record = error_record(checks, name)
@@ -707,11 +814,10 @@ def score_steady_bias(opt, checks, flagged=None):
     record = error_record(checks, SCORE)
     if record is None:
         return None
-    flagged = disagreeing_repeat(opt, checks) if flagged is None else flagged
-    without = () if not flagged else (flagged.row,)
+    # Ftue fix A (cold read I7): a disagreeing Repeat stays in the Repeat SD.
     matches = _matches(opt, [i for i in range(len(opt.Y_history))
                              if opt.fully_measured(i)])
-    return bias_gap(record, _noise_floor(opt, SCORE, matches, without))
+    return bias_gap(record, _noise_floor(opt, SCORE, matches))
 
 
 def wide_ranges(opt, checks):
@@ -747,6 +853,9 @@ class DetailRow:
     bias: bool = False
     fitted_noise: float | None = None
     noise_fixed: bool = False
+    # repeat_sd's degrees of freedom (ftue fix A, cold read I11): the Repeat
+    # SD is the noise floor from YARDSTICK_DF of them.
+    df: int = 0
 
 
 # The median absolute value of a standard normal: a typical miss (a median)
@@ -762,8 +871,8 @@ def details(opt, checks, fitted=None, flagged=None):
     typical miss is compared with the typical difference between Repeats,
     like with like (spec 2026-09-30 review M6). `fitted`: the current
     models, for the "Likely range widened by" column (review M5).
-    `flagged`: disagreeing_repeat's answer, left out of every output's
-    Repeats (review I4). Each row also carries its mean error over every
+    `flagged`: accepted for callers; a disagreeing Repeat now stays in every
+    output's Repeats (ftue fix A, cold read I7), so left_out is 0. Each row also carries its mean error over every
     Round checked, whether that is a steady bias (steady_bias's rule), and
     the model's fitted noise sd (0.8.0 e2e fixes, review B1, B2)."""
     rows = []
@@ -780,14 +889,14 @@ def details(opt, checks, fitted=None, flagged=None):
             # each output's rows are among the fully measured ones.
             matches = _matches(opt, [i for i in range(len(opt.Y_history))
                                      if opt.fully_measured(i)])
-        spread = repeat_sd(opt, name, matches, () if flagged is None else (flagged.row,))
-        left_out = (0 if flagged is None
-                    else repeat_sd(opt, name, matches).pairs - spread.pairs)
+        # Ftue fix A (cold read I7): a disagreeing Repeat stays in.
+        spread = repeat_sd(opt, name, matches)
+        left_out = 0
         sd = spread.sd
         f = (fitted or {}).get(name)
         full = [c.measured - c.predicted for c in mine if c.fully_measured]
         floor = (spread.sd if spread.sd is not None and spread.sd >= REPEAT_SD_SHOWN
-                 and spread.pairs >= YARDSTICK_PAIRS else 1.0 if name == SCORE else 0.0)
+                 and spread.df >= YARDSTICK_DF else 1.0 if name == SCORE else 0.0)
         gp = f.model if f is not None else None
         noise = None if gp is None or tiny else fitted_noise_sd(gp)
         rows.append(DetailRow(
@@ -799,7 +908,8 @@ def details(opt, checks, fitted=None, flagged=None):
             left_out,
             mean_error=statistics.fmean(full) if full else None,
             bias=bias_gap(error_record(checks, name), floor) is not None,
-            fitted_noise=noise, noise_fixed=gp is not None and noise is None))
+            fitted_noise=noise, noise_fixed=gp is not None and noise is None,
+            df=spread.df))
     return rows
 
 
@@ -809,9 +919,11 @@ def details(opt, checks, fitted=None, flagged=None):
 #  here takes the checks as an argument, so they can come from a cache.
 # ------------------------------------------------------------------ #
 
-# A pooled spread between Repeats is the yardstick only from this many pairs
-# (review I5): "don't benchmark on one pair".
-YARDSTICK_PAIRS = 3
+# A pooled spread between Repeats is the yardstick only from this many
+# degrees of freedom (review I5: "don't benchmark on one pair"; ftue fix A,
+# cold read I11: degrees of freedom, not pairs, since one formulation made
+# three times is 3 pairs but 2 df).
+YARDSTICK_DF = 3
 # The over-wide verdict (review I6): every result inside, at least this many
 # checks, and a median |z| this small. Simulated with calibrated misses it
 # fires 2.9 % of the time at 20 checks and 0.4 % at 33.
@@ -821,14 +933,14 @@ OVER_WIDE_Z = 0.4
 
 @dataclass
 class Yardstick:
-    value: float | None     # the threshold: Repeats' sd from 3+ pairs, else 1 point (None
+    value: float | None     # the noise SD: Repeats' sd from 3+ df, else 1 point (None
                             # for a measurement)
-    sd: float | None        # the pooled sd between Repeats, a disagreeing one left out
+    sd: float | None        # the pooled sd between Repeats
     pairs: int              # how many pairs of Repeats sd rests on
-    from_repeats: bool      # value is sd (3+ pairs, at least REPEAT_SD_SHOWN)
+    from_repeats: bool      # value is sd (3+ df, at least REPEAT_SD_SHOWN)
     # 0.8.0 e2e fixes (review B2): the Overall score's 1 point is assumed,
-    # not measured, while fewer than YARDSTICK_PAIRS pairs exist; the screen
-    # says so and Next step asks for a Repeat of Best so far.
+    # not measured, while sd has fewer than YARDSTICK_DF degrees of freedom;
+    # the screen says so and Next step asks for a Repeat of Best so far.
     assumed: bool = False
     df: int = 0             # sd's degrees of freedom (review I13)
     groups: int = 0         # formulations made more than once
@@ -842,17 +954,55 @@ class Disagreement:
     later: int              # the Repeat's Formulation number
     earlier: int            # the Formulation number it repeats
     diff: float             # later minus earlier, Overall score
-    row: int                # the later one's row: left out of every Repeat spread
-    limit: float | None = None  # √2 × the half-width it broke (03 §2 #13), points
+    row: int                # the later one's row
+    limit: float | None = None  # √2 × 1.96 × sigma, the limit it broke, points
+    # Ftue fix A (cold read I7): the σ the limit rests on and where it came
+    # from: "model" (the Round-ahead model's fitted noise SD), "repeats"
+    # (the Repeat SD without this pair, from YARDSTICK_DF df) or "assumed"
+    # (the assumed 1 point, while that Repeat SD has fewer df). `df`: that
+    # Repeat SD's degrees of freedom (0 without one); `noise`: the model's
+    # fitted noise SD (None when not fitted); `repeat_sd`: the Repeat SD
+    # without this pair (None without one).
+    sigma: float | None = None
+    basis: str = "assumed"
+    df: int = 0
+    noise: float | None = None
+    repeat_sd: float | None = None
+
+
+# The Overall score's noise SD while Repeats have fewer than YARDSTICK_DF
+# degrees of freedom: the assumed 1 point (noise_yardstick's fallback).
+ASSUMED_NOISE_SD = 1.0
+
+
+def repeat_sigma(noise, spread):
+    """(σ, basis) for the Repeat check (ftue fix A, cold read I7): the larger
+    of the model's fitted noise SD `noise` (None when not fitted) and the
+    Overall score's noise SD without the pair tested: `spread`'s sd from
+    YARDSTICK_DF degrees of freedom (at least REPEAT_SD_SHOWN), else the
+    assumed 1 point, as noise_yardstick has it. The display model's fitted
+    noise alone runs well below what Repeats show (0.3-0.4 points on Lines
+    A to C under the default prior), and would make an ordinary Repeat
+    disagree."""
+    usable = (spread is not None and spread.sd is not None
+              and spread.sd >= REPEAT_SD_SHOWN and spread.df >= YARDSTICK_DF)
+    rep, basis = (spread.sd, "repeats") if usable else (ASSUMED_NOISE_SD, "assumed")
+    if noise is not None and noise > rep:
+        return noise, "model"
+    return rep, basis
 
 
 def disagreeing_repeat(opt, checks, matches=None):
     """The one Repeat whose Overall score differs from its original by more
-    than two results should (review I4), or None: |d| over √2 times the
-    half-width of the later one's own Round-ahead check. Only a later one
-    in the verdict's Rounds counts, a group of three or more compares each
-    with its first, either direction counts, and of several the largest
-    |d| is named. `matches`: as for repeat_groups."""
+    than two results should (review I4), or None: |d| over √2 × 1.96 × σ
+    (ftue fix A, cold read I7), σ the larger of the later one's Round-ahead
+    model's fitted noise SD and the Repeat SD from YARDSTICK_DF degrees of
+    freedom with the later one left out (leave-one-out: the pair tested
+    never sets its own limit), else the assumed 1 point (repeat_sigma). Only
+    a later one in the verdict's Rounds counts, a group of three or more
+    compares each with its first, either direction counts, and of several
+    the largest |d| is named. The flagged pair stays in every reported
+    Repeat SD. `matches`: as for repeat_groups."""
     window = set(headline(opt, checks).rounds)
     if not window:
         return None
@@ -860,39 +1010,44 @@ def disagreeing_repeat(opt, checks, matches=None):
              if c.name == SCORE and c.fully_measured and c.round in window}
     if not ahead:
         return None
+    pool = opt.best_candidates()
+    if matches is None:
+        matches = _matches(opt, pool)
     best = None
-    for group in repeat_groups(opt, opt.best_candidates(), matches):
+    for group in repeat_groups(opt, pool, matches):
         first, *rest = sorted(group)
         for i in rest:
             c = ahead.get(int(opt.formulation_ids[i]))
             if c is None:
                 continue
-            # The half-width shown for that check, its I1 widening included.
-            half = Z95 * c.sd * c.widen if c.sd else (c.high - c.low) / 2
+            noise = getattr(c, "noise", None)
+            spread = repeat_sd(opt, SCORE, matches, (i,))
+            sigma, basis = repeat_sigma(noise, spread)
+            limit = math.sqrt(2) * Z95 * sigma
             d = float(opt.Y_history[i]) - float(opt.Y_history[first])
-            if abs(d) > math.sqrt(2) * half and (best is None or abs(d) > abs(best.diff)):
+            if abs(d) > limit and (best is None or abs(d) > abs(best.diff)):
                 best = Disagreement(int(opt.formulation_ids[i]),
-                                    int(opt.formulation_ids[first]), d, i,
-                                    math.sqrt(2) * half)
+                                    int(opt.formulation_ids[first]), d, i, limit,
+                                    sigma, basis, spread.df, noise, spread.sd)
     return best
 
 
 def noise_yardstick(opt, checks=(), name=SCORE):
-    """What a difference must beat to be more than chance (review I5): the
-    pooled sd between Repeats of `name`, a disagreeing Repeat left out,
-    from YARDSTICK_PAIRS pairs or more and at least REPEAT_SD_SHOWN; else 1
-    point for the Overall score (None for a measurement). Every rule that
-    asks "more than Repeats differ?" asks this. The disagreeing Repeat is
-    left out only when `checks` are handed in."""
-    flagged = disagreeing_repeat(opt, checks) if checks else None
-    spread = repeat_sd(opt, name, None, () if flagged is None else (flagged.row,))
+    """The noise SD a difference is judged by (review I5): the pooled sd
+    between Repeats of `name`, from YARDSTICK_DF degrees of freedom or more
+    and at least REPEAT_SD_SHOWN; else 1 point for the Overall score (None
+    for a measurement). Every rule that asks "more than Repeats differ?"
+    starts here; Rising also takes √2 and the Round's size into account
+    (rise_threshold). A disagreeing Repeat stays in (ftue fix A, cold read
+    I7: leaving it out biased the Repeat SD down), so `checks` no longer
+    change the answer and left_out is 0."""
+    spread = repeat_sd(opt, name, None)
     usable = (spread.sd is not None and spread.sd >= REPEAT_SD_SHOWN
-              and spread.pairs >= YARDSTICK_PAIRS)
+              and spread.df >= YARDSTICK_DF)
     fallback = 1.0 if name == SCORE else None
-    left_out = 0 if flagged is None else repeat_sd(opt, name, None).pairs - spread.pairs
     return Yardstick(spread.sd if usable else fallback, spread.sd, spread.pairs, usable,
-                     assumed=name == SCORE and spread.pairs < YARDSTICK_PAIRS,
-                     df=spread.df, groups=spread.groups, left_out=max(0, left_out))
+                     assumed=name == SCORE and spread.df < YARDSTICK_DF,
+                     df=spread.df, groups=spread.groups, left_out=0)
 
 
 def verdict_state(opt, h, checks):
@@ -1477,6 +1632,31 @@ class Improvement:
     rise: float | None      # the latest Round's best minus the Best so far before it
     sd: float | None        # the Overall score's spread between Repeats
     rounds: int             # Rounds since Best so far ("not_lately")
+    # Ftue fix A (cold read I6): what the rise is judged against,
+    # rise_threshold(noise SD, q), and q, the scored formulations of the
+    # latest Round the rise is the top of. None and 0 for "not_lately".
+    threshold: float | None = None
+    q: int = 0
+
+
+# The one-sided false-alarm rate of Rising (ftue fix A, cold read I6).
+RISE_ALPHA = 0.05
+
+
+def rise_z(q):
+    """z_q = Φ⁻¹((1 − RISE_ALPHA)^(1/q)): the one-sided normal quantile at
+    which the top of q results as good as the old best beats it by chance
+    with probability RISE_ALPHA (Šidák). 1.645 at q = 1, 2.23 at q = 4."""
+    return float(ndtri((1.0 - RISE_ALPHA) ** (1.0 / max(1, int(q)))))
+
+
+def rise_threshold(sd, q):
+    """What a rise must beat to read Rising (ftue fix A, cold read I6): the
+    noise SD × √2 (a difference of two results) × rise_z(q) (the top of q
+    new results). With 4 new formulations as good as the old best, Rising
+    then shows about 1 time in 20 by chance; against one noise SD it
+    showed about 1 time in 2."""
+    return sd * math.sqrt(2) * rise_z(q)
 
 
 # A spread between Repeats under this reads 0.0 on screen, so the tab
@@ -1493,17 +1673,20 @@ def improvement(opt, facts=None, spread=None, yardstick=None):
     - Not lately: no higher score in the last 2 or more Rounds.
     - When Best so far came from the latest Round, the rise is its score
       minus the Best so far before that Round: Barely when it is below
-      the Overall score's spread between Repeats (1 point without Repeats,
-      or with a spread under REPEAT_SD_SHOWN), Yes otherwise. Both are
-      compared to the hundredth, as the answer can print them, so its
-      words never contradict its numbers.
+      rise_threshold(noise SD, q) (ftue fix A, cold read I6), Yes
+      otherwise. The noise SD is the Overall score's spread between
+      Repeats (1 point without Repeats, or with a spread under
+      REPEAT_SD_SHOWN); q is how many scored formulations the latest Round
+      has, the rise being the top of them. Both are compared to the
+      hundredth, as the answer can print them, so its words never
+      contradict its numbers.
     - Anything else (one Round only, or no higher score in just the
       Round since): None, and Best so far's own line says it.
 
     `facts` and `spread`: best_facts(opt) and repeat_sd(opt, SCORE), when
     the caller has them already. `yardstick` (noise_yardstick, spec
     2026-09-30 review I5), when given, replaces `spread`: the spread
-    between Repeats counts only from YARDSTICK_PAIRS pairs, else 1 point."""
+    between Repeats counts only from YARDSTICK_DF df, else 1 point."""
     f = best_facts(opt) if facts is None else facts
     if f is None:
         return None
@@ -1522,9 +1705,10 @@ def improvement(opt, facts=None, spread=None, yardstick=None):
     if not earlier:
         return None
     rise = f.score - max(earlier)
-    threshold = sd if sd is not None else 1.0
+    q = sum(1 for i in opt.best_candidates() if opt.batch_history[i] == f.round)
+    threshold = rise_threshold(sd if sd is not None else 1.0, q)
     barely = round(rise, 2) < round(threshold, 2)
-    return Improvement("barely" if barely else "yes", rise, sd, 0)
+    return Improvement("barely" if barely else "yes", rise, sd, 0, threshold, q)
 
 
 def _same(opt, a, b):
@@ -2771,7 +2955,7 @@ def allowed_misses(n):
 
 # The guard's triggers (review I3): the correlation length within this
 # factor of its lower limit; the fitted noise below this share of the
-# Repeat SD (from YARDSTICK_PAIRS pairs).
+# Repeat SD (from YARDSTICK_DF degrees of freedom).
 GUARD_FLOOR = 1.05
 GUARD_NOISE = 0.5
 # A kernel whose own lower limit is 0 (an expert's Matern or RBF, gpytorch's
@@ -2861,7 +3045,7 @@ def noise_guard(opt, fitted, checks=(), name=SCORE, fact=None):
     """Whether the display model of `name` is likely fitting noise (review
     I3): (a) its correlation length at its lower limit; (b) its fitted
     noise sd below GUARD_NOISE × the Repeat SD of `name`, from
-    YARDSTICK_PAIRS pairs or more, never under fixed_tiny; (c) for the
+    YARDSTICK_DF df or more, never under fixed_tiny; (c) for the
     Overall score only, the A3 skill gate (0.8.0 e2e fixes, review I4):
     fewer than SKILL_MIN checks, or skill under SKILL_SMALL — said as
     "not reported until…", never as "fitting noise" (`fact`: skill() when
@@ -2878,7 +3062,7 @@ def noise_guard(opt, fitted, checks=(), name=SCORE, fact=None):
         sd = None if tiny else fitted_noise_sd(gp)
         # The yardstick only when there is a fitted noise to judge (T2 m-5).
         yard = None if sd is None else noise_yardstick(opt, checks, name)
-        if (yard is not None and yard.sd and yard.pairs >= YARDSTICK_PAIRS
+        if (yard is not None and yard.sd and yard.df >= YARDSTICK_DF
                 and sd < GUARD_NOISE * yard.sd):
             reasons.append("noise")
     gate = None

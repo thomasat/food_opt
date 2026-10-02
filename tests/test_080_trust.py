@@ -53,7 +53,7 @@ def test_from_three_pairs_the_yardstick_is_the_repeats_sd():
     opt = _with_repeats()
     y = insights.noise_yardstick(opt)
     spread = insights.repeat_sd(opt, insights.SCORE)
-    assert spread.pairs >= insights.YARDSTICK_PAIRS
+    assert spread.df >= insights.YARDSTICK_DF
     assert (y.value, y.sd, y.from_repeats) == (spread.sd, spread.sd, True)
 
 
@@ -86,14 +86,16 @@ def _pair(later_score_gap):
 
 
 def test_a_repeat_beyond_root_two_half_widths_is_named():
-    opt, checks = _pair(-10.0)                  # √2 × 1.96 × 2 = 5.54
+    # Ftue fix A (cold read I7): √2 × 1.96 × σ, σ the assumed 1 point here
+    # (no fitted noise on the check, no other Repeat): 2.77.
+    opt, checks = _pair(-10.0)
     d = insights.disagreeing_repeat(opt, checks)
     assert (d.later, d.earlier, d.row) == (5, 1, 4)
     assert d.diff == pytest.approx(-10.0)
 
 
 def test_a_repeat_within_root_two_half_widths_is_not():
-    opt, checks = _pair(-5.0)
+    opt, checks = _pair(-2.7)                   # under 2.77 (ftue fix A, I7)
     assert insights.disagreeing_repeat(opt, checks) is None
 
 
@@ -147,12 +149,15 @@ def test_of_two_disagreeing_repeats_in_two_groups_the_larger_is_named(gaps):
 
 
 def test_the_disagreeing_repeat_is_left_out_of_the_yardstick():
+    """Ftue fix A (cold read I7) reverses this: leaving the flagged pair out
+    biased the Repeat SD down, so it stays in, for every output."""
     opt, checks = _pair(-10.0)
+    assert insights.disagreeing_repeat(opt, checks) is not None
     assert insights.noise_yardstick(opt).pairs == 1
-    assert insights.noise_yardstick(opt, checks).pairs == 0
-    # A measurement's yardstick leaves it out too (review I5: every rule).
+    assert insights.noise_yardstick(opt, checks).pairs == 1
+    assert insights.noise_yardstick(opt, checks).left_out == 0
     assert insights.noise_yardstick(opt, name="Firmness").pairs == 1
-    assert insights.noise_yardstick(opt, checks, name="Firmness").pairs == 0
+    assert insights.noise_yardstick(opt, checks, name="Firmness").pairs == 1
 
 
 # ------------------------------------------------------------------ #
@@ -338,14 +343,22 @@ def test_barely_is_judged_against_one_point_under_three_pairs():
 
 
 def test_barely_uses_the_repeats_sd_from_three_pairs():
+    """Ftue fix A (cold read I6): against the Repeat SD × √2 × z_3 (Round 2
+    has 3 formulations): 0.3 × 3.00 = 0.90. A rise of 0.5 is within noise,
+    1.0 is Rising."""
     opt = _patty(rows=6)
-    yard = insights.Yardstick(0.3, 0.3, 4, True)
+    yard = insights.Yardstick(0.3, 0.3, 4, True, df=4)
     f = insights.BestFacts(71.0, 6, 2, 0, True, [])
     for i in opt.best_candidates():
         if opt.batch_history[i] != 2:
             opt.Y_history[i] = 70.5
     a = insights.improvement(opt, f, yardstick=yard)
-    assert (a.state, a.sd) == ("yes", 0.3)
+    assert (a.state, a.sd, a.q) == ("barely", 0.3, 3)
+    assert a.threshold == pytest.approx(0.9, abs=0.01)
+    for i in opt.best_candidates():
+        if opt.batch_history[i] != 2:
+            opt.Y_history[i] = 70.0
+    assert insights.improvement(opt, f, yardstick=yard).state == "yes"
 
 
 def test_details_compare_like_with_like_and_show_the_widening():
@@ -367,6 +380,8 @@ def test_details_leave_a_disagreeing_repeat_out_of_every_output():
     opt, checks = _pair(-10.0)
     flagged = insights.disagreeing_repeat(opt, checks)
     rows = {r.name: r for r in insights.details(opt, checks, flagged=flagged)}
-    assert rows["Firmness"].pairs == 0 and rows[insights.SCORE].pairs == 0
+    # Ftue fix A (cold read I7): the flagged pair now stays in every output.
+    assert rows["Firmness"].pairs == 1 and rows[insights.SCORE].pairs == 1
+    assert rows["Firmness"].left_out == 0
     kept = {r.name: r for r in insights.details(opt, checks)}
     assert kept["Firmness"].pairs == 1 and kept[insights.SCORE].pairs == 1
