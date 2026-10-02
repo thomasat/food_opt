@@ -17,6 +17,7 @@ import ui_insights
 import wording
 from tests.test_app_ui import APP_PATH
 from tests.test_insights import _burger
+from tests.demo_build_reason import REMOVED_CHART
 
 
 @pytest.fixture(autouse=True)
@@ -294,6 +295,7 @@ def test_the_progress_fold_is_worked_out_only_when_open(monkeypatch):
     assert calls == [] and not _specs(_progress(at))
 
 
+@pytest.mark.skip(reason=REMOVED_CHART)
 def test_the_fold_shows_the_expected_improvement_by_round():
     opt = _open_round()
     at = _again(_insights(opt, **{ui_insights.PROGRESS_KEY: True}))
@@ -313,6 +315,7 @@ def test_the_fold_shows_the_expected_improvement_by_round():
     assert rounds == [3, 4, opt.pending_batch_no]
 
 
+@pytest.mark.skip(reason=REMOVED_CHART)
 def test_under_the_guard_the_fold_keeps_best_so_far_only(monkeypatch):
     """T56 I4: no heading, chart or caption for a withheld figure; Best so
     far is charted once, above."""

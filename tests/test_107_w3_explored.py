@@ -33,6 +33,7 @@ from tests.test_104_speed_robust_charts import PAGES, _contrast_on
 from tests.test_app_ui import APP_PATH
 from tests.test_chart_hygiene import _assert_tooltips_clean
 from tests.test_insights import _burger
+from tests.demo_build_reason import REMOVED_CHART
 
 
 @pytest.fixture(autouse=True)
@@ -311,6 +312,7 @@ def test_with_no_round_open_the_last_round_the_model_chose():
 #  The chart: suggestions marked, waiting hollow, colours, privacy
 # ------------------------------------------------------------------ #
 
+@pytest.mark.skip(reason=REMOVED_CHART)
 def test_the_suggestions_are_marked_and_waiting_is_hollow():
     opt = D.load(D.LINE_A)
     spec = ui_insights.strips_chart(opt, _strips(opt)).to_dict()
@@ -335,6 +337,7 @@ def test_the_suggestions_are_marked_and_waiting_is_hollow():
     assert dict(zip(shape["domain"], shape["range"]))[wording.STRIP_SUGGESTED] == "triangle-down"
 
 
+@pytest.mark.skip(reason=REMOVED_CHART)
 def test_the_tooltip_reads_amount_formulation_round_and_score():
     opt = D.load(D.LINE_A)
     spec = ui_insights.strips_chart(opt, [s for s in _strips(opt)
@@ -352,6 +355,7 @@ def test_the_tooltip_reads_amount_formulation_round_and_score():
     assert next(r for r in rows if r["no"] == 19)["score_text"].startswith("waiting for")
 
 
+@pytest.mark.skip(reason=REMOVED_CHART)
 @pytest.mark.parametrize("which", ["light", "dark"])
 def test_every_strip_colour_reaches_3_to_1(monkeypatch, which):
     monkeypatch.setattr(ui_insights, "theme", lambda: which)
@@ -375,6 +379,7 @@ def test_every_strip_colour_reaches_3_to_1(monkeypatch, which):
             assert _contrast_on(mk["color"], 1.0, PAGES[which]) >= 4.5
 
 
+@pytest.mark.skip(reason=REMOVED_CHART)
 @pytest.mark.parametrize("which", ["light", "dark"])
 def test_the_suggestion_triangles_reach_3_to_1(monkeypatch, which):
     monkeypatch.setattr(ui_insights, "theme", lambda: which)
@@ -385,6 +390,7 @@ def test_the_suggestion_triangles_reach_3_to_1(monkeypatch, which):
             assert _contrast_on(_mark(m)["color"], 1.0, PAGES[which]) >= 3.0
 
 
+@pytest.mark.skip(reason=REMOVED_CHART)
 def test_the_latest_round_is_the_strongest_and_tallest():
     assert ui_insights._SIZES[wording.STRIP_LATEST] > ui_insights._SIZES[wording.STRIP_TESTED]
     for which in ("light", "dark"):
@@ -416,6 +422,7 @@ def test_every_chart_in_the_fold_goes_through_the_privacy_wrapper(monkeypatch):
 #  Process settings alone, and a choice row
 # ------------------------------------------------------------------ #
 
+@pytest.mark.skip(reason=REMOVED_CHART)
 def test_a_study_of_process_settings_alone():
     opt = D.load(D.PROCESS_ONLY)
     strips = _strips(opt)
@@ -448,6 +455,7 @@ def _with_a_choice():
     return opt
 
 
+@pytest.mark.skip(reason=REMOVED_CHART)
 def test_a_choice_row_is_a_count_bar_and_an_untested_option_is_named():
     opt = _with_a_choice()
     strips = insights.tested_strips(opt)

@@ -61,7 +61,7 @@ def _plain(text):
 
 def _status_line(at):
     lines = [c.value for c in at.tabs[BATCH].caption
-             if _plain(c.value).startswith("Last Round")]
+             if _plain(c.value).startswith("Review:")]
     assert len(lines) <= 1, lines
     return lines[0] if lines else None
 

@@ -7481,6 +7481,11 @@ def tip_chooses_off_line(no):
 PAIR_FOLD = "Two measurements"
 
 
+# Demo build: the Explored fold holds the triangle alone (its colours are
+# the suggestion model's predictions; the tooltip says which model).
+BASIS_TRIANGLE = "Basis: the suggestion model."
+
+
 def basis_charts(values=False, total=True):
     """The fold's first line with the four charts (was basis_explored)."""
     at = "at the values run" if values else "at the Formulation total" if total else "as made"
@@ -8035,11 +8040,15 @@ REVIEW_ROUND_HELP = (f"Opens {TAB_INSIGHTS}: can you trust the predictions, is B
 OPEN_REVIEW = "Open Review"
 
 
+REVIEW_STATUS_PREFIX = "Review"
+
+
 def review_status_line(predictions, progress, extra=None):
-    """Make a round's line, the cards' own words: 'Last Round: Predictions
-    **Reliable** · Progress **Flat**'; `extra`, the Next card's word when
-    it is a warning ('Check panel first')."""
-    line = (f"Last {ROUND_CAP}: {CARD_PREDICTIONS} **{predictions}** · "
+    """Make a round's line, the cards' own words: 'Review: Predictions
+    **Reliable** · Progress **Flat**' (owner, 2026-10-02: "Review:", not
+    "Last Round:", for the verdict covers several recent Rounds); `extra`,
+    the Next card's word when it is a warning ('Check panel first')."""
+    line = (f"{REVIEW_STATUS_PREFIX}: {CARD_PREDICTIONS} **{predictions}** · "
             f"{CARD_PROGRESS} **{progress}**")
     return line + (f" · **{extra}**" if extra else "")
 
@@ -8049,7 +8058,7 @@ def review_status_warn(line):
     return f":red[{line}]"
 
 
-REVIEW_STATUS_CHECKING = f"Last {ROUND_CAP}: {CHECKING_PREDICTIONS}"
+REVIEW_STATUS_CHECKING = f"{REVIEW_STATUS_PREFIX}: {CHECKING_PREDICTIONS}"
 REVIEW_STATUS_HELP = (f"The {TAB_INSIGHTS} cards in brief. Predictions: can you trust them? "
                       "Progress: is Best so far still rising?")
 
@@ -8150,6 +8159,14 @@ def plot_caption_triangle(layer=None):
 # Withheld, at most 10 words.
 PLOT_GAIN_WITHHELD = "Expected gain chart hidden: predictions not yet reliable."
 PLOT_TOO_FEW_LINES = f"Lines appear once a {FORMULATION} is recorded."
+
+
+def at_limit_fact(name, end):
+    """Try one's answer line when the choice is already at a limit (demo
+    build, owner 2026-10-02): 'Tap water: already at its Highest', so the
+    largest local effect is not read as advice; agrees with
+    path_head_at_limit, the chart's heading."""
+    return f"{name}: already at its {end}"
 
 
 def path_head_at_limit(name, end, amount_text):

@@ -1272,7 +1272,6 @@ def _setup_button(change):
         go_to_tab(TAB_SETUP, section=SETUP_CALLOUT_SLOT)
 
 
-
 # ------------------------------------------------------------------ #
 #  Insights for a first-time user (spec 2026-10-01 rev. 2), W1: the three
 #  status lines (review R-B1, R-I5, R-I9, R-I10, M1, M7, M10) and the one
@@ -2236,11 +2235,13 @@ def _near_answer(opt, found, from_best, number, fitted, recipe, yard, start_text
         if (second is not None and second.near is not None
                 and second.near >= insights.NEAR_TIE * top.near):
             st.markdown(_say(opt, wording.near_two(top.name, second.name, f"{top.near:.1f}",
-                                                   f"{second.near:.1f}", start)),
+                                                   f"{second.near:.1f}", start)
+                             + _limit_facts(opt, recipe, (top.name, second.name))),
                         help=_say(opt, wording.tip_local_effect(settings_only)))
         else:
             st.markdown(_say(opt, wording.near_line(top.name, f"{top.near:.1f}", start,
-                                                    only=len(moved) == 1)),
+                                                    only=len(moved) == 1)
+                             + _limit_facts(opt, recipe, (top.name,))),
                         help=_say(opt, wording.tip_local_effect(settings_only)))
         if top.whole > top.near + _FLAT:
             st.markdown(_say(opt, wording.near_bigger(values=insights.is_setting(opt, top.name))))
@@ -2415,21 +2416,42 @@ def _shared_decimals(values):
     return min(2, decimals)
 
 
-def path_at_limit(opt, path):
-    """"Highest" or "Lowest" when the path's start sits within 1 % of the
-    span from that limit of its row, else None (review plots)."""
+def limit_end(opt, name, amount):
+    """"Highest" or "Lowest" when `amount` sits within 1 % of the span from
+    that limit of row `name`, else None (review plots)."""
     try:
-        lo, hi = (float(b) for b in insights._var(opt, path.name)['bounds'])
+        lo, hi = (float(b) for b in insights._var(opt, name)['bounds'])
+        amount = float(amount)
     except Exception:
         return None
     span = hi - lo
     if span <= 0:
         return None
-    if path.start_amount >= hi - 0.01 * span:
+    if amount >= hi - 0.01 * span:
         return "Highest"
-    if path.start_amount <= lo + 0.01 * span:
+    if amount <= lo + 0.01 * span:
         return "Lowest"
     return None
+
+
+def path_at_limit(opt, path):
+    """The path's start at a limit of its row (limit_end): Try one's chart
+    heading, which the answer line above it agrees with (_limit_facts)."""
+    return limit_end(opt, path.name, path.start_amount)
+
+
+def _limit_facts(opt, recipe, names):
+    """Demo build (owner, 2026-10-02): the answer line names an effect, not
+    advice, when its choice is already at a limit at the start: ' Tap water:
+    already at its Highest.' per such choice; '' otherwise."""
+    if not recipe:
+        return ""
+    out = []
+    for name in names:
+        end = limit_end(opt, name, recipe.get(name)) if name in recipe else None
+        if end is not None:
+            out.append(f" {wording.at_limit_fact(name, end)}.")
+    return "".join(out)
 
 
 def _path_head(opt, path):
@@ -2538,15 +2560,15 @@ def _stand_first(opt, yard):
 
 
 def _progress_fold(opt):
-    """The Progress chart fold (review M8): Best so far by formulation, then
-    Expected improvement by Round — worked out only once the fold is open
+    """The Progress chart fold (review M8): Best so far by formulation (the
+    demo build dropped Expected gain by Round) — worked out only once the fold is open
     (binding I15), and only from what the tab has worked out already."""
     with st.expander(_say(opt, wording.FOLD_PROGRESS_CHART), key=PROGRESS_KEY,
                      on_change="rerun") as fold:
         if not fold.open:
             return
+        # Demo build: Expected gain by Round is gone (it repeated the hero).
         _progress_chart_body(opt)
-        _gain_chart_body(opt)
 
 
 def gain_frame(history):
@@ -2604,35 +2626,6 @@ def gain_chart(opt, history, model_free=False):
     # One Round axis for both panels (T56 m1): a Round with no bar keeps
     # its place.
     return titled(alt.vconcat(top, bars).resolve_scale(x="shared"), _say(opt, wording.PLOT_GAIN))
-
-
-def _gain_chart_body(opt):
-    """Expected improvement by Round in the Progress chart fold: from the
-    checks and models already worked out (the memo's Round-ahead models, so
-    a recomputed Round costs no fit, review I10); nothing before they are."""
-    computed = _cached(opt)
-    if computed is None or computed.get("failed") or bo_views.acquisition(opt) == "qucb":
-        return
-    checks = computed["checks"]
-    h = insights.headline(opt, checks)
-    trusted = (insights.verdict_state(opt, h, checks) not in ("caution", "unreliable")
-               and not _model_guard(opt, computed["fitted"]).fires)
-    if not trusted:
-        # Nothing to add under a caution or unreliable verdict, a no-skill
-        # record or the noise guard: Best so far is charted just above.
-        # Review plots: the withheld chart says why, in its place.
-        st.caption(_say(opt, wording.PLOT_GAIN_WITHHELD))
-        return
-    try:
-        with insights.memo_in_use(memo(opt)):
-            history = bo_views.round_history(opt)
-    except Exception:
-        return
-    chart = gain_chart(opt, history)
-    if chart is None:
-        return
-    show_chart(chart)
-    st.caption(_say(opt, wording.PLOT_CAPTION_GAIN), help=_say(opt, wording.GAIN_CHART_CAPTION))
 
 
 def _stand_lines(opt, yard):
@@ -3274,7 +3267,6 @@ _MIX_SIZE = 380          # px, the longer side of the drawn region plus its pad:
 _MIX_PAD = 0.12          # of the region's longer side, around it for the labels
 
 
-
 def _keep_all_offered(key, options):
     """A multiselect's picks, minus any no longer offered (a deletion or a
     Set up change), before the box is drawn."""
@@ -3767,7 +3759,6 @@ def layer_model(opt, fitted):
         return bo_views.rebuild(opt, gen, score if gen.rows == rows else None)
 
 
-
 # ------------------------------------------------------------------ #
 #  Insights for a first-time user (spec 2026-10-01 rev. 2), W3: the
 #  "Explored and unexplored" fold (§8, review R-I14 to R-I16). T0 stubs with
@@ -3785,36 +3776,12 @@ _EXPLORED_ROWS = ("explore", "untested")
 # At most this many limit-hit lines (R-I15 counts them; the screen stays sparse).
 _LIMIT_LINES = 2
 
-# The strips' Round colours (§8.1): a ramp from the first Round to the
-# latest, each stop at least 3:1 on its theme's page (WCAG 1.4.11), the
-# latest the strongest. Light: #5b8ec9 is 3.4:1 on white, #0b2e59 13.6:1.
-# Dark: #3d6fa8 is 3.6:1 on #0e1117, #dbe9f8 15.3:1.
-_ROUND_RAMP = {"light": ("#5b8ec9", "#0b2e59"), "dark": ("#3d6fa8", "#dbe9f8")}
-# The reachable part's shading: a region under the ticks, as _FILLS.
-_REACH_FILL = {"light": ("#c6d4e6", 1.0), "dark": ("#2c3a4f", 1.0)}
-# The marks' shapes: a tick (a vertical line), a taller one for the latest
-# Round, a ring for waiting or Not scored, a triangle for a suggestion.
-_TICK = "M0,-1L0,1"
-_SHAPES = {wording.STRIP_TESTED: _TICK, wording.STRIP_LATEST: _TICK,
-           wording.STRIP_WAITING: "circle", wording.STRIP_SUGGESTED: "triangle-down"}
-_SIZES = {wording.STRIP_TESTED: 160, wording.STRIP_LATEST: 420,
-          wording.STRIP_WAITING: 50, wording.STRIP_SUGGESTED: 70}
-
 
 def _mix(a, b, t):
     """The colour a share `t` of the way from hex `a` to hex `b`."""
     ca = [int(a[k:k + 2], 16) for k in (1, 3, 5)]
     cb = [int(b[k:k + 2], 16) for k in (1, 3, 5)]
     return "#" + "".join(f"{round(x + t * (y - x)):02x}" for x, y in zip(ca, cb))
-
-
-def round_colours(n, which=None):
-    """`n` Round colours, the first Round's to the latest's (the latest the
-    strongest), in the reader's theme or `which`."""
-    a, b = _ROUND_RAMP[which or theme()]
-    if n <= 1:
-        return [b] * max(n, 0)
-    return [_mix(a, b, k / (n - 1)) for k in range(n)]
 
 
 def _round_label(r):
@@ -3897,163 +3864,6 @@ def limit_hit_lines(opt, hits=None):
                 else wording.limit_named(b.text))
         out.append(wording.limit_hit_line(h.hits, h.picks, h.round, text))
     return out
-
-
-def _strip_kind(tick):
-    if tick.state == "suggested":
-        return wording.STRIP_SUGGESTED
-    if tick.state in ("waiting", "not_scored"):
-        return wording.STRIP_WAITING
-    return wording.STRIP_LATEST if tick.latest else wording.STRIP_TESTED
-
-
-def _tick_score(opt, tick):
-    """The tooltip's Overall score: two decimals, or what the formulation
-    is waiting for, Not scored, or "This Round's suggestion"."""
-    if tick.state == "tested":
-        return f"{tick.score:.2f}"
-    if tick.state == "suggested":
-        return wording.STRIP_SUGGESTED
-    if tick.state == "not_scored":
-        return wording.NOT_SCORED
-    i = opt.index_of_formulation(tick.formulation)
-    return wording.waiting_for(number_list(opt.waiting_on(i) if i is not None else []))
-
-
-def _strip_frame(opt, strip):
-    return pd.DataFrame([{"value": t.value, "value_text": _strip_number(opt, strip, t.value),
-                          "no": t.formulation, "round": _round_label(t.round),
-                          "score_text": _tick_score(opt, t), "mark": _strip_kind(t)}
-                         for t in strip.ticks],
-                        columns=["value", "value_text", "no", "round", "score_text", "mark"])
-
-
-def _strip_title(strip):
-    return f"{strip.name} ({strip.unit})" if strip.unit else strip.name
-
-
-def _option_chart(opt, strips, colour):
-    """The choice rows: one bar per option, the times it was tested."""
-    df = pd.DataFrame([{"row": s.name, "option": o, "n": n, "which": f"{s.name}: {o}"}
-                       for s in strips for o, n in s.options.items()])
-    tip = [alt.Tooltip("which:N", title=_say(opt, wording.INGREDIENT_OR_SETTING)),
-           alt.Tooltip("n:Q", title=_say(opt, wording.STRIP_COUNT), format="d")]
-    return (alt.Chart(df).mark_bar(color=colour, opacity=1)
-            .encode(x=alt.X("n:Q", title=_say(opt, wording.STRIP_COUNT),
-                            axis=alt.Axis(tickMinStep=1, format="d")),
-                    y=alt.Y("option:N", title=None, sort=None),
-                    row=alt.Row("row:N", title=None, sort=[s.name for s in strips],
-                                header=alt.Header(labelAngle=0, labelAlign="left",
-                                                  labelAnchor="start")),
-                    tooltip=tip)
-            .properties(height=alt.Step(18)))
-
-
-def _share(strip, v):
-    """Where `v` sits along the strip, 0 at its Lowest, 1 at its Highest."""
-    span = strip.high - strip.low
-    return 0.5 if span <= 0 else min(1.0, max(0.0, (float(v) - strip.low) / span))
-
-
-def _numeric_strips(opt, strips, labels, colours):
-    """The numeric strips as one chart (so it takes the column's width):
-    one band per row, its Lowest–Highest across (written at its ends),
-    the reachable part shaded, the formulations as marks."""
-    rows = [_strip_title(s) for s in strips]
-    present = {_strip_kind(t) for s in strips for t in s.ticks}
-    kinds = [k for k in _SHAPES if k in present]
-    shape = alt.Scale(domain=kinds or [wording.STRIP_TESTED],
-                      range=[_SHAPES[k] for k in kinds] or [_TICK])
-    size = alt.Scale(domain=kinds or [wording.STRIP_TESTED],
-                     range=[_SIZES[k] for k in kinds] or [_SIZES[wording.STRIP_TESTED]])
-    stroke = alt.Scale(domain=labels or [""], range=colours or [mark("neutral")[0]])
-    grey, grey_o = mark("neutral")
-    fill, fill_o = _REACH_FILL[theme()]
-    value_title = _say(opt, wording.strip_value_title(not opt.has_ingredients()))
-    tips = [alt.Tooltip("value_text:N", title=value_title),
-            alt.Tooltip("no:Q", title=_say(opt, wording.FORMULATION_CAP), format="d"),
-            alt.Tooltip("round:N", title=wording.ROUND_CAP),
-            alt.Tooltip("score_text:N", title=_say(opt, wording.OVERALL_SCORE_COLUMN))]
-    y = alt.Y("row:N", sort=rows, title=None,
-              scale=alt.Scale(paddingInner=0.25, paddingOuter=0.1),
-              axis=alt.Axis(ticks=False, domain=False, labelLimit=260, labelFontSize=12))
-    x = alt.X("t:Q", scale=alt.Scale(domain=[-0.01, 1.01], nice=False, zero=False), axis=None)
-    bands, ends, made, picks = [], [], [], []
-    for s, row in zip(strips, rows):
-        lo, hi = s.reach if s.reach is not None else (s.low, s.high)
-        number = lambda v, _s=s: _strip_number(opt, _s, v)
-        bands.append({"row": row, "t": _share(s, lo), "t2": _share(s, hi),
-                      "reach": range_text(lo, hi, lambda v, _s=s: _strip_number(opt, _s, v, False))
-                      + (f" {s.unit}" if s.unit else "")})
-        ends += [{"row": row, "t": 0.0, "label": number(s.low), "end": "low"},
-                 {"row": row, "t": 1.0, "label": number(s.high), "end": "high"}]
-        for _, r in _strip_frame(opt, s).iterrows():
-            item = dict(r, row=row, t=_share(s, r["value"]))
-            (picks if r["mark"] == wording.STRIP_SUGGESTED else made).append(item)
-    bands = pd.DataFrame(bands)
-    ends = pd.DataFrame(ends)
-    muted_c = _MUTED_DARK if theme() == "dark" else _MUTED_LIGHT
-    layers = [
-        alt.Chart(bands).mark_bar(height=12, color=fill, opacity=fill_o)
-        .encode(x=x, x2="t2:Q", y=y,
-                tooltip=[alt.Tooltip("reach:N", title=_say(opt, wording.STRIP_REACHABLE))]),
-        alt.Chart(bands.assign(t=0.0, t2=1.0)).mark_bar(height=2, color=grey, opacity=grey_o,
-                                                        tooltip=False)
-        .encode(x=x, x2="t2:Q", y=y),
-        alt.Chart(ends[ends["end"] == "low"]).mark_text(
-            align="left", baseline="top", dy=12, fontSize=10, color=muted_c, tooltip=False)
-        .encode(x=x, y=y, text="label:N"),
-        alt.Chart(ends[ends["end"] == "high"]).mark_text(
-            align="right", baseline="top", dy=12, fontSize=10, color=muted_c, tooltip=False)
-        .encode(x=x, y=y, text="label:N"),
-    ]
-    if made:
-        layers.append(
-            alt.Chart(pd.DataFrame(made)).mark_point(filled=False, strokeWidth=2, opacity=1)
-            .encode(x=x, y=y,
-                    shape=alt.Shape("mark:N", scale=shape,
-                                    legend=alt.Legend(title=None, orient="bottom",
-                                                      labelLimit=0, symbolStrokeWidth=2,
-                                                      symbolStrokeColor=muted_c)),
-                    size=alt.Size("mark:N", scale=size, legend=None),
-                    stroke=alt.Stroke("round:N", scale=stroke,
-                                      legend=alt.Legend(title=wording.ROUND_CAP, orient="bottom",
-                                                        direction="horizontal",
-                                                        columns=min(12, max(1, len(labels))))),
-                    tooltip=tips))
-    if picks:
-        layers.append(
-            alt.Chart(pd.DataFrame(picks)).mark_point(filled=True, color=outline_colour(),
-                                                      opacity=1, yOffset=-11)
-            .encode(x=x, y=y, shape=alt.Shape("mark:N", scale=shape),
-                    size=alt.Size("mark:N", scale=size, legend=None), tooltip=tips))
-    return alt.layer(*layers).properties(height=alt.Step(46))
-
-
-def strips_chart(opt, strips):
-    """W3 (§8.1, review R-I15): one horizontal strip per insights.Strip, its
-    Lowest–Highest across, the reachable part shaded; a tick per recorded
-    formulation at its amount, coloured by Round (the latest the strongest
-    and tallest), a ring while it waits or is Not scored, a triangle above
-    for each of the open Round's suggestions; the choice rows as count
-    bars. Every colour at least 3:1 on its theme's page. Drawn through
-    show_chart by the caller. None without a strip."""
-    if not strips:
-        return None
-    rounds = sorted({t.round for s in strips for t in s.ticks if t.state != "suggested"},
-                    key=lambda r: (r is not None, r or 0))
-    labels = [_round_label(r) for r in rounds]
-    colours = round_colours(len(labels))
-    numeric = [s for s in strips if s.options is None]
-    choices = [s for s in strips if s.options is not None]
-    charts = []
-    if numeric:
-        charts.append(_numeric_strips(opt, numeric, labels, colours))
-    if choices:
-        charts.append(_option_chart(opt, choices, round_colours(1)[0]))
-    if len(charts) == 1:
-        return charts[0]
-    return alt.vconcat(*charts, spacing=16).resolve_scale(x="independent", y="independent")
 
 
 def explore_map_chart(pool_mean, pool_sd, tested, picks, ref=None, opt=None):
@@ -4174,48 +3984,6 @@ def _map_model(opt, fitted):
     return model
 
 
-def _explored_map(opt, computed):
-    """§8.2: the map, its plain title and reading, under the withhold rule
-    of R-I16."""
-    if opt.complete_count() < insights.MIN_ROWS:
-        st.caption(_say(opt, wording.MAP_COLD))
-        return
-    if computed is None:
-        # The Prediction check is still being calculated: the rule waits for it.
-        st.caption(_say(opt, wording.CHECKING_PREDICTIONS))
-        return
-    if computed.get("failed"):
-        st.caption(_say(opt, wording.CHART_FAILED))
-        return
-    fitted = computed["fitted"]
-    score = fitted.get(insights.SCORE)
-    rule = explore_withheld(opt, score, computed["checks"])
-    if rule == "hidden":
-        st.caption(_say(opt, wording.MAP_HIDDEN), help=tooltip_for(opt, "map"))
-        return
-    values = bo_views.map_values(opt, suggestion_model(opt, fitted))
-    if values is None or values.pool_mean is None:
-        st.caption(_say(opt, wording.CHART_FAILED))
-        return
-    try:
-        ref = repeat_of_best(opt, fitted)
-    except Exception:
-        ref = None
-    tested = [{"mean": float(m), "sd": float(s), "no": n}
-              for m, s, n in zip(values.tested_mean.tolist(), values.tested_sd.tolist(),
-                                 values.tested)]
-    picks = [{"mean": m, "sd": s, "no": str(n)} for n, m, s in values.picks]
-    # Review plots: the title is the chart's own; the marks are in its
-    # legend; one short reading under it, the full one in its "?".
-    help_text = " ".join([_say(opt, wording.MAP_READING), tooltip_for(opt, "map"),
-                          _say(opt, wording.why_chart_caption_full(
-                              f"{len(values.pool_mean):,}", line=ref is not None))])
-    if rule == "not_yet":
-        st.caption(_say(opt, wording.MAP_NOT_YET))
-    show_chart(explore_map_chart(values.pool_mean, values.pool_sd, tested, picks, ref, opt))
-    st.caption(_say(opt, wording.PLOT_CAPTION_MAP), help=help_text)
-
-
 def _point_to_uncertainty():
     """The pointer's on_click: Try one opens, both layer radios open on
     Uncertainty the next time each is drawn (_layer_pick), the page lands
@@ -4266,18 +4034,27 @@ def explored_link(opt, step):
     return True
 
 
+def explored_offered(opt, computed):
+    """Demo build: the fold holds the triangle alone now, so it is drawn
+    only when the triangle can be (models fitted, three ingredients to
+    trade); otherwise it would be a caption and a pointer to Try one,
+    which sits right under it."""
+    if computed is None or computed.get("failed") or opt.complete_count() < insights.MIN_ROWS:
+        return False
+    if not opt.has_ingredients():
+        return False
+    try:
+        return len(insights.mixture_choices(opt)) >= 3
+    except Exception:
+        return False
+
+
 def _explored_body(opt, computed):
-    values = not opt.has_ingredients()
-    total = opt.has_formulation_total()
-    tip = tooltip_for(opt, "basis_explored")
-    st.caption(_say(opt, wording.basis_charts(values, total)), help=tip)
-    # Charts proto: 1. What you've tried (parallel coordinates; model-free,
-    # drawn whatever the checks say), 2. How the app chooses, 3. the
-    # triangle, 4. the map, then the pointer.
-    # Review cards: What you've tried is its own fold (tried_fold).
-    _chooses(opt, computed)
+    st.caption(_say(opt, wording.BASIS_TRIANGLE), help=tooltip_for(opt, "basis_explored"))
+    # Demo build (owner, 2026-10-02: less overwhelming): the triangle and
+    # the pointer only. How the app chooses is the hero's (its one-row mode
+    # is Try one's); the mean-sd map is Make a round's "Why these" alone.
     _triangle(opt, computed)
-    _explored_map(opt, computed)
     _explored_pointer(opt, computed)
 
 
@@ -4290,6 +4067,8 @@ def explored_fold(opt, computed):
     being calculated (and at the gate)."""
     # In a keyed place, the Explored link's landing (ftue fix C).
     # Review cards: inside More detail; the links land on What you've tried.
+    if not explored_offered(opt, computed):
+        return
     with st.expander(_say(opt, wording.FOLD_EXPLORED), key=EXPLORED_KEY,
                      on_change="rerun") as fold:
         if not fold.open:
@@ -4880,66 +4659,6 @@ def chooses_chart(opt, data, heights=(220, 130), compact=False):
         *rules(height_title=False),
     ).properties(height=heights[1])
     return alt.vconcat(top, bottom, spacing=8).resolve_scale(x="shared", color="independent")
-
-
-def _chooses(opt, computed):
-    """§2 of the fold: the title, its lead, the selector, the figure, the
-    one-line caption; the withheld reason under it."""
-    st.markdown(f"**{_say(opt, wording.CHOOSES_TITLE)}**")
-    if opt.complete_count() < insights.MIN_ROWS:
-        st.caption(_say(opt, wording.CHOOSES_COLD))
-        return
-    if computed is None:
-        st.caption(_say(opt, wording.CHECKING_PREDICTIONS))
-        return
-    if computed.get("failed"):
-        st.caption(_say(opt, wording.CHART_FAILED))
-        return
-    choices = insights.path_choices(opt)
-    best = opt.best_index()
-    if not choices or best is None:
-        st.caption(_say(opt, wording.change_none(settings_only=not opt.has_ingredients())))
-        return
-    fitted = computed["fitted"]
-    # Charts proto follow-up: the straight line from Best so far to this
-    # Round's first suggestion (else the predicted best) first; one row at
-    # a time second.
-    has_pick = _first_pick(opt) is not None
-    modes = [CHOOSES_LINE, CHOOSES_ONE]
-    _keep_if_offered(CHOOSES_MODE_KEY, modes)
-    mode = st.selectbox(_say(opt, wording.CHOOSES_MODE), modes, key=CHOOSES_MODE_KEY,
-                        format_func=lambda m: _say(opt, wording.chooses_mode_option(
-                            m == CHOOSES_LINE, has_pick, not opt.has_ingredients())))
-    name = None
-    if mode == CHOOSES_ONE:
-        _keep_if_offered(CHOOSES_KEY, choices)
-        if CHOOSES_KEY not in st.session_state:
-            st.session_state[CHOOSES_KEY] = chooses_default(opt)
-        name = st.selectbox(_say(opt, wording.INGREDIENT_OR_SETTING), choices, key=CHOOSES_KEY)
-    what = name or _say(opt, wording.CHOOSES_MODE)
-    try:
-        with st.spinner(_say(opt, wording.INSIGHTS_WORKING)):
-            data = chooses_data(opt, fitted, name, mode=mode)
-    except Exception:
-        data = None
-    if data is None:
-        st.caption(_say(opt, wording.panel_failed(what)))
-        return
-    chart = chooses_chart(opt, data)
-    if chart is None:
-        st.caption(_say(opt, wording.panel_failed(what)))
-        return
-    show_chart(chart)
-    st.caption(_say(opt, wording.CHOOSES_CAPTION),
-               help=_say(opt, wording.tip_chooses(data.best_no,
-                                                  settings_only=not opt.has_ingredients(),
-                                                  line=data.line, end=data.end_label)))
-    if data.reason is not None:
-        st.caption(_say(opt, wording.CHOOSES_WITHHELD),
-                   help=_say(opt, wording.tip_chooses_withheld(data.reason)))
-    if data.pick is not None and data.pick[1] is None:
-        st.caption(_say(opt, wording.CHOOSES_OFF_LINE),
-                   help=_say(opt, wording.tip_chooses_off_line(data.pick[0])))
 
 
 def _triangle(opt, computed):
@@ -5807,7 +5526,6 @@ def _glossary(opt):
     st.table(frame.set_index(columns[0]))
 
 
-
 # ------------------------------------------------------------------ #
 #  Review cards (prototype, 2026-10-01; owner: "a clearer, less wordy way
 #  to present the review"): three bordered cards side by side, each a
@@ -5875,8 +5593,12 @@ def predictions_card(opt, facts):
         # Ruling 2: the panel is named only with Repeat evidence; without
         # it, the neutral data request.
         vary, no = check
-        lines.append((wording.CARD_REPEATS_VARY, True) if vary is not None
-                     else (wording.card_noise_repeat(no), False))
+        if vary is not None:
+            lines.append((wording.CARD_REPEATS_VARY, True))
+        elif no is None or no != next_repeat_no(opt, facts):
+            # One action, one card (owner, 2026-10-02): the Next card's own
+            # Repeat request is not said twice.
+            lines.append((wording.card_noise_repeat(no), False))
     off = facts.predictions == "off"
     d = getattr(facts, "diagnosis", None)
     if off and facts.disagreement is not None:
@@ -5915,6 +5637,19 @@ def progress_card(opt, facts):
         if without:
             lines.append((wording.short_lack(*without).rstrip("."), True))
     return Card(word, lines)
+
+
+def next_repeat_no(opt, facts):
+    """The Formulation the Next card asks to repeat (its misses row's noise
+    check, or the assumed-gap Repeat), else None."""
+    step = facts.next
+    kind = None if step is None else step.kind
+    best = facts.best.formulation if facts.best is not None else None
+    if kind == "misses":
+        return best
+    if kind in _ASK_REPEAT and getattr(step, "assumed", False):
+        return best
+    return None
 
 
 def next_card(opt, facts):
@@ -6011,13 +5746,15 @@ def _card_body(opt, facts, which):
     st.subheader(word, anchor=False, help=card.help)
     for text, warn in card.lines:
         st.markdown(f":red[**{text}**]" if warn else text)
+    if which != "progress":
+        return              # demo build: the Progress card keeps the one sparkline
     try:
         chart = spark_chart(opt, facts, which)
     except Exception:       # a sparkline failing must not take the card down
         chart = None
     if chart is not None:
         show_chart(chart)
-    elif which in ("predictions", "progress"):
+    else:
         # Review plots: a withheld trend says why, never an empty space.
         st.caption(_say(opt, wording.PLOT_SPARK_WAIT))
 

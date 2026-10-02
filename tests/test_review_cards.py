@@ -76,9 +76,10 @@ EXPECTED = {
         "Where the app looks next", ["Suggestions go where expected gain peaks."]),
     D.PROCESS_ONLY: (
         "Based on 21 trials · Round 6 open",
-        # Review diagnosis ruling 2: as Line C, in the study's own word.
-        [("Predictions", "Not yet", ["Not clearly better than averaging",
-                                     "Repeat Trial 21 to check noise"]),
+        # Review diagnosis ruling 2 asks Line C's Repeat; here the Next card
+        # already asks for Trial 21, so Predictions does not (one action,
+        # one card: demo build).
+        [("Predictions", "Not yet", ["Not clearly better than averaging"]),
          ("Progress", "Within noise", ["Best 87.92 · +1.9 (needs 3.2)"]),
          ("Next", "Record Round 6", ["4 trials open", "Round 7: Repeat Trial 21"])],
         "How the app chose Round 6", ["Suggestions go where expected gain peaks.",

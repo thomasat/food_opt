@@ -36,7 +36,7 @@ _SIGNATURES = [
     (insights, "limit_hits", ["opt"]),
     (bo_views, "map_values", ["opt", "model"]),
     (ui_insights, "explored_fold", ["opt", "computed"]),
-    (ui_insights, "strips_chart", ["opt", "strips"]),
+    # demo build: strips_chart deleted (nothing drew it)
     (ui_insights, "explore_map_chart", ["pool_mean", "pool_sd", "tested", "picks", "ref", "opt"]),
 ]
 

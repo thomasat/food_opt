@@ -139,7 +139,7 @@ def test_the_opened_fold_explains_each_row(monkeypatch):
     # Ftue fix C: the picks marked · named by number; the plain recalculated line.
     assert wording.why_picked_after(numbers[1:]) in captions
     assert wording.WHY_RECALCULATED not in captions                      # exact
-    assert wording.why_chart_caption(f"{bo_views.POOL_SIZE:,}") in captions
+    assert wording.PLOT_CAPTION_MAP in captions        # demo build: the marks in the legend
     [chart] = [c for c in fold.children.values() if getattr(c, "type", "") == "vega_lite_chart"]
     spec = json.loads(chart.proto.spec)
     assert spec["usermeta"] == {"embedOptions": {"actions": False}}      # private

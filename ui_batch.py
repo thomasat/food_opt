@@ -328,7 +328,7 @@ def last_generate_count(opt):
 
 def _review_status(opt, due=None, lit=False):
     """Review guide: one line above the suggestions (or above Generate) in
-    the Review cards' own words — 'Last Round: Predictions Reliable ·
+    the Review cards' own words — 'Review: Predictions Reliable ·
     Progress Flat' — and the link "Open Review". Red when a card is (Off,
     Check panel first). Drawn while the workers fit as "Checking
     predictions…", so the line is there from the first draw and never moves
@@ -1372,10 +1372,13 @@ def _why_fold(opt, preds):
             # No map without a pool; the roles above never needed one.
             return
         ui_insights.show_chart(chart)
-        st.caption(wording.for_project(opt, wording.why_chart_caption(
-            f"{len(why.pool_mean):,}", line=ref is not None)),
-            help=wording.for_project(opt, wording.why_chart_caption_full(
-                f"{len(why.pool_mean):,}", line=ref is not None)))
+        # Demo build: the map's one home now; its legend names the marks,
+        # so the caption says how to read it (Review's copy did), the marks
+        # and the sample in its "?".
+        st.caption(wording.for_project(opt, wording.PLOT_CAPTION_MAP),
+                   help=wording.for_project(opt, " ".join([
+                       wording.MAP_READING, wording.why_chart_caption_full(
+                           f"{len(why.pool_mean):,}", line=ref is not None)])))
 
 
 _GUARD_WORDS = {"floor": wording.GUARD_FLOOR, "noise": wording.GUARD_NOISE}

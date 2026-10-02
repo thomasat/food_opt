@@ -119,7 +119,11 @@ def test_the_map_line_is_best_so_far_s_predicted_repeat(kind, monkeypatch):
     assert wording.WHY_REFERENCE in labels
     assert wording.WHY_REFERENCE == "Best so far (predicted Repeat)"
     captions = [c.value for c in _fold(at).caption]
-    assert wording.why_chart_caption(f"{bo_views.POOL_SIZE:,}") in captions
+    # Demo build: the legend names the marks; the caption says how to read
+    # the map, the marks and the sample in its "?".
+    assert wording.PLOT_CAPTION_MAP in captions
+    helps = [c.proto.help for c in _fold(at).caption]
+    assert any(wording.why_chart_caption_full(f"{bo_views.POOL_SIZE:,}") in h for h in helps)
 
 
 def test_the_map_and_the_outline_read_one_reference(monkeypatch):

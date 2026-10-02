@@ -19,6 +19,7 @@ import wording
 from tests import demo_projects as D
 from tests.test_104_speed_robust_charts import PAGES, _contrast_on
 from tests.test_107_w3_explored import _all_marks, _mark, _rows, _with_a_choice
+from tests.demo_build_reason import REMOVED_CHART
 
 
 @pytest.fixture(autouse=True)
@@ -289,6 +290,7 @@ def test_the_gain_panel_is_withheld_under_the_rules(name, monkeypatch):
                 if m.get("encoding", {}).get("y", {}).get("field") == "gain"]
 
 
+@pytest.mark.skip(reason=REMOVED_CHART)
 def test_the_withheld_reason_is_said_on_screen(monkeypatch):
     opt, computed = _computed(D.LINE_C, monkeypatch)
     said = []
@@ -303,6 +305,7 @@ def test_the_withheld_reason_is_said_on_screen(monkeypatch):
     assert said[2][1] == wording.tip_chooses_withheld(wording.CHOOSES_REASON_NOISE)
 
 
+@pytest.mark.skip(reason=REMOVED_CHART)
 def test_cold_says_so(monkeypatch):
     opt = D.load(D.SNACK)
     said = []
@@ -367,7 +370,7 @@ def test_trade_offs_holds_the_two_measurement_chart_alone():
 
 
 def test_every_new_chart_goes_through_show_chart():
-    for fn in (U._tried, U._chooses, U._triangle, U._mixture, U._explored_map):
+    for fn in (U._tried, U._hero_body, U._triangle, U._mixture):   # demo build: _chooses, _explored_map gone
         src = inspect.getsource(fn)
         assert "altair_chart" not in src, fn.__name__
     tree = ast.parse(pathlib.Path(U.__file__).read_text())
@@ -486,6 +489,7 @@ def test_with_no_round_open_the_line_ends_at_the_predicted_best(monkeypatch):
     assert line["encoding"]["x"]["title"] == "From Best so far → Predicted best"
 
 
+@pytest.mark.skip(reason=REMOVED_CHART)
 def test_the_selector_opens_on_the_line_and_keeps_one_ingredient(monkeypatch):
     opt, computed = _computed(D.LINE_A, monkeypatch)
     boxes = []

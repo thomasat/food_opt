@@ -327,9 +327,11 @@ def test_pair_chart_takes_the_themes_scale(theme):
     spec = _pair_spec()
     [dots] = [l for l in _all_layers(spec)
               if l.get("encoding", {}).get("color", {}).get("field") == "score"]
-    extent = dots["encoding"]["color"]["scale"]["scheme"]["extent"]
-    assert extent == list(ui_insights.blues(theme).extent)
-    assert _contrast_on(_vega_blues(extent[1]), 1.0, PAGES[theme]) >= 3.0
+    # Review plots: the score is the viridis ramp (score_colours), not the
+    # blues scheme; every stop reaches 3:1 on its theme's page.
+    stops = dots["encoding"]["color"]["scale"]["range"]
+    assert stops == ui_insights.score_colours(theme)
+    assert all(_contrast_on(c, 1.0, PAGES[theme]) >= 3.0 for c in stops)
 
 
 def test_pair_charts_grey_marks_reach_3_to_1(theme):

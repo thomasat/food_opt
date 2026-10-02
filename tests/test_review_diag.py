@@ -230,8 +230,13 @@ def test_one_way_says_which_way():
 def test_cv_widening_asks_for_a_repeat_not_the_panel(demos, name, line):
     """Ruling 2: the CV-widening rule names the panel only with Repeat
     evidence; these two have one Repeat pair (1 df), so they ask for one."""
-    p = cards(demos[name])[0]
-    assert line in p["lines"]
+    p, _, n = cards(demos[name])
+    # One action, one card (demo build): when the Next card already asks
+    # for this Repeat (process-only: "Round 7: Repeat Trial 21"), the
+    # Predictions card does not say it again.
+    asked = any(line.split(" to check")[0] in t for t in n["lines"])
+    assert (line in p["lines"]) == (not asked), (p["lines"], n["lines"])
+    assert asked == (name == D.PROCESS_ONLY), n["lines"]
     texts = [p["word"], *p["lines"], p["help"]]
     assert not [t for t in texts if BENCH.search(t)]
     assert "to measure how much results vary" in p["help"]
