@@ -6637,7 +6637,8 @@ def tip_repeat_off(later, earlier, diff_text, half_text):
             "difference of two results. Until the other Repeats give 3 degrees of freedom "
             "(3 df), a pair must beat both √2 × 1.96 × the larger of the model's noise SD and "
             "the assumed 1 point, and √2 × the later one's Round-ahead half-width; from 3 df, "
-            "√2 × 1.96 × the Repeat SD without this pair. The pair stays in the Repeat SD.")
+            "√2 × t (95 %, on its df) × the Repeat SD without this pair. The pair stays in the "
+            "Repeat SD.")
 
 
 def tip_bias(gap_text, n, rounds):
@@ -7588,14 +7589,22 @@ def short_flat(k):
 
 
 def short_rise(rise_text, need_text=None, rising=False):
-    """'Up 2.5, needs 3.2 to count.' (Within noise) or 'Up 3.5, beats the
-    3.2 needed.' (Rising): the rise and what it is judged against,
-    Improvement.threshold (fix A follow-up)."""
+    """'Up 2.5, needs 3.2.' (Within noise) or 'Up 3.5, beats 3.2.'
+    (Rising): the rise and what it is judged against, Improvement.threshold
+    (fix A follow-up). The full sentence is in the tooltip."""
     if need_text is None:
         return f"Up {points_text(rise_text)}."
     if rising:
-        return f"Up {rise_text}, beats the {need_text} needed."
-    return f"Up {rise_text}, needs {need_text} to count."
+        return f"Up {rise_text}, beats {need_text}."
+    return f"Up {rise_text}, needs {need_text}."
+
+
+def short_rise_best(score_text, no, tie_no=None):
+    """Best so far after a rise, without the ceiling, so the line keeps to
+    10 words: 'Best so far: 89.84, Formulation 18.'"""
+    who = (f"{FORMULATION_CAP}s {no} and {tie_no}" if tie_no is not None
+           else f"{FORMULATION_CAP} {no}")
+    return f"Best so far: {score_text}, {who}."
 
 
 # Next.

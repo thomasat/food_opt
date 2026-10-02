@@ -1003,8 +1003,11 @@ def disagreeing_repeat(opt, checks, matches=None):
     with the later one left out (leave-one-out: the pair tested never sets
     its own limit).
 
-    - From YARDSTICK_DF degrees of freedom: |d| over √2 × 1.96 × that
-      Repeat SD alone (fix A follow-up, owner's decision 2).
+    - From YARDSTICK_DF degrees of freedom: |d| over √2 × t_{0.975, df} ×
+      that Repeat SD alone (fix A follow-up, owner's decision 2; t, not
+      1.96, whenever the SD comes from Repeats, the coordinator's ruling on
+      03 drift: its F20 vs F14, 1.62 apart, is under √2 × 3.18 × 0.49 =
+      2.20).
     - Before: |d| over BOTH √2 × 1.96 × σ, σ the larger of the later one's
       Round-ahead model's fitted noise SD and the assumed 1 point
       (repeat_sigma; ftue fix A, cold read I7), AND √2 × the later one's
@@ -1039,7 +1042,7 @@ def disagreeing_repeat(opt, checks, matches=None):
             if (spread.sd is not None and spread.sd >= REPEAT_SD_SHOWN
                     and spread.df >= YARDSTICK_DF):
                 sigma, basis, predictive = spread.sd, "repeats", None
-                limit = math.sqrt(2) * Z95 * sigma
+                limit = math.sqrt(2) * t_critical(spread.df) * sigma
             else:
                 sigma, basis = repeat_sigma(noise, spread)
                 # The half-width shown for that check, its I1 widening included.

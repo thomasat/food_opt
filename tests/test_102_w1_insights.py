@@ -587,23 +587,13 @@ def test_no_check_advice_at_any_round_of_02_clean_or_drift(project, name):
     Fix A's follow-up (owner, decision 2): 03 clean's F16, a Repeat of F12
     2.84 points apart, beat √2 × 1.96 × the assumed 1 point (2.77) at
     Rounds 4-6; until the Repeat SD has 3 df a pair must also beat its own
-    predictive limit, which it does not, so fix A's exception is gone."""
+    predictive limit, which it does not, so fix A's exception is gone.
+    03 drift at Round 7: F20, a Repeat of F14, is 1.62 points off against
+    √2 × t_{0.975, 3} × 0.49 = 2.20 (the other Repeats' SD on 3 df; t,
+    not 1.96, whenever the SD comes from Repeats), so no flag."""
     for r in range(3, 9):
         opt, checks = upto(project, name, r)
         step, texts = _said(opt, checks)
-        if name == E.BAR_DRIFT and r == 7:
-            # Fix A follow-up (decision 2), an open owner decision against
-            # B1: from 3 df the leave-one-out Repeat SD alone sets the
-            # limit. At Round 7, F20 (a Repeat of F14 across the drift) is
-            # 1.62 points off; the other Repeats' SD is 0.49 on 3 df, so the
-            # limit is √2 × 1.96 × 0.49 = 1.35. Before, the model's noise SD
-            # (1.14) set σ and the limit was 3.16.
-            d = step.disagreement
-            assert step.kind == "repeat" and (d.later, d.earlier, d.basis, d.df) == (
-                20, 14, "repeats", 3)
-            assert d.diff == pytest.approx(1.62, abs=0.01)
-            assert d.limit == pytest.approx(1.35, abs=0.01)
-            continue
         assert step.kind != "repeat", (name, r)
         for t in texts:
             assert wording.CHECK_IF_CHANGED not in t and "Check" not in t, (name, r, t)
