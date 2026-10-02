@@ -4633,8 +4633,8 @@ def _profile_row_frame(opt, cols, kind, name, labels, texts):
         points = [{"v": r["v"], "low": r["low"], "high": r["high"]}
                   for r in recs[-len(path.amounts):]]
         for k, (ok, run) in enumerate(split_tested(path.amounts, c.near, points)):
-            recs += [dict(p, col=col, mark="seg_t" if ok else "seg_u", run=f"{c.name}#{k}")
-                     for p in run]
+            recs += [dict(p, col=col, mark="seg_t" if ok else "seg_u", run=f"{c.name}#{k}",
+                          band=band_name) for p in run]
         for lo, hi in insights.untested_runs(path, c.near):
             recs.append({"col": col, "mark": "grey", "x": lo, "x2": hi, "region": untested_name})
         recs.append({"col": col, "mark": "ref", "x": path.start_amount, "role": ref_name})
@@ -4660,9 +4660,9 @@ def _profile_row_frame(opt, cols, kind, name, labels, texts):
 
 
 # Review story 3: over untested amounts the line is thin, dashed and faint
-# and the band a third as strong, so a model curve there reads as a guess.
+# and the band a quarter as strong, so a model curve there reads as a guess.
 _UNTESTED_LINE = {"strokeWidth": 1.2, "strokeDash": [3, 3], "opacity": 0.45}
-_UNTESTED_BAND = 0.35
+_UNTESTED_BAND = 0.25
 
 
 def profile_chart(opt, profile, columns=None, rows=None, gain=True):

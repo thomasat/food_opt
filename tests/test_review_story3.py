@@ -93,6 +93,8 @@ def test_untested_stretches_are_faded_on_every_row(line_a):
     for row, data in rows:
         marks = {d["mark"] for d in data}
         assert {"seg_t", "seg_u", "grey"} <= marks
+        # The band keeps its fill (the legend's band entry) on every piece.
+        assert all(d.get("band") for d in data if d["mark"] in ("seg_t", "seg_u"))
         lines = {_filtered(l): l["mark"] for l in row["spec"]["layer"]
                  if l["mark"]["type"] == "line"}
         solid, faded = lines["seg_t"], lines["seg_u"]
