@@ -30,6 +30,9 @@ from tests.test_review_cards import _leaves, _text, cards, screens  # noqa: F401
 from tests.test_review_diag import ALL10, PILOT, R5, R6, needs_pilot
 
 QUESTIONS = [wording.Q1_TITLE, wording.Q2_TITLE, wording.Q3_TITLE, wording.Q4_TITLE]
+# Review story: the screen asks them as a story — improving first, then
+# trust, drivers, what was tried.
+STORY = [wording.Q2_TITLE, wording.Q1_TITLE, wording.Q3_TITLE, wording.Q4_TITLE]
 CHART = ("arrow_vega_lite_chart", "vega_lite_chart")
 
 
@@ -61,13 +64,16 @@ def sections(at):
 def test_four_questions_in_order_one_chart_each(screens, name):  # noqa: F811
     at = screens[name]
     got = sections(at)
-    assert list(got) == [wording.for_project(D.load(name), q) for q in QUESTIONS]
+    assert list(got) == [wording.for_project(D.load(name), q) for q in STORY]
     gate = name == D.SNACK
     for q, items in got.items():
         charts = sum(t in CHART for t, _ in items)
         if gate and q in (wording.Q1_TITLE, wording.Q3_TITLE):
             # Before 5 scored: one line, no chart.
             assert charts == 0 and ("caption", wording.Q_WAIT) in items, (q, items)
+        elif q == wording.Q2_TITLE:
+            # Review story: the best so far and Closer to target, side by side.
+            assert charts == 2, (q, items)
         else:
             assert charts == 1, (q, items)
 
@@ -80,10 +86,13 @@ def test_answer_lines_open_with_the_cards_word(screens, name):  # noqa: F811
     plain = lambda w: re.sub(r":\w+\[(.*?)\]", r"\1", w)   # noqa: E731
     firsts = {q: next((t for k, t in items if k == "markdown"), None)
               for q, items in got.items()}
-    q1, q2, q3, q4 = (firsts[k] for k in got)
+    opt = D.load(name)
+    q1, q2, q3, q4 = (firsts[wording.for_project(opt, k)] for k in QUESTIONS)
     if name != D.SNACK:
         assert re.sub(r":red\[(.*)\]", r"\1", q1).startswith(f"**{plain(p['word'])}.**")
-        assert re.sub(r":red\[(.*)\]", r"\1", q3).startswith(f"**{plain(n['word'])}.**")
+        # Review story: Q3's answer is a finding, never the Next card's word.
+        assert not q3.startswith(f"**{plain(n['word'])}.**")
+        assert re.match(r"\*\*.+ matters most\.\*\*|\*\*No single change", q3), q3
     assert q2.startswith(f"**{plain(g['word'])}.**")
     assert re.match(r"\*\*\d+ tested\.\*\* ", q4), q4
     for line in (q1, q2, q3, q4):
@@ -386,7 +395,7 @@ def test_pilot_cards_on_the_overall_score(pilot):
     assert not any(line.startswith(":red[") for line in p["lines"])
     at = _open(ALL10)
     assert cards(at)[0]["word"] == "Reliable"
-    assert list(sections(at)) == QUESTIONS
+    assert list(sections(at)) == STORY
 
 
 def test_new_strings_pass_the_vocabulary_guard():

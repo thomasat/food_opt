@@ -81,7 +81,10 @@ def walked(tmp_path_factory):
             for name in STATUS:
                 _install(name)
                 at = _app(name, wording.TAB_INSIGHTS)
-                words = [s.value for s in at.tabs[REVIEW].subheader[:3]]
+                # Review story: the screen shows Progress, Predictions, Next;
+                # read in the (Predictions, Progress, Next) order pinned below.
+                p, g, n = [s.value for s in at.tabs[REVIEW].subheader[:3]]
+                words = [g, p, n]
                 review_lit = _tab_primaries(at, REVIEW)
                 _go(at, wording.TAB_BATCH)
                 links = [b for b in at.tabs[BATCH].button if b.key == "link_review_status"]

@@ -196,11 +196,13 @@ def test_the_gain_row_is_the_heros_quantity(line_a, best):
 def test_more_than_six_columns_or_four_rows_are_capped(line_a, best):
     opt, _ = line_a
     shown, extra, rows, extra_rows = U.profile_shown(best)
-    assert len(shown) == min(U.PROFILE_COLUMNS, len(best.columns)) and not extra
+    # Review story: 4 columns by default (Line A has 6: two under "+N more").
+    assert len(shown) == min(U.PROFILE_COLUMNS, len(best.columns))
+    assert extra == [c.name for c in best.columns[U.PROFILE_COLUMNS:]]
     many = U.Profile(best.columns + best.columns[:3], best.rows + ["a", "b"], *(
         best.ref_label, best.ref_no, best.is_pick, best.reason, best.fill, best.fixed, []))
     shown, extra, rows, extra_rows = U.profile_shown(many)
-    assert len(shown) == U.PROFILE_COLUMNS and len(extra) == len(many.columns) - 6
+    assert len(shown) == U.PROFILE_COLUMNS and len(extra) == len(many.columns) - U.PROFILE_COLUMNS
     assert len(rows) == U.PROFILE_ROWS and extra_rows == many.rows[1 + U.PROFILE_ROWS:]
     assert wording.profiler_more(3) == "+3 more"
     # Under the noise guard: Set up's order, no ranking.

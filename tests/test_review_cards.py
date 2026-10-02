@@ -32,11 +32,13 @@ from tests.test_app_ui import APP_PATH
 # Next card's); a hidden gain is one line with its icon; with no Round open
 # the Repeat request is the Next card's link, not a line too.
 _HIDDEN = wording.HERO_HIDDEN_ICON + " "
+# Review story: the Progress line goes from the start (the first scored
+# Round's best) to the best, one decimal each; one number with one Round.
 EXPECTED = {
     D.SNACK: (
         "Review after Round 1 · 3 formulations",
         [("Predictions", "Not yet", ["3 / 5 formulations scored"]),
-         ("Progress", "Too early", ["Best 96.00 · Formulations 1 and 3"]),
+         ("Progress", "Too early", ["Best 96.0 · Formulations 1 and 3"]),
          ("Next", "Make Round 2", ["No Round open"])],
         "Where the app looks next", ["Appears after 5 scored formulations."]),
     D.LINE_A: (
@@ -44,7 +46,7 @@ EXPECTED = {
         # Review four, ruling 1: the Overall score's record (was the
         # measurements' 33 / 35).
         [("Predictions", "Reliable", ["Overall score: 13 / 15 in range"]),
-         ("Progress", "No new best", ["Best 90.45 · Formulation 15"]),
+         ("Progress", "No new best", ["87.8 → 90.5 · Formulation 15"]),
          ("Next", "Record Round 6", ["4 formulations open", "Round 7: Repeat Formulation 15"])],
         "How the app chose Round 6", ["Suggestions go where expected gain peaks."]),
     D.LINE_B: (
@@ -54,7 +56,7 @@ EXPECTED = {
         # a plain line. The disagreeing Repeat stays the Next card's, red.
         [("Predictions", "Not yet", [":red[**Overall score: 3 / 16 missed**]",
                                      "Measurements miss more than expected"]),
-         ("Progress", "Flat", ["Best 90.09 · same for 2 Rounds"]),
+         ("Progress", "Flat", ["87.8 → 90.1 · same for 2 Rounds"]),
          ("Next", ":red[Check panel first]", [":red[**Before Round 6**]",
                                               ":red[**Formulation 11's Repeat: 10.5 lower**]"])],
         "How the app chose Round 6", [_HIDDEN + wording.HERO_HIDDEN["verdict"]]),
@@ -65,20 +67,20 @@ EXPECTED = {
         # evidence (Line C's one Repeat pair has 1 df); it asks for a Repeat.
         [("Predictions", "Not yet", ["No better than averaging",
                                      "Repeat Formulation 18 to check noise"]),
-         ("Progress", "Within noise", ["Best 89.84 · +2.5 (needs 3.2)"]),
+         ("Progress", "Within noise", ["87.3 → 89.8 · +2.5 (needs 3.2)"]),
          ("Next", "Record Round 6", ["4 formulations open", "Guided search, not a forecast"])],
         "How the app chose Round 6", [_HIDDEN + wording.HERO_HIDDEN["noise"]]),
     D.UPGRADE: (
         "Review after Round 3 · 7 formulations · Formulation 8 waiting",
         [("Predictions", "Not yet", ["2 / 10 formulations checked"]),
-         ("Progress", "Too early", ["Best 90.50 · Formulation 6",
+         ("Progress", "Too early", ["Best 90.5 · Formulation 6",
                                     ":red[**Rounds 1–2 lack Cook loss**]"]),
          ("Next", "Make Round 4", ["No Round open"])],
         "Where the app looks next", [_HIDDEN + wording.HERO_HIDDEN["skill"]]),
     D.TIMING: (
         "Review after Round 12 · 60 formulations",
         [("Predictions", "Reliable", ["Overall score: 54 / 55 in range"]),   # ruling 1
-         ("Progress", "Flat", ["Best 92.50 · same for 7 Rounds"]),
+         ("Progress", "Flat", ["91.6 → 92.5 · same for 7 Rounds"]),
          ("Next", "Make Round 13", ["No Round open"])],
         "Where the app looks next", ["Suggestions go where expected gain peaks."]),
     D.PROCESS_ONLY: (
@@ -89,7 +91,7 @@ EXPECTED = {
         # Review four, ruling 1: the Overall score missed 4 of 16 (tail
         # 0.007): Off, on the score the suggestions use.
         [("Predictions", ":red[Off]", [":red[**Overall score: 4 / 16 missed**]"]),
-         ("Progress", "Within noise", ["Best 87.92 · +1.9 (needs 3.2)"]),
+         ("Progress", "Within noise", ["85.1 → 87.9 · +1.9 (needs 3.2)"]),
          ("Next", "Record Round 6", ["4 trials open", "Round 7: Repeat Trial 21"])],
         "How the app chose Round 6", [_HIDDEN + wording.HERO_HIDDEN["skill"]]),
 }
@@ -167,8 +169,10 @@ def _card_row(node):
     return None
 
 
-def cards(at):
-    """[(label, word, [lines], help)] per card, in column order."""
+def cards(at, order="role"):
+    """[(label, word, [lines], help)] per card: in screen (column) order
+    with order="screen"; else Predictions, Progress, Next, the order the
+    tests unpack them in (review story: the screen shows Progress first)."""
     out = {}
     row = _card_row(at.tabs[3])
 
@@ -188,7 +192,11 @@ def cards(at):
             card["lines"].append(el.value)
         elif el.type == "button":
             card["buttons"].append((el.proto.type, el.label))
-    return [out[k] for k in sorted(out)]
+    found = [out[k] for k in sorted(out)]
+    if order == "screen":
+        return found
+    rank = {wording.CARD_PREDICTIONS: 0, wording.CARD_PROGRESS: 1, wording.CARD_NEXT: 2}
+    return sorted(found, key=lambda c: rank.get(c["label"], 3))
 
 
 def outside(at):

@@ -77,6 +77,7 @@ def _charts_by_card(at):
 
 def test_only_the_progress_card_has_a_sparkline(line_a):
     by_card = _charts_by_card(line_a)
-    assert 0 not in by_card, by_card          # Predictions
-    assert by_card.get(1, 0) == 1, by_card    # Progress
+    # Review story: Progress first, then Predictions, then Next.
+    assert by_card.get(0, 0) == 1, by_card    # Progress
+    assert 1 not in by_card, by_card          # Predictions
     assert 2 not in by_card, by_card          # Next
