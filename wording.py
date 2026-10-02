@@ -7859,3 +7859,128 @@ FOLD_MORE = "More detail"
 CARD_SPARK_IN_RANGE = "In range"
 HERO_PREDICTED = "Predicted score"
 HERO_GAIN = "Expected gain"
+
+
+# --- review diagnosis ---
+# Off with no disagreeing Repeat (owner, 2026-10-02): the yogurt pilot's
+# Off said "Check panel" though nothing showed the panel inconsistent. Only
+# a disagreeing Repeat may point at the panel, suppliers or equipment
+# (spec 2026-10-01 first-time design; e2e fixes): Round-ahead errors cannot
+# tell drift from a model meeting new ground. So the card says where the
+# misses fell, a description, never a cause, and asks for a Repeat.
+CARD_DIAG = {
+    "new_ground": "Misses mostly on new ground",
+    "one_way": "Misses mostly one way",
+    "unexplained": "Misses not explained yet",
+}
+
+
+def card_score_in_range(inside, total):
+    """'Overall score: 9 / 9 in range': the score the suggestions use."""
+    return f"{OVERALL_SCORE_COLUMN}: {inside} / {total} in range"
+
+
+def card_noise_repeat(no=None):
+    """The Next card's neutral data request: 'Repeat Formulation 10 to
+    check noise'."""
+    if no is None:
+        return "Add a Repeat to check noise"
+    return f"Repeat {FORMULATION_CAP} {no} to check noise"
+
+
+_DIAG_PLAIN = {
+    "new_ground": ("Most misses ({far} of {misses}) were on {f}s far from anything tested "
+                   "before ({far_checked} of {checked} values checked were). That says where "
+                   "they fell, not why."),
+    "one_way": ("Most misses ({one_way} of {misses}) ran one way for their measurement: "
+                "steadily above or below the predictions, not scattered. That says how they "
+                "fell, not why."),
+    "unexplained": "The misses follow no clear pattern yet.",
+}
+
+
+def diag_plain(kind, far, misses, score=None, far_checked=0, checked=0, one_way=0):
+    """The diagnosis in plain words, for the Predictions tooltip. `score`:
+    (inside, total) of the Overall score when it is as expected, said
+    because the suggestions are made on it."""
+    line = _DIAG_PLAIN[kind].format(far=far, misses=misses, f=FORMULATION,
+                                    far_checked=far_checked, checked=checked, one_way=one_way)
+    if score is not None:
+        line += (f" The {OVERALL_SCORE_COLUMN}, which the suggestions use, was {score[0]} of "
+                 f"{score[1]} in range.")
+    return line
+
+
+def diag_item(name, misses, checked, above, below, mean_text):
+    """'Creaminess 4 of 9 (above, mean error +1.4)'; mixed sides '(3 above,
+    1 below, mean error +0.8)'. Mean error: measured minus predicted, over
+    the misses."""
+    side = ("above" if not below else "below" if not above
+            else f"{above} above, {below} below")
+    return f"{name} {misses} of {checked} ({side}, mean error {mean_text})"
+
+
+def diag_detail(items, rounds, far, misses, far_checked, checked):
+    """More detail's one line under the verdict: the misses by measurement
+    and how many fell on new ground, the base rate beside it."""
+    return (f"Misses, {rounds_span(rounds)}: {'; '.join(items)}. {far} of {misses} were on "
+            f"{FORMULATION}s far from anything tested before their {ROUND_CAP} ({far_checked} "
+            f"of {checked} values were).")
+
+
+def tip_diag(items, rounds, far, misses, far_checked, checked, far_pct, kind, score=None,
+             score_rounds=None):
+    """The expert line: the evidence, then the rule by name."""
+    word = {"new_ground": "new ground", "one_way": "one way",
+            "unexplained": "not explained yet"}[kind]
+    out = (f"Misses by measurement, {rounds_span(rounds)} ({misses} of {checked} values; "
+           f"mean error = measured − predicted over the misses): {'; '.join(items)}. On new "
+           f"ground: {far} of {misses} misses, {far_checked} of {checked} values (farther than "
+           f"{far_pct} % of each varying row's Lowest–Highest span, L∞, from every "
+           f"{FORMULATION} recorded before the {ROUND_CAP}: the suggestion-role rule). "
+           "Diagnosis rule, first that holds: new ground when more than half the misses are "
+           "and new-ground values miss at least as often as the rest; one way when at least "
+           "80 % of the misses sit on their measurement's usual side (measurements with 2 "
+           f"misses or more); else not explained. Here: {word}. A description of where the "
+           "misses fell, not a cause: Round-ahead errors cannot show drift; only a "
+           "disagreeing Repeat can.")
+    if score is not None:
+        where = f", {rounds_span(score_rounds)}" if score_rounds else ""
+        out += f" {OVERALL_SCORE_COLUMN}{where}: {score[0]} of {score[1]} in range."
+    return out
+
+
+def trust_misses_diag(rounds, inside, total, many=False, allowed=None):
+    """trust_misses without its "intervals are too narrow" reading, which
+    contradicted the wide-interval line beside it: the count alone; the
+    diagnosis line follows."""
+    misses = total - inside
+    line = (f"Measurements, {rounds_span(rounds)}: {inside} of {total} values inside their "
+            "95 % interval.")
+    if allowed is not None:
+        count = "1 miss" if misses == 1 else f"{misses} misses"
+        line += f" {count}; 95 % intervals allow up to {allowed}."
+    return f"{line} {'Many more' if many else 'More'} misses than expected."
+
+
+# More detail's reading after the evidence: a description, not a cause.
+DIAG_READING = {
+    "new_ground": "Mostly on new ground: where they fell, not why.",
+    "one_way": "Mostly one way per measurement: how they fell, not why.",
+    "unexplained": "No clear pattern yet.",
+}
+
+_DIAG_WHERE = {"new_ground": ", mostly on new ground", "one_way": ", mostly one way",
+               "unexplained": ""}
+
+
+def next_misses_diag(rounds, kind, repeat_no=None, bias_text=""):
+    """Next-step reasoning's misses row with no disagreeing Repeat: the fact,
+    where the misses fell, and a Repeat to measure the noise; no check of
+    the bench."""
+    ask = (f"A Repeat of {FORMULATION_CAP} {repeat_no} would measure the noise."
+           if repeat_no is not None else "A Repeat would measure the noise.")
+    line = (f"Measured values in {_in_rounds(rounds)} fell outside their 95 % interval more "
+            f"often than 95 % intervals allow{_DIAG_WHERE[kind]}, so new predictions can miss "
+            f"by more than their intervals show. {ask}")
+    return f"{line} {bias_text}" if bias_text else line
