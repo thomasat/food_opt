@@ -349,6 +349,20 @@ SCROLL_KEY = "_scroll_to"
 # The data_key Insights was last opened with (app.py): Make a round's E3
 # link is not offered again until the data changes (04 §3, ping-pong).
 INSIGHTS_OPENED_KEY = "_insights_opened"
+# Ftue fix C: where the links land. A keyed expander carries no st-key-
+# class in the page (Streamlit 1.55), so each fold a link lands on sits in
+# a keyed container of its own, the place the page scrolls to: Make a
+# round's Why fold, Insights' Explored and unexplored fold, and Make a
+# round's "Add a formulation to this round" (keyed, so a link can open it).
+WHY_PLACE = "why_these_place"
+EXPLORED_PLACE = "insights_explored_place"
+ADD_OWN_KEY = "add_own_fold"
+ADD_OWN_PLACE = "add_own_place"
+# The Repeat link's one-shot request to Make a round (review R-I3, ftue
+# fix C): {"project", "no": the formulation to repeat, "round": the Round
+# open when the link was clicked, or None}. Make a round fills the Add
+# fold from it once that Round (or, with None, the next one) is open.
+REPEAT_REQUEST_KEY = "_repeat_request"
 
 
 def go_to_tab(label, section="top"):
@@ -377,43 +391,68 @@ def go_to_tab(label, section="top"):
     st.rerun()
 
 
-def ask_tab(label, section="top", fold=None):
+def ask_tab(label, section="top", fold=None, state=None):
     """on_click of a link to another tab (spec 2026-09-30-bo-views §5; 04
     §5): the move, where to land (`section`: "top" or a container's key)
     and a fold to open (`fold`: a keyed expander's key; set before it is
-    drawn, it opens). A callback, not go_to_tab's st.rerun(): it runs
-    before the script, so no half-typed form on the tab left is lost."""
+    drawn, it opens). `state`: entries the tab moved to reads on arrival
+    (the Repeat link's request, ftue fix C). A callback, not go_to_tab's
+    st.rerun(): it runs before the script, so no half-typed form on the tab
+    left is lost."""
     st.session_state["_pending_tab"] = label
     st.session_state[SCROLL_KEY] = section
     if fold:
         st.session_state[fold] = True
+    for key, value in (state or {}).items():
+        st.session_state[key] = value
 
 
 def scroll_script(section, nonce):
     """The one-shot script app.py runs after the tabs are drawn (04 §5):
     scroll the page to its top, or bring the container keyed `section`
     into view, retrying for two seconds while Insights fills in. `nonce`
-    makes each run's script new, so the browser runs it again."""
+    makes each run's script new, so the browser runs it again.
+
+    Ftue fix C: the container lands just under the app's header bar, not
+    behind it (the Why fold's heading sat under the 60 px bar), and it is
+    kept there for 8 seconds while the screen above it still fills in
+    (a Round's predictions arriving moved the Add fold 55-430 px down after
+    the landing), until the reader scrolls, clicks or types."""
     target = "" if section == "top" else f".st-key-{section}"
     return f"""<script>/* {nonce} */
 (function go(n) {{
   const sel = {json.dumps(target)};
-  const el = sel && (document.querySelector(sel)
-                     || window.parent.document.querySelector(sel));
-  const main = document.querySelector('[data-testid="stMain"]')
-               || window.parent.document.querySelector('[data-testid="stMain"]');
-  if (el) el.scrollIntoView({{block: "start"}});
-  else if (!sel && main) main.scrollTop = 0;
-  if (sel && !el && n > 0) setTimeout(() => go(n - 1), 100);
+  const find = (q) => document.querySelector(q) || window.parent.document.querySelector(q);
+  const main = find('[data-testid="stMain"]');
+  if (!sel) {{ if (main) main.scrollTop = 0; return; }}
+  const el = find(sel);
+  if (!el) {{ if (n > 0) setTimeout(() => go(n - 1), 100); return; }}
+  if (!main) {{ el.scrollIntoView({{block: "start"}}); return; }}
+  const doc = main.ownerDocument;
+  let stop = false;
+  const quit = () => {{ stop = true; }};
+  for (const kind of ["wheel", "touchstart", "keydown", "mousedown"])
+    doc.addEventListener(kind, quit, {{once: true, capture: true}});
+  (function follow(k) {{
+    if (stop) return;
+    const now = find(sel);
+    if (now) {{
+      const head = find('[data-testid="stHeader"]');
+      const below = head ? head.getBoundingClientRect().height + 8 : 0;
+      const off = now.getBoundingClientRect().top - main.getBoundingClientRect().top - below;
+      if (Math.abs(off) > 2) main.scrollTop += off;
+    }}
+    if (k > 0) setTimeout(() => follow(k - 1), 100);
+  }})(80);
 }})(20);</script>"""
 
 
-def link(label, target, section="top", fold=None, key=None):
+def link(label, target, section="top", fold=None, key=None, state=None):
     """The one form a link to another tab takes (04 §3): a text-style
     (tertiary) button, never primary, so the screen's one lit button stays
     lit; greyed while a confirmation is armed, as every other button is."""
     return st.button(label, type="tertiary", key=key, disabled=confirmation_open(),
-                     on_click=ask_tab, args=(target, section, fold))
+                     on_click=ask_tab, args=(target, section, fold, state))
 
 
 def open_rows(opt):

@@ -162,21 +162,24 @@ def test_the_why_fold_says_too_few_checks(monkeypatch):
     line = wording.why_guard_line(gate_reason=wording.gain_reason_too_few(6))
     assert line == ("Expected improvement is not shown: fewer than 10 Round-ahead checks of "
                     "the Overall score so far (6).")
-    assert line in _why_caption(monkeypatch, gate)
+    # Ftue fix C: the fold says it under its own column name.
+    assert wording.why_gain_said(line) in _why_caption(monkeypatch, gate)
 
 
 def test_the_why_fold_says_skill_under_0_20(monkeypatch):
     fact = insights.SkillFact(0.09, 24, [3, 4, 5, 6, 7, 8], "unclear")
     gate = insights.SkillGate("unclear", 24, fact)
     line = wording.why_guard_line(gate_reason=wording.gain_reason_unclear("0.09", 24))
-    assert line in _why_caption(monkeypatch, gate)
+    # Ftue fix C: the fold says it under its own column name.
+    assert wording.why_gain_said(line) in _why_caption(monkeypatch, gate)
 
 
 def test_the_why_fold_says_no_skill(monkeypatch):
     fact = insights.SkillFact(-0.4, 24, [3, 4, 5, 6, 7, 8], "no_skill")
     gate = insights.SkillGate("no_skill", 24, fact)
     line = wording.why_guard_line(gate_reason=wording.GAIN_REASON_SKILL)
-    assert line in _why_caption(monkeypatch, gate)
+    # Ftue fix C: the fold says it under its own column name.
+    assert wording.why_gain_said(line) in _why_caption(monkeypatch, gate)
 
 
 def test_the_why_fold_and_progress_give_one_reason(monkeypatch):

@@ -18,6 +18,9 @@ from food_bo import fmt_setting, join_unit, number_list
 from ui_helpers import (SCROLL_KEY, SETUP_CALLOUT_KEY, SETUP_CALLOUT_SLOT,
                         TAB_BATCH, app_rerun, TAB_SETUP, amount_format, ask_tab, confirmation_open,
                         go_to_tab, link, open_rows, readiness, table_height)
+# Ftue fix C: where the links land (each fold in a keyed place).
+from ui_helpers import (ADD_OWN_KEY, ADD_OWN_PLACE, EXPLORED_PLACE, REPEAT_REQUEST_KEY,
+                        WHY_PLACE)
 
 _BAND = 0.25
 # Text drawn on a chart (labels, the band's name): at least 4.5:1 against
@@ -1048,8 +1051,11 @@ def _finish(opt, places, facts):
     with places.change.container():
         _setup_button(change)
     if not places.why:
+        # R-I4's one link, by priority: Why (drawn above, with the places),
+        # then the Repeat, then the Explored link (ftue fix C).
         with places.link.container():
-            explored_link(opt, facts.next)
+            if not _repeat_link(opt, facts):
+                explored_link(opt, facts.next)
 
 
 def _figures(opt, label, key):
@@ -1349,21 +1355,47 @@ def _why_link(opt):
     """W1 (review R-I4): "Why the model suggested Round N", only with a warm
     Round open holding at least one generated pick (_why_link_offered); the
     one tertiary link above the fold. Lands on Make a round's Why fold,
-    opened. Returns whether it was drawn."""
+    opened and scrolled into view (its keyed place, ftue fix C: the fold
+    itself carries no class to scroll to). Returns whether it was drawn."""
     if not _why_link_offered(opt):
         return False
-    link(_say(opt, wording.why_link(opt.pending_batch_no)), TAB_BATCH, section=WHY_FOLD_KEY,
+    link(_say(opt, wording.why_link(opt.pending_batch_no)), TAB_BATCH, section=WHY_PLACE,
          fold=WHY_FOLD_KEY, key="insights_why_link")
     return True
 
 
+REPEAT_LINK_KEY = "insights_repeat_link"
+
+
 def _repeat_link(opt, facts):
-    """W1 (review R-I3): an owner item (wording.repeat_link), not drawn:
-    e2e B2 ruled the Repeat a sentence in the Next line, with no new
-    button. Accepting it needs Make a round's Add expander keyed and a
-    one-shot Start from Best so far, and it would show only with no Round
-    open. Returns whether it was drawn: never, until the owner accepts it."""
-    return False
+    """Review R-I3, ruled in by the early walkthrough (ftue fix C): "Make a
+    Repeat of Formulation N" while Next asks for a Repeat of Best so far
+    (next_sentence's rule: an asking row while the noise threshold is
+    assumed), the one tertiary link when the Why link is not drawn
+    (priority 2). It leaves Make a round a one-shot request
+    (REPEAT_REQUEST_KEY) to open "Add a formulation to this round" with
+    Start from Best so far applied; nothing is saved until Add.
+
+    With a Round open it lands on that fold, opened. With none it lands at
+    the top of Make a round: adding first would open a Round of the user's
+    own alone, with no Generate after it, so the fold opens filled in once
+    Generate has started the Round (ui_batch._take_repeat_request).
+    Returns whether it was drawn."""
+    step = getattr(facts, "next", None)
+    best = getattr(facts, "best", None)
+    if (step is None or step.kind not in _ASK_REPEAT or not getattr(step, "assumed", False)
+            or best is None or _why_link_offered(opt)):
+        return False
+    open_no = opt.pending_batch_no if opt.pending_batch else None
+    request = {REPEAT_REQUEST_KEY: {"project": opt.project_name, "no": int(best.formulation),
+                                    "round": open_no}}
+    if open_no is None:
+        section, fold = "top", None
+    else:
+        section, fold = ADD_OWN_PLACE, ADD_OWN_KEY
+    link(_say(opt, wording.repeat_link(best.formulation)), TAB_BATCH, section=section, fold=fold,
+         key=REPEAT_LINK_KEY, state=request)
+    return True
 
 
 def _try_one_label(opt):
@@ -3671,8 +3703,10 @@ def explored_link(opt, step):
     the one tertiary link (R-I4: only when the Why link is not shown)."""
     if step is None or step.kind not in _EXPLORED_ROWS or _why_link_offered(opt):
         return False
+    # Lands on the fold's keyed place (ftue fix C), so the opened fold's
+    # strips are in view, not under the fold line.
     link(_say(opt, wording.explored_link(not opt.has_ingredients())), wording.TAB_INSIGHTS,
-         section=EXPLORED_KEY, fold=EXPLORED_KEY, key=EXPLORED_LINK_KEY)
+         section=EXPLORED_PLACE, fold=EXPLORED_KEY, key=EXPLORED_LINK_KEY)
     return True
 
 
@@ -3708,8 +3742,10 @@ def explored_fold(opt, computed):
     opened (as the Why fold). It holds the strips (model-free), the map and
     the pointer. `computed`: render's, or None while the checks are still
     being calculated (and at the gate)."""
-    with st.expander(_say(opt, wording.FOLD_EXPLORED), key=EXPLORED_KEY,
-                     on_change="rerun") as fold:
+    # In a keyed place, the Explored link's landing (ftue fix C).
+    with st.container(key=EXPLORED_PLACE), \
+            st.expander(_say(opt, wording.FOLD_EXPLORED), key=EXPLORED_KEY,
+                        on_change="rerun") as fold:
         if not fold.open:
             return
         try:
