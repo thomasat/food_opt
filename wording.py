@@ -7682,3 +7682,171 @@ def round_track_short(rounds, inside, total, rough=False, gap_text=None, below=T
     if no_skill:
         parts.append(f"{OVERALL_SCORE_COLUMN} predictions no better than averaging.")
     return " ".join(parts)
+
+
+# --- review cards ---
+# Review-cards prototype (owner, 2026-10-01: "a clearer, less wordy way to
+# present the review … understandable for someone that uses Bayesian
+# Optimization … and clear for a nontechnical food scientist"): three cards
+# (Predictions, Progress, Next), each a small label, one big status word,
+# one number line of at most 6 words and a sparkline; the full sentence and
+# the exact BO statement in the card's "?". One hero chart under them, two
+# folds below. Warnings are never folded: they keep a line of their own.
+CARD_PREDICTIONS = STATUS_PREDICTIONS
+CARD_PROGRESS = STATUS_PROGRESS
+CARD_NEXT = STATUS_NEXT
+
+
+def cards_header(n, open_no=None, waiting=0, numbers=None, not_scored=0):
+    """'Based on 24 formulations · Round 6 open · Formulation 25 waiting'."""
+    parts = [f"Based on {n} {FORMULATION}{'s' if n != 1 else ''}"]
+    if open_no is not None:
+        parts.append(f"{ROUND_CAP} {open_no} open")
+    if waiting:
+        named = (formulations_span(numbers)
+                 if numbers and len(numbers) == waiting <= HEADER_NAMES_WAITING else None)
+        parts.append(f"{named or waiting} waiting")
+    if not_scored:
+        parts.append(f"{not_scored} {NOT_SCORED}")
+    return " · ".join(parts)
+
+
+# Predictions: the number line, then any warning on a line of its own.
+def card_in_range(inside, total):
+    return f"{inside} / {total} in range"
+
+
+def card_out_of_range(outside, total, allowed):
+    """'8 / 36 outside range (4 normal)'."""
+    return f"{outside} / {total} outside range ({allowed or 'none'} normal)"
+
+
+def card_gate(n, needed=5):
+    return f"{n or 0} / {needed} {FORMULATION}s scored"
+
+
+def card_checked(k, needed=10):
+    return f"{k} / {needed} {FORMULATION}s checked"
+
+
+CARD_WIDE = "Still very uncertain"
+CARD_NO_SKILL = "No better than averaging"
+CARD_UNCLEAR = "Not clearly better than averaging"
+CARD_OFF_REPEAT = "A Repeat came out far off"
+CARD_CHECK_SCATTER = "Check your panel's consistency"
+
+
+def card_check_before(round_no=None):
+    """The Off warning, under the big word Off: 'Check panel before Round 6'."""
+    which = f"{ROUND_CAP} {round_no}" if round_no is not None else f"the next {ROUND_CAP}"
+    return f"Check panel before {which}"
+
+
+# Progress.
+def card_best(score_text, tail=None):
+    """'Best 90.45 · +0.2 (needs 3.2)'; 'Best 90.45 · Formulation 15'."""
+    return f"Best {score_text}" + (f" · {tail}" if tail else "")
+
+
+def card_rise(rise_text, need_text=None):
+    """'+0.2 (needs 3.2)' (Within noise); '+3.5 (beat 3.2)' (Rising)."""
+    return f"+{rise_text}" + (f" (needs {need_text})" if need_text is not None else "")
+
+
+def card_rising(rise_text, need_text):
+    return f"+{rise_text} (beat {need_text})"
+
+
+def card_best_who(no, tie_no=None):
+    """'Formulation 15'; 'Formulations 1 and 3'."""
+    if tie_no is not None:
+        return f"{FORMULATION_CAP}s {no} and {tie_no}"
+    return f"{FORMULATION_CAP} {no}"
+
+
+def card_flat(k):
+    return f"same for {k} {ROUND_CAP}{'s' if k != 1 else ''}"
+
+
+# Next: a verb phrase as the big word, one number line, then the Repeat
+# request or a check, each a line of its own.
+def card_record(no):
+    return f"Record {ROUND_CAP} {no}"
+
+
+def card_make(no=None):
+    return f"Make {ROUND_CAP} {no}" if no is not None else f"Make the next {ROUND_CAP}"
+
+
+def card_open(n):
+    return f"{n} {FORMULATION}{'s' if n != 1 else ''} open"
+
+
+CARD_NONE_OPEN = f"No {ROUND_CAP} open"
+CARD_CHECK_FIRST = "Check panel first"
+
+
+def card_before(no):
+    return f"Before {ROUND_CAP} {no}"
+
+
+def card_repeat_off(earlier, diff_text, lower=True):
+    """'Formulation 11's Repeat: 10.5 lower'."""
+    return (f"{FORMULATION_CAP} {earlier}'s Repeat: {diff_text} "
+            f"{'lower' if lower else 'higher'}")
+
+
+def card_repeat_ask(repeat_no, round_no=None):
+    """'Round 7: Repeat Formulation 15'; with no Round open, 'With a Repeat
+    of Formulation 24'."""
+    if round_no is None:
+        return f"With a Repeat of {FORMULATION_CAP} {repeat_no}"
+    return f"{ROUND_CAP} {round_no}: Repeat {FORMULATION_CAP} {repeat_no}"
+
+
+CARD_MISSES = "Predictions may miss more"
+CARD_GUIDED = "Guided search, not a forecast"
+CARD_TRY_BEST = "Try the predicted best"
+
+
+def card_add_to(no=None):
+    return f"Add it to {ROUND_CAP} {no}" if no is not None else f"Add it to the next {ROUND_CAP}"
+
+
+CARD_CLOSE = "Widen a limit"
+CARD_CLOSE_TOP = "Close to the top"
+
+
+def card_close_line(change_text="", settings_only=False):
+    """'Raise the Highest of Pea'; with nothing binding, what to add."""
+    if not change_text:
+        return "Add a process setting" if settings_only else "Add an ingredient or setting"
+    return change_text[:1].upper() + change_text[1:]
+
+
+# The hero chart: the BO figure along Best so far → Suggestion 1.
+def hero_title(no=None, chose=True):
+    """'How the app chose Round 6'; with no Round chosen, 'Where the app
+    looks next'."""
+    if chose and no is not None:
+        return f"How the app chose {ROUND_CAP} {no}"
+    return "Where the app looks next"
+
+
+HERO_CAPTION = "Suggestions go where expected gain peaks."
+HERO_COLD = f"Appears after 5 scored {FORMULATION}s."
+# The withheld reason, at most 10 words; the full one in its "?".
+HERO_WITHHELD = {
+    "noise": "Expected gain hidden: the model may be reading noise.",
+    "ucb": "Expected gain hidden: your settings use an upper bound.",
+    "cold": f"Expected gain hidden: {ROUND_CAP} laid out, not modelled.",
+    "verdict": "Expected gain hidden: predictions miss too often.",
+    "skill": "Expected gain hidden: predictions not yet reliable.",
+}
+
+# The two folds.
+FOLD_TRIED = "What you've tried"
+FOLD_MORE = "More detail"
+CARD_SPARK_IN_RANGE = "In range"
+HERO_PREDICTED = "Predicted score"
+HERO_GAIN = "Expected gain"

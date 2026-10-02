@@ -913,7 +913,8 @@ def render(opt):
     # their results. A waiting one, or one moved to Not scored, is not
     # scored, so it counts towards neither MIN_ROWS nor "So far: N".
     n = opt.complete_count()
-    st.caption(_say(opt, header_text(opt)), help=_say(opt, header_detail(opt)))
+    # Review cards (prototype): one short header line; the full one in its "?".
+    st.caption(_say(opt, cards_header_text(opt)), help=_say(opt, header_detail(opt)))
     if insights_jobs.stopped():
         # C2 (review M5): the workers broke too often; everything is now
         # worked out here, behind each screen's own indicator.
@@ -930,9 +931,9 @@ def render(opt):
     places = _places(opt)
     if filling:
         _fill_in(opt, places)
-        with places.explored:
-            explored_fold(opt, None)    # W3 (§8, R-I14): under the button
-        _how(opt, None)
+        _hero(opt, places.hero, None)
+        with places.more:
+            _how(opt, None)
         return
     st.session_state.pop(PROGRESS_SEEN_KEY, None)
     cold = _cached(opt) is None
@@ -944,12 +945,15 @@ def render(opt):
         # The model lines come off; one line says so, in their place, with
         # the model-free Progress line under it (review B1's table).
         places.bar.empty()
-        with places.lines.container():
-            st.caption(_say(opt, wording.INSIGHTS_FAILED))
-            _status_line(opt, insights.status_facts(opt, ()), "progress")
-        with places.explored:
-            explored_fold(opt, computed)    # W3 (§8, R-I14): under the button
-        _how(opt, None)
+        facts = insights.status_facts(opt, ())
+        with places.card["predictions"].container():
+            st.error(_say(opt, wording.INSIGHTS_FAILED))
+        for which in ("progress", "next"):
+            with places.card[which].container(gap="xxsmall"):
+                _card_body(opt, facts, which)
+        _hero(opt, places.hero, computed)
+        with places.more:
+            _how(opt, None)
         return
     checks = computed["checks"]
     h = insights.headline(opt, checks)
@@ -972,14 +976,16 @@ def render(opt):
         facts = screen_facts(opt, checks, standing, gain,
                              withheld=claims_withheld_reason(opt, score, checks))
     _finish(opt, places, facts)
-    with places.explored:
+    _hero(opt, places.hero, computed)
+    # Review cards: everything else under More detail, each fold collapsed
+    # (§2.5) with a key of its own.
+    with places.more:
         explored_fold(opt, computed)
-    # The folds, collapsed (§2.5), each with a key of its own.
-    with st.expander(_say(opt, _try_one_label(opt)), key="insights_try_one",
-                     on_change="rerun"):        # W3: the §8.3 pointer opens it
-        _change(opt, computed, yard)
-    _more_charts(opt, computed)
-    _how(opt, computed)
+        with st.expander(_say(opt, _try_one_label(opt)), key="insights_try_one",
+                         on_change="rerun"):        # W3: the §8.3 pointer opens it
+            _change(opt, computed, yard)
+        _more_charts(opt, computed)
+        _how(opt, computed)
     save(opt)
 
 
@@ -988,33 +994,50 @@ class _Places:
     order (R-I8), for _fill_in and the rest of render to fill."""
 
 
-def _places(opt):
+def _places(opt, gate=False):
+    """Review cards (prototype): the three cards side by side — each a
+    small label, then its place (big word, number line, warnings,
+    sparkline); the Next card also holds the primary button, its Set up
+    secondary and the one link — the progress bar, the hero chart's place,
+    the What you've tried fold, then More detail with the sections."""
     p = _Places()
-    p.lines = st.empty()
-    with p.lines.container():
-        _status_lines(opt, None)
-    _foot(opt)
-    p.change = st.empty()
-    p.link = st.empty()
-    with p.link.container():
-        p.why = _why_link(opt)
+    p.card = {}
+    for which, col in zip(_STATUS_ORDER, st.columns(3)):
+        with col, st.container(border=True, key=f"{CARD_KEY}_{which}", gap="xsmall"):
+            st.caption(_say(opt, _CARD_LABELS[which]))
+            p.card[which] = st.empty()
+            with p.card[which].container(gap="xxsmall"):
+                _card_body(opt, None, which)
+            if which == "next":
+                _foot(opt)
+                p.change = st.empty()
+                p.link = st.empty()
+                # The Why link sits under the hero chart it explains (_hero).
+                p.why = _why_link_offered(opt)
     p.bar = st.empty()
-    p.explored = st.container()
-    # Keyed, so a link from another tab can land on them (04 §5).
-    p.trust = st.container(key=TRUST_SECTION)
-    stand = st.container(key=STAND_SECTION)
-    with stand:
-        _question(opt, wording.Q_STAND)
-        with _figures(opt, wording.FOLD_PROGRESS_FIGURES, PROGRESS_FIGURES_KEY):
-            _basis(opt, "progress")
-            p.first_yard = insights.noise_yardstick(opt)
-            p.line1 = st.empty()
-            with p.line1.container():
-                best = _stand_lines(opt, p.first_yard)
-            p.rest = st.container()
-            if best is not None:
-                _progress_fold(opt)
-    p.nxt = st.container()
+    p.hero = st.empty()
+    tried_fold(opt)
+    p.more = st.expander(_say(opt, wording.FOLD_MORE), key=MORE_DETAIL_KEY)
+    with p.more:
+        # Keyed, so a link from another tab can land on them (04 §5).
+        p.trust = st.container(key=TRUST_SECTION)
+        stand = st.container(key=STAND_SECTION)
+        with stand:
+            _question(opt, wording.Q_STAND)
+            with _figures(opt, wording.FOLD_PROGRESS_FIGURES, PROGRESS_FIGURES_KEY):
+                _basis(opt, "progress")
+                p.first_yard = insights.noise_yardstick(opt)
+                if gate:
+                    _stand_first(opt, p.first_yard)
+                    best = None
+                else:
+                    p.line1 = st.empty()
+                    with p.line1.container():
+                        best = _stand_lines(opt, p.first_yard)
+                p.rest = st.container()
+                if best is not None:
+                    _progress_fold(opt)
+        p.nxt = st.container()
     return p
 
 
@@ -1025,6 +1048,8 @@ def _land():
     (ui_helpers.SCROLL_KEY, drained by app.py after the tab is drawn), so
     a fold the reader closed stays closed."""
     where = st.session_state.get(SCROLL_KEY)
+    if where in (TRUST_SECTION, STAND_SECTION):
+        st.session_state[MORE_DETAIL_KEY] = True     # review cards: they sit in More detail
     if where == TRUST_SECTION and st.session_state.get(EACH_KEY):
         st.session_state[PREDICTION_FIGURES_KEY] = True
     elif where == STAND_SECTION:
@@ -1037,24 +1062,23 @@ def _gate(opt):
     and Method and definitions."""
     with insights.memo_in_use(memo(opt)):
         facts = insights.status_facts(opt, ())
-    _status_lines(opt, facts)
-    _foot(opt)
-    _why_link(opt)
-    explored_fold(opt, None)
-    with st.container(key=STAND_SECTION):
-        _question(opt, wording.Q_STAND)
-        with _figures(opt, wording.FOLD_PROGRESS_FIGURES, PROGRESS_FIGURES_KEY):
-            _basis(opt, "progress")
-            _stand_first(opt, insights.noise_yardstick(opt))
-    _how(opt, None)
+    places = _places(opt, gate=True)
+    for which in _STATUS_ORDER:
+        with places.card[which].container(gap="xxsmall"):
+            _card_body(opt, facts, which)
+    _hero(opt, places.hero, None)
+    with places.more:
+        explored_fold(opt, None)
+        _how(opt, None)
 
 
 def _finish(opt, places, facts):
     """The status lines, Next step's section, the Set up secondary and, when
     no Why link was drawn, the Explored link: everything that waits for the
     predicted best and the expected improvement."""
-    with places.lines.container():
-        _status_lines(opt, facts)
+    for which in _STATUS_ORDER:
+        with places.card[which].container(gap="xxsmall"):
+            _card_body(opt, facts, which)
     with places.nxt:
         _question(opt, wording.Q_NEXT)
         with _figures(opt, wording.FOLD_NEXT_REASONING, NEXT_REASONING_KEY):
@@ -1247,6 +1271,7 @@ def screen_facts(opt, checks, standing=None, gain=None, withheld=None, partial=F
     facts = insights.status_facts(opt, checks, standing, gain)
     if facts is None:
         return None
+    facts.checks = checks       # review cards: the Predictions sparkline
     wide = next((c[1] for c in facts.clauses if c[0] == "wide"), None)
     if wide:
         facts.wide_factors = current_factors(opt, wide)
@@ -4033,7 +4058,7 @@ def _explored_body(opt, computed):
     # Charts proto: 1. What you've tried (parallel coordinates; model-free,
     # drawn whatever the checks say), 2. How the app chooses, 3. the
     # triangle, 4. the map, then the pointer.
-    _tried(opt)
+    # Review cards: What you've tried is its own fold (tried_fold).
     _chooses(opt, computed)
     _triangle(opt, computed)
     _explored_map(opt, computed)
@@ -4048,9 +4073,9 @@ def explored_fold(opt, computed):
     the pointer. `computed`: render's, or None while the checks are still
     being calculated (and at the gate)."""
     # In a keyed place, the Explored link's landing (ftue fix C).
-    with st.container(key=EXPLORED_PLACE), \
-            st.expander(_say(opt, wording.FOLD_EXPLORED), key=EXPLORED_KEY,
-                        on_change="rerun") as fold:
+    # Review cards: inside More detail; the links land on What you've tried.
+    with st.expander(_say(opt, wording.FOLD_EXPLORED), key=EXPLORED_MORE_KEY,
+                     on_change="rerun") as fold:
         if not fold.open:
             return
         try:
@@ -4287,10 +4312,11 @@ def tried_chart(opt, axes, lines):
             .properties(height=300))
 
 
-def _tried(opt):
+def _tried(opt, title=True):
     """§1 of the fold: the title, the gap and limit-hit lines (as the
     strips had them), the parallel-coordinates chart, its caption."""
-    st.markdown(f"**{_say(opt, wording.TRIED_TITLE)}**")
+    if title:
+        st.markdown(f"**{_say(opt, wording.TRIED_TITLE)}**")
     pool = bo_views.feasible_pool(opt)
     strips = insights.tested_strips(opt, pool)
     for k, line in enumerate(strip_gap_lines(opt, strips)):
@@ -4460,7 +4486,7 @@ def _recipe_text(opt, recipe):
     return "; ".join(out)
 
 
-def chooses_chart(opt, data):
+def chooses_chart(opt, data, heights=(220, 130), compact=False):
     """How the app chooses: the classic figure along one row through Best
     so far. Top: the suggestion model's mean (its posterior mean) with its
     95 % band, grey where nothing was tested near, the formulations tested
@@ -4485,7 +4511,12 @@ def chooses_chart(opt, data):
         axis = alt.Axis()
         along = path.name
     xs = alt.Scale(domain=[min(path.amounts), max(path.amounts)], zero=False, nice=False)
-    x = alt.X("x:Q", title=x_title, scale=xs, axis=axis)
+    x = alt.X("x:Q", title=None if compact and data.line else x_title, scale=xs, axis=axis)
+    # Review cards' hero (`compact`): the top panel shares the bottom's x
+    # axis, drawn once under the bottom; short y titles.
+    x_top = (alt.X("x:Q", title=None, scale=xs,
+                   axis=alt.Axis(labels=False, ticks=False, title=None, domain=False))
+             if compact and data.reason is None else x)
     d = decimals(opt, insights.SCORE)
     rows = [{"mark": "curve", "x": t, "mean": m, "low": m - insights.Z95 * s,
              "high": m + insights.Z95 * s, "gain": g,
@@ -4514,7 +4545,7 @@ def chooses_chart(opt, data):
     ink, _ = mark("bar_latest")
     word = _say(opt, wording.FORMULATION_CAP)
     curve = _only("curve")
-    predicted = _say(opt, wording.CHOOSES_PREDICTED)
+    predicted = _say(opt, wording.HERO_PREDICTED if compact else wording.CHOOSES_PREDICTED)
     tip = [alt.Tooltip("amount:N", title=along),
            alt.Tooltip("pred:N", title=f"{predicted} ({wording.CHOOSES_BAND})")]
     lo_all = min([r["low"] for r in rows if r["mark"] == "curve"]
@@ -4524,7 +4555,8 @@ def chooses_chart(opt, data):
     pad = 0.05 * max(hi_all - lo_all, 1.0)
     ys = alt.Scale(domain=[lo_all - pad, hi_all + pad], zero=False, nice=False)
 
-    def rules(height_title=True):
+    def rules(height_title=True, xr=None):
+        xr = xr or alt.X("x:Q", scale=xs)
         out = []
         for kind, colour, dash, opacity in (("best", ref_c, [4, 3], ref_o),
                                             ("pick", outline_colour(), [1, 0], 1.0),
@@ -4534,11 +4566,11 @@ def chooses_chart(opt, data):
                 continue
             base = alt.Chart(sel)
             out.append(base.mark_rule(color=colour, opacity=opacity, strokeDash=dash,
-                                      strokeWidth=2, tooltip=False).encode(x=alt.X("x:Q", scale=xs)))
+                                      strokeWidth=2, tooltip=False).encode(x=xr))
             if height_title:
                 out.append(base.mark_text(color=muted(), align="left", dx=4, baseline="top",
                                           fontSize=10, tooltip=False)
-                           .encode(x=alt.X("x:Q", scale=xs),
+                           .encode(x=xr,
                                    y=alt.value(4 if kind == "best" else 18), text="label:N"))
         return out
 
@@ -4554,21 +4586,22 @@ def chooses_chart(opt, data):
         alt.Chart(df.assign(band=_say(opt, wording.CHOOSES_BAND_LEGEND),
                             band_tip=_say(opt, wording.TIP_CHOOSES_BAND)))
         .mark_area(opacity=band_o)
-        .encode(x=x, y=alt.Y("low:Q", scale=ys, title=predicted), y2="high:Q",
+        .encode(x=x_top, y=alt.Y("low:Q", scale=ys, title=predicted), y2="high:Q",
                 fill=alt.Fill("band:N", scale=alt.Scale(range=[band_c]),
-                              legend=alt.Legend(title=None, orient="top", labelLimit=0)),
+                              legend=None if compact else
+                              alt.Legend(title=None, orient="top", labelLimit=0)),
                 tooltip=[alt.Tooltip("band_tip:N", title=_say(opt, wording.CHOOSES_BAND_LEGEND))])
         .transform_filter(curve),
         alt.Chart(df).mark_line(color=ink, strokeWidth=2)
-        .encode(x=x, y=alt.Y("mean:Q", scale=ys, title=predicted), tooltip=tip)
+        .encode(x=x_top, y=alt.Y("mean:Q", scale=ys, title=predicted), tooltip=tip)
         .transform_filter(curve),
-        *rules(),
+        *rules(xr=x_top if compact else None),
     ]
     if len(dots):
         top_layers.append(
             alt.Chart(dots).mark_point(filled=True, size=70, opacity=1, stroke=ink,
                                        strokeWidth=1)
-            .encode(x=x, y=alt.Y("score:Q", scale=ys, title=predicted),
+            .encode(x=x_top, y=alt.Y("score:Q", scale=ys, title=predicted),
                     color=alt.Color("score:Q", scale=score_scale(scored_dom),
                                     title=_say(opt, wording.CHOOSES_TESTED),
                                     legend=alt.Legend(orient="right", gradientLength=90)),
@@ -4577,10 +4610,10 @@ def chooses_chart(opt, data):
                                          format=".2f"),
                              alt.Tooltip("score:Q", title=_say(opt, wording.OVERALL_SCORE_COLUMN),
                                          format=".2f")]))
-    top = alt.layer(*top_layers).properties(height=220)
+    top = alt.layer(*top_layers).properties(height=heights[0])
     if data.reason is not None:
         return top
-    gain_title = _say(opt, wording.CHOOSES_GAIN)
+    gain_title = _say(opt, wording.HERO_GAIN if compact else wording.CHOOSES_GAIN)
     bottom = alt.layer(
         alt.Chart(df).mark_area(color=blue, opacity=0.25, tooltip=False)
         .encode(x=x, y=alt.Y("gain:Q", title=gain_title)).transform_filter(curve),
@@ -4590,7 +4623,7 @@ def chooses_chart(opt, data):
                          alt.Tooltip("gain_text:N", title=wording.GAIN_TOOLTIP_TITLE)])
         .transform_filter(curve),
         *rules(height_title=False),
-    ).properties(height=130)
+    ).properties(height=heights[1])
     return alt.vconcat(top, bottom, spacing=8).resolve_scale(x="shared", color="independent")
 
 
@@ -5436,3 +5469,306 @@ def _glossary(opt):
     frame = pd.DataFrame(list(wording.glossary_rows(not opt.has_ingredients())),
                          columns=columns)
     st.table(frame.set_index(columns[0]))
+
+
+
+# ------------------------------------------------------------------ #
+#  Review cards (prototype, 2026-10-01; owner: "a clearer, less wordy way
+#  to present the review"): three bordered cards side by side, each a
+#  small label, one big status word, one number line, any warning on a
+#  line of its own, and a 60 px sparkline; the full sentence and the exact
+#  rule in the card's "?" (status_help). The hero chart under them is the
+#  BO figure along Best so far -> Suggestion 1.
+# ------------------------------------------------------------------ #
+
+CARD_KEY = "insights_card"
+MORE_DETAIL_KEY = "insights_more_detail"
+EXPLORED_MORE_KEY = "insights_explored_more"
+_CARD_LABELS = {"predictions": wording.CARD_PREDICTIONS, "progress": wording.CARD_PROGRESS,
+                "next": wording.CARD_NEXT}
+SPARK_HEIGHT = 60
+HERO_HEIGHTS = (100, 56)
+
+
+def cards_header_text(opt):
+    """'Based on 24 formulations · Round 6 open · Formulation 25 waiting ·
+    1 Not scored'."""
+    waiting = opt.awaited_rows()
+    not_scored = sum(map(opt.is_set_aside, range(len(opt.Y_history))))
+    return wording.cards_header(
+        opt.complete_count(), opt.pending_batch_no if opt.pending_batch else None,
+        len(waiting), numbers=[int(opt.formulation_ids[i]) for i in waiting],
+        not_scored=not_scored)
+
+
+class Card:
+    """What one card says: its big word, its lines [(text, warn)], its
+    word's tone ("off" draws it red) and its "?"."""
+
+    def __init__(self, word, lines, tone=None, help=None):
+        self.word, self.lines, self.tone, self.help = word, lines, tone, help
+
+
+def _check_round(opt):
+    return opt.pending_batch_no if opt.pending_batch else opt.next_batch_no()
+
+
+def predictions_card(opt, facts):
+    row, h = facts.prediction_row, facts.headline
+    word = wording.PREDICTIONS_WORDS[facts.predictions]
+    check = any(c[0] == "wide" and wide_cause(c[1], getattr(facts, "wide_factors", None) or {})
+                is not None for c in facts.clauses)
+    lines = []
+    if row == "off_repeat":
+        lines.append((wording.CARD_OFF_REPEAT, True))
+    elif row == "gate":
+        lines.append((wording.card_gate(facts.scored, insights.MIN_ROWS), False))
+    elif row == "too_few":
+        lines.append((wording.card_checked(facts.checked, insights.SKILL_MIN), False))
+    elif row == "wide":
+        lines.append((wording.CARD_WIDE, False))
+    elif row == "no_skill":
+        lines.append((wording.CARD_NO_SKILL, False))
+    elif row == "unclear":
+        lines.append((wording.CARD_UNCLEAR, False))
+    elif row in ("off_coverage", "caution"):
+        lines.append((wording.card_out_of_range(h.total - h.inside, h.total,
+                                                insights.allowed_misses(h.total)), True))
+    else:
+        lines.append((wording.card_in_range(h.inside, h.total), False))
+    if check:
+        lines.append((wording.CARD_CHECK_SCATTER, True))
+    off = facts.predictions == "off"
+    if off:
+        lines.append((wording.card_check_before(_check_round(opt)), True))
+    return Card(word, lines, "off" if off else None)
+
+
+def progress_card(opt, facts):
+    f = facts.best
+    word = None if facts.progress is None else wording.PROGRESS_WORDS[facts.progress]
+    if f is None:
+        return Card(word or "—", [(wording.NO_COMPLETE_FORMULATION, False)])
+    score = f"{f.score:.2f}"
+    tie = None if facts.tie is None else int(opt.formulation_ids[facts.tie])
+    a = facts.improvement
+    lines = []
+    if facts.progress in ("rising", "within_noise"):
+        rise, need = rise_and_need(a)
+        tail = (wording.card_rising(rise, need) if facts.progress == "rising"
+                else wording.card_rise(rise, need))
+    elif facts.progress == "flat":
+        tail = wording.card_flat(a.rounds)
+    else:
+        tail = wording.card_best_who(f.formulation, tie)
+    lines.append((wording.card_best(score, tail), False))
+    if facts.progress not in ("rising", "within_noise", "flat", "no_new_best") \
+            and not one_round(opt):
+        without = scored_without(opt, f.round)
+        if without:
+            lines.append((wording.short_lack(*without).rstrip("."), True))
+    return Card(word, lines)
+
+
+def next_card(opt, facts):
+    no = opt.pending_batch_no
+    left = len(open_rows(opt)) if opt.pending_batch else 0
+    step = facts.next
+    word = wording.card_record(no) if left else wording.card_make(opt.next_batch_no())
+    lines = [(wording.card_open(left) if left else wording.CARD_NONE_OPEN, False)]
+    tone = None
+    ask = (facts.best.formulation if step is not None and getattr(step, "assumed", False)
+           and facts.best is not None else None)
+    kind = None if step is None else step.kind
+    if kind == "repeat":
+        d = step.disagreement
+        word, tone = wording.CARD_CHECK_FIRST, "off"
+        lines = [(wording.card_before(_check_round(opt)), True),
+                 (wording.card_repeat_off(d.earlier, f"{abs(d.diff):.1f}", lower=d.diff < 0),
+                  True)]
+    elif kind == "misses":
+        lines.append((wording.CARD_MISSES, True))
+    elif kind == "no_skill":
+        lines.append((wording.CARD_GUIDED, False))
+    elif kind == "untested":
+        word = wording.CARD_TRY_BEST
+        lines = [(wording.card_add_to(no if opt.pending_batch else None), False)]
+    elif kind == "close":
+        word = wording.CARD_CLOSE if step.binding is not None else wording.CARD_CLOSE_TOP
+        lines = [(wording.card_close_line(
+            _close_change(step.binding),
+            settings_only=not insights.has_ingredient_choice(opt)), False)]
+    if ask is not None and kind in _ASK_REPEAT:
+        lines.append((wording.card_repeat_ask(ask, opt.next_batch_no() if left else None),
+                      False))
+    return Card(word, lines, tone)
+
+
+_CARD_BUILDERS = {"predictions": predictions_card, "progress": progress_card,
+                  "next": next_card}
+
+
+def card_for(opt, facts, which):
+    """The Card for `which`, its "?" the full sentence then the exact rule
+    (status_help), in the project's words; None while its facts are still
+    being worked out."""
+    if facts is None or which in facts.pending:
+        return None
+    card = _CARD_BUILDERS[which](opt, facts)
+    card.word = _say(opt, card.word)
+    card.lines = [(_say(opt, t), w) for t, w in card.lines]
+    card.help = status_help(opt, facts, which)
+    return card
+
+
+def _card_body(opt, facts, which):
+    """One card's place: the big word (with the "?"), its lines, warnings
+    in their own colour, and the sparkline."""
+    card = card_for(opt, facts, which)
+    if card is None:
+        st.caption(_say(opt, _PLACEHOLDERS[which]))
+        return
+    word = f":red[{card.word}]" if card.tone == "off" else card.word
+    st.subheader(word, anchor=False, help=card.help)
+    for text, warn in card.lines:
+        st.markdown(f":red[**{text}**]" if warn else text)
+    try:
+        chart = spark_chart(opt, facts, which)
+    except Exception:       # a sparkline failing must not take the card down
+        chart = None
+    if chart is not None:
+        show_chart(chart)
+
+
+def predictions_spark_frame(opt, checks):
+    """Per checked Round: the share of its Round-ahead results inside their
+    95 % intervals (the verdict's values: the measurements)."""
+    rows = []
+    values = [c for c in (checks or ()) if c.name != insights.SCORE]
+    for r in insights._ordered_rounds(values):
+        mine = [c for c in values if c.round == r]
+        if mine:
+            inside = sum(bool(c.inside) for c in mine)
+            rows.append({"round": int(r), "inrange": inside / len(mine),
+                         "text": f"{inside} / {len(mine)}"})
+    return pd.DataFrame(rows, columns=["round", "inrange", "text"])
+
+
+def progress_spark_frame(opt):
+    """Per Round: Best so far at its end."""
+    best = opt.best_so_far()
+    out = {}
+    for i, r in enumerate(opt.batch_history):
+        if r is not None and best[i] is not None:
+            out[int(r)] = max(out.get(int(r), float("-inf")), float(best[i]))
+    rows = [{"round": r, "best": v, "text": f"{v:.2f}"} for r, v in sorted(out.items())]
+    return pd.DataFrame(rows, columns=["round", "best", "text"])
+
+
+def spark_chart(opt, facts, which):
+    """A 60 px sparkline, no axes: Predictions, the share in range per
+    Round against the 95 % a calibrated model would catch (dashed);
+    Progress, Best so far by Round. None for Next, or with under two
+    Rounds to draw."""
+    rnd = _say(opt, wording.ROUND_CAP)
+    if which == "predictions":
+        df, field = predictions_spark_frame(opt, getattr(facts, "checks", None)), "inrange"
+        title = _say(opt, wording.CARD_SPARK_IN_RANGE)
+    elif which == "progress":
+        df, field = progress_spark_frame(opt), "best"
+        title = _say(opt, wording.BEST_SO_FAR_COLUMN)
+    else:
+        return None
+    if len(df) < 2:
+        return None
+    ink, _ = mark("bar_latest")
+    lo, hi = float(df[field].min()), float(df[field].max())
+    if which == "predictions":
+        lo, hi = min(lo, 0.95), max(hi, 0.95)
+    pad = 0.08 * max(hi - lo, 0.05 if which == "predictions" else 1.0)
+    y = alt.Y(f"{field}:Q", axis=None, scale=alt.Scale(domain=[lo - pad, hi + pad], nice=False))
+    x = alt.X("round:Q", axis=None, scale=alt.Scale(nice=False, padding=6))
+    tip = [alt.Tooltip("round:Q", title=rnd, format="d"),
+           alt.Tooltip("text:N", title=title)]
+    base = alt.Chart(df)
+    layers = [base.mark_line(color=ink, strokeWidth=2, tooltip=False).encode(x=x, y=y),
+              base.mark_point(filled=True, size=28, color=ink, opacity=1).encode(
+                  x=x, y=y, tooltip=tip)]
+    if which == "predictions":
+        ref, _ = mark("reference")
+        layers.insert(0, alt.Chart(pd.DataFrame({"inrange": [0.95]}))
+                      .mark_rule(color=ref, strokeDash=[3, 3], tooltip=False).encode(y=y))
+    return (alt.layer(*layers).properties(height=SPARK_HEIGHT)
+            .configure_view(strokeWidth=0))
+
+
+def hero_reason_key(reason):
+    """The withheld reason's short key (wording.HERO_WITHHELD)."""
+    if reason in (wording.CHOOSES_REASON_NOISE, wording.GAIN_REASON_GUARD):
+        return "noise"
+    if reason == wording.CHOOSES_REASON_COLD:
+        return "cold"
+    if reason == wording.CHOOSES_REASON_UCB:
+        return "ucb"
+    if reason == wording.GAIN_REASON_VERDICT:
+        return "verdict"
+    return "skill"
+
+
+def _hero(opt, place, computed):
+    """The hero chart, then the Why link under it when offered."""
+    with place.container():
+        _hero_body(opt, computed)
+        _why_link(opt)
+
+
+def _hero_body(opt, computed):
+    """The hero chart (review cards): "How the app chose Round N", the BO
+    figure along Best so far -> Suggestion 1 (else the predicted best):
+    the predicted score with its band on top, the expected gain below, a
+    one-line caption; the withheld reason when the gain is not drawn;
+    before MIN_ROWS scored, one line."""
+    open_no = opt.pending_batch_no if opt.pending_batch else None
+    chose = open_no is not None and _first_pick(opt) is not None
+    st.markdown(f"**{_say(opt, wording.hero_title(open_no, chose))}**")
+    if opt.complete_count() < insights.MIN_ROWS:
+        st.caption(_say(opt, wording.HERO_COLD))
+        return
+    if computed is None:
+        st.caption(_say(opt, wording.CHECKING_PREDICTIONS))
+        return
+    if computed.get("failed"):
+        st.caption(_say(opt, wording.CHART_FAILED))
+        return
+    try:
+        data = chooses_data(opt, computed["fitted"], None, mode=CHOOSES_LINE)
+        chart = None if data is None else chooses_chart(opt, data, heights=HERO_HEIGHTS,
+                                                         compact=True)
+    except Exception:
+        data = chart = None
+    if chart is None:
+        st.caption(_say(opt, wording.CHART_FAILED))
+        return
+    show_chart(chart)
+    st.caption(_say(opt, wording.HERO_CAPTION),
+               help=_say(opt, wording.tip_chooses(data.best_no,
+                                                  settings_only=not opt.has_ingredients(),
+                                                  line=True, end=data.end_label)))
+    if data.reason is not None:
+        st.caption(_say(opt, wording.HERO_WITHHELD[hero_reason_key(data.reason)]),
+                   help=_say(opt, wording.tip_chooses_withheld(data.reason)))
+
+
+def tried_fold(opt):
+    """What you've tried (review cards): the gap lines and the parallel
+    coordinates, model-free; keyed EXPLORED_KEY in EXPLORED_PLACE, so the
+    Explored link lands on it; drawn only while open."""
+    with st.container(key=EXPLORED_PLACE), \
+            st.expander(_say(opt, wording.FOLD_TRIED), key=EXPLORED_KEY,
+                        on_change="rerun") as fold:
+        if not fold.open:
+            return
+        try:
+            _tried(opt, title=False)
+        except Exception:   # one fold failing must not take the tab down
+            st.caption(_say(opt, wording.CHART_FAILED))
