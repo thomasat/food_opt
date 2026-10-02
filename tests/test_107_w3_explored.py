@@ -608,7 +608,7 @@ def test_the_order_inside_the_fold(monkeypatch):
     assert texts[tried_at + 2] == f"**{wording.CHOOSES_TITLE}**"
     chooses_at = texts.index("chart", tried_at + 1)
     assert texts[chooses_at + 1] == wording.CHOOSES_CAPTION
-    triangle_at = texts.index(f"**{wording.Q_MIXTURE}**")
+    triangle_at = texts.index(f"##### {wording.Q_MIXTURE}")
     assert chooses_at < triangle_at < texts.index(f"**{wording.MAP_TITLE}**")
     assert kinds[-1] == "button"
     assert texts[-1] == wording.explored_pointer(ui_insights._try_one_label(opt), triangle=False)

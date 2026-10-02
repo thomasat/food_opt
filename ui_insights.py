@@ -4420,7 +4420,7 @@ def _mixture(opt, fitted):
     score = fitted.get(insights.SCORE)
     if len(offered) < 3 or score is None or score.model is None:
         return False
-    st.markdown(f"**{_say(opt, wording.Q_MIXTURE)}**")
+    _question(opt, wording.Q_MIXTURE)
     layer = _layer_pick(opt, fitted, LAYER_KEY)
     layered = layer != wording.LAYER_SCORE
     number = _start_number(opt, layered)

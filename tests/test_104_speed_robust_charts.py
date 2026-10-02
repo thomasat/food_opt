@@ -398,7 +398,7 @@ def test_a_reopen_with_everything_cached_shows_no_progress_line(burger, jobs, mo
     _open(_app(burger.project_name))
     bars = _bars(monkeypatch)
     at = _open(_app(burger.project_name))
-    assert not at.exception and wording.trade_offs_fold() in _texts(at)
+    assert not at.exception and wording.PAIR_FOLD in _texts(at)
     assert bars == []
 
 
@@ -416,7 +416,7 @@ def test_rounds_already_checked_count_as_done_from_the_start(burger, jobs, monke
     total = len(ui_insights._checked(burger))
     bars = _bars(monkeypatch)
     at = _open(_app(burger.project_name))
-    assert not at.exception and wording.trade_offs_fold() in _texts(at)
+    assert not at.exception and wording.PAIR_FOLD in _texts(at)
     assert bars, "the current models are fitted: one line"
     # Integration (T0′): with every Round checked, the line says the model
     # of the latest results is being updated, never "N of N checked…".
@@ -706,9 +706,13 @@ def _colour_scale(spec):
 
 
 def test_the_triangle_uses_the_themes_scale(scored, theme):
-    for layer in (None, wording.LAYER_SD, wording.LAYER_GAIN):
+    # Charts proto: the model layers in the theme's blues; the score layer
+    # in the theme's score colours (as What you've tried).
+    for layer in (wording.LAYER_SD, wording.LAYER_GAIN):
         scale = _colour_scale(_triangle(scored, layer=layer))["scale"]
         assert scale["scheme"]["extent"] == list(ui_insights.blues(theme).extent)
+    scale = _colour_scale(_triangle(scored, layer=None))["scale"]
+    assert scale["range"] == ui_insights.score_colours(theme)
 
 
 # ------------------------------------------------------------------ #

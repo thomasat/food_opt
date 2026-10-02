@@ -17,7 +17,7 @@ import ui_insights
 import wording
 from food_bo import FoodOptimizer
 from tests.test_app_ui import APP_PATH, _submit_button, burger, scored  # noqa: F401
-from tests.test_insights_ui import _open_insights, _tab_text, insights_scored  # noqa: F401
+from tests.test_insights_ui import _tab_text, insights_scored  # noqa: F401
 
 
 def _app():
@@ -39,10 +39,56 @@ def _counting(monkeypatch, name):
 
 
 def _more(at):
-    """The Trade-offs fold (was More charts; its label names the triangle
-    only when it can be drawn)."""
-    found = [e for e in at.tabs[3].expander if e.label.startswith("Trade-offs")]
-    return found[0] if found else None
+    """Charts proto: the two-measurement fold (Two measurements, was
+    Trade-offs) and the triangle, which now sits in Explored and
+    unexplored, read as one block (pair first, as these tests were
+    written); None when neither is drawn."""
+    folds = {e.label: e for e in at.tabs[3].expander}
+    found = [folds[k] for k in (wording.PAIR_FOLD, wording.FOLD_EXPLORED) if k in folds]
+    pair = wording.PAIR_FOLD in folds
+    tri = wording.FOLD_EXPLORED in folds and any(
+        m.value == f"##### {wording.Q_MIXTURE}" for m in folds[wording.FOLD_EXPLORED].markdown)
+    if not pair and not tri:
+        return None
+    return _Folds(found if tri else found[:1])
+
+
+class _Folds:
+    """Several folds read as one: list attributes joined, in order."""
+
+    def __init__(self, folds):
+        self.folds = folds
+
+    @property
+    def proto(self):
+        return self.folds[0].proto
+
+    @property
+    def label(self):
+        return self.folds[0].label
+
+    @property
+    def children(self):
+        out = {}
+        for k, f in enumerate(self.folds):
+            out.update({(k, key): c for key, c in f.children.items()})
+        return out
+
+    def __getattr__(self, name):
+        out = []
+        for f in self.folds:
+            out += list(getattr(f, name))
+        return out
+
+
+def _open_insights(at):
+    """test_insights_ui's, with Explored and unexplored open: the triangle
+    is drawn there now (charts proto), and only while it is open."""
+    at.run()
+    at.session_state[ui_insights.EXPLORED_KEY] = True
+    at.session_state["main_tab"] = wording.TAB_INSIGHTS
+    at.run()
+    return at
 
 
 def _charts(block):
@@ -78,7 +124,7 @@ def test_more_charts_is_collapsed_after_the_answers_and_before_how(insights_scor
     at = _open_insights(_app())
     assert not at.exception
     labels = [e.label for e in at.tabs[3].expander]
-    trade = next(lab for lab in labels if lab.startswith("Trade-offs"))
+    trade = next(lab for lab in labels if lab == wording.PAIR_FOLD)       # charts proto
     assert labels.index(trade) == labels.index(wording.FOLD_METHOD) - 1
     assert _more(at).proto.expanded is False
     md, _ = _tab_text(at)
@@ -579,12 +625,15 @@ def test_triangle_chart_grey_where_a_limit_is_broken_and_smaller_where_untested(
     mix, preds = _mix_parts(opt)
     spec = ui_insights.mixture_chart(opt, mix, preds, 7).to_dict()
     # opacity 1 excludes the invisible, legend-only circle layer.
-    circles = [l for l in spec["layer"]
-               if l["mark"]["type"] == "circle" and l["mark"].get("opacity") == 1]
-    grey, coloured = circles
-    assert grey["mark"]["color"] == "lightgray"
+    # Charts proto: not allowed is a hollow ring in the neutral token (3.2:1
+    # on white; lightgray was 1.5:1), the score in the score colours.
+    [grey] = [l for l in spec["layer"] if l["mark"]["type"] == "point"
+              and l["mark"].get("filled") is False and "size" in l["encoding"]]
+    [coloured] = [l for l in spec["layer"]
+                  if l["mark"]["type"] == "circle" and l["mark"].get("opacity") == 1]
+    assert grey["mark"]["color"] == ui_insights.mark("neutral")[0]
     assert [t["title"] for t in grey["encoding"]["tooltip"]][-1] == wording.MIXTURE_BLOCKED
-    assert coloured["encoding"]["color"]["scale"]["scheme"] == {"name": "blues", "extent": [0.55, 1]}  # M-10: 3:1 on white
+    assert coloured["encoding"]["color"]["scale"]["range"] == ui_insights.score_colours()
     allowed = [q.mean for q in preds if q is not None]
     assert coloured["encoding"]["color"]["scale"]["domain"] == pytest.approx([min(allowed), max(allowed)])
     size = coloured["encoding"]["size"]["scale"]
@@ -680,8 +729,8 @@ def test_the_state_legend_shows_three_differently_sized_and_coloured_marks(mixtu
     assert size_scale["type"] == "ordinal"
     assert fill_scale["domain"] == stroke_scale["domain"] == kinds
     assert fill_scale["range"] == stroke_scale["range"]
-    assert fill_scale["range"][2] == "lightgray"
-    assert fill_scale["range"][0] == fill_scale["range"][1] != "lightgray"
+    assert fill_scale["range"][2] == ui_insights.mark("neutral")[0]     # charts proto
+    assert fill_scale["range"][0] == fill_scale["range"][1] != fill_scale["range"][2]
     assert dummy["encoding"]["fill"]["legend"]["labelLimit"] == 0
 
 
@@ -808,15 +857,16 @@ def test_more_charts_lists_its_two_questions_in_order(mixture_scored):
     """The misses chart went (spec 2026-09-30 §2.5): measured against
     predicted, under "Show each prediction", says the same."""
     at = _open_insights(_app())
-    md = [m.value for m in _more(at).markdown]
+    md = [m.value for m in _more(at).markdown if m.value.startswith("#####")]
     assert md == [f"##### {q}" for q in (wording.Q_PAIR, wording.Q_MIXTURE)]
 
 
 def test_more_charts_is_offered_when_any_one_chart_is(monkeypatch):
-    """The expander's gate is the OR of its two charts' own gates."""
+    """Charts proto: the fold holds the two-measurement chart alone (the
+    triangle moved to Explored and unexplored), so two measurements open it."""
     opt = type("O", (), {"complete_count": lambda self: insights.MIN_ROWS})()
     fitted = {insights.SCORE: type("F", (), {"model": object()})()}
-    for pair, three, offered in ((0, 0, False), (2, 0, True), (1, 3, True), (1, 2, False)):
+    for pair, three, offered in ((0, 0, False), (2, 0, True), (1, 3, False), (1, 2, False)):
         opt.objectives = [{"name": f"M{k}"} for k in range(pair)]
         monkeypatch.setattr(insights, "mixture_choices", lambda o, n=three: ["x"] * n)
         assert ui_insights.more_charts_offered(
@@ -880,7 +930,7 @@ def test_the_triangle_lines_go_through_the_projects_own_words(mixture_scored, mo
                         or real(opt, text))
     _open_insights(_app())
     best_no = mixture_scored.best_formulation_no()
-    for line in (wording.trade_offs_fold(), wording.Q_MIXTURE, wording.MIXTURE_PICK,
+    for line in (wording.PAIR_FOLD, wording.Q_MIXTURE, wording.MIXTURE_PICK,
                  wording.mixture_caption(best_no), wording.MIXTURE_TESTED,
                  wording.MIXTURE_UNTESTED, wording.MIXTURE_BLOCKED,
                  wording.start_formulation(best_no), wording.Q_PAIR, wording.PAIR_PICK,

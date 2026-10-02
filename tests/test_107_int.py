@@ -208,7 +208,8 @@ def test_the_folds_have_their_new_names(screens, name):
     assert not any(lab.startswith(("Effect of one", "More charts", "Method and details"))
                    for lab in labels), labels
     if opt.has_ingredients():
-        assert wording.trade_offs_fold(True) in labels
+        # Charts proto: the triangle moved to Explored and unexplored.
+        assert wording.PAIR_FOLD in labels
     assert labels.index(wording.for_project(opt, try_one)) < labels.index(wording.FOLD_METHOD)
 
 
