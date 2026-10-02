@@ -34,6 +34,9 @@ import bo_views
 import insights
 import ui_insights
 from ui_helpers import INSIGHTS_OPENED_KEY, link
+# Ftue fix C: the Why fold's and the Add fold's places, and the Repeat
+# link's request.
+from ui_helpers import ADD_OWN_KEY, ADD_OWN_PLACE, REPEAT_REQUEST_KEY, WHY_PLACE
 
 # The batch table's own formatter, under the name tests and older code import.
 _amount_format = amount_format
@@ -353,6 +356,10 @@ def _no_batch(opt):
     # lands once the checks are in must not move the lit button under
     # the pointer.
     _next_step_line(opt)
+    # The Repeat link's request waits for Generate (ftue fix C): one line.
+    request = _repeat_request(opt)
+    if request is not None:
+        st.caption(wording.for_project(opt, wording.repeat_after_generate(request["no"])))
     # Only while it is news: before five formulations have results (spec
     # 2026-09-30 §3, audit V16). Set up › Advanced › How it works keeps it.
     if opt.complete_count() < COLD_START_RUNS:
@@ -505,9 +512,24 @@ def _start_from_best(opt, best_no):
     (insights.start_recipe), the ones the model learned it at: a Best so
     far made to a 500 g batch size opens at 100 g, not at 500 (spec
     2026-09-30-bo-views §1, review M1)."""
+    if _fill_from(opt, best_no, park_clear):
+        st.rerun()
+
+
+def _put(key, value):
+    """Assign a box before it is drawn on this run (the Repeat request is
+    read before the Add fold's boxes exist, so nothing is parked)."""
+    st.session_state[key] = value
+
+
+def _fill_from(opt, best_no, put):
+    """Start from Best so far's filling, shared by its button (`put`:
+    park_clear, then a rerun) and the Repeat link's request (`put`: _put,
+    on the run that draws the boxes). Returns whether anything was
+    filled."""
     index = opt.index_of_formulation(best_no)
     if index is None:
-        return
+        return False
     # At the total, but only the rows that formulation was recorded with
     # (T1 review I2): start_recipe decodes every current row.
     recorded_names = opt.recipe_history[index]
@@ -523,11 +545,47 @@ def _start_from_best(opt, best_no):
         # screen: the boxes opened at 21.738359306488338.
         value = None if recorded is None else round(float(recorded), 2)
         prefilled[var['name']] = value
-        park_clear(_own_key(var['name']), value)
-    park_clear("own_note", wording.repeat_of_formulation(best_no))
+        put(_own_key(var['name']), value)
+    put("own_note", wording.repeat_of_formulation(best_no))
     st.session_state[_PREFILLED_FROM] = int(best_no)
     st.session_state[_PREFILLED_AMOUNTS] = prefilled
-    st.rerun()
+    return True
+
+
+def _repeat_request(opt):
+    """The Repeat link's request for this project (ui_insights._repeat_link),
+    or None. A request for another project, or for a Round that is no
+    longer the one open (or that has closed), is dropped: it was about a
+    screen the reader has left."""
+    request = st.session_state.get(REPEAT_REQUEST_KEY)
+    if not isinstance(request, dict):
+        return None
+    open_no = opt.pending_batch_no if opt.pending_batch else None
+    wanted = request.get("round")
+    if (request.get("project") != opt.project_name
+            or (wanted is not None and wanted != open_no)):
+        st.session_state.pop(REPEAT_REQUEST_KEY, None)
+        return None
+    return request
+
+
+def _take_repeat_request(opt):
+    """With a Round open, the Repeat link's request opens "Add a formulation
+    to this round" with Start from Best so far applied (the link's own
+    Formulation; the note says "Repeat of Formulation N") and lands on it,
+    once: nothing is added until the reader clicks Add. Called before the
+    fold and its boxes are drawn. With no Round open it waits (the line
+    under Generate says so); Generate then opens the Round and this fills
+    the fold on that run (ftue fix C)."""
+    request = _repeat_request(opt)
+    if request is None or not opt.pending_batch:
+        return
+    st.session_state.pop(REPEAT_REQUEST_KEY, None)
+    if _fill_from(opt, request.get("no"), _put):
+        st.session_state[ADD_OWN_KEY] = True
+        # app.py scrolls there once, after the tabs (also after a Generate,
+        # where no link set a landing).
+        st.session_state[SCROLL_KEY] = ADD_OWN_PLACE
 
 
 def _add_own(opt):
@@ -564,7 +622,12 @@ def _own_formulation(opt):
     Both buttons are secondary. One button per tab is the coloured one:
     Generate before a batch is open, Save results once it is.
     """
-    with st.expander(wording.for_project(opt, wording.ADD_OWN_EXPANDER)):
+    _take_repeat_request(opt)
+    # Keyed, in a keyed place: the Repeat link opens it and lands on it
+    # (ftue fix C). Its boxes are drawn whether it is open or not, as before.
+    with st.container(key=ADD_OWN_PLACE), \
+            st.expander(wording.for_project(opt, wording.ADD_OWN_EXPANDER), key=ADD_OWN_KEY,
+                        on_change="rerun"):
         if not opt.pending_batch:
             # Adding one with nothing open opens the batch, so the order
             # matters: generated formulations can only join it first.
@@ -1119,7 +1182,7 @@ def why_frame(opt, why, preds, hide=False):
     shown (0.8.0 e2e fixes A2, review I3). Every cell in the project's own
     words (T47 review I-1: "Trial" in a process-only study)."""
     value_col = (wording.OPTIMISTIC_SCORE if why.kind == "qucb"
-                 else wording.EXPECTED_IMPROVEMENT)
+                 else wording.EXPECTED_GAIN)
     say = lambda text: wording.for_project(opt, text)
     rows = []
     for r in why.rows:
@@ -1131,8 +1194,8 @@ def why_frame(opt, why, preds, hide=False):
         item[wording.MODEL_SD] = f"{r.sd:.2f}"
         if not hide:
             item[value_col] = f"{r.value:.2f}" + (f" {wording.PENDING_MARK}" if r.pending else "")
-        item[wording.NEAREST_TESTED] = ("" if r.nearest is None
-                                        else say(wording.start_formulation(r.nearest)))
+        item[wording.CLOSEST_MADE] = ("" if r.nearest is None
+                                      else say(wording.start_formulation(r.nearest)))
         item[wording.LARGEST_DIFFERENCES] = ", ".join(
             wording.why_difference(name, _signed_change(opt, name, d, unit))
             for name, d, unit in r.differences)
@@ -1160,12 +1223,15 @@ def why_columns(opt, value_col, help_text):
             wording.PREDICTED_SCORE_COLUMN, width="small",
             help=say(f"{wording.tip_predicted_score(values)} {wording.TIP_INTERVAL}")),
         wording.MODEL_SD: col(wording.MODEL_SD, width="small", help=say(wording.TIP_MODEL_SD)),
+        # The gain's own tooltip carries its BO term (ftue fix C); qUCB's
+        # optimistic score keeps the shared one.
         value_col: col(say(value_col), width="small",
-                       help=say(f"{help_text} {term(wording.TIP_EXPECTED_IMPROVEMENT)}")),
-        wording.NEAREST_TESTED: col(wording.NEAREST_TESTED, width="small",
-                                    help=say(wording.TIP_NEAREST_TESTED)),
+                       help=say(help_text if value_col == wording.EXPECTED_GAIN
+                                else f"{help_text} {term(wording.TIP_EXPECTED_IMPROVEMENT)}")),
+        wording.CLOSEST_MADE: col(say(wording.CLOSEST_MADE), width="small",
+                                  help=say(wording.TIP_CLOSEST_MADE)),
         wording.LARGEST_DIFFERENCES: col(wording.LARGEST_DIFFERENCES, width="medium",
-                                         help=say(wording.LARGEST_DIFFERENCES_HELP)),
+                                         help=say(wording.LARGEST_DIFFERENCES_FROM_CLOSEST)),
     }
 
 
@@ -1188,9 +1254,17 @@ def why_chart(opt, why, ref=None):
 
 def _why_these(opt, preds):
     """The fold (review M15): collapsed, nothing near the lit button, and
-    nothing worked out until it is opened (binding I15)."""
-    with st.expander(wording.for_project(opt, wording.WHY_THESE), key=WHY_KEY,
-                     on_change="rerun") as fold:
+    nothing worked out until it is opened (binding I15). In a keyed place,
+    the Why link's landing (ftue fix C); in plain words, each BO term in
+    its tooltip: the role key first, then the table, the picks marked ·,
+    the Compared with note and, for a recalculated Round, one line."""
+    with st.container(key=WHY_PLACE):
+        _why_fold(opt, preds)
+
+
+def _why_fold(opt, preds):
+    say = lambda text: wording.for_project(opt, text)
+    with st.expander(say(wording.WHY_THESE), key=WHY_KEY, on_change="rerun") as fold:
         if not fold.open:
             return
         with st.spinner(wording.for_project(opt, wording.WHY_WORKING)):
@@ -1207,36 +1281,42 @@ def _why_these(opt, preds):
             st.caption(wording.for_project(opt, wording.WHY_FAILED))
             return
         if why.cold:
-            st.caption(wording.for_project(opt, wording.why_cold(not opt.has_ingredients())))
+            st.caption(say(wording.why_cold(not opt.has_ingredients())))
             return
+        # The first line: the three role words read once (early walkthrough
+        # ruling; the Role column's tooltip keeps the exact rule).
+        st.caption(say(wording.WHY_ROLE_KEY),
+                   help=say(f"{wording.role_help()} {ui_insights.bo_term(wording.TIP_ROLES)}"))
         ref = _best_repeat(opt, score)
         if checks is None:
             # Not known yet: shown as withheld until it is (item 8).
             hide = True
-            st.caption(wording.for_project(opt, wording.WHY_CHECKING))
+            st.caption(say(wording.why_gain_said(wording.WHY_CHECKING)))
         else:
             # Withheld by the rule Progress uses for its expected
             # improvement, and said with the same reason (T47 review
-            # minor 5; fix round 1).
+            # minor 5; fix round 1), under the fold's own column name.
             reason = ui_insights.withheld(opt, score, checks)
             hide = reason is not None
             if hide:
-                st.caption(wording.for_project(opt, why_withheld_line(opt, score, checks,
-                                                                      reason)))
+                st.caption(say(wording.why_gain_said(
+                    why_withheld_line(opt, score, checks, reason))))
         frame, value_col = why_frame(opt, why, preds, hide=hide)
         help_text = (wording.OPTIMISTIC_SCORE_HELP if why.kind == "qucb"
-                     else wording.EXPECTED_IMPROVEMENT_EI_HELP if why.kind == "qlogei"
-                     else wording.EXPECTED_IMPROVEMENT_HELP)
+                     else wording.tip_expected_gain(why.kind))
         st.dataframe(frame, hide_index=True, height=table_height(len(frame)),
                      column_config=why_columns(opt, value_col, help_text))
-        if any(r.pending for r in why.rows) and not hide:
-            st.caption(wording.for_project(opt, wording.WHY_PENDING))
+        pending = [r.formulation for r in why.rows if r.pending]
+        if pending and not hide:
+            st.caption(say(wording.why_picked_after(pending)),
+                       help=say(wording.TIP_PICKED_AFTER))
+        best_no = opt.best_formulation_no()
+        if best_no is not None and opt.compared_with_column() != wording.COMPARED_WITH_ALLOWED:
+            st.caption(say(wording.why_compared_with(best_no)))
         if not why.exact:
-            # One line, about what is shown (01 O9; last-fix review R-1):
-            # under a withheld expected improvement, Model sd and the map
-            # are still the recomputed model's.
-            st.caption(wording.for_project(opt, wording.WHY_RECOMPUTED_WITHHELD if hide
-                                           else wording.WHY_RECOMPUTED))
+            # One line, about what is shown (01 O9; last-fix review R-1),
+            # the reason in its tooltip (early walkthrough ruling).
+            st.caption(say(wording.WHY_RECALCULATED), help=say(wording.TIP_RECALCULATED))
         chart = why_chart(opt, why, ref)
         if chart is None:
             # No map without a pool; the roles above never needed one.

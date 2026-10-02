@@ -46,9 +46,11 @@ _PROCESS_ONLY = (
 # the ledger's ruled sentences past it (OVER_BUDGET); the Timing check, the
 # longest before, stays at or under it.
 _BUDGET = 130
-_WORDS = {D.SNACK: 65, D.LINE_A: 149, D.LINE_B: 122, D.LINE_C: 171, D.UPGRADE: 85,
-          D.TIMING: 130, D.PROCESS_ONLY: 122}
-_OVER_BUDGET = {D.LINE_A, D.LINE_C}
+# Fix round C: each link is shorter ("Why the model suggested Round 6",
+# "Make a Repeat of Formulation 24") than the Explored link it replaces.
+_WORDS = {D.SNACK: 65, D.LINE_A: 149, D.LINE_B: 111, D.LINE_C: 157, D.UPGRADE: 85,
+          D.TIMING: 129, D.PROCESS_ONLY: 154}
+_OVER_BUDGET = {D.LINE_A, D.LINE_C, D.PROCESS_ONLY}
 
 
 def _install(name):
@@ -254,17 +256,20 @@ def _links(at):
     (D.SNACK, []), (D.UPGRADE, []),
     (D.LINE_A, [wording.why_link(6)]), (D.LINE_B, [wording.why_link(6)]),
     (D.LINE_C, [wording.why_link(6)]), (D.PROCESS_ONLY, [wording.why_link(6)]),
-    # No Round open, the explore row: priority 3.
-    (D.TIMING, [wording.explored_link()]),
+    # No Round open, the explore row asking for a Repeat: the Repeat link,
+    # priority 2, over the Explored link, priority 3 (ftue fix C).
+    (D.TIMING, [wording.repeat_link(24)]),
 ])
 def test_the_one_link(screens, name, link):
     assert _links(screens[name]) == link
 
 
-def test_no_repeat_link_is_drawn(screens):
-    """R-I3's default (binding e2e B2): the Repeat is a sentence."""
-    for name in D.ALL:
-        assert not any(t.startswith("Make a Repeat") for _, t in first_screen(screens[name]))
+def test_the_repeat_link_only_where_next_asks_with_no_why_link(screens):
+    """R-I3, ruled in by the early walkthrough (ftue fix C): drawn on the
+    Timing check alone (Line A asks too, but its Why link outranks it)."""
+    drawn = [name for name in D.ALL
+             if any(t.startswith("Make a Repeat") for _, t in first_screen(screens[name]))]
+    assert drawn == [D.TIMING]
 
 
 def test_the_why_link_lands_on_make_a_rounds_why_fold():

@@ -123,19 +123,20 @@ def test_the_opened_fold_explains_each_row(monkeypatch):
     # Role straight after Formulation: on screen at 1366 px (T47 minor 6).
     assert list(frame.columns) == [
         wording.FORMULATION_CAP, wording.ROLE, wording.PREDICTED_SCORE_COLUMN,
-        wording.MODEL_SD, wording.EXPECTED_IMPROVEMENT, wording.NEAREST_TESTED,
+        wording.MODEL_SD, wording.EXPECTED_GAIN, wording.CLOSEST_MADE,
         wording.LARGEST_DIFFERENCES]
     numbers = [r["formulation"] for r in opt.pending_batch]
     assert list(frame[wording.FORMULATION_CAP]) == [f"Formulation {n}" for n in numbers]
-    ei = list(frame[wording.EXPECTED_IMPROVEMENT])
+    ei = list(frame[wording.EXPECTED_GAIN])
     assert not ei[0].endswith(wording.PENDING_MARK)
     assert all(v.endswith(wording.PENDING_MARK) for v in ei[1:])       # picks 2+
     assert set(frame[wording.ROLE]) <= {wording.ROLE_REFINES, wording.ROLE_BALANCED,
                                         wording.ROLE_EXPLORES, wording.OWN_FORMULATION_KIND}
     assert all(" g" in cell for cell in frame[wording.LARGEST_DIFFERENCES] if cell)
     captions = [c.value for c in fold.caption]
-    assert wording.WHY_PENDING in captions
-    assert wording.WHY_RECOMPUTED not in captions                        # exact
+    # Ftue fix C: the picks marked · named by number; the plain recalculated line.
+    assert wording.why_picked_after(numbers[1:]) in captions
+    assert wording.WHY_RECALCULATED not in captions                      # exact
     assert wording.why_chart_caption(f"{bo_views.POOL_SIZE:,}") in captions
     [chart] = [c for c in fold.children.values() if getattr(c, "type", "") == "vega_lite_chart"]
     spec = json.loads(chart.proto.spec)
@@ -178,9 +179,10 @@ def test_the_fold_withholds_by_progresss_rule(monkeypatch, reasons, state, line)
     fold = _fold(at)
     [frame] = [d.value for d in fold.dataframe]
     assert wording.ROLE in frame.columns
-    assert wording.EXPECTED_IMPROVEMENT not in frame.columns
-    assert line in [c.value for c in fold.caption]
-    assert wording.WHY_PENDING not in [c.value for c in fold.caption]
+    assert wording.EXPECTED_GAIN not in frame.columns
+    # Ftue fix C: said under the fold's own column name.
+    assert wording.why_gain_said(line) in [c.value for c in fold.caption]
+    assert not any("(marked ·)" in c.value for c in fold.caption)
 
 
 def test_a_cold_round_says_why_it_has_no_values():
@@ -390,7 +392,7 @@ def test_a_process_only_study_explains_its_trials():
     assert not w.cold and len(w.rows) == 2 and w.pool_mean is not None
     frame, _ = ui_batch.why_frame(opt, w, None)
     assert all(t.startswith("Trial ") for t in frame[wording.FORMULATION_CAP])
-    assert all(t.startswith("Trial ") for t in frame[wording.NEAREST_TESTED] if t)
+    assert all(t.startswith("Trial ") for t in frame[wording.CLOSEST_MADE] if t)
     units = {u for r in w.rows for _, _, u in r.differences}
     assert units <= {"min", "°C"}
     assert "trial" in wording.for_project(opt, wording.why_chart_caption("3,000"))
@@ -399,7 +401,7 @@ def test_a_process_only_study_explains_its_trials():
     _rerun(at)
     [drawn] = [d.value for d in _fold(at).dataframe]
     assert all(t.startswith("Trial ") for t in drawn[wording.FORMULATION_CAP])
-    assert all(t.startswith("Trial ") for t in drawn[wording.NEAREST_TESTED] if t)
+    assert all(t.startswith("Trial ") for t in drawn[wording.CLOSEST_MADE] if t)
 
 
 @pytest.mark.parametrize("line,tail", [
@@ -458,7 +460,6 @@ def test_the_why_fold_does_not_refit_on_a_rerun(monkeypatch):
         assert _fold(at).dataframe                      # the recomputed fold is drawn
         # 01 O9 and last-fix review R-1: one Recomputed line, about what the
         # fold shows (tests/test_106_last_fixes.py).
-        withheld = any(c.startswith("Expected improvement is not shown") for c in captions)
-        line = wording.WHY_RECOMPUTED_WITHHELD if withheld else wording.WHY_RECOMPUTED
-        assert line in captions, captions
+        # Ftue fix C: one plain line either way, its reason in the tooltip.
+        assert captions.count(wording.WHY_RECALCULATED) == 1, captions
     assert fits == []

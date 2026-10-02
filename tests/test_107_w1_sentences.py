@@ -201,7 +201,7 @@ def test_at_the_gate_next_is_the_tail(opt):
 def links(monkeypatch):
     drawn = []
     monkeypatch.setattr(ui_insights, "link",
-                        lambda label, target, section="top", fold=None, key=None:
+                        lambda label, target, section="top", fold=None, key=None, state=None:
                         drawn.append((label, target, section, fold)))
     return drawn
 
@@ -224,7 +224,8 @@ def test_the_why_link_needs_a_warm_round_with_a_generated_pick(opt, links, monke
     assert ui_insights._why_link(opt) is drawn
     assert bool(links) is drawn
     if drawn:
-        assert links[0] == (wording.why_link(5), wording.TAB_BATCH, ui_insights.WHY_FOLD_KEY,
+        # Ftue fix C: it lands on the fold's keyed place, the fold opened.
+        assert links[0] == (wording.why_link(5), wording.TAB_BATCH, ui_insights.WHY_PLACE,
                             ui_insights.WHY_FOLD_KEY)
 
 
@@ -239,13 +240,18 @@ def test_the_explored_link_is_for_explore_and_untested(opt, links, kind, drawn):
     assert ui_insights.explored_link(opt, facts.next) is drawn
     if drawn:
         assert links == [(wording.explored_link(), wording.TAB_INSIGHTS,
-                          ui_insights.EXPLORED_KEY, ui_insights.EXPLORED_KEY)]
+                          ui_insights.EXPLORED_PLACE, ui_insights.EXPLORED_KEY)]
 
 
-def test_the_repeat_link_is_not_drawn(opt, links):
-    """R-I3's default: an owner item."""
-    assert ui_insights._repeat_link(opt, _next(opt, "see", assumed=True)) is False
-    assert links == []
+def test_the_repeat_link_is_drawn_while_next_asks_for_a_repeat(opt, links):
+    """R-I3, ruled in by the early walkthrough (ftue fix C; its landing is
+    pinned in tests/test_107_fc.py): no Round open, Make a round's top."""
+    facts = _next(opt, "see", assumed=True)
+    assert ui_insights._repeat_link(opt, facts) is True
+    assert links == [(wording.repeat_link(facts.best.formulation), wording.TAB_BATCH, "top",
+                      None)]
+    links.clear()
+    assert ui_insights._repeat_link(opt, _next(opt, "see")) is False and links == []
 
 
 def test_one_round_counts_every_scored_formulations_round():

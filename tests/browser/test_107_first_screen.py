@@ -107,7 +107,7 @@ def test_the_lines_and_the_button_are_above_the_fold(browser, name, theme):
         assert above_the_fold(primary.first), (name, primary.first.bounding_box())
         # The one link, when there is one, is above the fold too (R-I4).
         links = _main(page).locator('[data-testid="stBaseButton-tertiary"]').filter(
-            has_text=re.compile("^(Why the model suggested|See the (amounts|values))"))
+            has_text=re.compile("^(Why the model suggested|Make a Repeat of|See the (amounts|values))"))
         for k in range(links.count()):
             assert above_the_fold(links.nth(k)), (name, links.nth(k).inner_text())
         # The Explored fold row, collapsed, under them (R-I14).

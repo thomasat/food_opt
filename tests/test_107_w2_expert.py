@@ -520,13 +520,13 @@ def test_the_track_line_help(project, monkeypatch):
 @pytest.mark.parametrize("kind", ["qlognei", "qlogei", "qucb"])
 def test_the_why_columns_name_their_statistics(kind):
     opt = D.load(D.LINE_A)
-    value_col = W.OPTIMISTIC_SCORE if kind == "qucb" else W.EXPECTED_IMPROVEMENT
-    help_text = {"qucb": W.OPTIMISTIC_SCORE_HELP, "qlogei": W.EXPECTED_IMPROVEMENT_EI_HELP,
-                 "qlognei": W.EXPECTED_IMPROVEMENT_HELP}[kind]
+    # Ftue fix C: the plain gain column, its tooltip carrying its BO term.
+    value_col = W.OPTIMISTIC_SCORE if kind == "qucb" else W.EXPECTED_GAIN
+    help_text = (W.OPTIMISTIC_SCORE_HELP if kind == "qucb" else W.tip_expected_gain(kind))
     cols = ui_batch.why_columns(opt, value_col, help_text)
     helps = {k: v["help"] for k, v in cols.items() if v.get("help")}
     assert helps[W.MODEL_SD] == W.TIP_MODEL_SD
-    assert helps[W.NEAREST_TESTED] == W.TIP_NEAREST_TESTED
+    assert helps[W.CLOSEST_MADE] == W.TIP_CLOSEST_MADE
     assert helps[W.ROLE].startswith(W.role_help()) and "distance labels" in helps[W.ROLE]
     assert helps[W.PREDICTED_SCORE_COLUMN].startswith(W.tip_predicted_score())
     assert W.TIP_INTERVAL in helps[W.PREDICTED_SCORE_COLUMN]
