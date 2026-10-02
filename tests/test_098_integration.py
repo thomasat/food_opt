@@ -57,14 +57,21 @@ def test_each_screen_offers_at_most_one_link(monkeypatch):
     monkeypatch.setattr(insights, "next_step", lambda *a, **k: insights.NextStep("close"))
     _run(at, wording.TAB_INSIGHTS)
     del at.session_state[INSIGHTS_OPENED_KEY]
-    for tab in (wording.TAB_RESULTS, wording.TAB_BATCH, wording.TAB_INSIGHTS):
+    seen = set()
+    for index, tab in ((2, wording.TAB_RESULTS), (1, wording.TAB_BATCH),
+                       (3, wording.TAB_INSIGHTS)):
         _run(at, tab)
+        seen |= {b.key for i, b in _links(at) if i == index}
         per_tab = {}
         for i, b in _links(at):
             per_tab.setdefault(i, []).append(b)
             assert b.proto.type == "tertiary", b.key
         assert all(len(v) <= 1 for v in per_tab.values()), per_tab
-    assert {b.key for _, b in _links(at)} == {"link_round_checked", "link_next"}
+    # Review guide: Make a round's status line carries its one link to
+    # Review; E3 keeps its sentence without one.
+    # Each screen as the reader sees it, open (the status line is drawn
+    # only on its open tab).
+    assert seen == {"link_round_checked", "link_review_status"}
 
 
 def test_the_new_screens_say_no_retired_word():

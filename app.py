@@ -40,7 +40,8 @@ from food_bo import (                         # noqa: E402
     ingredients_template_workbook,
 )
 from ui_helpers import (                      # noqa: E402
-    ARMED_KEY, INSIGHTS_OPENED_KEY, SCROLL_KEY, TAB_BATCH, TAB_RESULTS, TAB_SETUP,
+    ARMED_KEY, INSIGHTS_OPENED_KEY, REVIEW_DOT_STYLE, REVIEW_DUE_KEY, SCROLL_KEY,
+    TAB_BATCH, TAB_RESULTS, TAB_SETUP,
     clear_selection, scroll_script,
     confirm_action, confirmation_open, drain_clears,
     flash, landing_tab,
@@ -156,6 +157,8 @@ def _reset_project_session():
               # Where the next move lands, and the data Insights was last
               # opened with (spec 2026-09-30-bo-views §5).
               SCROLL_KEY, INSIGHTS_OPENED_KEY,
+              # The Round due a Review (review guide).
+              REVIEW_DUE_KEY,
               # The Method box: a project's own text, and one left behind
               # would be written over the next project's on its first save.
               ui_setup._METHOD_BOX,
@@ -887,6 +890,12 @@ if st.session_state.pop("_land_on_open", False):
 if "_pending_tab" in st.session_state:
     st.session_state["main_tab"] = st.session_state.pop("_pending_tab")
 
+# Review guide: opening 4 · Review (its tab, or "Review Round N") sees the
+# Round's Review; Results' lit button and the tab's dot step back. Here,
+# before the tabs: Results is drawn before Review on this same run.
+if st.session_state.get("main_tab") == wording.TAB_INSIGHTS:
+    st.session_state.pop(REVIEW_DUE_KEY, None)
+
 # Everything a project switch parked is assigned here: the previous run's
 # widgets are gone and this run's tab widgets do not exist yet, which is the
 # one moment Streamlit lets a widget's value be set.
@@ -950,6 +959,12 @@ with tab_insights:
         ui_insights.render(_opt)
         # Make a round's E3 link is not offered again for this data (04 §3).
         st.session_state[INSIGHTS_OPENED_KEY] = insights.data_key(_opt)
+
+# Review guide: a dot on the fourth tab while a Round is due a Review. Drawn
+# by CSS on the tab's button, never in its label: the tabs widget keys its
+# value by label, and a label that changed would lose the open tab.
+if st.session_state.get(REVIEW_DUE_KEY) is not None:
+    st.html(REVIEW_DOT_STYLE)
 
 # Where a move between tabs lands (ui_helpers.SCROLL_KEY; 04 §5): once,
 # after every tab is drawn, in one slot at the foot, so no element is ever

@@ -498,7 +498,8 @@ def welcome_steps():
     return (
         "1. **Name a project** in the sidebar on the left.\n"
         "2. **Set up ingredients and process settings**, then choose measurements and targets.\n"
-        "3. **Generate formulations**, prepare each one, and record your measurements."
+        "3. **Generate formulations**, prepare each one, and record your measurements.\n"
+        + WELCOME_REVIEW_STEP      # review guide: Review is the loop's fourth step
     )
 
 
@@ -7859,3 +7860,41 @@ FOLD_MORE = "More detail"
 CARD_SPARK_IN_RANGE = "In range"
 HERO_PREDICTED = "Predicted score"
 HERO_GAIN = "Expected gain"
+
+
+# --- review guide ---
+# Review as step 4 of the loop (owner, 2026-10-02: "I'm not guided to see
+# the review -- it leads me through the 1-3"): Set up -> Make a round ->
+# Results -> Review -> Make a round. Results' one lit button after Save
+# results, Make a round's one-line status from the cards, the welcome's
+# fourth step.
+WELCOME_REVIEW_STEP = "4. **Review each Round**: are predictions reliable? What next?"
+
+
+def review_round_label(no):
+    """Results' primary after Save results: 'Review Round 5'."""
+    return f"Review {ROUND_CAP} {no}" if no is not None else "Review"
+
+
+REVIEW_ROUND_HELP = (f"Opens {TAB_INSIGHTS}: can you trust the predictions, is Best so far "
+                     f"still rising, and what to make in the next {ROUND_CAP}.")
+OPEN_REVIEW = "Open Review"
+
+
+def review_status_line(predictions, progress, extra=None):
+    """Make a round's line, the cards' own words: 'Last Round: Predictions
+    **Reliable** · Progress **Flat**'; `extra`, the Next card's word when
+    it is a warning ('Check panel first')."""
+    line = (f"Last {ROUND_CAP}: {CARD_PREDICTIONS} **{predictions}** · "
+            f"{CARD_PROGRESS} **{progress}**")
+    return line + (f" · **{extra}**" if extra else "")
+
+
+def review_status_warn(line):
+    """The line in the cards' warning colour (Off, Check panel first)."""
+    return f":red[{line}]"
+
+
+REVIEW_STATUS_CHECKING = f"Last {ROUND_CAP}: {CHECKING_PREDICTIONS}"
+REVIEW_STATUS_HELP = (f"The {TAB_INSIGHTS} cards in brief. Predictions: can you trust them? "
+                      "Progress: is Best so far still rising?")
