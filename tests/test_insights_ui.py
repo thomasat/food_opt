@@ -399,7 +399,8 @@ def test_final_wave_wording():
     assert wording.try_one_fold(False) == "Try one ingredient"
     assert wording.path_not_checked("Fat: at most 16 g", "Fat") == (
         "Not checked: Fat: at most 16 g — some ingredients have no Fat value.")
-    assert wording.INSIGHTS_FAILED == "Insights could not be prepared for this project."
+    # Re-pinned (stale since the fourth tab became "4 · Review").
+    assert wording.INSIGHTS_FAILED == "The review could not be prepared for this project."
     assert wording.CHANGE_NONE == (
         "Nothing to change yet: every ingredient and process setting is fixed.")
     assert wording.DETAILS_NONE == "This table fills in once a Round has been checked."

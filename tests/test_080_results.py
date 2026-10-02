@@ -138,9 +138,10 @@ def test_a_late_value_that_makes_a_tie_is_said_under_best_so_far(tmp_path, monke
     assert not at.exception
     tie = wording.tie_line(2, "70.50", "0.50", 1, "2.3")
     flashes = [f.value for f in at.success]
-    # Said once: the tie already says Formulation 2 scored (review M-1).
-    assert tie in flashes, flashes
-    assert not any("Formulation 2 scored." in f for f in flashes), flashes
+    # Re-pinned (concision round): the short tie line no longer says
+    # Formulation 2 scored, so the flash says it once, first.
+    assert "Formulation 2 scored. " + tie in flashes, flashes
+    assert sum(f.count("Formulation 2 scored") for f in flashes) == 1, flashes
     # The box is back on Best so far, and the line under it says the tie.
     assert FoodOptimizer("late").best_formulation_no() == 2
     said = _captions(at)

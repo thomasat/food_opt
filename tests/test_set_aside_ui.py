@@ -204,9 +204,10 @@ def test_a_process_only_project_says_trial_throughout(trial_waiting):
     at.run()
     _submit_button(at, "Move to Not scored").click()
     at.run()
+    # Re-pinned (stale since the fourth tab became "4 · Review").
     assert [w.value for w in at.warning] == [
         "Aroma for Trial 2 will never come? It stays in your records, unscored, and stops "
-        "counting on Insights."]
+        "counting in the review."]
     at.button(key="set_aside_2__yes").click()   # the Yes, by key: it shares the label
     at.run()
     assert "Trial 2 moved to Not scored." in _successes(at), _successes(at)

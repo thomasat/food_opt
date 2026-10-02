@@ -698,8 +698,11 @@ def test_03_clean_says_its_bias_both_ways_without_advice(project, monkeypatch):
     bias no longer shows; its Overall score's still does. The both-ways
     wording is checked under the earlier 2-standard-error rule."""
     opt, checks = project(E.BAR_CLEAN)
+    # Re-pinned: fix round B says a bias as results coming in above or below
+    # the predictions (statistician's cold read), not "Predictions have run".
     assert ui_insights.steady_bias_text(opt, checks) == (
-        "Predictions have run low: Overall score by about 2.1 points (Rounds 3–8).")
+        "Results have come in above the predictions: Overall score by about 2.1 points "
+        "(Rounds 3–8).")
     monkeypatch.setattr(insights, "t_critical", lambda df, p=0.975: 2.0)
     line = ui_insights.steady_bias_text(opt, checks)
     assert line.startswith("Results have come in below the predictions: Crumbliness")

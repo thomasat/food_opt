@@ -210,9 +210,11 @@ def test_exact_texts_from_the_spec():
     # follow-up (ruling on ties): the q = 1 rise threshold, 1.2 × √2 × 2.35.
     assert w.tie_line(22, "90.65", "0.20", 15, "4.0") == (
         "Tied with Formulation 15: 0.20 apart, under the 4.0 points needed to differ.")
+    # Re-pinned (stale since the fourth tab became "4 · Review"): "in the
+    # review", not "on Insights".
     assert w.never_coming_warning(19, "Cook loss") == (
         "Cook loss for Formulation 19 will never come? It stays in your records, unscored, "
-        "and stops counting on Insights.")
+        "and stops counting in the review.")
     assert w.EDIT_PAST_FOLD == "Correct, delete or add past formulations"
     assert w.NEXT_MAKE_A_ROUND == "Next: Make a round"
     assert w.START_FROM_BEST_SO_FAR == "Start from Best so far"

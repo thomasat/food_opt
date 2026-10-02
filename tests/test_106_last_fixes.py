@@ -735,10 +735,11 @@ def test_line_b_never_says_no_repeats_yet(tmp_path, monkeypatch):
     checks = insights.check_rounds(opt)
     yard = insights.noise_yardstick(opt, checks)
     # Ftue fix A (cold read I7): the disagreeing Repeat stays in the Repeat
-    # SD, so Line B counts its one pair (1 df, 3 needed).
+    # SD, so Line B counts its one pair (1 df, 3 needed). Re-pinned: fix
+    # round B (statistician I11) says degrees of freedom, not pairs.
     assert (yard.pairs, yard.left_out, yard.assumed, yard.df) == (1, 0, True, 1)
     text = ui_insights.threshold_text(yard)
-    assert "1 pair of Repeats, 3 needed" in text and "no Repeats yet" not in text
+    assert "1 df of Repeats, 3 needed" in text and "no Repeats yet" not in text
 
 
 # ------------------------------------------------------------------ #
