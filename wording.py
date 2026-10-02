@@ -8706,8 +8706,8 @@ def story_trust_answer(inside, total):
 
 
 def story_trust_so_far(inside, total, needed):
-    """Not yet, too few: '7 of 7 landed in range; 10 needed'."""
-    return f"{inside} of {total} landed in range; {needed} needed"
+    """Not yet, too few: '7 of 7 landed in range; 10 needed to judge'."""
+    return f"{inside} of {total} landed in range; {needed} needed to judge"
 
 
 def story_misses(above, below):
