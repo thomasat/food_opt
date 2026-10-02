@@ -153,12 +153,15 @@ def test_line_c_predictions_sentence(monkeypatch):
     wide = ["Firmness", "Juiciness", "Cook loss"]
     facts = _facts("no_skill", [("wide", wide), ("bias", -4.28)], skill=_skill(-0.469))
     facts.wide_factors = {"Firmness": 2.02, "Juiciness": 2.24, "Cook loss": 7.70}
+    facts.best = types.SimpleNamespace(formulation=18)
+    # Review diagnosis ruling 2 (2026-10-02): no Repeats measuring large
+    # noise, so the sentence asks for a Repeat instead of naming the panel.
     assert ui_insights.prediction_sentence(opt, facts) == (
         f"Score predictions do no better than simply using the average of earlier scores {_SKILL}, "
         "and scores have come in about 4.3 points below the predictions; those for Firmness, "
         "Juiciness and Cook loss are still very uncertain, because results vary more from one "
-        "formulation to the next than the app can explain, most for Cook loss. If the panel or "
-        "method is new, check how consistently it measures.")
+        "formulation to the next than the app can explain, most for Cook loss. "
+        + W.next_plain_repeat_ask(18, open_round=bool(opt.pending_batch)))
 
 
 @pytest.mark.parametrize("factors,expect", [
@@ -178,9 +181,13 @@ def test_reliable_with_a_wide_clause_ends_with_the_check():
     opt = _patty(rows=12)
     facts = _facts("reliable", [("wide", ["Cook loss"]), ("bias", 1.2)])
     facts.wide_factors = {"Cook loss": 3.0}
+    facts.best = types.SimpleNamespace(formulation=15)
     text = ui_insights.prediction_sentence(opt, facts)
+    # Review diagnosis ruling 2: the Repeat request, not the panel check,
+    # without Repeats that vary a lot.
     assert text.endswith("; scores have come in about 1.2 points above the predictions. "
-                         + W.CHECK_SCATTER)
+                         + W.next_plain_repeat_ask(15, open_round=bool(opt.pending_batch)))
+    assert W.CHECK_SCATTER not in text
     assert "because results vary more" in text
 
 

@@ -1313,7 +1313,7 @@ def prediction_sentence(opt, facts):
         return wording.PRED_OFF_REPEAT
     if row == "gate":
         return wording.pred_gate(facts.scored, insights.MIN_ROWS)
-    then = f" {wording.CHECK_SCATTER}" if check else ""
+    then = scatter_tail(opt, facts) if check else ""
     if row == "too_few":
         return wording.pred_too_few(facts.checked, insights.SKILL_MIN, tail) + then
     if row == "wide":
@@ -1323,11 +1323,14 @@ def prediction_sentence(opt, facts):
     if row == "unclear":
         return wording.pred_unclear(gap, tail, skill_text=skill) + then
     allowed = insights.allowed_misses(h.total)
+    d = getattr(facts, "diagnosis", None)
+    said = f" {diag_plain_text(d)}" if d is not None else ""
     if row == "off_coverage":
         return wording.pred_off_coverage(h.rounds, h.total - h.inside, h.total, allowed,
-                                         None if gap is None else wording.bias_fact(*gap))
+                                         None if gap is None else wording.bias_fact(*gap)) + said
     if row == "caution":
-        return wording.pred_caution(h.rounds, h.total - h.inside, h.total, allowed, tail) + then
+        return (wording.pred_caution(h.rounds, h.total - h.inside, h.total, allowed, tail)
+                + then + said)
     return wording.pred_reliable(h.rounds, h.inside, h.total, allowed, tail) + then
 
 
@@ -1480,6 +1483,10 @@ def next_sentence(opt, facts):
                                          values=values,
                                          round_no=no if opt.pending_batch else opt.next_batch_no())
     if step.kind == "misses":
+        if getattr(step, "diagnosis", None) is not None and facts.best is not None:
+            # Review diagnosis: the Repeat that would measure the noise.
+            return (f"{wording.next_plain_misses(no, left)} "
+                    f"{wording.next_plain_repeat_ask(facts.best.formulation, bool(left))}")
         return wording.next_plain_misses(no, left)
     if step.kind == "early":
         return wording.next_plain_tail(no, left)
@@ -1570,7 +1577,7 @@ def prediction_short(opt, facts):
     for c in facts.clauses:
         if c[0] == "wide":
             check = wide_cause(c[1], getattr(facts, "wide_factors", None) or {}) is not None
-    then = f" {wording.SHORT_CHECK_SCATTER}" if check else ""
+    then = scatter_tail(opt, facts, short=True) if check else ""
     if row == "off_repeat":
         return wording.SHORT_OFF_REPEAT
     if row == "gate":
@@ -1854,6 +1861,15 @@ def verdict_text(opt, h, state, bias=None, checks=()):
     if state == "wide":
         return wording.TRUST_WIDE
     allowed = insights.allowed_misses(h.total)
+    d = diag_for(opt, checks, h) if state in ("caution", "unreliable") else None
+    if d is not None:
+        # Review diagnosis: one story, the count then where the misses fell;
+        # no "too narrow" beside a "wide" line.
+        line = wording.trust_misses_diag(h.rounds, h.inside, h.total,
+                                         many=state == "unreliable", allowed=allowed)
+        return " ".join([line, wording.diag_detail(diag_items(opt, d), d.rounds, d.far,
+                                                   d.misses, d.far_checked, d.checked),
+                         wording.DIAG_READING[d.kind]])
     if state in ("caution", "unreliable"):
         line = wording.trust_misses(len(h.rounds), h.rounds, h.inside, h.total,
                                     many=state == "unreliable", allowed=allowed)
@@ -3034,6 +3050,13 @@ def _next_step_text(opt, step, rounds=None, amounts_shown=True):
         bias = ("" if gap is None else
                 wording.next_bias(f"{abs(gap):.1f}", below=gap < 0,
                                   rounds=getattr(step, "bias_rounds", None) or None))
+        d = getattr(step, "diagnosis", None)
+        if d is not None:
+            # Review diagnosis: where the misses fell, and a Repeat to
+            # measure the noise, in place of "the intervals are too narrow".
+            best = opt.best_index()
+            no_best = None if best is None else int(opt.formulation_ids[best])
+            return wording.next_misses_diag(rounds, d.kind, no_best, bias_text=bias), None
         return wording.next_misses(rounds, bias_text=bias), None
     if step.kind == "repeat":
         return disagreement_text(step.disagreement), None
@@ -5217,6 +5240,81 @@ def _wide_label(name):
     return wording.OVERALL_SCORE_COLUMN if name == insights.SCORE else name
 
 
+# --- review diagnosis (display only, 2026-10-02) ---
+def diag_items(opt, d):
+    """The misses by measurement as wording.diag_item says them, most first;
+    the mean error to each measurement's own decimals, at least one."""
+    return [wording.diag_item(m.name, m.misses, m.checked, m.above, m.below,
+                              wording.signed(m.mean_error, max(1, decimals(opt, m.name))))
+            for m in d.items]
+
+
+def _diag_score(d):
+    """(inside, total) of the Overall score when it is as expected, else None."""
+    return (d.score.inside, d.score.total) if d is not None and d.score_ok else None
+
+
+def diag_plain_text(d):
+    return wording.diag_plain(d.kind, d.far, d.misses, _diag_score(d), d.far_checked,
+                              d.checked, d.one_way, d.side)
+
+
+def diag_tip(opt, d):
+    """The expert line: n misses / n checked by measurement, side and mean
+    error, how many on new ground, and the rule by name."""
+    from food_bo import FAR_FROM_TESTED
+    return wording.tip_diag(diag_items(opt, d), d.rounds, d.far, d.misses, d.far_checked,
+                            d.checked, f"{100 * FAR_FROM_TESTED:.0f}", d.kind,
+                            score=None if d.score is None else (d.score.inside, d.score.total),
+                            score_rounds=None if d.score is None else d.score.rounds)
+
+
+def scatter_check(opt, facts):
+    """Ruling 2: the CV-widening check (wide_cause) as the card may say it.
+    None when the rule does not fire; else (RepeatsVary, None) when the
+    Repeats show large noise (the panel advice is backed), or (None, N)
+    with N the Formulation to repeat to check noise (Best so far)."""
+    fire = any(c[0] == "wide" and wide_cause(c[1], getattr(facts, "wide_factors", None) or {})
+               is not None for c in facts.clauses)
+    if not fire:
+        return None
+    vary = insights.repeats_vary(opt, getattr(facts, "yardstick", None))
+    if vary is not None:
+        return vary, None
+    best = getattr(facts, "best", None)
+    return None, (best.formulation if best is not None else None)
+
+
+def scatter_tail(opt, facts, short=False):
+    """The sentence the wide clause ends with: the consistency advice and
+    its Repeat evidence when backed; else the Repeat that would measure the
+    noise; '' when the rule does not fire."""
+    found = scatter_check(opt, facts)
+    if found is None:
+        return ""
+    vary, no = found
+    if vary is not None:
+        if short:
+            return f" {wording.SHORT_CHECK_SCATTER}"
+        return (f" {wording.CHECK_SCATTER} "
+                f"{wording.repeats_vary_line(f'{vary.sd:.1f}', vary.df, f'{vary.spread:.1f}')}")
+    if no is None:
+        return ""
+    if short:
+        return f" {wording.short_add_repeat(no)}"
+    ask = wording.next_plain_repeat_ask(no, open_round=bool(opt.pending_batch),
+                                        values=not opt.has_ingredients())
+    return f" {ask}"
+
+
+def diag_for(opt, checks, h):
+    """The diagnosis More detail says under a miss verdict: None with a
+    disagreeing Repeat (Line B keeps its check) or no checks."""
+    if not checks or insights.disagreeing_repeat(opt, checks) is not None:
+        return None
+    return insights.miss_diagnosis(opt, checks, h)
+
+
 def _clause_tips(opt, facts):
     """The clauses' rules, in the order the line says them."""
     out = []
@@ -5261,6 +5359,8 @@ def _predictions_tip(opt, facts):
         parts.append(wording.TIP_REFITTED)
     parts += _clause_tips(opt, facts)
     parts.append(_rule_text(opt, ("predictions", row)))
+    if getattr(facts, "diagnosis", None) is not None:
+        parts.append(diag_tip(opt, facts.diagnosis))
     if row == "reliable":
         parts.append(wording.TIP_RELIABLE_LIMITS)
     return _joined(opt, parts)
@@ -5307,6 +5407,8 @@ def _next_tip(opt, facts):
         parts.append(_coverage_tip(opt, facts.headline))
         if step.kind == "misses":
             parts.append(_bias_tip(facts))
+            if getattr(step, "diagnosis", None) is not None:
+                parts.append(diag_tip(opt, step.diagnosis))
         h = facts.headline
         if step.kind == "early" and facts.verdict == "wide" and h is not None and h.wide:
             # Every output very uncertain: the width rule, its outputs named.
@@ -5517,8 +5619,7 @@ def _check_round(opt):
 def predictions_card(opt, facts):
     row, h = facts.prediction_row, facts.headline
     word = wording.PREDICTIONS_WORDS[facts.predictions]
-    check = any(c[0] == "wide" and wide_cause(c[1], getattr(facts, "wide_factors", None) or {})
-                is not None for c in facts.clauses)
+    check = scatter_check(opt, facts)
     lines = []
     if row == "off_repeat":
         lines.append((wording.CARD_OFF_REPEAT, True))
@@ -5537,11 +5638,23 @@ def predictions_card(opt, facts):
                                                 insights.allowed_misses(h.total)), True))
     else:
         lines.append((wording.card_in_range(h.inside, h.total), False))
-    if check:
-        lines.append((wording.CARD_CHECK_SCATTER, True))
+    if check is not None:
+        # Ruling 2: the panel is named only with Repeat evidence; without
+        # it, the neutral data request.
+        vary, no = check
+        lines.append((wording.CARD_REPEATS_VARY, True) if vary is not None
+                     else (wording.card_noise_repeat(no), False))
     off = facts.predictions == "off"
-    if off:
+    d = getattr(facts, "diagnosis", None)
+    if off and facts.disagreement is not None:
+        # Only a disagreeing Repeat points at the bench (spec rule).
         lines.append((wording.card_check_before(_check_round(opt)), True))
+    elif off and d is not None:
+        # Review diagnosis: where the misses fell, then the score the
+        # suggestions use when it is as expected; no check advice.
+        lines.append((wording.card_diag(d.kind, d.side), False))
+        if d.score_ok:
+            lines.append((wording.card_score_in_range(d.score.inside, d.score.total), False))
     return Card(word, lines, "off" if off else None)
 
 
@@ -5588,7 +5701,9 @@ def next_card(opt, facts):
                  (wording.card_repeat_off(d.earlier, f"{abs(d.diff):.1f}", lower=d.diff < 0),
                   True)]
     elif kind == "misses":
-        lines.append((wording.CARD_MISSES, True))
+        # Review diagnosis: a neutral data request, never "check panel".
+        lines.append((wording.card_noise_repeat(
+            facts.best.formulation if facts.best is not None else None), False))
     elif kind == "no_skill":
         lines.append((wording.CARD_GUIDED, False))
     elif kind == "untested":

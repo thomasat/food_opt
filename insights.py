@@ -1104,6 +1104,146 @@ def median_z(h, checks):
     return statistics.median(z) if z else None
 
 
+# --- review diagnosis (display only, 2026-10-02) ---
+# Where the verdict's misses fell, said as a description, never as a cause:
+# Round-ahead errors cannot show drift or a panel problem (spec
+# 2026-10-01-insights-first-time-design; e2e fixes), only a disagreeing
+# Repeat can. "New ground" is suggestion_role's own rule: farther than
+# FAR_FROM_TESTED (L-infinity share of each varying row's span) from every
+# formulation recorded before the miss's Round.
+MOSTLY = 0.5        # more than this share of the misses: "mostly"
+ONE_WAY = 0.8       # this share of the misses on their measurement's usual side
+ONE_WAY_MIN = 2     # misses a measurement needs before its side counts
+
+
+@dataclass
+class MissItem:
+    name: str
+    misses: int
+    checked: int
+    above: int              # measured above the interval (predictions ran low)
+    below: int
+    mean_error: float | None   # mean measured − predicted over the misses
+
+
+@dataclass
+class MissDiagnosis:
+    kind: str               # "new_ground", "one_way" or "unexplained"
+    rounds: list
+    misses: int
+    checked: int
+    far: int                # misses on formulations far from anything tested before
+    far_checked: int        # values checked on such formulations
+    one_way: int            # misses on their measurement's usual side
+    items: list             # MissItem, most misses first
+    score: object = None    # the Overall score's ScoreRecord (Headline.score)
+    score_ok: bool = False  # its misses within allowed_misses: as expected
+    # "one_way": the usual side of every measurement with ONE_WAY_MIN misses
+    # or more, "above", "below" or "mixed" (they differ); None otherwise.
+    side: str | None = None
+
+
+def far_from_tested(opt, formulation, round_no):
+    """True when Formulation `formulation` sits farther than
+    FAR_FROM_TESTED from every formulation recorded before Round
+    `round_no` (FoodOptimizer.suggestion_role's "explores" rule); None
+    when the formulation is no longer on file."""
+    from food_bo import FAR_FROM_TESTED
+    ids = [int(x) for x in opt.formulation_ids]
+    if formulation not in ids:
+        return None
+    mine = start_recipe(opt, ids.index(formulation))
+    ds = [distance(opt, mine, r) for r in opt._recorded_before(round_no)]
+    return all(d is None or d > FAR_FROM_TESTED + _EPS for d in ds)
+
+
+def miss_diagnosis(opt, checks, h=None):
+    """Where the measurements' misses in the verdict's Rounds fell (display
+    only): by measurement, side and mean error, and how many sat on
+    formulations far from anything tested before their Round. None with no
+    miss. `kind`: "new_ground" when more than half the misses are far AND
+    far values missed at least as often as the rest (so the misses are not
+    merely where most checks were); else "one_way" when at least ONE_WAY
+    of them sit on their measurement's usual side (measurements with
+    ONE_WAY_MIN misses or more); else "unexplained"."""
+    h = h or headline(opt, checks)
+    values = [c for c in checks if c.name != SCORE and c.round in (h.rounds or [])]
+    misses = [c for c in values if not c.inside]
+    if not misses:
+        return None
+    seen = {}
+
+    def far(c):
+        key = (c.formulation, c.round)
+        if key not in seen:
+            seen[key] = bool(far_from_tested(opt, c.formulation, c.round))
+        return seen[key]
+
+    order = [n for n, _, _ in outputs(opt) if n != SCORE]
+    items = []
+    for name in order + sorted({c.name for c in values} - set(order)):
+        mine = [c for c in misses if c.name == name]
+        if not mine:
+            continue
+        above = sum(c.measured > c.high for c in mine)
+        items.append(MissItem(name, len(mine), sum(c.name == name for c in values), above,
+                              len(mine) - above,
+                              statistics.fmean(c.measured - c.predicted for c in mine)))
+    items.sort(key=lambda m: -m.misses)
+    n_far = sum(far(c) for c in misses)
+    far_checked = sum(far(c) for c in values)
+    near_checked = len(values) - far_checked
+    # Far values miss at least as often as near ones (a near-free Round counts).
+    concentrated = (near_checked == 0 or
+                    n_far * near_checked >= (len(misses) - n_far) * far_checked)
+    one_way = sum(max(m.above, m.below) for m in items if m.misses >= ONE_WAY_MIN)
+    side = None
+    if n_far > MOSTLY * len(misses) and concentrated:
+        kind = "new_ground"
+    elif one_way >= ONE_WAY * len(misses):
+        kind = "one_way"
+        sides = {"above" if m.above >= m.below else "below"
+                 for m in items if m.misses >= ONE_WAY_MIN}
+        side = sides.pop() if len(sides) == 1 else "mixed"
+    else:
+        kind = "unexplained"
+    score = h.score
+    score_ok = bool(score is not None and score.total
+                    and score.total - score.inside <= allowed_misses(score.total))
+    return MissDiagnosis(kind, list(h.rounds), len(misses), len(values), n_far,
+                         far_checked, one_way, items, score, score_ok, side)
+
+
+# The CV-widening "check your panel's consistency" (ui_insights.wide_cause)
+# is backed only when Repeats show the noise is large: the Repeat SD, from
+# YARDSTICK_DF degrees of freedom (noise_yardstick's own rule), at least
+# this share of the spread of scores between formulations.
+REPEATS_VARY = 0.5
+
+
+@dataclass
+class RepeatsVary:
+    sd: float           # the Repeat SD, points
+    df: int
+    pairs: int
+    spread: float       # sd of the scored formulations' Overall scores
+
+
+def repeats_vary(opt, yard=None):
+    """RepeatsVary when the Repeats measure the noise and it is large
+    against the differences between formulations, else None."""
+    yard = yard if yard is not None else noise_yardstick(opt)
+    if not getattr(yard, "from_repeats", False) or yard.value is None:
+        return None
+    ys = [float(opt.Y_history[i]) for i in opt.best_candidates()]
+    if len(ys) < 3:
+        return None
+    spread = statistics.stdev(ys)
+    if yard.value < REPEATS_VARY * spread:
+        return None
+    return RepeatsVary(float(yard.value), int(yard.df), int(yard.pairs), spread)
+
+
 @dataclass
 class NextStep:
     kind: str       # "repeat", "misses", "early", "no_skill", "untested",
@@ -1118,6 +1258,8 @@ class NextStep:
     # "close", "explore", "see", "rising": the noise threshold is assumed (fewer
     # than 3 Repeat pairs), so the row asks for a Repeat of Best so far (B2, I5).
     assumed: bool = False
+    # "misses" with no disagreeing Repeat: where the misses fell (display only).
+    diagnosis: MissDiagnosis | None = None
 
 
 def next_step(opt, checks, standing=None, gain=None):
@@ -1146,7 +1288,8 @@ def next_step(opt, checks, standing=None, gain=None):
     if state == "unreliable":
         gap = score_bias(opt, checks, h, yard)
         return NextStep("misses", gap=gap,
-                        bias_rounds=list(h.score.rounds or []) if gap is not None else [])
+                        bias_rounds=list(h.score.rounds or []) if gap is not None else [],
+                        diagnosis=miss_diagnosis(opt, checks, h))
     # "none" here is past the gate with no Round checked yet, so it reads
     # as row 3; the ruling's "none" (row 9) is the no-data gate the caller says.
     if state in ("none", "early", "wide"):
@@ -1236,6 +1379,9 @@ class StatusFacts:
     # W1 (R-I8): the lines whose facts are still being worked out while the
     # workers fit ("progress", "next"): their places keep their captions.
     pending: tuple = ()
+    # Review diagnosis: where the misses fell, under Off (coverage) or More
+    # misses than expected with no disagreeing Repeat; None otherwise.
+    diagnosis: MissDiagnosis | None = None
 
     @property
     def predictions(self):
@@ -1342,9 +1488,12 @@ def status_facts(opt, checks, standing=None, gain=None):
                 and getattr(standing, "luck", False)
                 and getattr(standing.best, "repeat", None) is not None)
     step = None if row == "gate" else next_step(opt, checks, standing, gain)
+    diagnosis = (miss_diagnosis(opt, checks, h)
+                 if row in ("off_coverage", "caution") and flagged is None else None)
     return StatusFacts(scored, row, clauses, h, verdict, fact, flagged, bias, guard, yard,
                        progress, answer, best, tie, luck, step, checked,
-                       float(standing.best.repeat.mean) if luck else None)
+                       float(standing.best.repeat.mean) if luck else None,
+                       diagnosis=diagnosis)
 
 
 def tie_partner(opt, best):
