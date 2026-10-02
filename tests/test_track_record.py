@@ -252,8 +252,11 @@ def test_the_tab_shows_the_new_header_verdict_and_record(insights_scored):
 def verdict_project():
     """Six Rounds of a noisy _burger: a verdict (holding), Firmness and
     Juiciness with wide likely ranges, the Overall score's not, and 9
-    fully measured Overall-score checks in the headline's Rounds."""
-    return _burger(rounds=6, noise=2.0)
+    fully measured Overall-score checks in the headline's Rounds. Noise
+    1.5, not 2.0, since ftue fix A's Round-grouped folds (cold read I9)
+    widen the Overall score's range at 2.0 too, and every range wide is a
+    verdict of its own."""
+    return _burger(rounds=6, noise=1.5)
 
 
 def test_the_tab_shows_the_verdict_the_wide_line_and_the_record(verdict_project):

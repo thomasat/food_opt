@@ -203,10 +203,10 @@ def test_a_pair_left_out_is_said_as_left_out():
     opt, checks = _pair(-10.0)
     flagged = insights.disagreeing_repeat(opt, checks)
     rows = {r.name: r for r in insights.details(opt, checks, flagged=flagged)}
+    # Ftue fix A (cold read I7): the disagreeing pair now stays in.
     for r in rows.values():
-        assert (r.pairs, r.left_out) == (0, 1)
-        assert wording.repeat_compare(r.ratio, r.repeat_sd, r.pairs, r.left_out) == (
-            "1 pair left out (it disagreed)")
+        assert (r.pairs, r.left_out) == (1, 0)
+    assert wording.repeat_compare(None, None, 0, 1) == "1 pair left out (it disagreed)"
     kept = {r.name: r for r in insights.details(opt, checks)}
     assert all(r.left_out == 0 for r in kept.values())
     assert wording.repeat_compare(None, None, 0) == "no Repeats yet"

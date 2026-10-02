@@ -744,7 +744,9 @@ def test_widening_is_the_rms_of_the_held_out_misses(monkeypatch):
 
 
 def test_folds_are_by_row_order_and_each_row_is_held_out_once(monkeypatch):
-    opt = _burger(rounds=3, noise=0.4)                     # 9 rows
+    """Ftue fix A (cold read I9): a Round at a time, each row held out once
+    (before: row k in fold k % 5)."""
+    opt = _burger(rounds=3, noise=0.4)                     # 9 rows, 3 Rounds
     seen = []
     real = insights._fit_gp
     def spy(opt_, name, rows):
@@ -754,7 +756,8 @@ def test_folds_are_by_row_order_and_each_row_is_held_out_once(monkeypatch):
     use = list(range(9))
     z = insights._cv_z(opt, "Firmness", use)
     assert len(z) == 9
-    assert seen == [[i for i in use if i % 5 != k] for k in range(5)]
+    rounds = [opt.batch_history[i] for i in use]
+    assert seen == [[i for i in use if rounds[i] != r] for r in dict.fromkeys(rounds)]
     assert insights._cv_z(opt, "Firmness", use) == pytest.approx(z)   # repeatable
 
 
@@ -762,8 +765,10 @@ def test_held_out_misses_match_a_hand_refit():
     opt = _burger(rounds=3, noise=0.4)
     use = list(range(9))
     z = insights._cv_z(opt, "Juiciness", use)
-    held = [0, 5]                                           # fold 0
-    gp = insights._fit_gp(opt, "Juiciness", [i for i in use if i % 5 != 0])
+    held = [0, 1]                       # fold 0: Round 1 (ftue fix A, I9)
+    assert insights.cv_folds(opt, use)[0][1][:2] == held
+    first = opt.batch_history[0]
+    gp = insights._fit_gp(opt, "Juiciness", [i for i in use if opt.batch_history[i] != first])
     f = insights.Fitted("Juiciness", gp, None, 7, -1e9, 1e9)
     from botorch.utils.transforms import normalize
     with torch.no_grad():

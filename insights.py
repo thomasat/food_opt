@@ -2880,7 +2880,12 @@ SKILL_MIN = 10
 # results" (the no-skill Next step, the guard's trigger (c), the track line);
 # between the cut and SKILL_SMALL: "not clearly better than the average"
 # (shown, no advice); SKILL_SMALL or more: "better than the average".
-SKILL_GATE_Q10 = {10: 0.00, 12: 0.03, 15: 0.11, 20: 0.25, 25: 0.32, 30: 0.45}
+# Re-measured by ftue fix A on the I9 fixture (Round-grouped CV folds);
+# it was {10: 0.00, 12: 0.03, 15: 0.11, 20: 0.25, 25: 0.32, 30: 0.45}.
+# A correct model now reads at or below −0.2 in 4.1 % of windows at n = 10
+# (6.9 % before) and below 0.2 in 12.5 % at n = 10, 11.0 % at n = 15
+# (15.3 % and 12.3 % before).
+SKILL_GATE_Q10 = {10: 0.11, 12: 0.11, 15: 0.14, 20: 0.22, 25: 0.31, 30: 0.34}
 SKILL_CUT_MAX = -0.2
 SKILL_SMALL = 0.2
 

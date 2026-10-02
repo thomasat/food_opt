@@ -250,7 +250,8 @@ def test_at_the_gate_only_what_applies(project):
 # ------------------------------------------------------------------ #
 
 LINE_A_TIP = (
-    "Measurements (Firmness, Juiciness, Cook loss), Rounds 3–5: 32 of 35 Round-ahead values "
+    # 33 of 35 since ftue fix A's Round-grouped folds (cold read I9); 32 before.
+    "Measurements (Firmness, Juiciness, Cook loss), Rounds 3–5: 33 of 35 Round-ahead values "
     "inside their 95 % posterior predictive intervals (5-fold cross-validation widening); a "
     "binomial count at 5 % per value allows up to 3 misses in 35 at the 1-in-10 level. "
     "Overall score, Rounds 2–5: out-of-sample skill 1 − SSE/SSE(mean of the rows before "
@@ -308,14 +309,16 @@ def test_line_b_names_the_repeat_and_the_bias(project):
     facts = _status(opt, checks)
     assert facts.prediction_row == "off_coverage"
     pred = ui_insights.tooltip_for(opt, "predictions", facts)
-    assert "26 of 36 Round-ahead values" in pred and "up to 4 misses in 36" in pred
+    # 28 of 36 since ftue fix A's Round-grouped folds (cold read I9); 26 before.
+    assert "28 of 36 Round-ahead values" in pred and "up to 4 misses in 36" in pred
     # Ftue fix A (cold read I5): −5.5 is 2.45 standard errors, under
     # t_{0.975, 3} = 3.18, so no bias clause.
     assert facts.bias is None and "mean error −5.5 points" not in pred
     nxt = ui_insights.tooltip_for(opt, "next", facts)
     assert facts.next.kind == "repeat"
+    # ±2.8 = √2 × 1.96 × the assumed 1 point (ftue fix A, cold read I7); ±7.4 before.
     assert ("Formulation 21, a Repeat of Formulation 11, differs by 10.5 points: more than "
-            "±7.4") in nxt
+            "±2.8") in nxt
 
 
 def test_the_process_only_tooltips_say_trial(project):
@@ -375,7 +378,7 @@ def test_the_figures_lines_carry_their_numbers(project):
     facts = _status(opt, checks)
     verdict = ui_insights.tooltip_for(opt, "verdict", facts)
     assert verdict.startswith(W.TIP_INTERVAL) and W.TIP_VERDICT in verdict
-    assert W.TIP_NOT_JUDGED not in verdict and "32 of 35 Round-ahead values" in verdict
+    assert W.TIP_NOT_JUDGED not in verdict and "33 of 35 Round-ahead values" in verdict
     assert "= 0.36 over 15" in ui_insights.tooltip_for(opt, "skill", facts)
     early = ui_insights.tooltip_for(opt, "verdict")
     assert W.TIP_NOT_JUDGED in early

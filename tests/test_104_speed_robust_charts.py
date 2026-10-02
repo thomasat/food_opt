@@ -301,8 +301,12 @@ def skilled(monkeypatch):
     """A model with skill (integration with W1's A3 gate, review I4): this
     5-Round project has fewer than 10 Overall-score checks, so the gate
     would withhold the expected improvement these tests persist. Stood in
-    the way W1 stands it in for the effect lines (test_080_try_one)."""
+    the way W1 stands it in for the effect lines (test_080_try_one). Ftue
+    fix A's Round-grouped folds move this project's record to 15 of 18
+    (More misses than expected), which withholds the figure too, so the
+    record is stood in as well."""
     monkeypatch.setattr(insights, "skill_gate", lambda opt, checks, fact=None: None)
+    monkeypatch.setattr(ui_insights, "withheld", lambda opt, score, checks: None)
 
 
 def _app(project):

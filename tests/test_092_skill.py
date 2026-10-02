@@ -210,10 +210,12 @@ def _gate_windows(reps=20, seed=2, ns=tuple(insights.SKILL_GATE_Q10)):
 
 def test_the_gate_sets_the_no_skill_cut():
     """The ruling's gate: c_n = the 10th percentile of that correct model's
-    skill over windows with true skill ≥ 0.2, never above −0.2. Measured:
-    0.00, 0.03, 0.11, 0.25, 0.32, 0.45 at n = 10, 12, 15, 20, 25, 30, all
-    above −0.2, so the cut is −0.2 at every n; there, a correct model is
-    called "no better" in fewer than 1 window in 10 (about 7 % at 10)."""
+    skill over windows with true skill ≥ 0.2, never above −0.2. Measured
+    (ftue fix A's Round-grouped folds; before: 0.00, 0.03, 0.11, 0.25,
+    0.32, 0.45): 0.11, 0.11, 0.14, 0.22, 0.31, 0.34 at n = 10, 12, 15, 20,
+    25, 30, all above −0.2, so the cut is −0.2 at every n; there, a correct
+    model is called "no better" in fewer than 1 window in 10 (about 4 % at
+    10; 7 % before)."""
     windows = _gate_windows()
     q10 = {n: statistics.quantiles(v, n=10)[0] for n, v in windows.items()}
     assert q10 == pytest.approx(insights.SKILL_GATE_Q10, abs=0.01)

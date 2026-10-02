@@ -35,11 +35,15 @@ _SHORT = {D.SNACK: "Snack bar", D.LINE_A: "Line A", D.LINE_B: "Line B", D.LINE_C
           D.UPGRADE: "Upgrade check", D.TIMING: "Timing check"}
 
 # The process-only study (T0's fixture): Not yet (skill −0.03, n = 16),
-# Rising, and Next's rising row with the Repeat sentence, in Trial forms.
+# the Overall score's intervals wide, Within noise and Next's see row with
+# the Repeat sentence, in Trial forms. Ftue fix A: the rise of 1.9 from a
+# Round of 4 is under 1 × √2 × z_4 = 3.16 (cold read I6; it read Rising),
+# and the Round-grouped folds widen the Overall score's intervals (I9).
 _PROCESS_ONLY = (
-    "not_yet", wording.pred_unclear(skill_text="−0.03"),
-    "rising", wording.progress_rising(5, "1.9", "87.92", 100, 21),
-    wording.next_plain_rising(6, 4, repeat_no=21, values=True))
+    "not_yet", wording.pred_unclear(clauses=[wording.clause_wide(["the Overall score"])],
+                                    skill_text="−0.03"),
+    "within_noise", wording.progress_within_noise(5, "1.9", "87.92", 100, 21),
+    wording.next_plain_see(6, 4, repeat_no=21, values=True))
 
 # R-I8: at most 130 words above the fold (header + 3 lines + button +
 # link), pinned per project as they stand. Fix round B: Lines A and C carry
@@ -55,7 +59,6 @@ _BUDGET = 130
 _WORDS = {D.SNACK: 39, D.LINE_A: 63, D.LINE_B: 66, D.LINE_C: 65, D.UPGRADE: 47,
           D.TIMING: 49, D.PROCESS_ONLY: 67}
 _OVER_BUDGET = set()
-
 # The concision round's exact lines (the full sentences, FIRST_SCREENS in
 # tests/test_107_ftue.py, open each line's tooltip).
 _SHORT_LINES = {

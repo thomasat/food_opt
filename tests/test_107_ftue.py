@@ -47,28 +47,33 @@ def statistic_names_in(text):
 # tie, Line C's skill number and the cause of its uncertainty, the bias said
 # as scores coming in below the predictions, Line B's check first, the
 # Upgrade check's reason, and every tie within the noise threshold named.
+# Ftue fix A (statistician's cold read I5, I6, I7, I9) moved Lines A-C:
+# Line A 32 -> 33 of 35 inside (Round-grouped CV folds); Line B 10 -> 8 of
+# 36 outside, no bias clause (t = 2.45 < t_{0.975, 3} = 3.18), the Repeat
+# limit 7.4 -> 2.8 (√2 × 1.96 × the assumed 1 point); Line C no bias clause
+# (t = 2.69) and Within noise, not Rising (2.5 < 1 × √2 × z_4 = 3.16).
 FIRST_SCREENS = {
     "Snack bar": (
         "not_yet", W.pred_gate(3),
         "too_early", W.progress_too_early("96.00", 100, 1, one_round=True, tie_no=3),
         W.next_plain_tail()),
     "Line A": (
-        "reliable", W.pred_reliable([3, 4, 5], 32, 35, 3),
+        "reliable", W.pred_reliable([3, 4, 5], 33, 35, 3),
         "no_new_best", W.progress_no_new_best(
             5, "90.45", 100, 15, 4, near_no=18,
             little=(W.binding_plain("highest", "Textured pea protein"),
                     W.binding_plain("lowest", "Beet juice powder"))),
         W.next_plain_see(6, 4, repeat_no=15)),
     "Line B": (
-        "off", W.pred_off_coverage([3, 4, 5], 10, 36, 4, W.bias_fact("5.5")),
+        "off", W.pred_off_coverage([3, 4, 5], 8, 36, 4),
         "flat", W.progress_flat(2, "90.09", 100, 11, 3, near_no=10),
-        W.next_plain_repeat(21, 11, "10.5", half_text="7.4", round_no=6)),
+        W.next_plain_repeat(21, 11, "10.5", half_text="2.8", round_no=6)),
     "Line C": (
-        "not_yet", W.pred_no_skill(("4.3", True),
+        "not_yet", W.pred_no_skill(None,
                                    [W.clause_wide(["Firmness", "Juiciness", "Cook loss"],
                                                   cause=True, most="Cook loss")],
                                    skill_text="−0.47") + " " + W.CHECK_SCATTER,
-        "rising", W.progress_rising(5, "2.5", "89.84", 100, 18, near_no=20),
+        "within_noise", W.progress_within_noise(5, "2.5", "89.84", 100, 18, near_no=20),
         W.next_plain_no_skill(6, 4)),
     "Upgrade check": (
         "not_yet", W.pred_too_few(2),
