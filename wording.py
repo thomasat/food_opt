@@ -3954,7 +3954,6 @@ def wide_line(names_text):
             "Range): values fall inside easily, so this check says little yet.")
 
 
-SHOW_PREDICTIONS = "Measured against predicted"
 INGREDIENT_OR_SETTING = "Ingredient or process setting"
 START_FROM = "Start from"
 
@@ -4000,8 +3999,6 @@ def change_none(settings_only=False):
 CHANGE_NONE = change_none()
 
 
-SHOW_PROGRESS = "Progress chart"
-HOW_WORKED_OUT = "Method and details"
 # The kernel each model setting names (0.8.0 e2e fixes D5, 03 minor): Method
 # and details says the one in use, not always the default's.
 KERNEL_NAMES = {
@@ -4209,7 +4206,6 @@ BEST_FAILED = "The predicted best could not be found."
 # Insights wave C (0.8.0): "More charts", the three views a reader who knows
 # designed experiments expects. One heading (a question), at most two
 # selectors, one chart and one caption each.
-MORE_CHARTS = "More charts"
 Q_PAIR = "Two measurements against each other"
 
 CHART_FAILED = "This chart could not be drawn."
@@ -4642,15 +4638,18 @@ _NOT_JUDGED = "The predictions cannot be judged yet."
 NEXT_TOO_EARLY = f"Make the next {ROUND_CAP}. {_NOT_JUDGED}"
 
 
-def next_untested(values=False, open_round=True, round_no=None):
+def next_untested(values=False, open_round=True, round_no=None, shown=True):
     """The predicted best is in untested amounts (03 §5.4): add it to the
-    open Round (`round_no`), or to the next, as a formulation of your own."""
+    open Round (`round_no`), or to the next, as a formulation of your own.
+    `shown`: "Show its amounts" is drawn (not while the noise guard's floor
+    or noise trigger holds); only then is it pointed at."""
     what = "values" if values else "amounts"
     where = (f"{ROUND_CAP} {round_no}" if open_round and round_no is not None
              else f"the {ROUND_CAP}" if open_round else f"the next {ROUND_CAP}")
     # "under Progress figures" (ftue review R-I5): the fold moved below.
-    return (f"The predicted best is in untested {what} ({show_its_amounts(values)}, under "
-            f"{FOLD_PROGRESS_FIGURES_NAME}). "
+    pointer = (f" ({show_its_amounts(values)}, under {FOLD_PROGRESS_FIGURES_NAME})" if shown
+               else "")
+    return (f"The predicted best is in untested {what}{pointer}. "
             f"To test it directly, add it to {where} as your own {FORMULATION}; suggestions "
             "can also land near it.")
 
@@ -4735,13 +4734,6 @@ CHANGE_LIMITS_ON_SETUP = "Change limits on Set up"
 
 # Effect of one ingredient or process setting (§2.5; spec review I8, I14,
 # M3; 03 §5.5).
-def try_one(has_settings, has_ingredients=True):
-    if not has_ingredients:
-        return "Effect of one process setting"
-    return ("Effect of one ingredient or process setting" if has_settings
-            else "Effect of one ingredient")
-
-
 def near_line(name, change_text, start_text, only=False):
     if only:
         return f"Local effect of {name} from {start_text}: {points_text(change_text)}."
@@ -5304,8 +5296,6 @@ ROLE = "Role"
 ROLE_REFINES = SUGGESTION_CLOSE
 ROLE_BALANCED = SUGGESTION_BALANCED
 ROLE_EXPLORES = SUGGESTION_DIFFERENT
-MODEL_SD_HELP = ("The suggestion model's own standard deviation for the mean, without Repeat "
-                 "noise or the calibration factor: narrower than the 95 % interval.")
 EXPECTED_IMPROVEMENT_HELP = (f"The model's average gain of this one {FORMULATION}'s score "
                              "(without Repeat noise) over the model's best tested "
                              f"{FORMULATION}, counting no gain as zero, in points.")
@@ -5400,8 +5390,6 @@ def role_help(close_pct=15, far_pct=30):
 
 # The Why fold's other two columns, kept visible at 1280 px with their full
 # meaning in the tooltip (D2, review M8).
-NEAREST_TESTED_HELP = (f"The scored {FORMULATION} closest to this suggestion, by the largest "
-                       "difference as a share of each span.")
 LARGEST_DIFFERENCES_HELP = ("The two largest differences from the nearest tested "
                             f"{FORMULATION}, largest share of its span first, in each row's "
                             "own unit.")
@@ -6150,15 +6138,16 @@ def next_plain_no_skill(no=None, left=0):
             "a guided search, not a forecast.")
 
 
-def next_plain_untested(round_no=None, open_round=True, values=False):
+def next_plain_untested(round_no=None, open_round=True, values=False, shown=True):
     """Row untested: the predicted best in amounts not tried, added as the
-    user's own formulation to the open Round, or to the next."""
+    user's own formulation to the open Round, or to the next. `shown`: its
+    amounts are drawn under Progress figures (next_untested's rule)."""
     what = "values" if values else "amounts"
     where = (f"{ROUND_CAP} {round_no}" if open_round and round_no is not None
              else f"the next {ROUND_CAP}")
-    return (f"The model's highest prediction is in {what} you have not tried yet (its {what} are "
-            f"under {FOLD_PROGRESS_FIGURES_NAME}). To test it directly, add it to {where} as your "
-            f"own {FORMULATION}.")
+    pointer = f" (its {what} are under {FOLD_PROGRESS_FIGURES_NAME})" if shown else ""
+    return (f"The model's highest prediction is in {what} you have not tried yet{pointer}. To "
+            f"test it directly, add it to {where} as your own {FORMULATION}.")
 
 
 def next_plain_explore(gain_text, assumed=True, no=None, left=0, repeat_no=None, values=False):
@@ -6461,6 +6450,20 @@ def tip_progress(threshold_text):
             "score.")
 
 
+def tip_next_best(score_text, ceiling, no, rnd=None):
+    """Next's see and rising rows: the number Progress weighs, report
+    style. 'Best so far: 90.45 of 100 (Formulation 15, Round 4).'"""
+    where = f", {ROUND_CAP} {rnd}" if rnd is not None else ""
+    return f"Best so far: {score_text} of {ceiling_text(ceiling)} ({FORMULATION_CAP} {no}{where})."
+
+
+def tip_next_gain(gain_text, threshold_text):
+    """Next's explore row: the expected improvement Progress shows against
+    the noise threshold. `gain_text` to 1 decimal."""
+    return (f"Expected improvement: {points_text(gain_text)}, above the noise threshold "
+            f"({threshold_text}).")
+
+
 def tip_next(status_text, rule_text):
     """The Next line's rule: which row fired, and its condition (a row of
     status_rule_rows)."""
@@ -6586,6 +6589,9 @@ MODEL_LIMITS = (
      "from the suggestion model."),
     "Intervals are cut at 0 and the score ceiling, so coverage near 100 reads high.",
     f"{FORMULATION_CAP}s still waiting for results are left out of every model.",
+    (f"Cold start: the first 5 {FORMULATION}s with all results in come from a space-filling "
+     f"design, not from the model, so the first {ROUND_CAP}s show nothing of how well it "
+     "chooses."),
     "Best so far is one noisy maximum, so it tends to read high.",
     "A noise threshold from few Repeat pairs rests on few degrees of freedom.",
     "No correction is made for the many comparisons on this tab.",
@@ -6894,8 +6900,11 @@ def option_never_tested(name, option):
     return f"{name}: {option} has never been tested."
 
 
-def strips_no_gap(settings_only=False):
-    what = "process setting" if settings_only else "ingredient"
+def strips_no_gap(settings_only=False, has_settings=False):
+    """`has_settings`: the strips hold a process setting too (the rule
+    checks them as it checks the ingredients)."""
+    what = ("process setting" if settings_only
+            else "ingredient or process setting" if has_settings else "ingredient")
     return f"No {what} has an untested stretch of 15 % of its span or more."
 
 
@@ -6944,7 +6953,9 @@ def tip_strips(values=False, total=True):
     return (f"Model-free: each tick is a recorded {FORMULATION}{at}. Shaded: the reachable part, "
             "the lowest to highest of this row over a hit-and-run sample of the feasible region. "
             "A gap is a reachable stretch of 15 % of the span or more with no "
-            f"{FORMULATION} with all results in. One input at a time: a marginal view.")
+            f"{FORMULATION} with all results in. One input at a time: a marginal view. BO "
+            "term: one-dimensional marginals of the design points; a strip with no gap does not "
+            "mean the design space is covered.")
 TIP_LIMIT_HITS = (
     f"A suggestion sits at a limit when it is within 1 % of the span from it. Counted over the "
     f"generated picks of the open {ROUND_CAP}, else of the last {ROUND_CAP} the model chose; "

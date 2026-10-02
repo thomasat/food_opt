@@ -548,7 +548,7 @@ def test_insights_reads_trial_and_setting_on_a_process_only_project(warm_ferment
     md, caps = _tab_text(at)
     # The three answers and the folds (spec 2026-09-30 §2, review I14).
     assert f"##### {wording.Q_STAND}" in md
-    assert "Effect of one process setting" in [e.label for e in tab.expander]
+    assert "Try one process setting" in [e.label for e in tab.expander]
     assert tab.selectbox(key=ui_insights.CHOICE_KEY).label == "Process setting"
     assert [c for c in caps if c.startswith("Based on 5 scored trials")]
 
@@ -635,7 +635,7 @@ def test_question_2_keeps_ingredient_when_nothing_varies(insights_scored, monkey
     at = _open_insights(_app())
     assert not at.exception
     md, caps = _tab_text(at)
-    assert wording.try_one(False) in [e.label for e in at.tabs[3].expander]
+    assert wording.try_one_fold(False) in [e.label for e in at.tabs[3].expander]
     assert wording.CHANGE_NONE in caps
 
 
@@ -644,7 +644,7 @@ def test_a_process_only_project_says_values_and_settings(warm_ferment, monkeypat
     at = _open_how(_open_insights(_app()))
     assert not at.exception
     md, caps = _tab_text(at)
-    assert "Effect of one process setting" in [e.label for e in at.tabs[3].expander]
+    assert "Try one process setting" in [e.label for e in at.tabs[3].expander]
     assert "Nothing to change yet: every process setting is fixed." in caps
     [how] = [e for e in at.tabs[3].expander if e.label == wording.FOLD_METHOD]
     checks = next(m.value for m in how.markdown if m.value.startswith("Round-ahead check:"))

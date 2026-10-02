@@ -25,7 +25,7 @@ def _changed_lines():
         W.TRUST_NONE, W.wide_line("Firmness, Juiciness and Cook loss"), W.WIDE_EVERY,
         W.score_gap_line(11, 11, -0.4), W.score_gap_line(10, 10, -1.2, W.beat_by()),
         W.score_gap_line(11, 11, 0.0), W.repeat_disagrees(21, 11, "10.5", half_text="7.4"),
-        W.TRUST_BEFOREHAND, W.SHOW_PREDICTIONS, W.MVP_CAPTION, W.TRACK_PREDICTED,
+        W.TRUST_BEFOREHAND, W.FOLD_MEASURED_CHART, W.MVP_CAPTION, W.TRACK_PREDICTED,
         W.TRACK_LOW, W.TRACK_HIGH, W.PREDICTED, W.Q_STAND, W.stand_yes("2.5"),
         W.stand_barely("0.2"), W.stand_barely("0.2", "1.2"), W.stand_not_lately(7),
         W.stand_best("90.45", 15, 4), W.stand_repeats("1.2", 1), W.stand_repeats("1.2", 4),
@@ -35,19 +35,19 @@ def _changed_lines():
         W.stand_higher("88", "63", "100", gain_text="+2.3"),
         W.stand_higher("90", "85", "95", 18, "90.12", "+2.3"),
         W.stand_limits(["the Highest of Pea"]), W.best_luck(11, "84", "62", "100", "90.09"),
-        W.SHOW_PROGRESS, W.progress_caption_2(), W.Q_NEXT, W.next_bias("5.4", rounds=[3, 4, 5]),
+        W.FOLD_PROGRESS_CHART, W.progress_caption_2(), W.Q_NEXT, W.next_bias("5.4", rounds=[3, 4, 5]),
         W.next_misses([3, 4, 5]), W.NEXT_MISSES, W.NEXT_TOO_EARLY, W.next_too_early_open(6, 4),
         W.next_untested(round_no=6), W.next_untested(open_round=False),
         W.next_close_to_top(W.raise_highest("Textured pea protein")), W.next_close_to_top(),
         W.NEXT_RISING, W.next_rising("Firmness", 6, 4), W.NEXT_SEE, W.next_see_open(6, 4),
-        W.try_one(True), W.try_one(False), W.try_one(True, False),
+        W.try_one_fold(True), W.try_one_fold(False), W.try_one_fold(True, False),
         W.near_line("Coconut oil", "1.4", "Best so far"),
         W.near_line("Coconut oil", "1.4", "Best so far", only=True),
         W.near_two("A", "B", "8.7", "8.2", "Best so far"), W.near_bigger(), W.near_none(),
         W.moved_together("Pea", "Soy", "0.86"), W.change_caption(), W.CHANGE_NEAR,
         W.CHANGE_WHOLE, W.CHANGE_AXIS, W.path_key(15, grey=True, targets=True), W.Q_PAIR,
         W.PAIR_CAPTION, W.pair_caption(["Firmness"]), W.pair_caption([]), W.Q_MIXTURE,
-        W.mixture_caption(15), W.HOW_WORKED_OUT, W.HOW_MODELS, W.HOW_RANGE,
+        W.mixture_caption(15), W.FOLD_METHOD, W.HOW_MODELS, W.HOW_RANGE,
         W.HOW_RANGE_FIXED_TINY, W.how_checks(), W.how_checks(values=True), W.HOW_NO_P,
         W.details_window([2, 3, 4, 5], 3, [3, 4, 5]), *W.DETAILS_COLUMNS_2, W.SKILL_COLUMN,
         W.HOW_WIDENED,
@@ -88,7 +88,7 @@ def _new_lines():
         W.guard_skill_line(), W.guard_skill_line(True), W.PATH_GUARD, W.PATH_GUARD_SKILL,
         W.WHY_THESE, W.EXPECTED_IMPROVEMENT, W.OPTIMISTIC_SCORE, W.MODEL_SD, W.NEAREST_TESTED,
         W.LARGEST_DIFFERENCES, W.ROLE, W.ROLE_REFINES, W.ROLE_BALANCED, W.ROLE_EXPLORES,
-        W.MODEL_SD_HELP, W.EXPECTED_IMPROVEMENT_HELP, W.EXPECTED_IMPROVEMENT_EI_HELP,
+        W.TIP_MODEL_SD, W.EXPECTED_IMPROVEMENT_HELP, W.EXPECTED_IMPROVEMENT_EI_HELP,
         W.OPTIMISTIC_SCORE_HELP, W.WHY_PENDING, W.WHY_COLD, W.WHY_FAILED, W.WHY_WORKING,
         W.why_row_label(24), W.why_row_label(25, own=True), W.why_row_label(26, edited=True),
         W.why_difference("Coconut oil", "+1.20 g"), W.why_chart_caption(3000),
@@ -150,9 +150,10 @@ def test_the_process_only_forms_say_trial_through_for_project():
 def test_headings_are_nouns():
     """03 §4, review I7: noun headings, and the link labels follow them."""
     assert (W.Q_TRUST, W.Q_STAND, W.Q_NEXT) == ("Prediction check", "Progress", "Next step")
-    assert W.SHOW_PREDICTIONS == "Measured against predicted"
-    assert W.SHOW_PROGRESS == "Progress chart"
-    assert W.HOW_WORKED_OUT == "Method and details"
+    # Ftue §2 (integration): the folds' new names.
+    assert W.FOLD_MEASURED_CHART == "Measured against predicted (chart)"
+    assert W.FOLD_PROGRESS_CHART == "Progress chart"
+    assert W.FOLD_METHOD == "Method and definitions"
     assert W.GAIN_HEADING == "Expected improvement by Round"
     assert W.OVERLAY_NAME == "Predicted above Best so far"
     assert W.round_measured_against_predicted(6) == "Round 6: measured against predicted"

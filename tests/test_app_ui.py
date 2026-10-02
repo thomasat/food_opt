@@ -2951,7 +2951,7 @@ def test_results_collapsed_sections_are_the_spec_list(scored):
     # Progress chart moved to Insights (0.8.0).
     for label in (wording.EDIT_PAST_FOLD,):
         assert label in labels, labels
-    assert "Progress chart" not in labels and wording.SHOW_PROGRESS not in labels
+    assert "Progress chart" not in labels and wording.FOLD_PROGRESS_CHART not in labels
 
 
 def test_whole_batch_pick_fills_the_selection(scored):

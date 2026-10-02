@@ -138,7 +138,7 @@ def test_every_insights_string_passes_the_vocabulary_guard():
     _check(wording.insights_gate(3))
     _check(wording.rounds_span(["3"]))
     _check(wording.rounds_span(["3", "4", "5"]))
-    _check(wording.SHOW_PREDICTIONS)
+    _check(wording.FOLD_MEASURED_CHART)
     _check(wording.INGREDIENT_OR_SETTING)
     _check(wording.START_FROM)
     _check(wording.start_best(14))
@@ -149,8 +149,8 @@ def test_every_insights_string_passes_the_vocabulary_guard():
     _check(wording.path_not_checked("Fat: at most 16 g", "Fat"))
     _check(wording.panel_missing("Firmness"))
     _check(wording.panel_failed("Firmness"))
-    _check(wording.SHOW_PROGRESS)
-    _check(wording.HOW_WORKED_OUT)
+    _check(wording.FOLD_PROGRESS_CHART)
+    _check(wording.FOLD_METHOD)
     _check(wording.HOW_MODELS)
     _check(wording.HOW_RANGE)
     _check(wording.HOW_RANGE_FIXED_TINY)
@@ -245,7 +245,7 @@ def test_insights_sections_and_expanders(insights_scored):
     labels = [e.label for e in tab.expander]
     for lab in (wording.FOLD_PREDICTION_FIGURES, wording.FOLD_MEASURED_CHART,
                 wording.FOLD_PROGRESS_FIGURES, wording.FOLD_PROGRESS_CHART,
-                wording.FOLD_NEXT_REASONING, wording.try_one(False), wording.FOLD_METHOD):
+                wording.FOLD_NEXT_REASONING, wording.try_one_fold(False), wording.FOLD_METHOD):
         assert lab in labels, labels
     # One lit button: the foot (spec 2026-09-30 §2.4).
     assert [b.label for b in tab.button if b.proto.type == "primary"] == [
@@ -262,7 +262,7 @@ def test_progress_chart_moved_from_results(insights_scored):
     at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
     labels = [e.label for e in at.expander]
-    assert "Progress chart" not in labels and wording.SHOW_PROGRESS not in labels
+    assert "Progress chart" not in labels and wording.FOLD_PROGRESS_CHART not in labels
     assert not any(c.value == wording.progress_caption_2() for c in at.caption)
     at = _app()
     at.session_state[ui_insights.PROGRESS_KEY] = True     # drawn only while open
@@ -393,20 +393,20 @@ def test_rounds_not_checked_wording():
 
 def test_final_wave_wording():
     assert wording.INSIGHTS_WORKING == "Preparing the insights…"
-    assert wording.HOW_WORKED_OUT == "Method and details"
+    assert wording.FOLD_METHOD == "Method and definitions"
     assert wording.panel_failed("Firmness") == "Could not be predicted for Firmness."
-    assert wording.try_one(True) == "Effect of one ingredient or process setting"
-    assert wording.try_one(False) == "Effect of one ingredient"
+    assert wording.try_one_fold(True) == "Try one ingredient or process setting"
+    assert wording.try_one_fold(False) == "Try one ingredient"
     assert wording.path_not_checked("Fat: at most 16 g", "Fat") == (
         "Not checked: Fat: at most 16 g — some ingredients have no Fat value.")
     assert wording.INSIGHTS_FAILED == "Insights could not be prepared for this project."
     assert wording.CHANGE_NONE == (
         "Nothing to change yet: every ingredient and process setting is fixed.")
     assert wording.DETAILS_NONE == "This table fills in once a Round has been checked."
-    for text in (wording.INSIGHTS_WORKING, wording.HOW_WORKED_OUT, wording.panel_failed("X"),
+    for text in (wording.INSIGHTS_WORKING, wording.FOLD_METHOD, wording.panel_failed("X"),
                  wording.TRUST_NONE, wording.STAND_LATEST, wording.stand_since(1),
-                 wording.stand_since(3), wording.HOW_MODELS, wording.try_one(True),
-                 wording.try_one(False), wording.INSIGHTS_FAILED, wording.CHANGE_NONE,
+                 wording.stand_since(3), wording.HOW_MODELS, wording.try_one_fold(True),
+                 wording.try_one_fold(False), wording.INSIGHTS_FAILED, wording.CHANGE_NONE,
                  wording.DETAILS_NONE, wording.rounds_not_checked([1, 2])):
         assert "worked out" not in text.lower() and "working out" not in text.lower(), text
 
@@ -497,7 +497,7 @@ def test_section_2_says_when_there_is_nothing_to_change(insights_scored, monkeyp
 def test_question_2_names_process_settings_only_when_there_are_some(insights_scored):
     at = _open_insights(_app())
     labels = [e.label for e in at.tabs[3].expander]
-    assert wording.try_one(False) in labels and wording.try_one(True) not in labels
+    assert wording.try_one_fold(False) in labels and wording.try_one_fold(True) not in labels
 
 
 @pytest.mark.parametrize("sd, shown", [(0.04, False), (0.0, False), (0.06, True)])

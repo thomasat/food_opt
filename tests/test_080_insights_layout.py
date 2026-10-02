@@ -61,8 +61,10 @@ def test_three_answers_then_the_foot_then_three_folds(insights_scored, monkeypat
                  "Which formulation is predicted to score highest?"):
         assert f"##### {gone}" not in md
     folds = [e.label for e in at.tabs[3].expander
-             if e.label in (wording.try_one(False), wording.MORE_CHARTS, wording.FOLD_METHOD)]
-    assert folds == [wording.try_one(False), wording.MORE_CHARTS, wording.FOLD_METHOD]
+             if e.label in (wording.try_one_fold(False), wording.FOLD_METHOD)
+             or e.label.startswith("Trade-offs")]
+    assert folds == [wording.try_one_fold(False), wording.trade_offs_fold(False),
+                     wording.FOLD_METHOD]
     assert all(not e.proto.expanded for e in at.tabs[3].expander)
     foot = next(b for b in at.tabs[3].button if b.key == "insights_foot")
     assert foot.label == wording.START_NEXT_BATCH and foot.proto.type == "primary"
@@ -288,7 +290,7 @@ def test_a_process_only_project_names_settings(tmp_path):
     opt = FoodOptimizer("ferment_x")
     opt.add_process_parameter("Mixing time", 1, 10)
     opt.add_objective("Acidity", 1.0, goal="max", min_val=0, max_val=10, unit="pH")
-    assert ui_insights._try_one_label(opt) == "Effect of one process setting"
+    assert ui_insights._try_one_label(opt) == "Try one process setting"
     text, _ = ui_insights.next_step_text(opt, insights.NextStep("untested"))
     assert "values" in text and "amounts" not in text
 

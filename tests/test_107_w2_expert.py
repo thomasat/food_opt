@@ -344,14 +344,10 @@ _TERM_LINES = [line for line in ui_insights.TIP_LINES
 @pytest.mark.parametrize("line", _TERM_LINES)
 def test_each_term_line_reads_plain_first_then_the_bo_term(line):
     """One "?" per line (R-I6): the plain reading first, then the standard
-    term. The strips' tip is W3's model-free reading, which ends on its
-    term ("a marginal view")."""
+    term (the strips' tip too, since T0′ at integration)."""
     opt = D.load(D.LINE_A)
     tip = ui_insights.tooltip_for(opt, line)
     assert tip, line
-    if line == "strips":
-        assert tip.endswith("a marginal view.")
-        return
     head, sep, _ = tip.partition(" BO term: ")
     assert sep and head, (line, tip)
     assert not any(p.search(tip) for p in _BANNED), tip

@@ -322,7 +322,7 @@ def test_qucb_has_no_expected_improvement():
 
 def _fold(at):
     return next(e for e in at.tabs[3].expander if e.key == "insights_try_one"
-                or e.label.startswith("Effect of one"))
+                or e.label.startswith("Try one"))
 
 
 def test_line_c_names_no_ingredient_effect(tabs):

@@ -60,11 +60,11 @@ def _specs(node):
 
 
 def _more(at):
-    return next(e for e in at.tabs[3].expander if e.label == wording.MORE_CHARTS)
+    return next(e for e in at.tabs[3].expander if e.label.startswith("Trade-offs"))
 
 
 def _try_one(at):
-    return next(e for e in at.tabs[3].expander if e.label.startswith("Effect of one"))
+    return next(e for e in at.tabs[3].expander if e.label.startswith("Try one"))
 
 
 def _all_layers(spec):
@@ -268,7 +268,7 @@ def test_the_within_noise_caption_on_the_demo_lines(line, said):
 # ------------------------------------------------------------------ #
 
 def _progress(at):
-    return next(e for e in at.tabs[3].expander if e.label == wording.SHOW_PROGRESS)
+    return next(e for e in at.tabs[3].expander if e.label == wording.FOLD_PROGRESS_CHART)
 
 
 def _again(at):

@@ -1,7 +1,9 @@
 """Insights for a first-time user, W1 (spec 2026-10-01 rev. 2 §1, §6;
 review R-I8, R-I17): on every demo project and the process-only study, at
 1280 x 800 with nothing scrolled, the three status lines and Next's
-primary button sit wholly above the fold once the tab has filled in.
+primary button sit wholly above the fold once the tab has filled in, and
+the Explored and unexplored fold row ends by 620 px (review R-I14's
+table), in light and dark.
 
 The served copy must have the seven projects in its working folder:
 
@@ -32,6 +34,10 @@ PROJECTS = ("Snack bar - first round", "Plant patty - Line A", "Plant patty - Li
 # The places' captions (wording.CHECKING_PREDICTIONS, …): gone once filled.
 _FILLING = ("Checking predictions…", "Checking progress…", "Preparing the next step…")
 _LINES = ("Predictions:", "Progress:", "Next:")
+# Review R-I14: the fold row sits under the button and its one link, its
+# bottom at most 620 px on every demo project at 1280 x 800.
+_EXPLORED = "Explored and unexplored"
+_EXPLORED_BOTTOM = 620
 
 
 def _open_project(page, name):
@@ -70,9 +76,10 @@ def browser(playwright_session):
     b.close()
 
 
+@pytest.mark.parametrize("theme", ("light", "dark"))
 @pytest.mark.parametrize("name", PROJECTS)
-def test_the_lines_and_the_button_are_above_the_fold(browser, name):
-    page = browser.new_context(viewport=FIRST_SCREEN).new_page()
+def test_the_lines_and_the_button_are_above_the_fold(browser, name, theme):
+    page = browser.new_context(viewport=FIRST_SCREEN, color_scheme=theme).new_page()
     try:
         page.goto(URL, wait_until="domcontentloaded")
         settle(page, 4)
@@ -94,6 +101,16 @@ def test_the_lines_and_the_button_are_above_the_fold(browser, name):
             has_text=re.compile("^(Why the model suggested|See the (amounts|values))"))
         for k in range(links.count()):
             assert above_the_fold(links.nth(k)), (name, links.nth(k).inner_text())
+        # The Explored fold row, collapsed, under them (R-I14).
+        fold = _main(page).locator('[data-testid="stExpander"] summary').filter(
+            has_text=_EXPLORED).first
+        box = fold.bounding_box()
+        assert box is not None, name
+        assert box["y"] + box["height"] <= _EXPLORED_BOTTOM, (name, theme, box)
+        assert box["y"] > primary.first.bounding_box()["y"], (name, box)
+        print(f"{name} [{theme}]: button bottom "
+              f"{primary.first.bounding_box()['y'] + primary.first.bounding_box()['height']:.0f}"
+              f" px, Explored fold bottom {box['y'] + box['height']:.0f} px")
     finally:
         page.context.close()
 

@@ -398,7 +398,7 @@ def test_a_reopen_with_everything_cached_shows_no_progress_line(burger, jobs, mo
     _open(_app(burger.project_name))
     bars = _bars(monkeypatch)
     at = _open(_app(burger.project_name))
-    assert not at.exception and wording.MORE_CHARTS in _texts(at)
+    assert not at.exception and wording.trade_offs_fold() in _texts(at)
     assert bars == []
 
 
@@ -416,7 +416,7 @@ def test_rounds_already_checked_count_as_done_from_the_start(burger, jobs, monke
     total = len(ui_insights._checked(burger))
     bars = _bars(monkeypatch)
     at = _open(_app(burger.project_name))
-    assert not at.exception and wording.MORE_CHARTS in _texts(at)
+    assert not at.exception and wording.trade_offs_fold() in _texts(at)
     assert bars, "the current models are fitted: one line"
     # Integration (T0′): with every Round checked, the line says the model
     # of the latest results is being updated, never "N of N checked…".

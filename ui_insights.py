@@ -991,7 +991,7 @@ def _places(opt):
     with stand:
         _question(opt, wording.Q_STAND)
         with _figures(opt, wording.FOLD_PROGRESS_FIGURES, PROGRESS_FIGURES_KEY):
-            _basis(opt, wording.BASIS_PROGRESS, "basis_progress")
+            _basis(opt, "progress")
             p.first_yard = insights.noise_yardstick(opt)
             p.line1 = st.empty()
             with p.line1.container():
@@ -1029,7 +1029,7 @@ def _gate(opt):
     with st.container(key=STAND_SECTION):
         _question(opt, wording.Q_STAND)
         with _figures(opt, wording.FOLD_PROGRESS_FIGURES, PROGRESS_FIGURES_KEY):
-            _basis(opt, wording.BASIS_PROGRESS, "basis_progress")
+            _basis(opt, "progress")
             _stand_first(opt, insights.noise_yardstick(opt))
     _how(opt, None)
 
@@ -1043,8 +1043,8 @@ def _finish(opt, places, facts):
     with places.nxt:
         _question(opt, wording.Q_NEXT)
         with _figures(opt, wording.FOLD_NEXT_REASONING, NEXT_REASONING_KEY):
-            _basis(opt, wording.BASIS_NEXT, "basis_next")
-            change = _next_step(opt, facts.next)
+            _basis(opt, "next", facts)
+            change = _next_step(opt, facts)
     with places.change.container():
         _setup_button(change)
     if not places.why:
@@ -1058,10 +1058,12 @@ def _figures(opt, label, key):
     return st.expander(_say(opt, label), key=key, on_change="rerun")
 
 
-def _basis(opt, text, line_id):
-    """A figures fold's first line, its technical basis, with W2's help
-    (R-I6: a fold label carries no tooltip)."""
-    st.caption(_say(opt, text), help=tooltip_for(opt, line_id))
+def _basis(opt, which, facts=None):
+    """A figures fold's first line, its technical basis, as W2's basis_line
+    gives it with its help (R-I6: a fold label carries no tooltip): "next"
+    needs the facts, for the row that fired."""
+    text, help_text = basis_line(opt, which, facts)
+    st.caption(text, help=help_text)
 
 
 def _line(opt, text, line_id, slot=None, facts=None):
@@ -1292,7 +1294,8 @@ def next_sentence(opt, facts):
     if step.kind == "no_skill":
         return wording.next_plain_no_skill(no, left)
     if step.kind == "untested":
-        return wording.next_plain_untested(no, open_round=bool(opt.pending_batch), values=values)
+        return wording.next_plain_untested(no, open_round=bool(opt.pending_batch), values=values,
+                                           shown=amounts_shown(facts))
     if step.kind == "explore":
         return wording.next_plain_explore(f"{step.gain:.1f}", assumed=step.assumed, no=no,
                                           left=left, repeat_no=ask, values=values)
@@ -1364,12 +1367,13 @@ def _repeat_link(opt, facts):
 
 
 def _try_one_label(opt):
-    """The first fold's name (§2.5, review I14): names process settings only
-    when the project has one, and ingredients only when it has one."""
+    """The first fold's name ("Try one …", ftue §2; review I14): names
+    process settings only when the project has one, and ingredients only
+    when it has one."""
     choices = insights.path_choices(opt)
-    return wording.try_one(insights.has_setting_choice(opt),
-                           insights.has_ingredient_choice(opt)
-                           or (not choices and opt.has_ingredients()))
+    return wording.try_one_fold(insights.has_setting_choice(opt),
+                                insights.has_ingredient_choice(opt)
+                                or (not choices and opt.has_ingredients()))
 
 
 def score_record_help(opt):
@@ -1532,7 +1536,7 @@ def _prediction_section(opt, computed, h, yard, repeat=True):
     Prediction figures, opening with its basis, then today's exact lines."""
     _question(opt, wording.Q_TRUST)
     with _figures(opt, wording.FOLD_PREDICTION_FIGURES, PREDICTION_FIGURES_KEY):
-        _basis(opt, wording.BASIS_PREDICTIONS, "basis_predictions")
+        _basis(opt, "predictions")
         _trust(opt, computed, h, yard, repeat)
 
 
@@ -1746,7 +1750,7 @@ def _near_answer(opt, found, from_best, number, fitted, recipe, yard, start_text
     moved = found.moved
     if not moved:
         if found.held:
-            st.write(_say(opt, wording.held_all(start, settings_only)))
+            st.markdown(_say(opt, wording.held_all(start, settings_only)))
         return
     top = moved[0]
     standing = [c for c in moved if c.near is not None and c.near > yard.value]
@@ -1756,22 +1760,24 @@ def _near_answer(opt, found, from_best, number, fitted, recipe, yard, start_text
     # (held in place, correlated) stay.
     guard = _guard(opt, fitted)
     if guard.fires:
-        st.write(_say(opt, guard_text(guard, settings_only)))
+        st.markdown(_say(opt, guard_text(guard, settings_only)))
     elif not found.start_tested:
-        st.write(_say(opt, untested_start_text(opt, recipe, start)))
+        st.markdown(_say(opt, untested_start_text(opt, recipe, start)))
     elif not standing:
-        st.write(_say(opt, wording.near_none(settings_only, insights.has_setting_choice(opt))))
+        st.markdown(_say(opt, wording.near_none(settings_only, insights.has_setting_choice(opt))))
     else:
         second = moved[1] if len(moved) > 1 else None
         if (second is not None and second.near is not None
                 and second.near >= insights.NEAR_TIE * top.near):
-            st.write(_say(opt, wording.near_two(top.name, second.name, f"{top.near:.1f}",
-                                                f"{second.near:.1f}", start)))
+            st.markdown(_say(opt, wording.near_two(top.name, second.name, f"{top.near:.1f}",
+                                                   f"{second.near:.1f}", start)),
+                        help=_say(opt, wording.tip_local_effect(settings_only)))
         else:
-            st.write(_say(opt, wording.near_line(top.name, f"{top.near:.1f}", start,
-                                                 only=len(moved) == 1)))
+            st.markdown(_say(opt, wording.near_line(top.name, f"{top.near:.1f}", start,
+                                                    only=len(moved) == 1)),
+                        help=_say(opt, wording.tip_local_effect(settings_only)))
         if top.whole > top.near + _FLAT:
-            st.write(_say(opt, wording.near_bigger(values=insights.is_setting(opt, top.name))))
+            st.markdown(_say(opt, wording.near_bigger(values=insights.is_setting(opt, top.name))))
     if found.held:
         st.caption(_say(opt, wording.held_line(start, found.held)))
     together = insights.correlated_pair(opt)
@@ -2643,18 +2649,20 @@ def gain_reason(why, gate=None):
             "guard": wording.GAIN_REASON_GUARD}[why]
 
 
-def next_step_text(opt, step, rounds=None):
+def next_step_text(opt, step, rounds=None, amounts_shown=True):
     """(sentence, Set up button label or None): _next_step_text's, with
     the Repeat sentence appended to the close, explore, see and rising
     rows while the noise threshold is assumed (review B2, I5). A sentence,
-    not a button."""
-    text, change = _next_step_text(opt, step, rounds)
+    not a button. `amounts_shown`: "Show its amounts" is drawn under
+    Progress figures (amounts_shown()); the untested row points at it only
+    then."""
+    text, change = _next_step_text(opt, step, rounds, amounts_shown)
     if step.kind in _ASK_REPEAT and getattr(step, "assumed", False):
         text = f"{text} {wording.NEXT_REPEAT_TO_MEASURE}"
     return text, change
 
 
-def _next_step_text(opt, step, rounds=None):
+def _next_step_text(opt, step, rounds=None, amounts_shown=True):
     """(sentence, Set up button label or None) for insights.next_step's
     answer (§2.4, review I2, I3, I14, M17; BO views I1; 0.8.0 e2e fixes,
     review I2). `rounds`: the verdict's Rounds, named in the misses row (03
@@ -2681,7 +2689,7 @@ def _next_step_text(opt, step, rounds=None):
                                      left, rounds=step.skill.rounds), None
     if step.kind == "untested":
         return wording.next_untested(values, open_round=bool(opt.pending_batch),
-                                     round_no=no), None
+                                     round_no=no, shown=amounts_shown), None
     if step.kind == "explore":
         return wording.next_explore(no, left), None
     if step.kind == "close":
@@ -2700,14 +2708,25 @@ def _next_step_text(opt, step, rounds=None):
     return (wording.next_see_open(no, left) if left else wording.NEXT_SEE), None
 
 
-def _next_step(opt, step):
-    """Next-step reasoning's sentence (verbatim since ftue R-I8), naming the
-    verdict's Rounds where it says a bias or misses (from the checks
-    already worked out). Returns the Set up button's label, or None."""
+def amounts_shown(facts):
+    """Whether Progress figures draws "Show its amounts" for the untested
+    row (_stand: not while the claims are withheld). The untested row
+    fires only past the skill gate with no caution or unreliable verdict,
+    so what can still hide them is the noise guard's floor or noise
+    trigger, which status_facts reads under Reliable."""
+    reasons = getattr(getattr(facts, "guard", None), "reasons", None) or ()
+    return not any(r in reasons for r in ("floor", "noise"))
+
+
+def _next_step(opt, facts):
+    """Next-step reasoning's sentence (verbatim since ftue R-I8) for
+    facts.next, naming the verdict's Rounds where it says a bias or misses
+    (from the checks already worked out), with W2's help for the row that
+    fired. Returns the Set up button's label, or None."""
     checks = checks_for(opt, "trust")
     rounds = insights.headline(opt, checks).rounds if checks else None
-    text, change = next_step_text(opt, step, rounds)
-    _line(opt, text, "next_reasoning")
+    text, change = next_step_text(opt, facts.next, rounds, amounts_shown(facts))
+    _line(opt, text, "next_reasoning", facts=facts)
     return change
 
 
@@ -3173,18 +3192,18 @@ def _layer_pick(opt, fitted, key):
 
 
 def layer_model(opt, fitted):
-    """The suggestion model the layers show (spec §3.3): the open Round's,
-    rebuilt (bo_views.generation); with no Round open, the one the next
-    Generate would fit (today's rows, the next seed). The display model of
-    the same rows stands in when the generation is not exact."""
-    rows = [i for i in range(len(opt.Y_history)) if opt.fully_measured(i)]
-    if opt.pending_batch and opt.pending_batch_no is not None:
-        gen = bo_views.generation(opt, opt.pending_batch_no)
-    else:
-        gen = bo_views.Generation(None, int(opt.next_formulation_no), rows,
-                                  "warm" if len(rows) >= insights.MIN_ROWS else "cold", False)
-    score = (fitted or {}).get(insights.SCORE)
+    """The suggestion model the layers show (spec §3.3; ftue R-I16): the
+    open Round's, rebuilt (bo_views.generation; the display model of the
+    same rows stands in when the generation is not exact); with no Round
+    open, bo_views.next_model, the one the next Generate fits. Try one's
+    and the triangle's Uncertainty layers and the Explored map read this
+    one model (integration, W3's note 3)."""
     with insights.memo_in_use(memo(opt)):
+        if not (opt.pending_batch and opt.pending_batch_no is not None):
+            return bo_views.next_model(opt)
+        rows = [i for i in range(len(opt.Y_history)) if opt.fully_measured(i)]
+        gen = bo_views.generation(opt, opt.pending_batch_no)
+        score = (fitted or {}).get(insights.SCORE)
         return bo_views.rebuild(opt, gen, score if gen.rows == rows else None)
 
 
@@ -3222,12 +3241,6 @@ _SIZES = {wording.STRIP_TESTED: 160, wording.STRIP_LATEST: 420,
           wording.STRIP_WAITING: 50, wording.STRIP_SUGGESTED: 70}
 
 
-def _tip(opt, line_id, fallback=None):
-    """W2's help for this line (tooltip_for), else W3's own texts."""
-    got = tooltip_for(opt, line_id)
-    return got if got else fallback
-
-
 def _mix(a, b, t):
     """The colour a share `t` of the way from hex `a` to hex `b`."""
     ca = [int(a[k:k + 2], 16) for k in (1, 3, 5)]
@@ -3257,14 +3270,26 @@ def _strip_number(opt, strip, v, unit=True, d=None):
     return join_unit(text, strip.unit) if unit and strip.unit else text
 
 
-def _gap_text(opt, gap, strip):
+def _gap_said(gap):
+    """The values a gap's words name: the nearest tested value of an end
+    gap, both ends of an interior one."""
+    return ([gap.low] if gap.kind == "above" else [gap.high] if gap.kind == "below"
+            else [gap.low, gap.high])
+
+
+def _gap_text(opt, gap, strip, d=None):
     """'Coconut oil above 8.1 g', 'Salt below 0.6 g', 'Salt between 0.6 and
-    1.0 g': an end gap names the nearest tested value."""
+    1.0 g': an end gap names the nearest tested value. `d`: the decimals
+    the whole line shares for this unit (strip_gap_lines); else the pair's
+    own."""
+    if d is None and not strip.setting:
+        d = _shared_decimals(_gap_said(gap))
+    if strip.setting:
+        d = None
     if gap.kind == "above":
-        return wording.gap_above(gap.name, _strip_number(opt, strip, gap.low))
+        return wording.gap_above(gap.name, _strip_number(opt, strip, gap.low, True, d))
     if gap.kind == "below":
-        return wording.gap_below(gap.name, _strip_number(opt, strip, gap.high))
-    d = None if strip.setting else _shared_decimals([gap.low, gap.high])
+        return wording.gap_below(gap.name, _strip_number(opt, strip, gap.high, True, d))
     return wording.gap_between(gap.name, _strip_number(opt, strip, gap.low, False, d),
                                _strip_number(opt, strip, gap.high, True, d))
 
@@ -3278,12 +3303,24 @@ def strip_gap_lines(opt, strips):
         return []
     by_name = {s.name: s for s in strips}
     gaps = insights.strip_gaps(opt, strips)
-    stretches = [_gap_text(opt, g, by_name[g.name]) for g in gaps if g.kind != "option"]
+    named = [g for g in gaps if g.kind != "option"]
+    # One line, one decimal rule (integration, T0′): amounts in one unit
+    # share their decimals across the line, not only within a pair.
+    said = {}
+    for g in named:
+        strip = by_name[g.name]
+        if not strip.setting:
+            said.setdefault(strip.unit, []).extend(_gap_said(g))
+    decimals = {unit: _shared_decimals(values) for unit, values in said.items()}
+    stretches = [_gap_text(opt, g, by_name[g.name], decimals.get(by_name[g.name].unit))
+                 for g in named]
     out = []
     if stretches:
         out.append(wording.strip_gaps_line(stretches))
     elif any(not s.fill and s.options is None for s in strips):
-        out.append(wording.strips_no_gap(settings_only=not opt.has_ingredients()))
+        out.append(wording.strips_no_gap(
+            settings_only=not opt.has_ingredients(),
+            has_settings=any(s.setting and not s.fill and s.options is None for s in strips)))
     out += [wording.option_never_tested(g.name, g.option) for g in gaps if g.kind == "option"]
     return out
 
@@ -3523,15 +3560,31 @@ def explore_withheld(opt, score, checks):
     return None if withheld(opt, score, checks) is None else "not_yet"
 
 
-def _map_model(opt, fitted):
-    """The suggestion model the map shows (review R-I16): the open Round's,
-    rebuilt (layer_model), else the one the next Generate fits
-    (bo_views.next_model); None while cold."""
+def _outline_model(opt, fitted):
+    """The model under the triangle's Predicted score outline, drawn on
+    every render: the open Round's (layer_model); with no Round open, the
+    display model of today's rows standing in for the next Generate's, as
+    before integration, so a reopen fits nothing (04 I-1; tests/
+    test_104_speed_robust_charts). The Uncertainty and Expected gain layers
+    and the map, drawn on request, read layer_model's next_model."""
     if opt.pending_batch and opt.pending_batch_no is not None:
-        model = layer_model(opt, fitted)
-        if model is not None:
-            return model
-    return bo_views.next_model(opt)
+        return layer_model(opt, fitted)
+    rows = [i for i in range(len(opt.Y_history)) if opt.fully_measured(i)]
+    gen = bo_views.Generation(None, int(opt.next_formulation_no), rows,
+                              "warm" if len(rows) >= insights.MIN_ROWS else "cold", False)
+    with insights.memo_in_use(memo(opt)):
+        return bo_views.rebuild(opt, gen, (fitted or {}).get(insights.SCORE))
+
+
+def _map_model(opt, fitted):
+    """The suggestion model the map shows (review R-I16): layer_model's,
+    the one the layers show; with a Round open whose model cannot be
+    rebuilt (a cold Round), the one the next Generate fits. None while
+    cold."""
+    model = layer_model(opt, fitted)
+    if model is None and opt.pending_batch:
+        return bo_views.next_model(opt)
+    return model
 
 
 def _explored_map(opt, computed):
@@ -3551,7 +3604,7 @@ def _explored_map(opt, computed):
     score = fitted.get(insights.SCORE)
     rule = explore_withheld(opt, score, computed["checks"])
     if rule == "hidden":
-        st.caption(_say(opt, wording.MAP_HIDDEN), help=_tip(opt, "map", wording.TIP_MAP))
+        st.caption(_say(opt, wording.MAP_HIDDEN), help=tooltip_for(opt, "map"))
         return
     values = bo_views.map_values(opt, _map_model(opt, fitted))
     if values is None or values.pool_mean is None:
@@ -3565,9 +3618,7 @@ def _explored_map(opt, computed):
               for m, s, n in zip(values.tested_mean.tolist(), values.tested_sd.tolist(),
                                  values.tested)]
     picks = [{"mean": m, "sd": s, "no": str(n)} for n, m, s in values.picks]
-    help_text = _tip(opt, "map", " ".join((
-        _say(opt, wording.TIP_MAP), wording.TIP_MODEL_SD,
-        wording.tip_design_space(f"{len(values.pool_mean):,}"))))
+    help_text = tooltip_for(opt, "map")
     st.markdown(f"**{_say(opt, wording.MAP_TITLE)}**")
     st.caption(_say(opt, wording.MAP_READING), help=help_text)
     if rule == "not_yet":
@@ -3629,20 +3680,17 @@ def _explored_body(opt, computed):
     values = not opt.has_ingredients()
     total = opt.has_formulation_total()
     st.caption(_say(opt, wording.basis_explored(values, total)),
-               help=_tip(opt, "basis_explored"))
+               help=tooltip_for(opt, "basis_explored"))
     # 1. Where you have tested: model-free, drawn whatever the checks say.
     st.markdown(f"**{_say(opt, wording.STRIPS_TITLE)}**")
     pool = bo_views.feasible_pool(opt)
     strips = insights.tested_strips(opt, pool)
-    n_text = f"{bo_views.POOL_SIZE:,}"
-    strip_help = _tip(opt, "strips", " ".join((
-        _say(opt, wording.tip_strips(values, total)), _say(opt, wording.tip_untested(values)),
-        wording.tip_design_space(n_text))))
+    strip_help = tooltip_for(opt, "strips")
     for k, line in enumerate(strip_gap_lines(opt, strips)):
-        st.markdown(_say(opt, line), help=_tip(opt, "gaps", strip_help) if k == 0 else None)
+        st.markdown(_say(opt, line), help=tooltip_for(opt, "gaps") if k == 0 else None)
     for k, line in enumerate(limit_hit_lines(opt)):
         st.markdown(_say(opt, line),
-                    help=_tip(opt, "limit_hits", wording.TIP_LIMIT_HITS) if k == 0 else None)
+                    help=tooltip_for(opt, "limit_hits") if k == 0 else None)
     chart = strips_chart(opt, strips)
     if chart is not None:
         show_chart(chart)
@@ -3760,7 +3808,8 @@ def _mixture_extra(opt, fitted, mix, preds, layer, checks=None):
     predicted Repeat) and (colour span, median 1.96 × model sd) for the
     §2.2 caption. {} when the suggestion model cannot be rebuilt."""
     allowed = [p.recipe for p in mix.points if p.recipe is not None]
-    model = layer_model(opt, fitted)
+    model = (layer_model(opt, fitted) if layer != wording.LAYER_SCORE
+             else _outline_model(opt, fitted))
     if model is None or not allowed:
         return {}
     got = bo_views.evaluate(opt, model, bo_views.points(opt, allowed))
@@ -3878,10 +3927,20 @@ def more_charts_offered(opt, computed):
                 and score.model is not None))
 
 
+def trade_offs_label(opt, computed):
+    """The Trade-offs fold's name (ftue §2; was More charts): it names the
+    three ingredients only when the triangle can be drawn."""
+    score = computed["fitted"].get(insights.SCORE)
+    triangle = (opt.has_ingredients() and len(insights.mixture_choices(opt)) >= 3
+                and score is not None and score.model is not None)
+    return wording.trade_offs_fold(triangle)
+
+
 def _more_charts(opt, computed):
     if not more_charts_offered(opt, computed):
         return
-    with st.expander(_say(opt, wording.MORE_CHARTS)):
+    # Keyed (M3), so its open state is the reader's across reruns.
+    with st.expander(_say(opt, trade_offs_label(opt, computed)), key=MORE_KEY):
         for draw in (lambda: _pair(opt),
                      lambda: _mixture(opt, computed["fitted"])):
             try:
@@ -4257,11 +4316,25 @@ def _next_tip(opt, facts):
         parts.append(_coverage_tip(opt, facts.headline))
         if step.kind == "misses":
             parts.append(_bias_tip(facts))
+        h = facts.headline
+        if step.kind == "early" and facts.verdict == "wide" and h is not None and h.wide:
+            # Every output very uncertain: the width rule, its outputs named.
+            parts.append(wording.tip_wide([_wide_label(n) for n in h.wide]))
     elif step.kind == "no_skill":
         fact = step.skill or facts.skill
         if fact is not None:
             parts.append(wording.tip_skill(fact.rounds, skill_value(fact.value), fact.n))
-    elif step.kind in ("untested", "explore", "close", "rising"):
+    elif step.kind == "explore" and step.gain is not None:
+        # T0′: the expected improvement the row weighed, and its threshold.
+        parts.append(wording.tip_next_gain(f"{step.gain:.1f}", _threshold_tip(yard)))
+    elif step.kind in ("untested", "explore", "close"):
+        parts.append(wording.tip_progress(_threshold_tip(yard)))
+    if step.kind in ("rising", "see"):
+        # T0′: Best so far, the number Progress weighs, then its rule.
+        best = facts.best
+        if best is not None:
+            parts.append(wording.tip_next_best(f"{best.score:.2f}", opt.utility_ceiling(),
+                                               best.formulation, best.round))
         parts.append(wording.tip_progress(_threshold_tip(yard)))
     return _joined(opt, parts)
 
@@ -4292,6 +4365,7 @@ def _term_tips(opt, line_id, facts):
     total = opt.has_formulation_total()
     judged = facts is not None and facts.verdict not in (None, "none", "early", "wide")
     with_facts = facts is not None
+    space = wording.tip_design_space(f"{bo_views.POOL_SIZE:,}")
     tips = {
         "basis_predictions": [wording.TIP_ROUND_AHEAD, wording.TIP_INTERVAL,
                               wording.TIP_MEAN_ERROR, wording.TIP_SKILL],
@@ -4316,12 +4390,17 @@ def _term_tips(opt, line_id, facts):
         "luck": [wording.TIP_LUCK],
         "gain": [wording.TIP_EXPECTED_IMPROVEMENT],
         "next_reasoning": _next_terms(opt, facts),
-        "basis_explored": [wording.tip_strips(values, total), wording.TIP_MAP,
-                           wording.tip_predicted_score(values), wording.TIP_MODEL_SD],
-        "strips": [wording.tip_strips(values, total)],
-        "gaps": [wording.tip_strips(values, total), wording.tip_untested(values)],
-        "limit_hits": [wording.TIP_LIMIT_HITS],
-        "map": [wording.tip_predicted_score(values), wording.TIP_MODEL_SD, wording.TIP_MAP],
+        # W3's lines (§8 expert layer): the design space and the feasible
+        # region get_polytope_samples draws, the L∞ rule "untested" uses,
+        # the latent posterior sd the map plots.
+        "basis_explored": [wording.tip_strips(values, total), wording.tip_untested(values),
+                           wording.TIP_MAP, wording.tip_predicted_score(values),
+                           wording.TIP_MODEL_SD, space],
+        "strips": [wording.tip_strips(values, total), wording.tip_untested(values), space],
+        "gaps": [wording.tip_strips(values, total), wording.tip_untested(values), space],
+        "limit_hits": [wording.TIP_LIMIT_HITS, space],
+        "map": [wording.tip_predicted_score(values), wording.TIP_MODEL_SD, wording.TIP_MAP,
+                space],
     }
     return tips.get(line_id)
 

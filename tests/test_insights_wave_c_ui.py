@@ -39,7 +39,9 @@ def _counting(monkeypatch, name):
 
 
 def _more(at):
-    found = [e for e in at.tabs[3].expander if e.label == wording.MORE_CHARTS]
+    """The Trade-offs fold (was More charts; its label names the triangle
+    only when it can be drawn)."""
+    found = [e for e in at.tabs[3].expander if e.label.startswith("Trade-offs")]
     return found[0] if found else None
 
 
@@ -76,7 +78,8 @@ def test_more_charts_is_collapsed_after_the_answers_and_before_how(insights_scor
     at = _open_insights(_app())
     assert not at.exception
     labels = [e.label for e in at.tabs[3].expander]
-    assert labels.index(wording.MORE_CHARTS) == labels.index(wording.FOLD_METHOD) - 1
+    trade = next(lab for lab in labels if lab.startswith("Trade-offs"))
+    assert labels.index(trade) == labels.index(wording.FOLD_METHOD) - 1
     assert _more(at).proto.expanded is False
     md, _ = _tab_text(at)
     assert md.index(f"##### {wording.Q_NEXT}") < md.index(f"##### {wording.Q_PAIR}")
@@ -248,7 +251,8 @@ def test_pair_axis_wording():
 
 
 def test_exact_wave_c_strings_for_the_expander_and_the_pair():
-    assert wording.MORE_CHARTS == "More charts"
+    assert wording.trade_offs_fold() == "Trade-offs: two measurements, three ingredients"
+    assert wording.trade_offs_fold(False) == "Trade-offs: two measurements"
     assert wording.Q_PAIR == "Two measurements against each other"
     assert wording.PAIR_CAPTION == (
         "Measured values, one dot per formulation; lines at the targets. No dot near both "
@@ -256,7 +260,7 @@ def test_exact_wave_c_strings_for_the_expander_and_the_pair():
 
 
 def test_the_pair_strings_pass_the_word_guards():
-    _assert_clean(wording.MORE_CHARTS, wording.Q_PAIR, wording.PAIR_PICK, wording.PICK_TWO,
+    _assert_clean(wording.trade_offs_fold(), wording.Q_PAIR, wording.PAIR_PICK, wording.PICK_TWO,
                   wording.PAIR_CAPTION, wording.PAIR_NONE, wording.PAIR_BEST,
                   wording.CHART_FAILED,
                   wording.pair_axis("Cook loss (%)", "min"),
@@ -876,7 +880,7 @@ def test_the_triangle_lines_go_through_the_projects_own_words(mixture_scored, mo
                         or real(opt, text))
     _open_insights(_app())
     best_no = mixture_scored.best_formulation_no()
-    for line in (wording.MORE_CHARTS, wording.Q_MIXTURE, wording.MIXTURE_PICK,
+    for line in (wording.trade_offs_fold(), wording.Q_MIXTURE, wording.MIXTURE_PICK,
                  wording.mixture_caption(best_no), wording.MIXTURE_TESTED,
                  wording.MIXTURE_UNTESTED, wording.MIXTURE_BLOCKED,
                  wording.start_formulation(best_no), wording.Q_PAIR, wording.PAIR_PICK,

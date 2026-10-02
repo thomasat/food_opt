@@ -86,7 +86,7 @@ def _new_lines():
         W.import_spreadsheet_formula("Date paste", W.LOWEST_LABEL, "=B2*2"),
         W.open_round_lost(6, 4, 2), W.open_round_lost(7, 1, 1), W.open_round_lost(7, 4),
         W.YES_MOVE_TO_NOT_SCORED, W.gain_pending(), W.gain_pending(7), W.INSIGHTS_IN_PROCESS,
-        W.role_help(), W.NEAREST_TESTED_HELP, W.LARGEST_DIFFERENCES_HELP,
+        W.role_help(), W.TIP_NEAREST_TESTED, W.LARGEST_DIFFERENCES_HELP,
         W.LAYER_SCORE_LEGEND, W.LAYER_GAIN_FORMER, W.KERNEL_NAMES["matern32"],
         # T0′ at integration: the interval chart's caption in both themes,
         # the progress line with every Round checked, the Why fold's A3

@@ -200,19 +200,21 @@ def test_no_gap_line_before_anything_is_tested():
     assert ui_insights.strip_gap_lines(opt, strips) == []
 
 
-# The plain line above the strips on each demo project (W3 report).
+# The plain line above the strips on each demo project (W3 report;
+# integration: one decimal rule across the line, and the Timing check's
+# process setting named).
 GAP_LINES = {
-    D.SNACK: "Honey between 5.92 and 12.41 g and Oat flour between 26.0 and 36.2 g have "
+    D.SNACK: "Honey between 5.92 and 12.41 g and Oat flour between 26.04 and 36.21 g have "
              "never been tested.",
     D.LINE_A: "Textured soy protein between 8.66 and 10.66 g and Textured pea protein between "
-              "12.8 and 14.8 g have never been tested.",
+              "12.83 and 14.77 g have never been tested.",
     D.LINE_B: "Textured soy protein between 8.66 and 10.66 g and Textured pea protein between "
-              "12.8 and 14.8 g have never been tested.",
+              "12.83 and 14.77 g have never been tested.",
     D.LINE_C: "Mixing time after fat between 105 and 140 s and Textured soy protein between "
               "8.66 and 10.66 g have never been tested.",
-    D.UPGRADE: "Coconut oil between 4 and 6 g and Textured pea protein between 13.0 and 15.0 g "
+    D.UPGRADE: "Coconut oil between 4.0 and 6.0 g and Textured pea protein between 13.0 and 15.0 g "
                "have never been tested.",
-    D.TIMING: wording.strips_no_gap(),
+    D.TIMING: wording.strips_no_gap(has_settings=True),
     D.PROCESS_ONLY: "Proof time between 35 and 55 min and Bake temperature between 165 and "
                     "180 °C have never been tested.",
 }
@@ -665,7 +667,7 @@ def test_the_fold_sits_under_the_button_and_above_the_folds_below():
     fold = labels.index(wording.FOLD_EXPLORED)
     assert labels.index("insights_foot") < labels.index("insights_explored_link") < fold
     assert fold < labels.index(ui_insights._try_one_label(D.load(D.TIMING)))
-    assert fold < labels.index(wording.MORE_CHARTS) < labels.index(wording.FOLD_METHOD)
+    assert fold < labels.index(wording.trade_offs_fold()) < labels.index(wording.FOLD_METHOD)
     explored = next(e for e in at.tabs[3].expander if e.label == wording.FOLD_EXPLORED)
     assert not explored.proto.expanded
     assert not list(explored.children.values())      # nothing worked out until opened
@@ -691,8 +693,8 @@ def test_the_link_lands_on_the_fold_open():
     at.run()
     assert not at.exception
     explored = next(e for e in at.tabs[3].expander if e.label == wording.FOLD_EXPLORED)
-    assert [m.value for m in explored.markdown][:2] == [f"**{wording.STRIPS_TITLE}**",
-                                                         wording.strips_no_gap()]
+    assert [m.value for m in explored.markdown][:2] == [
+        f"**{wording.STRIPS_TITLE}**", wording.strips_no_gap(has_settings=True)]
 
 
 def test_no_link_while_the_why_link_has_the_place():

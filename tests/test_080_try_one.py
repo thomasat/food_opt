@@ -42,7 +42,7 @@ def _changes(monkeypatch, *rows, held=(), start_tested=True, yard=1.0):
 
 
 def _fold(at, label=None):
-    label = wording.try_one(False) if label is None else label
+    label = wording.try_one_fold(False) if label is None else label
     return next(e for e in at.tabs[3].expander if e.label == label)
 
 
@@ -146,7 +146,7 @@ def test_the_whole_answer_needs_no_spread(insights_scored):
 def test_more_charts_has_no_misses_chart(mixture_scored):
     at = _open_insights(_app())
     assert not at.exception
-    more = next(e for e in at.tabs[3].expander if e.label == wording.MORE_CHARTS)
+    more = next(e for e in at.tabs[3].expander if e.label.startswith("Trade-offs"))
     assert [m.value for m in more.markdown] == [f"##### {wording.Q_PAIR}",
                                                  f"##### {wording.Q_MIXTURE}"]
     assert not hasattr(insights, "misses") and not hasattr(ui_insights, "misses_chart")
@@ -188,7 +188,7 @@ _SETTINGS = ("Incubation temperature", "Incubation time")
 
 
 def _ferment_fold(at, opt):
-    return _fold(at, wording.for_project(opt, wording.try_one(True, False)))
+    return _fold(at, wording.for_project(opt, wording.try_one_fold(True, False)))
 
 
 def test_a_process_only_project_says_no_process_setting_stands_out(warm_ferment, monkeypatch):
@@ -196,7 +196,7 @@ def test_a_process_only_project_says_no_process_setting_stands_out(warm_ferment,
     at = _open_insights(_app())
     assert not at.exception
     fold = _ferment_fold(at, warm_ferment)
-    assert fold.label == "Effect of one process setting"
+    assert fold.label == "Try one process setting"
     assert _said(fold)[0] == wording.for_project(warm_ferment, wording.near_none(True, True))
     assert _said(fold)[0] == "No process setting has a local effect above the noise threshold."
 
@@ -232,7 +232,7 @@ def test_values_for_a_setting_and_amounts_for_an_ingredient(mixed_scored, monkey
     _changes(monkeypatch, (top, 1.4, 5.0), (other, 0.3, 0.4))
     at = _open_insights(_app())
     assert not at.exception
-    said = _said(_fold(at, wording.try_one(True, True)))
+    said = _said(_fold(at, wording.try_one_fold(True, True)))
     assert said[:2] == [wording.near_line(top, "1.4", "Best so far"),
                         wording.near_bigger(values=values)]
     assert ("values" if values else "amounts") in said[1]
