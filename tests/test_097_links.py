@@ -144,7 +144,8 @@ def test_e1_asks_whether_the_last_round_came_out_as_predicted():
     # T47 review I-2: the fold is drawn open — its content is there (it is
     # worked out only while open).
     fold = next(e for e in at.tabs[3].expander if e.label == wording.FOLD_MEASURED_CHART)
-    assert [c.value for c in fold.caption] == [wording.MVP_CAPTION]
+    assert [(c.value, c.proto.help) for c in fold.caption] == [
+        (wording.PLOT_CAPTION_MVP, wording.MVP_CAPTION)]
 
 
 def test_e1_is_gone_while_a_round_is_open():

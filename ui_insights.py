@@ -127,6 +127,52 @@ def show_chart(chart, **kwargs):
     st.altair_chart(_private(chart), **kwargs)
 
 
+# --- review plots (2026-10-02) ---
+# One meaning, one colour, on every chart (Okabe-Ito orange and the ink and
+# blue tokens above, all at least 3:1 in both themes):
+#   Best so far          ink (mark("bar_latest")), a thick line, a ring or a dashed rule;
+#                        another start (Try one) the dotted reference token
+#   this Round's picks   orange (outline_colour())
+#   tested formulations  neutral grey rings (mark("neutral"))
+#   the model            blue (model_blue(); its 95 % band in _BAND_FILL)
+#   an Overall score     the score ramp (score_scale), measured or predicted,
+#                        the legend says which
+# Every chart has a title (wording.PLOT_*), every colour a legend entry, and
+# a "BO term" row in its tooltip naming the exact quantity.
+_TITLE_SIZE = 13
+
+
+def titled(chart, text):
+    """`chart` with its plain title, left-aligned above it."""
+    return chart.properties(title=alt.TitleParams(text, anchor="start", fontSize=_TITLE_SIZE,
+                                                  fontWeight="bold", offset=8))
+
+
+def zoomed(title, lo, hi, full):
+    """An axis title, with "zoomed" added inside its unit's brackets when
+    the axis shows under a quarter of its whole Range (`full`), so a small
+    difference never reads as a large one unsaid."""
+    if full and full > 0 and (hi - lo) < 0.25 * full:
+        if title.endswith(")"):
+            return f"{title[:-1]}, {wording.PLOT_ZOOMED})"
+        return f"{title} ({wording.PLOT_ZOOMED})"
+    return title
+
+
+def two_lines(title):
+    """A long axis title as two lines, its bracket on the second, so it fits
+    beside a short panel."""
+    if " (" not in title:
+        return title
+    head, tail = title.rsplit(" (", 1)
+    return [head, f"({tail}"]
+
+
+def bo_tip(field="bo"):
+    """The tooltip's expert row."""
+    return alt.Tooltip(f"{field}:N", title=wording.PLOT_BO)
+
+
 def panel_label(opt, name):
     if name == insights.SCORE:
         return wording.OVERALL_SCORE_COLUMN
@@ -214,6 +260,14 @@ def measured_vs_predicted_chart(opt, checks):
     formulation = _say(opt, wording.FORMULATION_CAP)
     predicted, measured = wording.TRACK_PREDICTED, wording.TRACK_MEASURED
     low, high = wording.TRACK_LOW, wording.TRACK_HIGH
+    inside_name, outside_name = _say(opt, wording.PLOT_INSIDE), _say(opt, wording.PLOT_OUTSIDE)
+    latest_name, earlier_name = _say(opt, wording.PLOT_LATEST), _say(opt, wording.PLOT_EARLIER)
+    ink, _ = mark("bar_latest")
+    # Review plots: one legend for the whole figure — filled inside its 95 %
+    # range, hollow outside; the latest Round dark, earlier ones lighter.
+    fills = alt.Scale(domain=[inside_name, outside_name], range=[ink, "transparent"])
+    whens = alt.Scale(domain=[latest_name, earlier_name], range=[1.0, 0.45])
+    legend = alt.Legend(title=None, orient="top", labelLimit=0)
     panels = []
     for name in names:
         mine = [c for c in checks if c.name == name]
@@ -224,14 +278,17 @@ def measured_vs_predicted_chart(opt, checks):
             formulation: c.formulation, wording.ROUND_CAP: c.round,
             predicted: round(c.predicted, d), low: round(c.low, d), high: round(c.high, d),
             measured: round(c.measured, max(1, d)), "inside": c.inside,
-            "latest": c.round == latest} for c in mine])
+            "latest": c.round == latest,
+            "state": inside_name if c.inside else outside_name,
+            "when": latest_name if c.round == latest else earlier_name,
+            "bo": wording.PLOT_BO_ROUND_AHEAD} for c in mine])
         x = alt.X(f"{predicted}:Q", title=predicted, scale=scale)
         y = alt.Y(f"{measured}:Q", title=measured, scale=scale)
         fmt = f".{d}f"
         tip = [alt.Tooltip(f"{f}:{t}", title=f, **({"format": v} if v else {}))
                for f, t, v in ((formulation, "Q", "d"), (wording.ROUND_CAP, "N", None),
                                (predicted, "Q", fmt), (low, "Q", fmt), (high, "Q", fmt),
-                               (measured, "Q", f".{max(1, d)}f"))]
+                               (measured, "Q", f".{max(1, d)}f"))] + [bo_tip()]
         latest_first = alt.FieldEqualPredicate(field="latest", equal=True)
         line = (alt.Chart(pd.DataFrame({"a": domain, "b": domain}))
                 .mark_line(color="gray", strokeDash=[4, 3], strokeWidth=1, tooltip=False)
@@ -243,18 +300,15 @@ def measured_vs_predicted_chart(opt, checks):
             x=x, y=alt.Y(f"{low}:Q", scale=scale, title=measured), y2=f"{high}:Q",
             color=alt.condition(latest_first, alt.value(new_c), alt.value(old_c)),
             opacity=alt.condition(latest_first, alt.value(new_o), alt.value(old_o)), tooltip=tip)
-        rings = base.mark_point(size=50, strokeWidth=1.5).encode(
-            x=x, y=y, opacity=alt.condition(latest_first, alt.value(1.0), alt.value(0.45)),
-            tooltip=tip)
-        filled = (base.mark_point(size=50, filled=True).encode(
-            x=x, y=y, opacity=alt.condition(latest_first, alt.value(1.0), alt.value(0.45)),
-            tooltip=tip).transform_filter(alt.FieldEqualPredicate(field="inside", equal=True)))
-        panels.append(alt.layer(line, bars, rings, filled)
+        dots = base.mark_point(size=50, strokeWidth=1.5, color=ink).encode(
+            x=x, y=y, fill=alt.Fill("state:N", scale=fills, legend=legend),
+            opacity=alt.Opacity("when:N", scale=whens, legend=legend), tooltip=tip)
+        panels.append(alt.layer(line, bars, dots)
                       .properties(width=220, height=220, title=_say(opt, panel_label(opt, name))))
     if not panels:
         # Checks only for outputs no longer in the project: nothing to draw.
         return None
-    return alt.concat(*panels, columns=3)
+    return titled(alt.concat(*panels, columns=3), _say(opt, wording.PLOT_MVP))
 
 
 def path_chart(opt, path, preds, near=None):
@@ -267,6 +321,9 @@ def path_chart(opt, path, preds, near=None):
     near = insights.tested_near(opt, path) if near is None else near
     names = [n for n in path_panels(opt) if n in preds]
     x_title = f"{path.name} ({path.unit})" if path.unit else path.name
+    interval = _say(opt, wording.PLOT_INTERVAL)
+    mean_name = _say(opt, wording.PLOT_MEAN)
+    start_name, target_name = _say(opt, wording.PLOT_START), _say(opt, wording.PLOT_TARGET)
     rows = []
     for n in names:
         label = panel_label(opt, n)
@@ -274,13 +331,23 @@ def path_chart(opt, path, preds, near=None):
         for t, p in zip(path.amounts, preds[n]):
             rows.append({"panel": label, "mark": "curve", "x": t, "mean": p.mean,
                          "low": p.low, "high": p.high,
-                         "amount": _amount(t, path.unit),
+                         "amount": _amount(t, path.unit), "band": interval, "line": mean_name,
+                         "bo": wording.plot_bo_interval(p.mean, p.low, p.high),
                          "predicted": f"{p.mean:.{d}f} ({range_text(p.low, p.high, lambda v: f'{v:.{d}f}')})"})
-        rows.append({"panel": label, "mark": "start", "x": path.start_amount})
+        rows.append({"panel": label, "mark": "start", "x": path.start_amount, "role": start_name})
         for lo, hi in insights.untested_runs(path, near):
             rows.append({"panel": label, "mark": "grey", "x": lo, "x2": hi})
-    targets = _target_rows(opt, names)
+    targets = [{**t, "role": target_name} for t in _target_rows(opt, names)]
     df = pd.DataFrame(rows + targets)
+    has_grey = any(r["mark"] == "grey" for r in rows)
+    band_c, _ = _BAND_FILL[theme()]
+    grey_c, _ = _FILLS[theme()]["untested"]
+    regions = alt.Scale(domain=[interval] + ([_say(opt, wording.PLOT_UNTESTED)] if has_grey
+                                             else []),
+                        range=[band_c] + ([grey_c] if has_grey else []))
+    dash_dom = [start_name] + ([target_name] if targets else [])
+    dashes = alt.Scale(domain=dash_dom, range=[[2, 2], [4, 3]][:len(dash_dom)])
+    legend = alt.Legend(title=None, orient="top", labelLimit=0)
     # Not from 0: the path runs over this row's own Lowest-Highest, and a
     # zero-based axis squeezed a 4-6 g path into the right third of each panel.
     x = alt.X("x:Q", title=x_title, scale=alt.Scale(zero=False, nice=False))
@@ -289,21 +356,33 @@ def path_chart(opt, path, preds, near=None):
     y = alt.Y("low:Q", title=None, scale=alt.Scale(zero=False))
     # The current model's prediction, not a Round-ahead one (03 §5.2).
     tip = [alt.Tooltip("amount:N", title=path.name),
-           alt.Tooltip("predicted:N", title=_say(opt, wording.PREDICTED))]
+           alt.Tooltip("predicted:N", title=_say(opt, wording.PREDICTED)), bo_tip()]
+    # Review plots: the model's colour, and a legend for the band, the grey
+    # stretch, the line, the start and the targets.
     band = (alt.Chart().mark_area(opacity=_BAND, tooltip=False)
-            .encode(x=x, y=y, y2="high:Q")
+            .encode(x=x, y=y, y2="high:Q", fill=alt.Fill("band:N", scale=regions, legend=legend))
             .transform_filter(_only("curve")))
-    line = (alt.Chart().mark_line().encode(x=x, y="mean:Q", tooltip=tip)
+    line = (alt.Chart().mark_line(strokeWidth=2)
+            .encode(x=x, y="mean:Q", tooltip=tip,
+                    stroke=alt.Stroke("line:N", scale=alt.Scale(range=[model_blue()]),
+                                      legend=legend))
             .transform_filter(_only("curve")))
     ref_c, ref_o = mark("reference")
     start = (alt.Chart().mark_rule(strokeDash=[2, 2], tooltip=False, color=ref_c, opacity=ref_o)
-             .encode(x="x:Q").transform_filter(_only("start")))
+             .encode(x="x:Q", strokeDash=alt.StrokeDash("role:N", scale=dashes, legend=legend))
+             .transform_filter(_only("start")))
     layers = [band, line, start]
-    if any(r["mark"] == "grey" for r in rows):
+    if has_grey:
         layers[:0] = _untested_layers(alt.Chart())
     if targets:
-        layers.append(_target_layer())
-    return _faceted(layers, df, [panel_label(opt, n) for n in names])
+        colour, opacity = mark("neutral")
+        layers.append(alt.Chart().mark_rule(strokeWidth=1, color=colour, opacity=opacity,
+                                            tooltip=False)
+                      .encode(y="target:Q",
+                              strokeDash=alt.StrokeDash("role:N", scale=dashes, legend=legend))
+                      .transform_filter(_only("target")))
+    return titled(_faceted(layers, df, [panel_label(opt, n) for n in names]),
+                  _say(opt, wording.PLOT_PATH))
 
 
 # ------------------------------------------------------------------ #
@@ -1925,7 +2004,7 @@ def _trust(opt, computed, h, yard, repeat=True):
         chart = measured_vs_predicted_chart(opt, checks)
         if chart is not None:
             show_chart(chart)
-            st.caption(_say(opt, wording.MVP_CAPTION))
+            st.caption(_say(opt, wording.PLOT_CAPTION_MVP), help=_say(opt, wording.MVP_CAPTION))
 
 
 def _keep_if_offered(key, options):
@@ -2000,6 +2079,8 @@ def _change(opt, computed, yard):
             return
         near = insights.tested_near(opt, path)
         lines = _path_captions(opt, path, number, fitted, near)
+        keys = {wording.path_key(number, grey=not all(near),
+                                 targets=bool(_target_rows(opt, path_panels(opt))))}
         if layered:
             chart = path_layer_chart(opt, path, _path_layer(opt, fitted, path, name, number,
                                                             layer), near, layer)
@@ -2012,7 +2093,12 @@ def _change(opt, computed, yard):
     if chart is not None:
         show_chart(chart)
     for line in lines:
-        st.caption(_say(opt, line))
+        if line in keys:
+            # Review plots: the key is the chart's legend now; one short
+            # reading here, the key in its "?".
+            st.caption(_say(opt, wording.PLOT_CAPTION_PATH), help=_say(opt, line))
+        else:
+            st.caption(_say(opt, line))
 
 
 def _path_layer(opt, fitted, path, name, number, layer):
@@ -2045,7 +2131,7 @@ def path_layer_chart(opt, path, values, near, layer):
     rows += [{"mark": "grey", "x": lo, "x2": hi} for lo, hi in insights.untested_runs(path, near)]
     df = pd.DataFrame(rows)
     x = alt.X("x:Q", title=x_title, scale=alt.Scale(zero=False, nice=False))
-    layers = [alt.Chart(df).mark_line().encode(
+    layers = [alt.Chart(df).mark_line(color=model_blue(), strokeWidth=2).encode(
                   x=x, y=alt.Y("v:Q", title=_say(opt, title)),
                   tooltip=[alt.Tooltip("amount:N", title=path.name),
                            alt.Tooltip("v:Q", title=_say(opt, title), format=".2f")])
@@ -2055,7 +2141,7 @@ def path_layer_chart(opt, path, values, near, layer):
               .transform_filter(_only("start"))]
     if any(r["mark"] == "grey" for r in rows):
         layers[:0] = _untested_layers(alt.Chart(df))
-    return alt.layer(*layers).properties(height=200)
+    return titled(alt.layer(*layers).properties(height=200), _say(opt, wording.PLOT_PATH))
 
 
 def change_chart(changes, axis=wording.CHANGE_AXIS, d=1):
@@ -2070,16 +2156,30 @@ def change_chart(changes, axis=wording.CHANGE_AXIS, d=1):
     df = pd.DataFrame([{"name": c.name, "near": round(c.near or 0.0, d),
                         "near_text": (wording.MIXTURE_UNTESTED if c.near is None
                                       else f"{c.near:.{d}f}"),
-                        "whole": round(c.whole, d)} for c in changes])
+                        "whole": round(c.whole, d), "bo": wording.PLOT_BO_CHANGE,
+                        "k_near": wording.PLOT_NEAR, "k_whole": wording.PLOT_WHOLE}
+                       for c in changes])
     order = [c.name for c in changes]
     y = alt.Y("name:N", sort=order, title=None, axis=alt.Axis(labelLimit=0, titleLimit=0))
     tip = [alt.Tooltip("name:N", title=wording.INGREDIENT_OR_SETTING),
            alt.Tooltip("near_text:N", title=wording.CHANGE_NEAR),
-           alt.Tooltip("whole:Q", title=wording.CHANGE_WHOLE, format=f".{d}f")]
+           alt.Tooltip("whole:Q", title=wording.CHANGE_WHOLE, format=f".{d}f"), bo_tip()]
     base = alt.Chart(df)
-    light = base.mark_bar(opacity=0.35).encode(x=alt.X("whole:Q", title=axis), y=y, tooltip=tip)
-    dark = base.mark_bar().encode(x=alt.X("near:Q", title=axis), y=y, tooltip=tip)
-    return alt.layer(light, dark).properties(height=28 * len(changes) + 20)
+    # Review plots: the model's blue, dark near what was tested and light
+    # along the whole allowed stretch, both in the legend.
+    blue = model_blue()
+    page = "#0e1117" if theme() == "dark" else "#ffffff"
+    shades = alt.Scale(domain=[wording.PLOT_NEAR, wording.PLOT_WHOLE],
+                       range=[blue, _mix(blue, page, 0.65)])
+    legend = alt.Legend(title=None, orient="top", labelLimit=0)
+    light = base.mark_bar(opacity=1).encode(
+        x=alt.X("whole:Q", title=axis), y=y, tooltip=tip,
+        fill=alt.Fill("k_whole:N", scale=shades, legend=legend))
+    dark = base.mark_bar(opacity=1).encode(
+        x=alt.X("near:Q", title=axis), y=y, tooltip=tip,
+        fill=alt.Fill("k_near:N", scale=shades, legend=legend))
+    return titled(alt.layer(light, dark).properties(height=28 * len(changes) + 20),
+                  wording.PLOT_CHANGE)
 
 
 # The whole path's change must beat the tested-near one by more than this
@@ -2233,7 +2333,8 @@ def _compare_all(opt, moved, settings_only, fitted, recipe):
         # Minor 4).
         return
     show_chart(chart)
-    st.caption(_say(opt, wording.change_caption(values=settings_only, measure=label)))
+    st.caption(_say(opt, wording.PLOT_CAPTION_CHANGE),
+               help=_say(opt, wording.change_caption(values=settings_only, measure=label)))
 
 
 def _whole(value):
@@ -2298,7 +2399,27 @@ def _shared_decimals(values):
     return min(2, decimals)
 
 
+def path_at_limit(opt, path):
+    """"Highest" or "Lowest" when the path's start sits within 1 % of the
+    span from that limit of its row, else None (review plots)."""
+    try:
+        lo, hi = (float(b) for b in insights._var(opt, path.name)['bounds'])
+    except Exception:
+        return None
+    span = hi - lo
+    if span <= 0:
+        return None
+    if path.start_amount >= hi - 0.01 * span:
+        return "Highest"
+    if path.start_amount <= lo + 0.01 * span:
+        return "Lowest"
+    return None
+
+
 def _path_head(opt, path):
+    end = path_at_limit(opt, path)
+    if end is not None:
+        return wording.path_head_at_limit(path.name, end, _amount(path.start_amount, path.unit))
     if path.mode == "fill":
         return wording.path_head_fill(path.name, path.fill_name)
     if path.mode == "proportional":
@@ -2435,27 +2556,38 @@ def gain_chart(opt, history, model_free=False):
     lines = df.melt(id_vars=["round"], value_vars=["best"] if model_free else ["best", "highest"],
                     var_name="series", value_name="value").dropna()
     names = {"best": wording.GAIN_BEST_MEASURED, "highest": wording.GAIN_HIGHEST_PREDICTED}
+    bo = {"best": wording.PLOT_BO_BEST, "highest": wording.PLOT_BO_HIGHEST}
+    lines["bo"] = lines["series"].map(bo)
     lines["series"] = lines["series"].map(names)
+    # Review plots: Best so far in ink, the model in blue, as everywhere.
+    kinds = [names[k] for k in (["best"] if model_free else ["best", "highest"])]
+    colours = alt.Scale(domain=kinds, range=[mark("bar_latest")[0], model_blue()][:len(kinds)])
+    lo, hi = float(lines["value"].min()), float(lines["value"].max())
     top = (alt.Chart(lines).mark_line(point=True)
-           .encode(x=x, y=alt.Y("value:Q", title=wording.OVERALL_SCORE_COLUMN,
+           .encode(x=x, y=alt.Y("value:Q", title=zoomed(wording.PLOT_MEASURED_SCORE, lo, hi,
+                                                         float(opt.utility_ceiling())),
                                 scale=alt.Scale(zero=False)),
-                   color=alt.Color("series:N", title=None, legend=alt.Legend(labelLimit=0)),
+                   color=alt.Color("series:N", title=None, scale=colours,
+                                   legend=alt.Legend(labelLimit=0, orient="top")),
                    tooltip=[alt.Tooltip("round:O", title=rnd),
                             alt.Tooltip("series:N", title=wording.OVERALL_SCORE_COLUMN),
                             alt.Tooltip("value:Q", title=wording.OVERALL_SCORE_COLUMN,
-                                        format=".1f")])
+                                        format=".1f"), bo_tip()])
            .properties(height=150))
     if model_free:
-        return top
-    bars = (alt.Chart(df.dropna(subset=["gain"])).mark_bar()
-            .encode(x=x, y=alt.Y("gain:Q", title=wording.GAIN_AXIS),
+        return titled(top, _say(opt, wording.PLOT_PROGRESS))
+    gains = df.dropna(subset=["gain"]).assign(bo=wording.PLOT_BO_GAIN)
+    top_gain = max(float(gains["gain"].max()) if len(gains) else 0.0, 0.05)
+    bars = (alt.Chart(gains).mark_bar(color=model_blue())
+            .encode(x=x, y=alt.Y("gain:Q", title=zoomed(wording.GAIN_AXIS, 0.0, top_gain, 4.0),
+                                 scale=alt.Scale(domain=[0.0, top_gain * 1.05], nice=False)),
                     tooltip=[alt.Tooltip("round:O", title=rnd),
                              alt.Tooltip("gain:Q", title=wording.GAIN_AXIS, format=".2f"),
-                             alt.Tooltip("how:N", title=wording.GAIN_STATUS)])
+                             alt.Tooltip("how:N", title=wording.GAIN_STATUS), bo_tip()])
             .properties(height=120))
     # One Round axis for both panels (T56 m1): a Round with no bar keeps
     # its place.
-    return alt.vconcat(top, bars).resolve_scale(x="shared")
+    return titled(alt.vconcat(top, bars).resolve_scale(x="shared"), _say(opt, wording.PLOT_GAIN))
 
 
 def _gain_chart_body(opt):
@@ -2471,8 +2603,9 @@ def _gain_chart_body(opt):
                and not _model_guard(opt, computed["fitted"]).fires)
     if not trusted:
         # Nothing to add under a caution or unreliable verdict, a no-skill
-        # record or the noise guard: Best so far is charted just above, and
-        # Progress says why the figure is withheld (T56 I4).
+        # record or the noise guard: Best so far is charted just above.
+        # Review plots: the withheld chart says why, in its place.
+        st.caption(_say(opt, wording.PLOT_GAIN_WITHHELD))
         return
     try:
         with insights.memo_in_use(memo(opt)):
@@ -2482,9 +2615,8 @@ def _gain_chart_body(opt):
     chart = gain_chart(opt, history)
     if chart is None:
         return
-    _question(opt, wording.GAIN_HEADING)
     show_chart(chart)
-    st.caption(_say(opt, wording.GAIN_CHART_CAPTION))
+    st.caption(_say(opt, wording.PLOT_CAPTION_GAIN), help=_say(opt, wording.GAIN_CHART_CAPTION))
 
 
 def _stand_lines(opt, yard):
@@ -2571,15 +2703,29 @@ def progress_chart(opt):
     # share, so the ring's outline and the filled dot are the line's colour.
     pool = set(opt.best_candidates())
     frame["full"] = [i in pool for i in range(len(frame))]
-    frame["series"] = score
+    each, best_name = _say(opt, wording.PLOT_SCORE_EACH), _say(opt, wording.BEST_SO_FAR_COLUMN)
+    frame["series"] = each
+    frame["best_series"] = best_name
+    frame["bo"] = wording.PLOT_BO_MODEL_FREE
+    frame["round"] = [_round_label(r) for r in
+                      (list(opt.batch_history) + [None] * len(frame))[:len(frame)]]
     # Both axes named. Unlabelled, the x axis read 1.0 / 1.5 / 2.0 with one
     # round of data and nothing on the chart said what either number was.
     # Whole-number ticks, each once (spec 2026-09-30 §2.3, expert #8), and a
     # y axis that fits the scores rather than starting at 0.
     x = alt.X(f"{formulation}:Q", title=formulation,
               axis=alt.Axis(format="d", values=formulation_ticks(frame[formulation])))
-    y = alt.Y(f"{score}:Q", title=score, scale=alt.Scale(zero=False))
-    colour = alt.Color("series:N", legend=None)
+    values = [v for v in list(frame[score]) + list(frame[best]) if v is not None and v == v]
+    y_title = (zoomed(wording.PLOT_MEASURED_SCORE, min(values), max(values),
+                      float(opt.utility_ceiling())) if values else wording.PLOT_MEASURED_SCORE)
+    y = alt.Y(f"{score}:Q", title=y_title, scale=alt.Scale(zero=False))
+    # Review plots: each score in neutral grey, Best so far in ink, both in
+    # the legend (was a default blue, unexplained but for the caption).
+    grey, _ = mark("neutral")
+    ink, _ = mark("bar_latest")
+    kinds = alt.Scale(domain=[each, best_name], range=[grey, ink])
+    legend = alt.Legend(title=None, orient="top", labelLimit=0)
+    colour = alt.Color("series:N", scale=kinds, legend=legend)
     # Titled and rounded (0.8.0 review fixes §6): a measured Overall score
     # reads one decimal, never 73.283749….
     no_tip = alt.Tooltip(f"{formulation}:Q", title=formulation, format="d")
@@ -2588,13 +2734,17 @@ def progress_chart(opt):
     dots = (alt.Chart(frame).mark_point(size=40, strokeWidth=1.5)
             .encode(x=x, y=y, color=colour,
                     fill=alt.condition(alt.FieldEqualPredicate(field="full", equal=True),
-                                       colour, alt.value("transparent")),
-                    tooltip=[no_tip, alt.Tooltip(f"{score}:Q", title=score, format=".1f")])
+                                       alt.Fill("series:N", scale=kinds, legend=None),
+                                       alt.value("transparent")),
+                    tooltip=[no_tip, alt.Tooltip("round:N", title=_say(opt, wording.ROUND_CAP)),
+                             alt.Tooltip(f"{score}:Q", title=score, format=".1f"), bo_tip()])
             .transform_filter(alt.FieldValidPredicate(field=score, valid=True)))
-    best_line = (alt.Chart(frame).mark_line(color="gray", strokeDash=[4, 3])
-                 .encode(x=x, y=alt.Y(f"{best}:Q", title=score, scale=alt.Scale(zero=False)),
+    best_line = (alt.Chart(frame).mark_line(strokeWidth=2.5, interpolate="step-after")
+                 .encode(x=x, y=alt.Y(f"{best}:Q", title=y_title, scale=alt.Scale(zero=False)),
+                         color=alt.Color("best_series:N", scale=kinds, legend=legend),
                          tooltip=[no_tip, alt.Tooltip(f"{best}:Q", title=best, format=".1f")]))
-    return alt.layer(score_line, dots, best_line).properties(height=220)
+    return titled(alt.layer(score_line, dots, best_line).properties(height=220),
+                  _say(opt, wording.PLOT_PROGRESS))
 
 
 # At most this many ticks on the Progress chart's Formulation axis.
@@ -2620,7 +2770,8 @@ def _progress_chart_body(opt):
     # formulation still waiting is a gap, not a dot, so it does not count.
     pool = set(opt.best_candidates())
     rings = any(opt.fully_measured(i) and i not in pool for i in range(len(opt.Y_history)))
-    st.caption(_say(opt, wording.progress_caption_2(rings)))
+    st.caption(_say(opt, wording.PLOT_CAPTION_PROGRESS),
+               help=_say(opt, wording.progress_caption_2(rings)))
 
 
 def _predicted_best(opt, fitted, checks=(), spinner=True):
@@ -3152,7 +3303,8 @@ def pair_chart(opt, a, b, points):
     df = pd.DataFrame([{"x": p.a, "y": p.b, "no": p.formulation,
                         "score": None if p.score is None else round(p.score, 1),
                         "score_text": score_text(p),
-                        "waiting": p.score is None, "state": waiting, "best": p.best}
+                        "waiting": p.score is None, "state": waiting, "best": p.best,
+                        "bo": wording.PLOT_BO_MODEL_FREE}
                        for p in points])
     x = alt.X("x:Q", title=xt, scale=alt.Scale(domain=domain(oa, list(df["x"])), nice=False))
     y = alt.Y("y:Q", title=yt, scale=alt.Scale(domain=domain(ob, list(df["y"])), nice=False))
@@ -3162,7 +3314,7 @@ def pair_chart(opt, a, b, points):
            alt.Tooltip("y:Q", title=_say(opt, opt._measurement_column(ob)),
                        format=f".{decimals(opt, b)}f"),
            # Words, never "null": a formulation still waiting says what for.
-           alt.Tooltip("score_text:N", title=overall)]
+           alt.Tooltip("score_text:N", title=overall), bo_tip()]
     base = alt.Chart(df)
     layers = []
     # W3's D1 tokens and scale (integration of the e2e fixes): the old
@@ -3186,16 +3338,27 @@ def pair_chart(opt, a, b, points):
                   .transform_filter(alt.FieldEqualPredicate(field="waiting", equal=True)))
     layers.append(base.mark_circle(size=70, opacity=1)
                   .encode(x=x, y=y, tooltip=tip,
+                          # Review plots: the measured score's ramp, as What
+                          # you've tried (was blues, the model's colour).
                           color=alt.Color("score:Q", title=overall,
-                                          scale=alt.Scale(scheme=blues(),
-                                                          domain=[0, opt.utility_ceiling()])))
+                                          scale=score_scale(_score_domain(df["score"])),
+                                          legend=alt.Legend(gradientLength=120)))
                   .transform_filter(alt.FieldEqualPredicate(field="waiting", equal=False)))
     best = base.transform_filter(alt.FieldEqualPredicate(field="best", equal=True))
-    layers.append(best.mark_point(filled=False, size=260, strokeWidth=2, color=grey,
-                                  opacity=grey_opacity)
+    layers.append(best.mark_point(filled=False, size=260, strokeWidth=2.5,
+                                  color=mark("bar_latest")[0], opacity=1)
                   .encode(x=x, y=y, tooltip=tip))
     layers += _labels(best, x, y, alt.value(_say(opt, wording.PAIR_BEST)), align="left", dx=12)
-    return alt.layer(*layers).properties(height=320)
+    return titled(alt.layer(*layers).properties(height=320), _say(opt, wording.PLOT_PAIR))
+
+
+def _score_domain(scores):
+    """The score ramp's domain: the scores' own extent, never zero-width."""
+    vals = [float(v) for v in scores if v is not None and v == v]
+    if not vals:
+        return [0.0, 100.0]
+    lo, hi = min(vals), max(vals)
+    return [lo - 1, hi + 1] if hi - lo < 1e-9 else [lo, hi]
 
 
 def _target_line(o):
@@ -3258,6 +3421,7 @@ def mixture_chart(opt, mix, preds, number, start_pred=None, layer=None, values=N
     if not mix.points or not preds:
         return None
     df, cols, unit = mixture_frame(opt, mix, preds, values, outline)
+    df["bo"] = wording.PLOT_BO_TRIANGLE
     kinds = _mixture_kinds(opt)
     formulation = _say(opt, wording.FORMULATION_CAP)
     # The Predicted score layer's colour is the model mean, not an interval
@@ -3324,7 +3488,7 @@ def mixture_chart(opt, mix, preds, number, start_pred=None, layer=None, values=N
                                            if layer in (wording.LAYER_SD, wording.LAYER_GAIN)
                                            else score_scale([lo, hi])),
                                     legend=alt.Legend(titleLimit=0)),
-                    tooltip=amounts + [alt.Tooltip("pred:N", title=tip_title)])
+                    tooltip=amounts + [alt.Tooltip("pred:N", title=tip_title), bo_tip()])
             .transform_filter(alt.LogicalNotPredicate(**{"not": blocked})))
     # An invisible layer, off the drawn area, whose only job is the legend:
     # sharing the "state" field with `size` above merges the two into one
@@ -3394,7 +3558,9 @@ def mixture_chart(opt, mix, preds, number, start_pred=None, layer=None, values=N
     layers += _labels(alt.Chart(start), x, y, "t:N", align="left", dx=12)
     return (alt.layer(*layers, *text).properties(
                 width=width, height=height,
-                autosize=alt.AutoSizeParams(type="pad", contains="padding"))
+                autosize=alt.AutoSizeParams(type="pad", contains="padding"),
+                title=alt.TitleParams(_say(opt, wording.PLOT_TRIANGLE), anchor="start",
+                                      fontSize=_TITLE_SIZE, fontWeight="bold", offset=8))
             .configure_view(stroke=None))
 
 
@@ -3445,7 +3611,10 @@ def _pair(opt):
         st.caption(_say(opt, wording.PAIR_NONE))
         return True
     show_chart(pair_chart(opt, *picked, points))
-    st.caption(_say(opt, pair_caption(opt, *picked)))
+    objs = {o['name']: o for o in opt.objectives}
+    short = (wording.PLOT_CAPTION_PAIR if any(_target_line(objs[n]) for n in picked)
+             else wording.PLOT_CAPTION_PAIR_NONE)
+    st.caption(_say(opt, short), help=_say(opt, pair_caption(opt, *picked)))
     return True
 
 
@@ -3879,13 +4048,31 @@ def explore_map_chart(pool_mean, pool_sd, tested, picks, ref=None, opt=None):
                          "sd": list(map(float, pool_sd.tolist()))})
     tested = pd.DataFrame(list(tested), columns=None if tested else ["mean", "sd"])
     mine = pd.DataFrame(list(picks), columns=None if picks else ["mean", "sd", "no"])
+    say = (lambda t: t) if opt is None else (lambda t: _say(opt, t))
     x = alt.X("mean:Q", title=wording.WHY_AXIS_MEAN, scale=alt.Scale(zero=False))
-    y = alt.Y("sd:Q", title=wording.MODEL_SD, scale=alt.Scale(zero=False))
-    word = wording.FORMULATION_CAP if opt is None else _say(opt, wording.FORMULATION_CAP)
+    # From 0: the model's sd is a size, and a zoomed sd axis made a small
+    # difference in certainty look large (review plots).
+    y = alt.Y("sd:Q", title=wording.MODEL_SD, scale=alt.Scale(zero=True))
+    word = say(wording.FORMULATION_CAP)
     ring_c, ring_o = mark("neutral")
+    ink, _ = mark("bar_latest")
+    # Review plots: one legend for the three kinds of mark (the caption
+    # named them before), the ring and diamond drawn as on the chart.
+    kinds = [say(wording.PLOT_ALLOWED), say(wording.PLOT_TESTED), say(wording.PLOT_SUGGESTION)]
+    kind_colour = alt.Scale(domain=kinds, range=["#b8bcc4", ring_c, outline_colour()])
+    kind_fill = alt.Scale(domain=kinds, range=["#b8bcc4", "transparent", outline_colour()])
+    kind_shape = alt.Scale(domain=kinds, range=["circle", "circle", "diamond"])
+    legend = alt.Legend(title=None, orient="top", labelLimit=0)
+    pool = pool.assign(what=kinds[0])
+    tested = tested.assign(what=kinds[1])
+    mine = mine.assign(what=kinds[2])
+    if len(mine):
+        mine["bo"] = [wording.plot_bo_map(m, d) for m, d in zip(mine["mean"], mine["sd"])]
+    if len(tested):
+        tested["bo"] = [wording.plot_bo_map(m, d) for m, d in zip(tested["mean"], tested["sd"])]
     line = pd.DataFrame({"ref": [ref], "label": [wording.WHY_REFERENCE]})
     rule = [] if ref is None else [
-        alt.Chart(line).mark_rule(strokeDash=[4, 3], color="gray", tooltip=False)
+        alt.Chart(line).mark_rule(strokeDash=[4, 3], color=ink, tooltip=False)
         .encode(x="ref:Q"),
         alt.Chart(line).mark_text(align="left", baseline="top", dx=4, color=muted(),
                                   tooltip=False)
@@ -3893,28 +4080,35 @@ def explore_map_chart(pool_mean, pool_sd, tested, picks, ref=None, opt=None):
     numbered = "no" in tested.columns
     ring_tip = ({"tooltip": [alt.Tooltip("no:Q", title=word, format="d"),
                              alt.Tooltip("mean:Q", title=wording.WHY_AXIS_MEAN, format=".1f"),
-                             alt.Tooltip("sd:Q", title=wording.MODEL_SD, format=".2f")]}
+                             alt.Tooltip("sd:Q", title=wording.MODEL_SD, format=".2f"),
+                             bo_tip()]}
                 if numbered else {})
     layers = [
-        alt.Chart(pool).mark_circle(size=12, color="lightgray", opacity=0.6, tooltip=False)
-        .encode(x=x, y=y),
+        alt.Chart(pool).mark_point(size=12, opacity=0.6, tooltip=False)
+        .encode(x=x, y=y, stroke=alt.Stroke("what:N", scale=kind_colour, legend=legend),
+                fill=alt.Fill("what:N", scale=kind_fill, legend=legend),
+                shape=alt.Shape("what:N", scale=kind_shape, legend=legend)),
         # The neutral token (polish round): gray at Vega's default 0.7 was
         # 2.94:1 on the dark page.
-        alt.Chart(tested).mark_point(size=40, color=ring_c, opacity=ring_o, filled=False,
+        alt.Chart(tested).mark_point(size=40, opacity=ring_o, strokeWidth=1.5,
                                      **({} if numbered else {"tooltip": False}))
-        .encode(x=x, y=y, **ring_tip),
+        .encode(x=x, y=y, stroke=alt.Stroke("what:N", scale=kind_colour, legend=legend),
+                fill=alt.Fill("what:N", scale=kind_fill, legend=legend),
+                shape=alt.Shape("what:N", scale=kind_shape, legend=legend), **ring_tip),
         *rule,
         # Charts proto: orange for suggestions, as on every chart here.
-        alt.Chart(mine).mark_point(shape="diamond", size=90, filled=True,
-                                   color=outline_colour(), opacity=1)
-        .encode(x=x, y=y, tooltip=[alt.Tooltip("no:N", title=word),
-                                   alt.Tooltip("mean:Q", title=wording.WHY_AXIS_MEAN,
-                                               format=".1f"),
-                                   alt.Tooltip("sd:Q", title=wording.MODEL_SD, format=".2f")]),
+        alt.Chart(mine).mark_point(size=90, opacity=1)
+        .encode(x=x, y=y, stroke=alt.Stroke("what:N", scale=kind_colour, legend=legend),
+                fill=alt.Fill("what:N", scale=kind_fill, legend=legend),
+                shape=alt.Shape("what:N", scale=kind_shape, legend=legend),
+                tooltip=[alt.Tooltip("no:N", title=word),
+                         alt.Tooltip("mean:Q", title=wording.WHY_AXIS_MEAN, format=".1f"),
+                         alt.Tooltip("sd:Q", title=wording.MODEL_SD, format=".2f"),
+                         *([bo_tip()] if len(mine) else [])]),
         alt.Chart(mine).mark_text(dy=-12, color=muted(), tooltip=False)
         .encode(x=x, y=y, text="no:N"),
     ]
-    return alt.layer(*layers).properties(height=280)
+    return titled(alt.layer(*layers).properties(height=280), say(wording.PLOT_MAP))
 
 
 def explore_withheld(opt, score, checks):
@@ -3988,17 +4182,15 @@ def _explored_map(opt, computed):
               for m, s, n in zip(values.tested_mean.tolist(), values.tested_sd.tolist(),
                                  values.tested)]
     picks = [{"mean": m, "sd": s, "no": str(n)} for n, m, s in values.picks]
-    help_text = tooltip_for(opt, "map")
-    st.markdown(f"**{_say(opt, wording.MAP_TITLE)}**")
-    st.caption(_say(opt, wording.MAP_READING), help=help_text)
+    # Review plots: the title is the chart's own; the marks are in its
+    # legend; one short reading under it, the full one in its "?".
+    help_text = " ".join([_say(opt, wording.MAP_READING), tooltip_for(opt, "map"),
+                          _say(opt, wording.why_chart_caption_full(
+                              f"{len(values.pool_mean):,}", line=ref is not None))])
     if rule == "not_yet":
         st.caption(_say(opt, wording.MAP_NOT_YET))
     show_chart(explore_map_chart(values.pool_mean, values.pool_sd, tested, picks, ref, opt))
-    if picks:
-        st.caption(_say(opt, wording.why_chart_caption(f"{len(values.pool_mean):,}",
-                                                       line=ref is not None)),
-                   help=_say(opt, wording.why_chart_caption_full(
-                       f"{len(values.pool_mean):,}", line=ref is not None)))
+    st.caption(_say(opt, wording.PLOT_CAPTION_MAP), help=help_text)
 
 
 def _point_to_uncertainty():
@@ -4213,6 +4405,16 @@ def tried_frame(opt, axes, lines):
                   "where": "high"}]
     ends += [{"axis": score_label, "t": 0.0, "text": "0", "where": "low"},
              {"axis": score_label, "t": 1.0, "text": _whole(ceiling), "where": "high"}]
+    # Review plots (the yogurt pilot: water at its 42 g Highest, tapioca at
+    # 2.6 g): an axis whose lines mostly sit at one end collapses into a
+    # bundle there; its end label says how many, so the bundle reads.
+    total = len(lines)
+    for e in ends:
+        if e["where"] not in ("low", "high") or e["axis"] == score_label or total < 4:
+            continue
+        at = sum(1 for r in rows if r["axis"] == e["axis"] and abs(r["t"] - e["t"]) <= 0.01)
+        if at * 2 >= total:
+            e["text"] = wording.plot_at_end(e["text"], at, total)
     cols = ["no", "round", "role", "best", "score", "score_text", "amounts", "order", "axis",
             "k", "t"]
     return pd.DataFrame(rows, columns=cols), pd.DataFrame(ends), labels
@@ -4233,8 +4435,12 @@ def tried_chart(opt, axes, lines):
     many = len(lines) > _MANY_LINES
     x = alt.X("axis:N", sort=labels, title=None,
               scale=alt.Scale(type="point", padding=0.25),
-              axis=alt.Axis(orient="top", labelAngle=0, labelPadding=22, ticks=False,
-                            domain=False, labelLimit=0, labelFontSize=11,
+              # Review plots: a two-line name stacks upward from its
+              # baseline, clear of the Highest written under it (the second
+              # line used to sit on that number).
+              axis=alt.Axis(orient="top", labelAngle=0, ticks=False,
+                            labelPadding=22 + 13 * (max(l.count("\n") for l in labels)),
+                            domain=False, labelLimit=0, labelFontSize=11, labelLineHeight=13,
                             labelExpr="split(datum.label, '\\n')"))
     lo = min([0.0] + list(df["t"])) if len(df) else 0.0
     hi = max([1.0] + list(df["t"])) if len(df) else 1.0
@@ -4309,8 +4515,9 @@ def tried_chart(opt, axes, lines):
     layers += [text("low", baseline="top", dy=6), text("high", baseline="bottom", dy=-6)]
     if (ends["where"] == "option").any():
         layers.append(text("option", align="left", dx=5, baseline="middle"))
-    return (alt.layer(*layers).resolve_scale(color="independent", stroke="shared")
-            .properties(height=300))
+    heading = wording.PLOT_TRIED_SETTINGS if not opt.has_ingredients() else wording.PLOT_TRIED
+    return titled(alt.layer(*layers).resolve_scale(color="independent", stroke="shared")
+                  .properties(height=300), _say(opt, heading))
 
 
 def _tried(opt, title=True):
@@ -4519,18 +4726,27 @@ def chooses_chart(opt, data, heights=(220, 130), compact=False):
                    axis=alt.Axis(labels=False, ticks=False, title=None, domain=False))
              if compact and data.reason is None else x)
     d = decimals(opt, insights.SCORE)
-    rows = [{"mark": "curve", "x": t, "mean": m, "low": m - insights.Z95 * s,
-             "high": m + insights.Z95 * s, "gain": g,
+    # Review plots: the band is cut at 0 and the score ceiling, as every
+    # other interval here (the yogurt pilot's ran past 100).
+    ceiling = float(opt.utility_ceiling())
+    rows = [{"mark": "curve", "x": t, "mean": m, "low": max(0.0, m - insights.Z95 * s),
+             "high": min(ceiling, m + insights.Z95 * s), "gain": g,
              "amount": _recipe_text(opt, r) if data.line else _amount(t, path.unit),
              "pred": f"{m:.{d}f} ({range_text(m - insights.Z95 * s, m + insights.Z95 * s, lambda q: f'{q:.{d}f}')})",
-             "gain_text": f"{g:.2f}"}
+             "gain_text": f"{g:.2f}",
+             "bo": wording.plot_bo_curve(m, s, None if data.reason is not None else g)}
             for t, m, s, g, r in zip(path.amounts, mean, sd, gain, path.recipes)]
     near = insights.tested_near(opt, path)
     rows += [{"mark": "grey", "x": lo, "x2": hi} for lo, hi in insights.untested_runs(path, near)]
     df = pd.DataFrame(rows)
     ids = [int(n) for n in opt.formulation_ids]
-    dots = pd.DataFrame([{"x": a, "score": round(s, 2), "no": ids[i]}
-                         for i, a, s in data.tested], columns=["x", "score", "no"])
+    rounds = list(opt.batch_history)
+    dots = pd.DataFrame([{"x": a, "score": round(s, 2), "no": ids[i],
+                          "round": _round_label(rounds[i] if i < len(rounds) else None),
+                          "what": _say(opt, wording.PLOT_TESTED_NEAR),
+                          "bo": wording.PLOT_BO_MODEL_FREE}
+                         for i, a, s in data.tested],
+                        columns=["x", "score", "no", "round", "what", "bo"])
     marks = [{"x": path.start_amount, "label": _say(opt, wording.TRIED_BEST), "role": "best"}]
     if data.line and not data.end_is_pick:
         # The predicted best: not a suggestion, so ink, not orange.
@@ -4548,18 +4764,21 @@ def chooses_chart(opt, data, heights=(220, 130), compact=False):
     curve = _only("curve")
     predicted = _say(opt, wording.HERO_PREDICTED if compact else wording.CHOOSES_PREDICTED)
     tip = [alt.Tooltip("amount:N", title=along),
-           alt.Tooltip("pred:N", title=f"{predicted} ({wording.CHOOSES_BAND})")]
+           alt.Tooltip("pred:N", title=f"{predicted} ({wording.CHOOSES_BAND})"), bo_tip()]
     lo_all = min([r["low"] for r in rows if r["mark"] == "curve"]
                  + (list(dots["score"]) if len(dots) else []))
     hi_all = max([r["high"] for r in rows if r["mark"] == "curve"]
                  + (list(dots["score"]) if len(dots) else []))
     pad = 0.05 * max(hi_all - lo_all, 1.0)
     ys = alt.Scale(domain=[lo_all - pad, hi_all + pad], zero=False, nice=False)
+    # Review plots: the score axis says when it shows a small part of 0-100.
+    y_title = two_lines(zoomed(_say(opt, wording.PLOT_SCORE_AXIS), lo_all - pad, hi_all + pad,
+                               float(opt.utility_ceiling())))
 
     def rules(height_title=True, xr=None):
         xr = xr or alt.X("x:Q", scale=xs)
         out = []
-        for kind, colour, dash, opacity in (("best", ref_c, [4, 3], ref_o),
+        for kind, colour, dash, opacity in (("best", ink, [4, 3], 1.0),
                                             ("pick", outline_colour(), [1, 0], 1.0),
                                             ("end", ink, [1, 0], 1.0)):
             sel = marks[marks["role"] == kind]
@@ -4576,52 +4795,64 @@ def chooses_chart(opt, data, heights=(220, 130), compact=False):
         return out
 
     top_layers = []
-    if (df["mark"] == "grey").any():
+    has_grey = bool((df["mark"] == "grey").any())
+    if has_grey:
         top_layers += _untested_layers(alt.Chart(df))
-    scored_dom = ([float(dots["score"].min()), float(dots["score"].max())] if len(dots) > 1
-                  else [0.0, float(opt.utility_ceiling())])
+    # Review plots: one legend for the regions — the band, and grey where
+    # nothing was tested near — in the hero too.
+    band_label = _say(opt, wording.PLOT_BAND)
+    grey_c, _ = _FILLS[theme()]["untested"]
+    regions = alt.Scale(domain=[band_label] + ([_say(opt, wording.PLOT_UNTESTED)] if has_grey
+                                               else []),
+                        range=[band_c] + ([grey_c] if has_grey else []))
     top_layers += [
         # The band is the suggestion model's own uncertainty (no Repeat
         # noise, no widening): narrower than Try one's 95 % interval. Its
         # legend says so in a few words; its tooltip, in full.
-        alt.Chart(df.assign(band=_say(opt, wording.CHOOSES_BAND_LEGEND),
+        alt.Chart(df.assign(band=band_label,
                             band_tip=_say(opt, wording.TIP_CHOOSES_BAND)))
         .mark_area(opacity=band_o)
-        .encode(x=x_top, y=alt.Y("low:Q", scale=ys, title=predicted), y2="high:Q",
-                fill=alt.Fill("band:N", scale=alt.Scale(range=[band_c]),
-                              legend=None if compact else
-                              alt.Legend(title=None, orient="top", labelLimit=0)),
-                tooltip=[alt.Tooltip("band_tip:N", title=_say(opt, wording.CHOOSES_BAND_LEGEND))])
+        .encode(x=x_top, y=alt.Y("low:Q", scale=ys, title=y_title), y2="high:Q",
+                fill=alt.Fill("band:N", scale=regions,
+                              legend=alt.Legend(title=None, orient="top", labelLimit=0,
+                                                symbolOpacity=0.6)),
+                tooltip=[alt.Tooltip("band_tip:N", title=band_label)])
         .transform_filter(curve),
-        alt.Chart(df).mark_line(color=ink, strokeWidth=2)
-        .encode(x=x_top, y=alt.Y("mean:Q", scale=ys, title=predicted), tooltip=tip)
+        alt.Chart(df).mark_line(color=blue, strokeWidth=2)
+        .encode(x=x_top, y=alt.Y("mean:Q", scale=ys, title=y_title), tooltip=tip)
         .transform_filter(curve),
         *rules(xr=x_top if compact else None),
     ]
     if len(dots):
+        # Review plots: tested formulations are grey rings on every chart
+        # (their measured score is the height already; no second colour).
+        ring_c, ring_o = mark("neutral")
         top_layers.append(
-            alt.Chart(dots).mark_point(filled=True, size=70, opacity=1, stroke=ink,
-                                       strokeWidth=1)
-            .encode(x=x_top, y=alt.Y("score:Q", scale=ys, title=predicted),
-                    color=alt.Color("score:Q", scale=score_scale(scored_dom),
-                                    title=_say(opt, wording.CHOOSES_TESTED),
-                                    legend=alt.Legend(orient="right", gradientLength=90)),
+            alt.Chart(dots).mark_point(filled=False, size=60, opacity=ring_o, strokeWidth=1.8)
+            .encode(x=x_top, y=alt.Y("score:Q", scale=ys, title=y_title),
+                    stroke=alt.Stroke("what:N", scale=alt.Scale(range=[ring_c]),
+                                      legend=alt.Legend(title=None, orient="top",
+                                                        labelLimit=0)),
                     tooltip=[alt.Tooltip("no:Q", title=word, format="d"),
-                             alt.Tooltip("x:Q", title=("t" if data.line else path.name),
-                                         format=".2f"),
+                             alt.Tooltip("round:N", title=_say(opt, wording.ROUND_CAP)),
                              alt.Tooltip("score:Q", title=_say(opt, wording.OVERALL_SCORE_COLUMN),
-                                         format=".2f")]))
+                                         format=".2f"), bo_tip()]))
     top = alt.layer(*top_layers).properties(height=heights[0])
     if data.reason is not None:
         return top
-    gain_title = _say(opt, wording.HERO_GAIN if compact else wording.CHOOSES_GAIN)
+    # Review plots: in points, from 0; never stretched over a gain too small
+    # to matter (at least 0.05 points tall), and "zoomed" under 1 point.
+    top_gain = max(max(gain) if gain else 0.0, 0.05)
+    gain_title = two_lines(zoomed(_say(opt, wording.PLOT_GAIN_AXIS), 0.0, top_gain, 4.0))
+    gs = alt.Scale(domain=[0.0, top_gain * 1.05], nice=False)
     bottom = alt.layer(
         alt.Chart(df).mark_area(color=blue, opacity=0.25, tooltip=False)
-        .encode(x=x, y=alt.Y("gain:Q", title=gain_title)).transform_filter(curve),
+        .encode(x=x, y=alt.Y("gain:Q", title=gain_title, scale=gs)).transform_filter(curve),
         alt.Chart(df).mark_line(color=blue, strokeWidth=2)
-        .encode(x=x, y=alt.Y("gain:Q", title=gain_title),
+        .encode(x=x, y=alt.Y("gain:Q", title=gain_title, scale=gs),
                 tooltip=[alt.Tooltip("amount:N", title=along),
-                         alt.Tooltip("gain_text:N", title=wording.GAIN_TOOLTIP_TITLE)])
+                         alt.Tooltip("gain_text:N", title=wording.GAIN_TOOLTIP_TITLE),
+                         bo_tip()])
         .transform_filter(curve),
         *rules(height_title=False),
     ).properties(height=heights[1])
@@ -4880,9 +5111,11 @@ def _mixture(opt, fitted):
     if chart is not None:
         show_chart(chart, width="content")
     if layered:
-        st.caption(_say(opt, wording.layer_caption(layer, anchor_text(opt, number))))
+        st.caption(_say(opt, wording.plot_caption_triangle(layer)),
+                   help=_say(opt, wording.layer_caption(layer, anchor_text(opt, number))))
     else:
-        st.caption(_say(opt, wording.mixture_caption(number)))
+        st.caption(_say(opt, wording.plot_caption_triangle()),
+                   help=_say(opt, wording.mixture_caption(number)))
         if extra.get("outline") and any(extra["outline"]):
             st.caption(_say(opt, wording.overlay_caption(_whole(extra["ref"]))))
         line = within_noise_line(extra)
@@ -5488,7 +5721,7 @@ TRIED_KEY = "insights_tried"
 _CARD_LABELS = {"predictions": wording.CARD_PREDICTIONS, "progress": wording.CARD_PROGRESS,
                 "next": wording.CARD_NEXT}
 SPARK_HEIGHT = 60
-HERO_HEIGHTS = (100, 56)
+HERO_HEIGHTS = (130, 80)      # review plots: room for a two-line axis title
 
 
 def cards_header_text(opt):
@@ -5639,6 +5872,9 @@ def _card_body(opt, facts, which):
         chart = None
     if chart is not None:
         show_chart(chart)
+    elif which in ("predictions", "progress"):
+        # Review plots: a withheld trend says why, never an empty space.
+        st.caption(_say(opt, wording.PLOT_SPARK_WAIT))
 
 
 def predictions_spark_frame(opt, checks):
@@ -5667,39 +5903,64 @@ def progress_spark_frame(opt):
 
 
 def spark_chart(opt, facts, which):
-    """A 60 px sparkline, no axes: Predictions, the share in range per
-    Round against the 95 % a calibrated model would catch (dashed);
-    Progress, Best so far by Round. None for Next, or with under two
-    Rounds to draw."""
+    """A small trend line under a card, titled, its first and last Round
+    named on the x axis (review plots): Predictions, the share of
+    Round-ahead results in range per Round, 0-100 %, against the 95 % a
+    calibrated model aims for (dashed, labelled); Progress, Best so far by
+    Round, on at least a 10-point span so a small rise never fills the
+    card. None for Next, or with under two Rounds to draw (the card then
+    says wording.PLOT_SPARK_WAIT)."""
     rnd = _say(opt, wording.ROUND_CAP)
     if which == "predictions":
         df, field = predictions_spark_frame(opt, getattr(facts, "checks", None)), "inrange"
         title = _say(opt, wording.CARD_SPARK_IN_RANGE)
+        heading = _say(opt, wording.PLOT_SPARK_IN_RANGE)
+        bo = wording.PLOT_BO_COVERAGE
     elif which == "progress":
         df, field = progress_spark_frame(opt), "best"
         title = _say(opt, wording.BEST_SO_FAR_COLUMN)
+        heading = _say(opt, wording.PLOT_SPARK_BEST)
+        bo = wording.PLOT_BO_BEST
     else:
         return None
     if len(df) < 2:
         return None
+    df = df.assign(bo=bo)
     ink, _ = mark("bar_latest")
-    lo, hi = float(df[field].min()), float(df[field].max())
     if which == "predictions":
-        lo, hi = min(lo, 0.95), max(hi, 0.95)
-    pad = 0.08 * max(hi - lo, 0.05 if which == "predictions" else 1.0)
-    y = alt.Y(f"{field}:Q", axis=None, scale=alt.Scale(domain=[lo - pad, hi + pad], nice=False))
-    x = alt.X("round:Q", axis=None, scale=alt.Scale(nice=False, padding=6))
+        # The whole 0-100 %: a drop from 95 % to 60 % reads as the fall it is.
+        domain = [0.0, 1.0]
+    else:
+        lo, hi = float(df[field].min()), float(df[field].max())
+        span = max(hi - lo, 10.0)
+        mid = (lo + hi) / 2
+        domain = [mid - span / 2 - 0.5, mid + span / 2 + 0.5]
+    y = alt.Y(f"{field}:Q", axis=None, scale=alt.Scale(domain=domain, nice=False))
+    first, last = int(df["round"].min()), int(df["round"].max())
+    x = alt.X("round:Q", title=None, scale=alt.Scale(nice=False, padding=8),
+              axis=alt.Axis(values=[first, last], grid=False, ticks=False, domain=False,
+                            labelFontSize=10, labelColor=muted(),
+                            labelExpr=f"{rnd + ' '!r} + datum.value",
+                            labelFlush=True))
     tip = [alt.Tooltip("round:Q", title=rnd, format="d"),
-           alt.Tooltip("text:N", title=title)]
+           alt.Tooltip("text:N", title=title), bo_tip()]
     base = alt.Chart(df)
     layers = [base.mark_line(color=ink, strokeWidth=2, tooltip=False).encode(x=x, y=y),
               base.mark_point(filled=True, size=28, color=ink, opacity=1).encode(
                   x=x, y=y, tooltip=tip)]
     if which == "predictions":
         ref, _ = mark("reference")
-        layers.insert(0, alt.Chart(pd.DataFrame({"inrange": [0.95]}))
-                      .mark_rule(color=ref, strokeDash=[3, 3], tooltip=False).encode(y=y))
-    return (alt.layer(*layers).properties(height=SPARK_HEIGHT)
+        aim = pd.DataFrame({"inrange": [0.95], "label": [_say(opt, wording.PLOT_SPARK_TARGET)]})
+        # The dashed aim, labelled at the right end.
+        layers[:0] = [alt.Chart(aim).mark_rule(color=ref, strokeDash=[3, 3], tooltip=False)
+                      .encode(y=y),
+                      alt.Chart(aim).mark_text(color=ref, align="left", baseline="bottom", dy=-2,
+                                               fontSize=9, tooltip=False)
+                      .encode(y=y, x=alt.value(0), text="label:N")]
+    return (alt.layer(*layers).properties(
+                height=SPARK_HEIGHT,
+                title=alt.TitleParams(heading, anchor="start", fontSize=11, fontWeight="normal",
+                                      color=muted(), offset=4))
             .configure_view(strokeWidth=0))
 
 

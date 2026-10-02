@@ -58,13 +58,16 @@ def test_the_bar_is_vertical_filled_means_inside_and_the_latest_round_is_darker(
     opt = _patty(rows=6)
     checks = [_check("Firmness", 2, 4, 3.0, 5.0), _check("Firmness", 3, 7, 7.2, 7.0)]
     [panel] = _panels(ui_insights.measured_vs_predicted_chart(opt, checks))
-    line, bars, rings, filled = panel["layer"]
+    line, bars, dots = panel["layer"]
     assert line["mark"]["strokeDash"] == [4, 3]
     assert bars["mark"]["type"] == "rule" and "y2" in bars["encoding"]
     assert bars["encoding"]["x"]["field"] == wording.TRACK_PREDICTED
-    assert filled["transform"] == [{"filter": {"field": "inside", "equal": True}}]
-    assert rings["encoding"]["opacity"]["condition"]["value"] == 1.0
-    assert rings["encoding"]["opacity"]["value"] == 0.45
+    # Review plots: one dot layer, filled inside / hollow outside and the
+    # latest Round darker, both in one legend.
+    assert dots["encoding"]["fill"]["scale"]["domain"] == [wording.PLOT_INSIDE,
+                                                           wording.PLOT_OUTSIDE]
+    assert dots["encoding"]["fill"]["scale"]["range"][1] == "transparent"
+    assert dots["encoding"]["opacity"]["scale"]["range"] == [1.0, 0.45]
 
 
 def test_no_checks_no_chart():
@@ -119,7 +122,9 @@ def test_the_dark_bar_is_the_tested_near_change_and_the_light_one_the_whole_path
                SimpleNamespace(name="Pea", near=None, whole=2.0)]
     spec = ui_insights.change_chart(changes).to_dict()
     light, dark = spec["layer"]
-    assert light["encoding"]["x"]["field"] == "whole" and light["mark"]["opacity"] == 0.35
+    assert light["encoding"]["x"]["field"] == "whole"
+    # Review plots: two shades of the model's blue, named in a legend.
+    assert light["encoding"]["fill"]["scale"]["domain"] == [wording.PLOT_NEAR, wording.PLOT_WHOLE]
     assert dark["encoding"]["x"]["field"] == "near"
     assert dark["encoding"]["x"]["title"] == wording.CHANGE_AXIS
     assert light["encoding"]["y"]["sort"] == ["Oil", "Pea"]

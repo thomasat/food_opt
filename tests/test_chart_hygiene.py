@@ -90,9 +90,12 @@ def test_show_each_prediction_and_the_path_have_a_one_line_key(mixture_scored):
     at.run()
     tab = at.tabs[3]
     shown = next(e for e in tab.expander if e.label == wording.FOLD_MEASURED_CHART)
-    assert [c.value for c in shown.caption] == [wording.MVP_CAPTION]
+    # Review plots: a short reading under each chart; the key in its "?".
+    assert [(c.value, c.proto.help) for c in shown.caption] == [
+        (wording.PLOT_CAPTION_MVP, wording.MVP_CAPTION)]
     best = mixture_scored.best_formulation_no()
-    assert any(c.value.endswith(f"Dotted: Formulation {best}; dashed: target.")
+    assert any(c.value == wording.PLOT_CAPTION_PATH
+               and c.proto.help.endswith(f"Dotted: Formulation {best}; dashed: target.")
                for c in tab.caption)
 
 
@@ -156,7 +159,7 @@ def test_the_progress_chart_marks_scored_without_hollow():
     opt = _upgrade_like()               # 1-3 recorded before Cook loss existed
     spec = ui_insights.progress_chart(opt).to_dict()
     rows = [r for rows in spec["datasets"].values() for r in rows if "full" in r]
-    score = [r for r in rows if r["series"] == wording.OVERALL_SCORE_COLUMN]
+    score = [r for r in rows if r["series"] == wording.PLOT_SCORE_EACH]
     assert [r["full"] for r in score] == [False, False, False, True, True]
     dots = next(l for l in spec["layer"] if l["mark"]["type"] == "point")
     assert dots["encoding"]["fill"]["condition"]["test"] == {"field": "full", "equal": True}
@@ -176,6 +179,8 @@ def test_the_progress_chart_tooltips_are_titled_and_read_one_decimal():
     for t in tips:
         if t["field"] in (wording.OVERALL_SCORE_COLUMN, wording.BEST_SO_FAR_COLUMN):
             assert t["format"] == ".1f", t
+        elif t["field"] in ("round", "bo"):          # review plots: Round, BO term
+            assert t["title"] in (wording.ROUND_CAP, wording.PLOT_BO), t
         else:
             assert t["title"] == wording.FORMULATION_CAP and t["format"] == "d", t
 
@@ -183,7 +188,10 @@ def test_the_progress_chart_tooltips_are_titled_and_read_one_decimal():
 def _progress_captions(opt, monkeypatch):
     said = []
     monkeypatch.setattr(ui_insights, "show_chart", lambda c, **k: None)
-    monkeypatch.setattr(ui_insights.st, "caption", lambda text, **k: said.append(text))
+    # Review plots: the caption is short; the full reading is its "?".
+    monkeypatch.setattr(ui_insights.st, "caption",
+                        lambda text, **k: said.append(text if text != wording.PLOT_CAPTION_PROGRESS
+                                                      else k.get("help")))
     ui_insights._progress_chart_body(opt)
     return said
 
