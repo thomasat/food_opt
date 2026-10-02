@@ -8286,7 +8286,8 @@ def ev_suggestions(acquisition="qlognei"):
     return f"suggestions: Gaussian process on the {OVERALL_SCORE_COLUMN}, {name}"
 
 
-EV_METHOD = "Kernel, priors and every check: How the app knows, under the chart."
+# Review four: the method link sits under the cards now.
+EV_METHOD = "Kernel, priors and every check: How the app knows, under the cards."
 
 # The one-click way to the method (the Method and definitions fold).
 METHOD_LINK = "How the app knows"

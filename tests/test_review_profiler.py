@@ -164,21 +164,23 @@ def test_the_mixture_path_matches_try_one(line_a, best):
                 assert sum(float(r[n]) for n in ingredients) == pytest.approx(total, rel=1e-6)
 
 
-def test_a_withheld_gain_has_no_row_and_says_why(line_a):
+def test_a_withheld_gain_is_greyed_and_says_why(line_a):
+    """Review four, ruling 2 (was: no row): the gain row is drawn, greyed,
+    with the reason under the chart; a cold Round still has none."""
     opt, computed = line_a
     reason = wording.CHOOSES_REASON_NOISE
     prof = _profile(opt, computed, reason=reason)
-    assert prof.reason == reason and all(c.gain is None for c in prof.columns)
+    assert prof.reason == reason and prof.greyed
+    assert all(c.gain is not None for c in prof.columns)
     spec = U.profile_chart(opt, prof).to_dict()
     titles = [_y_title(r)[0] for r, _ in _rows(spec)]
-    assert wording.PROFILER_GAIN_ROW not in titles
-    assert len(titles) == 1 + len(opt.objectives)
-    # The fold says the hero's own withheld line, with its reason in the "?".
+    assert wording.PROFILER_GAIN_ROW in titles
     src = inspect.getsource(U._profiler)
-    assert "wording.HERO_WITHHELD[hero_reason_key(profile.reason)]" in src
-    assert "wording.tip_chooses_withheld(profile.reason)" in src
-    # Shown when the hero shows it: the same rule (chooses_reason) decides.
+    assert "wording.GAIN_GREYED[hero_reason_key(profile.reason)]" in src
+    assert "wording.tip_gain_greyed(profile.reason)" in src
     assert "chooses_reason(opt, fitted)" in inspect.getsource(U.profile_cached)
+    cold = _profile(opt, computed, reason=wording.CHOOSES_REASON_COLD)
+    assert not cold.gain_drawn and all(c.gain is None for c in cold.columns)
 
 
 def test_the_gain_row_is_the_heros_quantity(line_a, best):

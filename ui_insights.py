@@ -1252,16 +1252,20 @@ def prediction_sentence(opt, facts):
     inside, total, rounds = score_counts(facts)
     allowed = insights.allowed_misses(total)
     d = getattr(facts, "diagnosis", None)
-    said = measures_text(facts) + (f" {diag_plain_text(d)}" if d is not None else "")
+    # The measurements' record when they miss more than expected (their
+    # counts are in the evidence line either way), then the check advice,
+    # then where their misses fell.
+    said = measures_text(facts) if getattr(facts, "measures_miss", False) else ""
+    where = f" {diag_plain_text(d)}" if d is not None else ""
     if row == "off_coverage":
         return wording.on_score(wording.pred_off_coverage(
             rounds, total - inside, total, allowed,
-            None if gap is None else wording.bias_fact(*gap))) + said
+            None if gap is None else wording.bias_fact(*gap))) + said + then + where
     if row == "caution":
         return (wording.on_score(wording.pred_caution(rounds, total - inside, total, allowed,
-                                                      tail)) + then + said)
-    return wording.on_score(wording.pred_reliable(rounds, inside, total, allowed, tail)) + then \
-        + said
+                                                      tail)) + said + then + where)
+    return (wording.on_score(wording.pred_reliable(rounds, inside, total, allowed, tail))
+            + said + then + where)
 
 
 def score_counts(facts):

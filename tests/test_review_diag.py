@@ -66,11 +66,6 @@ def _all_text(at):
     return [t for t in out if t]
 
 
-def _more_detail(at):
-    return [_text(el) for el, folds, _ in _leaves(at.tabs[3])
-            if wording.FOLD_MORE in folds and el.type == "markdown" and _text(el)]
-
-
 # ------------------------------------------------------------------ #
 #  Synthetic: Line A's make-ups, checks written by hand
 # ------------------------------------------------------------------ #
@@ -146,15 +141,17 @@ def _facts(opt, checks):
 def test_synthetic_cards_never_say_panel(line_a):
     checks = _synthetic(line_a)
     facts = _facts(line_a, checks)
-    assert facts.prediction_row == "off_coverage" and facts.disagreement is None
+    # Review four, ruling 1: every Overall score held (12 of 12), so the
+    # word is the score's; the measurements' misses are one plain line and
+    # where they fell is in the "?" (was: Off, the diagnosis on the card).
+    assert facts.prediction_row != "off_coverage" and facts.disagreement is None
+    assert facts.measure_verdict == "unreliable" and facts.measures_miss
     p = ui_insights.predictions_card(line_a, facts)
     n = ui_insights.next_card(line_a, facts)
     texts = [p.word, n.word] + [t for t, _ in p.lines + n.lines]
     assert not any(BENCH.search(t) for t in texts), texts
-    assert (wording.CARD_DIAG["new_ground"], False) in p.lines
-    assert (wording.card_score_in_range(d_in := facts.diagnosis.score.inside,
-                                        facts.diagnosis.score.total), False) in p.lines
-    assert d_in == facts.diagnosis.score.total
+    assert (wording.CARD_MEASURES_MISS, False) in p.lines
+    assert not any(warn for _, warn in p.lines)
     assert (wording.card_noise_repeat(facts.best.formulation), False) in n.lines
     for t, _ in p.lines + n.lines:
         assert _words(t) <= 6, t
@@ -240,6 +237,11 @@ def test_cv_widening_asks_for_a_repeat_not_the_panel(demos, name, line):
     assert asked == (name == D.PROCESS_ONLY), n["lines"]
     texts = [p["word"], *p["lines"], p["help"]]
     assert not [t for t in texts if BENCH.search(t)]
+    if name == D.PROCESS_ONLY:
+        # Review four, ruling 1: Off on the Overall score (4 of 16 missed);
+        # the Repeat request is the Next card's alone.
+        assert p["word"] == ":red[Off]"
+        return
     assert "to measure how much results vary" in p["help"]
     assert ("the same values again" in p["help"]) == (name == D.PROCESS_ONLY)
 
@@ -308,45 +310,42 @@ def _score_round_6():
     return _open_review(R6)
 
 
-def _check_off_without_repeat(at, name):
+def _check_without_repeat(at, name, word):
+    """Review four, ruling 1: the word is the Overall score's (`word`); the
+    measurements' misses one plain line; no panel advice; a neutral Repeat
+    asked once; the diagnosis's evidence in the "?"."""
     texts = _all_text(at)
     assert not [t for t in texts if BENCH.search(t)], name
     p, _, n = cards(at)
-    assert p["word"] == ":red[Off]"
-    # Review polish: the measurements named, then the Overall score that held
-    # (the suggestions' score), then where the misses fell unless that is
-    # "not explained yet", which stays in the "?".
-    assert p["lines"][0].startswith(":red[**Measurements: ")
-    assert p["lines"][1].startswith("Overall score: ")
+    assert p["word"] == word
+    assert wording.CARD_MEASURES_MISS in p["lines"]
+    assert not any(line.startswith(":red[") for line in p["lines"])
     assert all(line != wording.CARD_DIAG["unexplained"] for line in p["lines"])
-    assert all(line in (*wording.CARD_DIAG.values(), "Results mostly above predictions",
-                        "Results mostly below predictions") for line in p["lines"][2:])
-    assert any(line.startswith("Repeat Formulation ") and line.endswith("to check noise")
-               for line in n["lines"])
+    asks = [line for line in p["lines"] + n["lines"]
+            if line.startswith("Repeat Formulation ") and line.endswith("to check noise")]
+    assert len(asks) == 1, (p["lines"], n["lines"])
     for line in p["lines"] + n["lines"]:
         assert _words(line) <= 6, line
-    # The tooltip holds the evidence counts and names the rule.
     opt = FoodOptimizer(name)
     checks = insights.check_rounds(opt)
     d = insights.miss_diagnosis(opt, checks)
     assert f"({d.misses} of {d.checked} values;" in p["help"]
     assert f"On new ground: {d.far} of {d.misses} misses" in p["help"]
     assert "Diagnosis rule, first that holds" in p["help"]
-    # One story under More detail.
-    detail = " ".join(_more_detail(at))
     for bad in CONTRADICTION:
-        assert bad not in detail
-    assert f"{d.far} of {d.misses} were on formulations far from anything tested" in detail
+        assert not any(bad in t for t in texts)
 
 
 @needs_pilot
 def test_pilot_round_5_never_says_panel(pilot):
-    _check_off_without_repeat(_open_review(R5), R5)
+    # 9 Overall-score checks: under SKILL_MIN, Not yet (ruling 1).
+    _check_without_repeat(_open_review(R5), R5, "Not yet")
 
 
 @needs_pilot
 def test_pilot_round_6_scored_never_says_panel(pilot):
-    _check_off_without_repeat(_score_round_6(), R6)
+    # The Overall score 10 of 12 in range, skill 0.69: Reliable (ruling 1).
+    _check_without_repeat(_score_round_6(), R6, "Reliable")
 
 
 @needs_pilot

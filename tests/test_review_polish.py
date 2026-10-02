@@ -9,7 +9,6 @@ import re
 
 import pytest
 
-import insights
 import ui_insights as U
 import wording
 from tests import demo_projects as D
@@ -38,18 +37,23 @@ def test_each_tooltip_is_plain_then_evidence_then_rule(screens, name):  # noqa: 
 
 def test_evidence_numbers_are_the_cards(screens):  # noqa: F811
     p, g, n = cards(screens[D.LINE_A])
-    assert "33 / 35 in range" in p["lines"]
+    # Review four, ruling 1: the card and its evidence lead with the
+    # Overall score's record; the measurements' count follows.
+    assert "Overall score: 13 / 15 in range" in p["lines"]
     ev = p["help"].split("\n\n")[1]
-    assert "n = 35 measured values, Rounds 3–5" in ev and "2 outside, up to 3 expected" in ev
-    # The Overall score's own Rounds and count, as More detail says them.
-    assert "Overall score, Rounds 2–5: 13 of 15 in range, skill 0.36" in ev
+    assert ev.startswith("Evidence: Overall score 13/15 in range, skill 0.36 (n = 15); "
+                         "measurements 33/35")
+    assert "2 outside, up to 2 expected" in ev
     assert "posterior predictive" in ev
     assert "qLogNEI" in n["help"].split("\n\n")[1]
 
 
 def test_off_names_the_measurements(screens):  # noqa: F811
     p = cards(screens[D.LINE_B])[0]
-    assert p["lines"][0] == ":red[**Measurements: 8 / 36 missed (4 normal)**]"
+    # Review four, ruling 1: the red line is the Overall score's; the
+    # measurements' misses a plain line under it.
+    assert p["lines"] == [":red[**Overall score: 3 / 16 missed**]",
+                          "Measurements miss more than expected"]
 
 
 def test_the_method_is_one_click_away(screens):  # noqa: F811
@@ -64,19 +68,6 @@ def test_hidden_gain_is_one_deliberate_line():
     for text in wording.HERO_HIDDEN.values():
         assert _words(text) <= 10, text
     assert wording.HERO_HIDDEN_ICON.startswith(":material/")
-
-
-def test_the_hero_splits_into_two_aligned_charts(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(U.st, "session_state", {})
-    opt = D.load(D.LINE_A)
-    computed = U._computed(opt, quiet=True)
-    data = U.chooses_data(opt, computed["fitted"], None, mode=U.CHOOSES_LINE)
-    top, bottom = U.chooses_chart(opt, data, heights=U.HERO_HEIGHTS, compact=True, split=True)
-    for part in (top, bottom):
-        spec = part.to_dict()
-        assert spec["autosize"]["type"] == "fit-x"
-        assert spec["config"]["axisY"]["minExtent"] == spec["config"]["axisY"]["maxExtent"]
 
 
 def test_make_a_round_lines_within_the_limits():

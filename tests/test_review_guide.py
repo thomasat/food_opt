@@ -27,9 +27,11 @@ from ui_helpers import REVIEW_DUE_KEY, open_rows
 STATUS = {
     D.SNACK: ("Not yet", "Too early", None),
     D.LINE_A: ("Reliable", "No new best", None),
-    D.LINE_B: ("Off", "Flat", "Check panel first"),
+    # Review four, ruling 1: the word reads the Overall score's record
+    # (Line B 13 of 16: Not yet; the process-only study 12 of 16: Off).
+    D.LINE_B: ("Not yet", "Flat", "Check panel first"),
     D.LINE_C: ("Not yet", "Within noise", None),
-    D.PROCESS_ONLY: ("Not yet", "Within noise", None),
+    D.PROCESS_ONLY: ("Off", "Within noise", None),
 }
 SETUP, BATCH, RESULTS, REVIEW = range(4)
 

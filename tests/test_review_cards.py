@@ -41,13 +41,19 @@ EXPECTED = {
         "Where the app looks next", ["Appears after 5 scored formulations."]),
     D.LINE_A: (
         "Review after Round 5 · 20 formulations · Round 6 open · Formulation 19 waiting",
-        [("Predictions", "Reliable", ["33 / 35 in range"]),
+        # Review four, ruling 1: the Overall score's record (was the
+        # measurements' 33 / 35).
+        [("Predictions", "Reliable", ["Overall score: 13 / 15 in range"]),
          ("Progress", "No new best", ["Best 90.45 · Formulation 15"]),
          ("Next", "Record Round 6", ["4 formulations open", "Round 7: Repeat Formulation 15"])],
         "How the app chose Round 6", ["Suggestions go where expected gain peaks."]),
     D.LINE_B: (
         "Review after Round 5 · 21 formulations · Round 6 open",
-        [("Predictions", ":red[Off]", [":red[**Measurements: 8 / 36 missed (4 normal)**]"]),
+        # Review four, ruling 1: the Overall score missed 3 of 16 (tail
+        # 0.04: More misses than expected, Not yet); the measurements' 8 / 36
+        # a plain line. The disagreeing Repeat stays the Next card's, red.
+        [("Predictions", "Not yet", [":red[**Overall score: 3 / 16 missed**]",
+                                     "Measurements miss more than expected"]),
          ("Progress", "Flat", ["Best 90.09 · same for 2 Rounds"]),
          ("Next", ":red[Check panel first]", [":red[**Before Round 6**]",
                                               ":red[**Formulation 11's Repeat: 10.5 lower**]"])],
@@ -71,7 +77,7 @@ EXPECTED = {
         "Where the app looks next", [_HIDDEN + wording.HERO_HIDDEN["skill"]]),
     D.TIMING: (
         "Review after Round 12 · 60 formulations",
-        [("Predictions", "Reliable", ["58 / 60 in range"]),
+        [("Predictions", "Reliable", ["Overall score: 54 / 55 in range"]),   # ruling 1
          ("Progress", "Flat", ["Best 92.50 · same for 7 Rounds"]),
          ("Next", "Make Round 13", ["No Round open"])],
         "Where the app looks next", ["Suggestions go where expected gain peaks."]),
@@ -80,7 +86,9 @@ EXPECTED = {
         # Review diagnosis ruling 2 asks Line C's Repeat; here the Next card
         # already asks for Trial 21, so Predictions does not (one action,
         # one card: demo build).
-        [("Predictions", "Not yet", ["Not clearly better than averaging"]),
+        # Review four, ruling 1: the Overall score missed 4 of 16 (tail
+        # 0.007): Off, on the score the suggestions use.
+        [("Predictions", ":red[Off]", [":red[**Overall score: 4 / 16 missed**]"]),
          ("Progress", "Within noise", ["Best 87.92 · +1.9 (needs 3.2)"]),
          ("Next", "Record Round 6", ["4 trials open", "Round 7: Repeat Trial 21"])],
         "How the app chose Round 6", [_HIDDEN + wording.HERO_HIDDEN["skill"]]),
@@ -221,19 +229,12 @@ def test_one_primary_button_and_it_is_the_next_cards(screens, name):
 
 @pytest.mark.parametrize("name", D.ALL)
 def test_word_limits(screens, name):
-    """Owner's rule: a card line at most 6 words, a big word at most 5, the
-    hero's caption at most 8 and its withheld reason at most 10."""
+    """Owner's rule: a card line at most 6 words, a big word at most 5 (the
+    hero's lines went with the hero: review four)."""
     for c in cards(screens[name]):
         assert _words(c["word"]) <= 5, c["word"]
         for line in c["lines"]:
             assert _words(line) <= 6, line
-    _, _, _, hero = EXPECTED[name]
-    for line in hero:
-        if line.startswith(_HIDDEN):
-            # Review polish: a hidden gain's one line is the withheld reason.
-            assert _words(line[len(_HIDDEN):]) <= 10, line
-        else:
-            assert _words(line) <= 8, line
 
 
 @pytest.mark.parametrize("name", D.ALL)
@@ -249,7 +250,8 @@ def test_each_card_tooltip_holds_the_full_sentence_then_the_exact_rule(screens, 
 def test_predictions_tooltip_says_the_coverage_and_skill_exactly(screens):
     help_text = cards(screens[D.LINE_A])[0]["help"]
     plain, rule = help_text.split("\n\n", 1)
-    assert "33 of 35 results landed inside the range the app predicted" in plain
+    # Review four, ruling 1: the sentence's counts are the Overall score's.
+    assert "13 of 15 Overall scores landed inside the range the app predicted" in plain
     assert ("33 of 35 Round-ahead values inside their 95 % posterior predictive intervals"
             in rule)
     assert "skill 1 − SSE/SSE(mean of the rows before each Round) = 0.36 over 15" in rule
@@ -269,7 +271,9 @@ def test_warnings_are_never_folded(screens, name):
 def test_off_says_check_before_the_round(screens):
     # Review polish, one action, one card: the Next card says it.
     p, _, n = cards(screens[D.LINE_B])
-    assert p["word"] == ":red[Off]"
+    # Review four, ruling 1: Line B's Overall score is More misses than
+    # expected (Not yet); the check is the Next card's, in red.
+    assert p["word"] == "Not yet"
     assert ":red[**Check panel before Round 6**]" not in p["lines"]
     assert n["word"] == ":red[Check panel first]" and ":red[**Before Round 6**]" in n["lines"]
 
@@ -284,33 +288,15 @@ def test_waiting_and_the_repeat_request_stay_visible(screens):
 
 
 @pytest.mark.parametrize("name", D.ALL)
-def test_the_hero_chart_and_its_lines(screens, name):
-    _, _, title, lines = EXPECTED[name]
-    rows = outside(screens[name])
-    texts = [t for _, t in rows]
-    at = texts.index(f"**{title}**")
-    assert texts[at + 1:at + 1 + len(lines)] == lines
-
-
-@pytest.mark.parametrize("name", D.ALL)
-def test_two_folds_only_and_no_old_status_lines(screens, name):
+def test_one_fold_only_and_no_old_status_lines(screens, name):
     rows = outside(screens[name])
     folds = [t for k, t in rows if k == "expander"]
-    assert folds == [wording.FOLD_TRIED, wording.FOLD_MORE]
+    # Review four: the questions are always open; Method and definitions
+    # is the one fold left.
+    assert folds == [wording.FOLD_METHOD]
     texts = [t for _, t in rows]
     assert not any(t.startswith(("Predictions:", "Progress:", "Next:")) for t in texts)
     assert wording.FOLD_EXPLORED not in folds
-
-
-def test_more_detail_holds_everything_else(screens):
-    inner = {el.label for el, folds, _ in _leaves(screens[D.LINE_A].tabs[3])
-             if el.type == "expander" and folds[:1] == (wording.FOLD_MORE,)}
-    for label in (wording.FOLD_PREDICTION_FIGURES, wording.FOLD_PROGRESS_FIGURES,
-                  wording.FOLD_NEXT_REASONING, wording.FOLD_EXPLORED, wording.FOLD_METHOD,
-                  wording.PAIR_FOLD,
-                  wording.for_project(D.load(D.LINE_A),
-                                      ui_insights._try_one_label(D.load(D.LINE_A)))):
-        assert label in inner, (label, inner)
 
 
 def test_sparklines_need_two_rounds():
