@@ -62,8 +62,8 @@ def _changed_lines():
         W.round_track_bias(10, 10, "1.2", rounds=[3, 4, 5]),
         W.round_track_rough(9, 12, "2.0", rounds=[3, 4, 5]),
         W.round_track_rough(7, 12, rounds=[3, 4, 5], allowed=2),
-        W.waiting_line(1, "Cook loss"), W.tie_line(22, "90.65", "0.20", 15),
-        W.tie_line(22, "90.65", "0.20", 15, "1.2"), W.tie_equal(22, 15, "90.45"),
+        W.waiting_line(1, "Cook loss"), W.tie_line(22, "90.65", "0.20", 15, "2.3"),
+        W.tie_line(22, "90.65", "0.20", 15, "4.0"), W.tie_equal(22, 15, "90.45"),
         W.OVERALL_SCORE_HELP,
     ]
 
@@ -233,8 +233,9 @@ def test_exact_texts_from_the_audit():
     assert W.predictions_round_help() == (
         "Suggestions favour formulations the model is unsure about as well as ones it predicts "
         "high, so one can be predicted below Best so far.")
-    assert W.tie_line(22, "90.65", "0.20", 15) == (
-        "Tied with Formulation 15: 0.20 apart, within the 1-point noise threshold.")
+    # Fix A follow-up (ruling on ties): the q = 1 rise threshold, √2 × 1.645.
+    assert W.tie_line(22, "90.65", "0.20", 15, "2.3") == (
+        "Tied with Formulation 15: 0.20 apart, under the 2.3 points needed to differ.")
     assert W.round_track_holding(11, 11, rounds=[3, 4, 5]) == (
         "Overall score, Rounds 3–5: 11 of 11 inside their 95 % interval.")
     assert W.HOW_NO_P.endswith("R² on formulations chosen this way is misleading, so skill "
@@ -255,12 +256,13 @@ def test_the_new_lines_from_the_rulings():
     assert W.skill_line("0.12", 12, [2, 3], "unclear").endswith(
         ", not clearly better than the average of earlier results.")
     # 0.8.0 e2e fixes D4 (review M10): the cut stated plainly, no table.
+    # Ftue fix A re-measured the rates (I9 folds): 4.1 % and 12.5 % at n = 10.
     assert W.how_skill("−0.20").endswith(
         "At or below −0.20: no better than the average; below 0.20: not clearly better; "
         "0.20 or more: better. The cut is −0.20. In 24 simulated projects whose model's errors "
         "matched its own stated uncertainty (true skill 0.20 or more), the skill read “no "
-        "better than the average” in under 7 % of windows of 10 checks (n = 10), and below "
-        "0.20 in about 15 %; near a true skill of 0.20 it reads below 0.20 about half the "
+        "better than the average” in 4.1 % of windows of 10 checks (n = 10), and below "
+        "0.20 in 12.5 %; near a true skill of 0.20 it reads below 0.20 about half the "
         "time. Ingredient effects are reported only from 10 values and skill 0.20.")
     assert W.guard_line([W.GUARD_FLOOR]) == (
         "The model is fitting noise in these results (the model's correlation length is at its "

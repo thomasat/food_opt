@@ -201,8 +201,10 @@ def test_the_settings_only_forms_name_no_ingredient_or_amount():
 
 # Ftue fix A (statistician's cold read I5, I6, I7, I9) changed the facts
 # of Lines A-C; the texts below are the review's words on the new facts.
-# Line C's Within-noise sentence still names the 1-point noise SD, not the
-# 3.16 points (1 × √2 × z_4) the rise is judged against: B's to reword.
+# Fix A follow-up (decision 4): Line C's Within-noise sentence names the
+# 3.2 points (1 × √2 × z_4 = 3.16) the rise is judged against (decision 4);
+# Line B's Repeat limit is 8.2, the larger of 2.8 and its own predictive
+# limit while Repeats have under 3 df (decision 2).
 _EXACT = {
     "Snack bar": (
         "The app starts checking its predictions once 5 formulations have results; 3 have so far.",
@@ -224,7 +226,7 @@ _EXACT = {
         "with Formulation 10).",
         "Check what changed before you make Round 6. Formulation 21, a Repeat of Formulation 11, "
         "scored 10.5 points lower, more than two makes of one formulation should differ (up to "
-        "2.8 points). Look at the panel, suppliers and equipment."),
+        "8.2 points). Look at the panel, suppliers and equipment."),
     "Line C": (
         "Score predictions do no better than simply using the average of earlier scores (skill "
         "−0.47, where 0 matches that average and 1 is exact); those for Firmness, Juiciness and "
@@ -232,8 +234,7 @@ _EXACT = {
         "the next than the app can explain, most for Cook loss. If the panel or method is new, "
         "check how consistently it measures.",
         "Round 5 raised Best so far by 2.5 points, to 89.84 of 100 (Formulation 18, tied with "
-        "Formulation 20), less than the 1 point results are assumed to vary until 3 Repeats "
-        "measure it.",
+        "Formulation 20), less than the 3.2 points needed to count as a rise.",
         # The review: "…treat the suggestions as a guided search…" (style
         # guide rule 7 retires "treat … as"; t0-report).
         "Record the 4 formulations still open in Round 6, then make the next Round. Until "
@@ -293,9 +294,10 @@ def test_the_templates_for_unreached_states():
         "about 1.2 points above the predictions; the app does not yet read what each ingredient "
         "does.")
     assert "(up to 1 miss is normal)" in W.pred_reliable([3], 11, 12, 1)
-    assert W.progress_within_noise(5, "0.4", "89.84", 100, 18) == (
+    # Fix A follow-up (decision 4): the threshold, not the noise SD.
+    assert W.progress_within_noise(5, "0.4", "89.84", 100, 18, "2.3") == (
         "Round 5 raised Best so far by 0.4 points, to 89.84 of 100 (Formulation 18), less than "
-        "the 1 point results are assumed to vary until 3 Repeats measure it.")
+        "the 2.3 points needed to count as a rise.")
     # R-I2: no line but Next's repeat row says "check".
     for text in (*_status_lines(),):
         if "check it before" in text:
@@ -366,8 +368,10 @@ def test_the_status_tooltip_is_the_reviews_exact_rule():
         "each Round) = 0.36 over 15 formulations, at least 0.20 over at least 10 needed. Each "
         "Round is predicted by models refitted today on earlier Rounds only.")
     # R-I11: Reliable's own limits, both figures.
-    assert "15 %" in W.TIP_RELIABLE_LIMITS and "12 %" in W.TIP_RELIABLE_LIMITS
-    assert "91 %" in W.TIP_RELIABLE_LIMITS and "89 %" in W.TIP_RELIABLE_LIMITS
+    # Ftue fix A re-measured both (I9 folds): 12.5 % and 11.0 % (were 15 %
+    # and 12 %); coverage 91 % and 90 % (was 89 %).
+    assert "12.5 %" in W.TIP_RELIABLE_LIMITS and "11.0 %" in W.TIP_RELIABLE_LIMITS
+    assert "91 %" in W.TIP_RELIABLE_LIMITS and "90 %" in W.TIP_RELIABLE_LIMITS
 
 
 @pytest.mark.parametrize("tip", [
@@ -431,7 +435,8 @@ def test_the_gate_shows_only_what_applies():
 def test_the_known_limits_hold_every_item_of_the_review():
     """R-I12, R-I11, §8."""
     text = " ".join(W.MODEL_LIMITS)
-    for needle in ("91 %", "89 %", "15 %", "12 %", "differ slightly from the suggestion model",
+    # Ftue fix A re-measured: 90 % (was 89 %), 12.5 % and 11.0 % (15 %, 12 %).
+    for needle in ("91 %", "90 %", "12.5 %", "11.0 %", "differ slightly from the suggestion model",
                    "cut at 0 and the score ceiling", "waiting for results are left out",
                    "one noisy maximum", "few degrees of freedom", "many comparisons",
                    "a Repeat of an earlier formulation in each Round", "35 %", "75–89 %"):

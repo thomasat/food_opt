@@ -85,7 +85,8 @@ def test_the_column_explains_itself_in_its_tooltip(warm_round):
             in str(_batch_table(at).proto))
     # Ledger, statistician cold read I2 (fix round B): no "19 in 20" claim; the
     # plain reading gives the 95 % aim and the coverage measured on simulated projects.
-    assert ("Aims for 95 %; measured about 91 % (measurements) / 89 % (Overall score) on "
+    # Ftue fix A's re-run (I9 folds): 90 % of Overall scores (was 89 %).
+    assert ("Aims for 95 %; measured about 91 % (measurements) / 90 % (Overall score) on "
             "simulated projects.") in str(_batch_table(at).proto)
 
 
@@ -520,10 +521,11 @@ def test_exact_wave_b_strings():
     assert wording.PREDICTED_SCORE_COLUMN == "Predicted Overall score (95 % interval)"
     # Ledger, statistician cold read I2 (fix round B): no "19 in 20" claim; the
     # plain reading gives the 95 % aim and the coverage measured on simulated projects.
+    # Ftue fix A's re-run (I9 folds): 90 % of Overall scores (was 89 %).
     assert wording.PREDICTED_SCORE_HELP == (
         "Model mean and 95 % prediction interval for one measured Overall score, from a "
         "Gaussian process fitted to the scored formulations. Aims for 95 %; measured about "
-        "91 % (measurements) / 89 % (Overall score) on simulated projects.")
+        "91 % (measurements) / 90 % (Overall score) on simulated projects.")
     assert wording.PREDICTIONS_ROUND_CAPTION == "Exploring suggestions can predict below Best so far."
     assert wording.predictions_round_help() == (
         "Suggestions favour formulations the model is unsure about as well as ones it "

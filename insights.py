@@ -968,6 +968,11 @@ class Disagreement:
     df: int = 0
     noise: float | None = None
     repeat_sd: float | None = None
+    # Fix A follow-up (owner, decision 2): while that Repeat SD has fewer
+    # than YARDSTICK_DF df, the pair must also beat √2 × the later one's own
+    # Round-ahead 95 % half-width (the earlier rule); that limit, in points.
+    # None from YARDSTICK_DF df, when the Repeat SD alone sets the limit.
+    predictive: float | None = None
 
 
 # The Overall score's noise SD while Repeats have fewer than YARDSTICK_DF
@@ -994,11 +999,20 @@ def repeat_sigma(noise, spread):
 
 def disagreeing_repeat(opt, checks, matches=None):
     """The one Repeat whose Overall score differs from its original by more
-    than two results should (review I4), or None: |d| over √2 × 1.96 × σ
-    (ftue fix A, cold read I7), σ the larger of the later one's Round-ahead
-    model's fitted noise SD and the Repeat SD from YARDSTICK_DF degrees of
-    freedom with the later one left out (leave-one-out: the pair tested
-    never sets its own limit), else the assumed 1 point (repeat_sigma). Only
+    than two results should (review I4), or None. The Repeat SD is taken
+    with the later one left out (leave-one-out: the pair tested never sets
+    its own limit).
+
+    - From YARDSTICK_DF degrees of freedom: |d| over √2 × 1.96 × that
+      Repeat SD alone (fix A follow-up, owner's decision 2).
+    - Before: |d| over BOTH √2 × 1.96 × σ, σ the larger of the later one's
+      Round-ahead model's fitted noise SD and the assumed 1 point
+      (repeat_sigma; ftue fix A, cold read I7), AND √2 × the later one's
+      own Round-ahead 95 % half-width (the earlier rule). 03 clean's
+      ordinary Repeat (2.84 points, true noise about 1.3) no longer reads
+      as a disagreement on the assumed 1 point alone.
+
+    Only
     a later one in the verdict's Rounds counts, a group of three or more
     compares each with its first, either direction counts, and of several
     the largest |d| is named. The flagged pair stays in every reported
@@ -1022,13 +1036,21 @@ def disagreeing_repeat(opt, checks, matches=None):
                 continue
             noise = getattr(c, "noise", None)
             spread = repeat_sd(opt, SCORE, matches, (i,))
-            sigma, basis = repeat_sigma(noise, spread)
-            limit = math.sqrt(2) * Z95 * sigma
+            if (spread.sd is not None and spread.sd >= REPEAT_SD_SHOWN
+                    and spread.df >= YARDSTICK_DF):
+                sigma, basis, predictive = spread.sd, "repeats", None
+                limit = math.sqrt(2) * Z95 * sigma
+            else:
+                sigma, basis = repeat_sigma(noise, spread)
+                # The half-width shown for that check, its I1 widening included.
+                half = Z95 * c.sd * c.widen if c.sd else (c.high - c.low) / 2
+                predictive = math.sqrt(2) * half
+                limit = max(math.sqrt(2) * Z95 * sigma, predictive)
             d = float(opt.Y_history[i]) - float(opt.Y_history[first])
             if abs(d) > limit and (best is None or abs(d) > abs(best.diff)):
                 best = Disagreement(int(opt.formulation_ids[i]),
                                     int(opt.formulation_ids[first]), d, i, limit,
-                                    sigma, basis, spread.df, noise, spread.sd)
+                                    sigma, basis, spread.df, noise, spread.sd, predictive)
     return best
 
 
@@ -1637,6 +1659,10 @@ class Improvement:
     # latest Round the rise is the top of. None and 0 for "not_lately".
     threshold: float | None = None
     q: int = 0
+    # Fix A follow-up (owner, decision 3): the degrees of freedom of the
+    # Repeat SD the threshold uses t on; 0 when the noise SD is the assumed
+    # 1 point (z).
+    df: int = 0
 
 
 # The one-sided false-alarm rate of Rising (ftue fix A, cold read I6).
@@ -1650,13 +1676,29 @@ def rise_z(q):
     return float(ndtri((1.0 - RISE_ALPHA) ** (1.0 / max(1, int(q)))))
 
 
-def rise_threshold(sd, q):
+def rise_quantile(q, df=None):
+    """The max-of-q factor: rise_z(q) for the assumed noise SD (`df`
+    None or 0), else its analogue on t, t_df⁻¹((1 − RISE_ALPHA)^(1/q)), for
+    a noise SD estimated from Repeats with `df` degrees of freedom (fix A
+    follow-up, owner's decision 3). 4.15 at q = 4 on 3 df."""
+    if not df:
+        return rise_z(q)
+    return float(stdtrit(int(df), (1.0 - RISE_ALPHA) ** (1.0 / max(1, int(q)))))
+
+
+def rise_threshold(sd, q, df=None):
     """What a rise must beat to read Rising (ftue fix A, cold read I6): the
-    noise SD × √2 (a difference of two results) × rise_z(q) (the top of q
-    new results). With 4 new formulations as good as the old best, Rising
-    then shows about 1 time in 20 by chance; against one noise SD it
-    showed about 1 time in 2."""
-    return sd * math.sqrt(2) * rise_z(q)
+    noise SD × √2 (a difference of two results) × rise_quantile(q, df) (the
+    top of q new results; t on `df` when the SD comes from Repeats). With 4
+    new formulations as good as the old best, Rising then shows about 1
+    time in 20 by chance with a known SD, about 1 in 30 with one estimated
+    on 3 df; against one noise SD it showed about 1 time in 2. `sd` may be
+    a Yardstick (noise_yardstick): its value, and its df when it comes from
+    Repeats. Ties ask rise_threshold(yard, 1), so a tie and Rising agree."""
+    if isinstance(sd, Yardstick):
+        df = sd.df if sd.from_repeats else None
+        sd = sd.value
+    return sd * math.sqrt(2) * rise_quantile(q, df)
 
 
 # A spread between Repeats under this reads 0.0 on screen, so the tab
@@ -1677,7 +1719,9 @@ def improvement(opt, facts=None, spread=None, yardstick=None):
       otherwise. The noise SD is the Overall score's spread between
       Repeats (1 point without Repeats, or with a spread under
       REPEAT_SD_SHOWN); q is how many scored formulations the latest Round
-      has, the rise being the top of them. Both are compared to the
+      has, the rise being the top of them. A noise SD from Repeats takes t
+      on their degrees of freedom for z (fix A follow-up, owner's decision
+      3; Improvement.df), the assumed 1 point keeps z. Both are compared to the
       hundredth, as the answer can print them, so its words never
       contradict its numbers.
     - Anything else (one Round only, or no higher score in just the
@@ -1692,10 +1736,13 @@ def improvement(opt, facts=None, spread=None, yardstick=None):
         return None
     if yardstick is not None:
         sd = yardstick.value if yardstick.from_repeats else None
+        df = yardstick.df
     else:
-        sd = (repeat_sd(opt, SCORE) if spread is None else spread).sd
+        spread = repeat_sd(opt, SCORE) if spread is None else spread
+        sd, df = spread.sd, spread.df
     if sd is not None and sd < REPEAT_SD_SHOWN:
         sd = None
+    df = df if sd is not None else 0
     if f.rounds_since >= 2:
         return Improvement("not_lately", None, sd, f.rounds_since)
     if f.rounds_since or not f.latest:
@@ -1706,9 +1753,9 @@ def improvement(opt, facts=None, spread=None, yardstick=None):
         return None
     rise = f.score - max(earlier)
     q = sum(1 for i in opt.best_candidates() if opt.batch_history[i] == f.round)
-    threshold = rise_threshold(sd if sd is not None else 1.0, q)
+    threshold = rise_threshold(sd if sd is not None else 1.0, q, df)
     barely = round(rise, 2) < round(threshold, 2)
-    return Improvement("barely" if barely else "yes", rise, sd, 0, threshold, q)
+    return Improvement("barely" if barely else "yes", rise, sd, 0, threshold, q, df)
 
 
 def _same(opt, a, b):

@@ -198,10 +198,10 @@ def test_progress_builders_name_a_tie_and_the_little_more_clause():
     assert W.progress_no_new_best(5, "90.45", 100, 15, 4, little=()) == (
         "Round 5 did not beat Best so far, 90.45 of 100 (Formulation 15, Round 4). The app "
         "expects little more inside your current limits.")
-    assert W.progress_rising(5, "2.5", "89.84", 100, 18, near_no=20) == (
-        "Round 5 raised Best so far by 2.5 points, to 89.84 of 100 (Formulation 18, tied with "
-        "Formulation 20), more than the 1 point results are assumed to vary until 3 Repeats "
-        "measure it.")
+    # Fix A follow-up (decision 4): the threshold the rise beat, not the SD.
+    assert W.progress_rising(5, "3.5", "89.84", 100, 18, "3.2", near_no=20) == (
+        "Round 5 raised Best so far by 3.5 points, to 89.84 of 100 (Formulation 18, tied with "
+        "Formulation 20), more than the 3.2 points needed to count as a rise.")
     assert W.progress_flat(7, "92.50", 100, 24, 5, luck_text="90", near_no=3) == (
         "No higher score in 7 Rounds. Best so far is 92.50 of 100 (Formulation 24, Round 5; tied "
         "with Formulation 3), probably helped by luck: a Repeat of it is predicted near 90.")
@@ -242,10 +242,14 @@ def test_progress_sentence_names_a_runner_up_within_the_threshold():
     other = insights.tie_partner(opt, top)
     gap = float(opt.Y_history[top]) - float(opt.Y_history[other])
     f = _best(opt, rounds_since=1, latest=False)
-    facts = _facts("reliable", progress="no_new_best", best=f, yardstick=_yard(gap + 0.5))
+    # Fix A follow-up (ruling on ties): the lead is judged against
+    # rise_threshold(yard, 1) = noise SD × √2 × 1.645, not the noise SD.
+    per = insights.rise_threshold(1.0, 1)
+    facts = _facts("reliable", progress="no_new_best", best=f, yardstick=_yard((gap + 0.5) / per))
     text = ui_insights.progress_sentence(opt, facts)
     assert f"tied with {W.FORMULATION_CAP} {int(opt.formulation_ids[other])})" in text
-    facts = _facts("reliable", progress="no_new_best", best=f, yardstick=_yard(max(gap - 0.01, 0)))
+    facts = _facts("reliable", progress="no_new_best", best=f,
+                   yardstick=_yard(max(gap - 0.01, 0) / per))
     assert "tied with" not in ui_insights.progress_sentence(opt, facts)
 
 
@@ -357,12 +361,13 @@ def test_i2_the_coverage_aim_and_its_measured_rate_from_one_constant(monkeypatch
     for t in _everything():
         assert "19 in 20" not in t and "19 times in 20" not in t, t
     reading = W.coverage_reading()
-    assert reading == ("Aims for 95 %; measured about 91 % (measurements) / 89 % (Overall "
+    # Ftue fix A's re-run (I9 folds): 90 % of Overall scores, was 89 %.
+    assert reading == ("Aims for 95 %; measured about 91 % (measurements) / 90 % (Overall "
                        "score) on simulated projects.")
     assert reading in W.HOW_RANGE
     assert W.predicted_score_help(20).endswith(reading)
-    monkeypatch.setattr(W, "SIMULATED_COVERAGE", {"measurements": 92, "score": 90})
-    assert "about 92 % (measurements) / 90 % (Overall score)" in W.coverage_reading()
+    monkeypatch.setattr(W, "SIMULATED_COVERAGE", {"measurements": 92, "score": 88})
+    assert "about 92 % (measurements) / 88 % (Overall score)" in W.coverage_reading()
 
 
 def test_i3_the_second_widening_widens_and_does_not_debias():

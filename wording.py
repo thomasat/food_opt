@@ -4052,9 +4052,12 @@ HOW_MODELS = how_models()
 
 
 # Fix round B (statistician I2): what the 95 % intervals aim for, and how
-# often they held on the app's simulated projects — one constant, which fix
-# round A sets from its own re-run (fix-a-report.md); 91 / 89 until then.
-SIMULATED_COVERAGE = {"measurements": 91, "score": 89}
+# often they held on the app's simulated projects — one constant, set from
+# fix A's re-run (fix-a-report.md, I9: Round-grouped folds): the 48
+# simulated projects, all Rounds, 90.6 % of measured values and 90.0 % of
+# Overall scores before the second widening (92.5 % as shown). 91 / 89
+# before fix A.
+SIMULATED_COVERAGE = {"measurements": 91, "score": 90}
 
 
 def coverage_reading():
@@ -4548,9 +4551,26 @@ def stand_yes(rise_text, threshold_text=None):
             f"{threshold_text or beat_by()}.")
 
 
-def stand_barely(rise_text, sd_text=None):
+def stand_barely(rise_text, sd_text=None, threshold_text=None):
+    """Within noise: the last rise under what it needed (`threshold_text`,
+    rise_needs' words; fix A follow-up), else under beat_by's."""
     return (f"Within noise: up {points_text(rise_text)} in the last {ROUND_CAP}, under "
-            f"{beat_by(sd_text)}.")
+            f"{threshold_text or beat_by(sd_text)}.")
+
+
+def rise_factor(factor_text, q, df=None):
+    """The max-of-q factor in the threshold (ftue fix A, cold read I6; fix A
+    follow-up): '√2 × 2.23 (best of 4)'; on t, '√2 × 4.15 (best of 4, t on 3
+    df)'; for one result, '√2 × 1.64'."""
+    notes = ([f"best of {q}"] if q and q > 1 else []) + ([f"t on {df} df"] if df else [])
+    return f"√2 × {factor_text}" + (f" ({', '.join(notes)})" if notes else "")
+
+
+def rise_needs(need_text, factor_text, basis_text, what="needed"):
+    """What a rise (or, `what` "needed to differ", a lead) must beat, with
+    its make-up: 'the 3.2 points needed: √2 × 2.23 (best of 4) × the 1-point
+    noise threshold'. `basis_text`: beat_by's words for the noise SD."""
+    return f"the {points_text(need_text)} {what}: {factor_text} × {basis_text}"
 
 
 def stand_not_lately(k):
@@ -5048,11 +5068,12 @@ OVERALL_SCORE_HELP = (f"{OVERALL_SCORE_COLUMN}, 0–100: the sum over measuremen
                       "only; changing a share, a goal or a Range recalculates every score.")
 
 
-def tie_line(new_no, score_text, lead_text, old_no, sd_text=None):
-    """A new Best so far that leads by less than the noise threshold (§4
-    ties; 03 §5.9): the threshold's one name, beat_by's."""
-    return (f"Tied with {FORMULATION_CAP} {old_no}: {lead_text} apart, within "
-            f"{beat_by(sd_text)}.")
+def tie_line(new_no, score_text, lead_text, old_no, need_text):
+    """A new Best so far that leads by less than a single new result needs
+    to differ (§4 ties; 03 §5.9; fix A follow-up: rise_threshold(noise SD,
+    1), the rule Rising uses, so a tie never reads as Rising)."""
+    return (f"Tied with {FORMULATION_CAP} {old_no}: {lead_text} apart, under the "
+            f"{points_text(need_text)} needed to differ.")
 
 
 def tie_equal(best_no, other_no, score_text):
@@ -5250,7 +5271,8 @@ def how_skill(cut_text="−0.20", settings_only=False):
     """Method and details (review I2, M6; fix round 1; 0.8.0 e2e fixes D4,
     review M10): the statistic, its baseline, its pooling, its minimum n,
     the three readings, the cut stated plainly with what it costs a correct
-    model at n = 10 (simulation gate: 6.9 % and 15.3 %), and the 0.20 rule
+    model at n = 10 (simulation gate, re-measured by ftue fix A: 4.1 % and
+    12.5 %; 6.9 % and 15.3 % before), and the 0.20 rule
     the effect claims follow (A3)."""
     effects = "Setting effects" if settings_only else "Ingredient effects"
     return ("Skill: 1 − (sum of squared Round-ahead errors) ÷ (sum of squared errors of the "
@@ -5260,8 +5282,8 @@ def how_skill(cut_text="−0.20", settings_only=False):
             f"At or below {cut_text}: no better than the average; below 0.20: not clearly "
             f"better; 0.20 or more: better. The cut is {cut_text}. In 24 simulated projects "
             "whose model's errors matched its own stated uncertainty (true skill 0.20 or more), "
-            "the skill read “no better than the average” in under 7 % of windows of 10 checks "
-            "(n = 10), and below 0.20 in about 15 %; near a true skill of 0.20 it reads below "
+            "the skill read “no better than the average” in 4.1 % of windows of 10 checks "
+            "(n = 10), and below 0.20 in 12.5 %; near a true skill of 0.20 it reads below "
             f"0.20 about half the time. {effects} are reported only from 10 values and skill "
             "0.20.")
 
@@ -6243,18 +6265,25 @@ def _raised(rnd, rise_text, score_text, ceiling, no, near_no=None):
             f"{_tied_with(near_no, after_round=False)})")
 
 
-def progress_rising(rnd, rise_text, score_text, ceiling, no, sd_text=None, near_no=None):
-    """Rising: 'Round 5 raised Best so far by 2.5 points, to 89.84 of 100
-    (Formulation 18, tied with Formulation 20), more than the 1 point
-    results are assumed to vary until 3 Repeats measure it.'"""
+def _needed(need_text):
+    """'the 3.2 points needed to count as a rise' (fix A follow-up: the
+    threshold the rise is judged against, Improvement.threshold, not the
+    noise SD it is built from)."""
+    return f"the {points_text(need_text)} needed to count as a rise"
+
+
+def progress_rising(rnd, rise_text, score_text, ceiling, no, need_text, near_no=None):
+    """Rising: 'Round 5 raised Best so far by 3.5 points, to 89.84 of 100
+    (Formulation 18, tied with Formulation 20), more than the 3.2 points
+    needed to count as a rise.'"""
     raised = _raised(rnd, rise_text, score_text, ceiling, no, near_no)
-    return f"{raised}, more than {vary_threshold(sd_text)}."
+    return f"{raised}, more than {_needed(need_text)}."
 
 
-def progress_within_noise(rnd, rise_text, score_text, ceiling, no, sd_text=None, near_no=None):
+def progress_within_noise(rnd, rise_text, score_text, ceiling, no, need_text, near_no=None):
     """Within noise: the same, "less than"."""
     raised = _raised(rnd, rise_text, score_text, ceiling, no, near_no)
-    return f"{raised}, less than {vary_threshold(sd_text)}."
+    return f"{raised}, less than {_needed(need_text)}."
 
 
 def tie_runner_up(no, score_text, threshold_text):
@@ -6594,18 +6623,21 @@ TIP_REFITTED = f"Each {ROUND_CAP} is predicted by models refitted today on earli
 # R-I11: what "Reliable" can and cannot promise, in its own tooltip.
 TIP_RELIABLE_LIMITS = (
     f"Reliable can change between {ROUND_CAP}s by chance. In 24 simulated projects whose true "
-    "skill was 0.20 or more, the skill read below 0.20 in about 15 % of windows of 10 checks "
-    "(n = 10) and 12 % of windows of 15 (n = 15); a model whose true skill is near 0.20 reads "
+    "skill was 0.20 or more, the skill read below 0.20 in 12.5 % of windows of 10 checks "
+    "(n = 10) and 11.0 % of windows of 15 (n = 15); a model whose true skill is near 0.20 reads "
     "below 0.20 about half the time. The 95 % intervals: " + coverage_reading())
 
 
 def tip_repeat_off(later, earlier, diff_text, half_text):
-    """Row 1's rule: the difference against √2 × the later formulation's
-    own Round-ahead half-width (nested widening included)."""
+    """Row 1's rule (ftue fix A, cold read I7, and its follow-up): until the
+    Repeat SD without the pair has 3 df, both limits; from 3 df, that
+    Repeat SD alone. The pair stays in the reported Repeat SD."""
     return (f"{FORMULATION_CAP} {later}, a Repeat of {FORMULATION_CAP} {earlier}, differs by "
-            f"{points_text(diff_text)}: more than ±{half_text}, the 95 % interval for the "
-            "difference of two results (√2 × the later one's Round-ahead half-width). The pair "
-            "is left out of the Repeat SD.")
+            f"{points_text(diff_text)}: more than ±{half_text}, the 95 % limit for the "
+            "difference of two results. Until the other Repeats give 3 degrees of freedom "
+            "(3 df), a pair must beat both √2 × 1.96 × the larger of the model's noise SD and "
+            "the assumed 1 point, and √2 × the later one's Round-ahead half-width; from 3 df, "
+            "√2 × 1.96 × the Repeat SD without this pair. The pair stays in the Repeat SD.")
 
 
 def tip_bias(gap_text, n, rounds):
@@ -6637,13 +6669,22 @@ def tip_threshold_measured(sd_text, pairs, df=None):
 TIP_THRESHOLD_ASSUMED = "1 point, assumed: the Repeats give fewer than 3 degrees of freedom (3 df)"
 
 
-def tip_progress(threshold_text):
-    """The Progress line's rule (§7): `threshold_text` is
-    tip_threshold_measured's or TIP_THRESHOLD_ASSUMED."""
-    return (f"Rise = Best so far minus the best before the latest scored {ROUND_CAP}, compared "
-            f"to the hundredth with the noise threshold ({threshold_text}). Rising at or above "
-            f"it, Within noise below it, Flat after 2 or more scored {ROUND_CAP}s with no higher "
-            "score.")
+def tip_progress(threshold_text, need=None):
+    """The Progress line's rule (§7; ftue fix A, cold read I6, and its
+    follow-up): the rise against noise SD × √2 × the max-of-q factor.
+    `threshold_text` (the noise SD's basis) is tip_threshold_measured's or
+    TIP_THRESHOLD_ASSUMED. `need`: (threshold to the hundredth,
+    rise_factor's words, the noise SD) for the latest Round, said last."""
+    text = (f"Rise = Best so far minus the best before the latest scored {ROUND_CAP}, compared "
+            "to the hundredth with noise SD × √2 × the max-of-q factor: the one-sided 95 % "
+            f"point for the best of q new results (q: the latest {ROUND_CAP}'s scored "
+            f"{FORMULATION}s; z, or t on the Repeats' df once they measure the noise SD). "
+            f"Noise SD: {threshold_text}. Rising at or above it, Within noise below it, Flat "
+            f"after 2 or more scored {ROUND_CAP}s with no higher score.")
+    if need:
+        need_text, factor_text, sd_text = need
+        text += f" This {ROUND_CAP}: {sd_text} × {factor_text} = {points_text(need_text)}."
+    return text
 
 
 def tip_next_best(score_text, ceiling, no, rnd=None):
@@ -6790,8 +6831,8 @@ MODEL_LIMITS = (
      f"and {SIMULATED_COVERAGE['score']} % of Overall scores, short of 95 %."),
     # Fix round B (statistician I4): the error rates exactly, with their n.
     ("Reliable can change between Rounds by chance. In 24 simulated projects whose true skill "
-     "was 0.20 or more, the skill read below 0.20 in about 15 % of windows of 10 checks (n = 10) "
-     "and 12 % of windows of 15 (n = 15); a model whose true skill is near 0.20 reads below 0.20 "
+     "was 0.20 or more, the skill read below 0.20 in 12.5 % of windows of 10 checks (n = 10) "
+     "and 11.0 % of windows of 15 (n = 15); a model whose true skill is near 0.20 reads below 0.20 "
      "about half the time. No interval is shown for the skill."),
     # Fix round B (statistician I10).
     (f"Misses within a {ROUND_CAP}, and across the measurements of one {FORMULATION}, are not "
@@ -7416,8 +7457,15 @@ def short_flat(k):
     return f"No new best in {k} {ROUND_CAP}s."
 
 
-def short_rise(rise_text):
-    return f"Up {points_text(rise_text)}."
+def short_rise(rise_text, need_text=None, rising=False):
+    """'Up 2.5, needs 3.2 to count.' (Within noise) or 'Up 3.5, beats the
+    3.2 needed.' (Rising): the rise and what it is judged against,
+    Improvement.threshold (fix A follow-up)."""
+    if need_text is None:
+        return f"Up {points_text(rise_text)}."
+    if rising:
+        return f"Up {rise_text}, beats the {need_text} needed."
+    return f"Up {rise_text}, needs {need_text} to count."
 
 
 # Next.

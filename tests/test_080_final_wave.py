@@ -242,7 +242,7 @@ def test_a_repeat_of_best_so_far_is_never_its_tie_partner():
 def test_the_tie_partner_is_the_next_highest_different_formulation():
     import ui_results
     opt = _repeat_of(_three([60.0, 70.0, 69.8]), 2, 70.3)
-    assert ui_results._progress_line(opt) == wording.tie_line(4, "70.30", "0.50", 3)
+    assert ui_results._progress_line(opt) == wording.tie_line(4, "70.30", "0.50", 3, "2.3")
 
 
 def test_best_so_far_moving_to_its_own_repeat_flashes_what_the_line_says():
@@ -251,7 +251,7 @@ def test_best_so_far_moving_to_its_own_repeat_flashes_what_the_line_says():
     import ui_results
     opt = _repeat_of(_three([60.0, 70.0, 69.8]), 2, 70.3)
     line = ui_results._progress_line(opt)
-    assert ui_results._move_sentence(opt, 2, 4) == line == wording.tie_line(4, "70.30", "0.50", 3)
+    assert ui_results._move_sentence(opt, 2, 4) == line == wording.tie_line(4, "70.30", "0.50", 3, "2.3")
 
 
 def test_an_exact_tie_is_said_as_a_tie():

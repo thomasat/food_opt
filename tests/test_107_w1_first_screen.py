@@ -42,7 +42,7 @@ _SHORT = {D.SNACK: "Snack bar", D.LINE_A: "Line A", D.LINE_B: "Line B", D.LINE_C
 _PROCESS_ONLY = (
     "not_yet", wording.pred_unclear(clauses=[wording.clause_wide(["the Overall score"])],
                                     skill_text="−0.03"),
-    "within_noise", wording.progress_within_noise(5, "1.9", "87.92", 100, 21),
+    "within_noise", wording.progress_within_noise(5, "1.9", "87.92", 100, 21, "3.2"),
     wording.next_plain_see(6, 4, repeat_no=21, values=True))
 
 # R-I8: at most 130 words above the fold (header + 3 lines + button +
@@ -56,8 +56,11 @@ _BUDGET = 130
 # bold word and one short fact, the full sentence in its tooltip; every
 # project is now well under the budget (before: Snack 65, Line A 149,
 # Line B 111, Line C 157, Upgrade 85, Timing 129, process-only 154).
-_WORDS = {D.SNACK: 39, D.LINE_A: 63, D.LINE_B: 66, D.LINE_C: 65, D.UPGRADE: 47,
-          D.TIMING: 49, D.PROCESS_ONLY: 67}
+# Fix A follow-up (decision 4): Within noise names what the rise needed
+# ("Up 2.5, needs 3.2 to count."), 3 words more: Line C 65 -> 68,
+# process-only 67 -> 70.
+_WORDS = {D.SNACK: 39, D.LINE_A: 63, D.LINE_B: 66, D.LINE_C: 68, D.UPGRADE: 47,
+          D.TIMING: 49, D.PROCESS_ONLY: 70}
 _OVER_BUDGET = set()
 # The concision round's exact lines (the full sentences, FIRST_SCREENS in
 # tests/test_107_ftue.py, open each line's tooltip).
@@ -76,7 +79,8 @@ _SHORT_LINES = {
                "Repeat scored 10.5 points lower."),
     D.LINE_C: ("Predictions: **Not yet.** No better than averaging past scores. New panel or "
                "method? Check its consistency.",
-               "Progress: **Within noise.** Up 2.5 points. Best so far: 89.84 of 100, "
+               # Fix A follow-up (decision 4): the rise against the 3.2 it needed.
+               "Progress: **Within noise.** Up 2.5, needs 3.2 to count. Best so far: 89.84 of 100, "
                "Formulation 18.",
                "Next: Record Round 6's 4 open formulations. Suggestions are a guided search, "
                "not a forecast."),
@@ -90,7 +94,8 @@ _SHORT_LINES = {
                "Next: Make the next Round with a Repeat of Formulation 24."),
     D.PROCESS_ONLY: ("Predictions: **Not yet.** Not clearly better than averaging past scores. "
                      "New panel or method? Check its consistency.",
-                     "Progress: **Within noise.** Up 1.9 points. Best so far: 87.92 of 100, "
+                     "Progress: **Within noise.** Up 1.9, needs 3.2 to count. Best so far: "
+                     "87.92 of 100, "
                      "Trial 21.",
                      "Next: Record Round 6's 4 open trials. In Round 7, add a Repeat of "
                      "Trial 21."),
@@ -223,16 +228,22 @@ _IN_TOOLTIP = {
                (2, "(the same amounts again) to measure how much results vary.")],
     D.LINE_B: [(0, "fell outside the range the app predicted, where up to 4 are normal"),
                (1, "tied with Formulation 10"),
-               (2, "Formulation 21, a Repeat of Formulation 11, scored 10.5 points lower")],
+               (2, "Formulation 21, a Repeat of Formulation 11, scored 10.5 points lower"),
+               # Fix A follow-up (decision 2): the larger of the two limits.
+               (2, "(up to 8.2 points)")],
     D.LINE_C: [(0, "skill −0.47, where 0 matches that average and 1 is exact"),
                (0, "those for Firmness, Juiciness and Cook loss are still very uncertain"),
                (1, "tied with Formulation 20"),
+               # Fix A follow-up (decision 4): the threshold, not the noise SD.
+               (1, "less than the 3.2 points needed to count as a rise."),
                (2, "Until predictions beat the average")],
     D.UPGRADE: [(0, "needs 10 before it can say how far to trust them"),
                 (1, "so they are not compared with it.")],
     D.TIMING: [(1, "probably helped by luck: a Repeat of it is predicted near 90"),
                (2, "about 1.1 points of gain on average")],
-    D.PROCESS_ONLY: [(0, "skill −0.03"), (2, "(the same values again)")],
+    D.PROCESS_ONLY: [(0, "skill −0.03"),
+                     (1, "less than the 3.2 points needed to count as a rise."),
+                     (2, "(the same values again)")],
 }
 
 
@@ -404,7 +415,9 @@ def test_todays_exact_lines_sit_in_their_figures_folds(screens):
     line1 = wording.stand_best("90.45", 15, 4) + " " + wording.stand_since(1)
     assert _folds_of(at, line1) == [prog]
     assert _folds_of(at, wording.BASIS_SHORT["progress"]) == [prog]
-    tie = wording.tie_runner_up(18, "90.12", wording.beat_by())
+    # Fix A follow-up (ruling on ties): the tie names rise_threshold(yard, 1).
+    tie = wording.tie_runner_up(18, "90.12", wording.rise_needs(
+        "2.3", "√2 × 1.64", wording.beat_by(), what="needed to differ"))
     assert _folds_of(at, tie) == [prog]
     reasoning = ui_insights.next_step_text(
         opt, insights.next_step(opt, checks, ui_insights.standing_for(
@@ -441,7 +454,9 @@ def test_one_round_does_not_say_it_came_from_the_latest_round(screens):
     texts = [_text(el) for el, _ in _walk(screens[D.SNACK].tabs[3])]
     assert not any(wording.STAND_LATEST in t for t in texts)
     # Its tie is named at level 0 (equal scores) and in Progress figures.
-    assert any(t == wording.tie_runner_up(3, "96.00", wording.beat_by()) for t in texts)
+    # Fix A follow-up (ruling on ties): the tie names rise_threshold(yard, 1).
+    assert any(t == wording.tie_runner_up(3, "96.00", wording.rise_needs(
+        "2.3", "√2 × 1.64", wording.beat_by(), what="needed to differ")) for t in texts)
 
 
 def test_the_gate_line_is_gone_from_the_gate(screens):

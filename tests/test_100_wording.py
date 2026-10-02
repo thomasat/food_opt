@@ -258,11 +258,12 @@ def test_exact_texts_from_the_rulings():
         "is the noise threshold.")
     # M10 / D4: the skill paragraph states its cut and its cost plainly.
     skill = W.how_skill()
-    # Fix round B (statistician I4): the rates as a simulation's, with n.
+    # Fix round B (statistician I4): the rates as a simulation's, with n;
+    # ftue fix A re-measured them (I9 folds): 4.1 % and 12.5 % at n = 10.
     assert ("The cut is −0.20. In 24 simulated projects whose model's errors matched its own "
             "stated uncertainty (true skill 0.20 or more), the skill read “no better than the "
-            "average” in under 7 % of windows of 10 checks (n = 10), and below 0.20 in about "
-            "15 %") in skill
+            "average” in 4.1 % of windows of 10 checks (n = 10), and below 0.20 in "
+            "12.5 %") in skill
     assert "percentile" not in skill
     # M11 / D5: the verdict example from allowed_misses(n); the kernel named.
     assert "(for 36 values, up to 4 misses)" in W.how_verdict(36, 4)

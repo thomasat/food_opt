@@ -133,8 +133,9 @@ def test_make_a_round_shows_the_record_only_from_matching_checks(warm_round):
 def test_the_help_says_fall_inside():
     # Ledger, statistician cold read I2 (fix round B): no "19 in 20" claim; the
     # plain reading gives the 95 % aim and the coverage measured on simulated projects.
+    # Ftue fix A's re-run (I9 folds): 90 % of Overall scores (was 89 %).
     assert "About 19 in 20" not in wording.PREDICTED_SCORE_HELP
-    assert ("Aims for 95 %; measured about 91 % (measurements) / 89 % (Overall score) on "
+    assert ("Aims for 95 %; measured about 91 % (measurements) / 90 % (Overall score) on "
             "simulated projects.") in wording.PREDICTED_SCORE_HELP
 
 

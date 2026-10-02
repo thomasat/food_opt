@@ -331,21 +331,24 @@ def _same_formulation(opt, i, j):
 
 def _tie(opt, old, new):
     """The tie sentence when Best so far moved from row `old` to row `new`
-    by less than Repeats differ (1 point without 3 pairs), else ''. A lead
+    by less than one new result needs to differ (rise_threshold(yard, 1):
+    2.33 × the noise SD, t on the Repeats' df), else ''. A lead
     of 0.00 is an exact tie, said as one; a Repeat of the same make-up is
     never a tie (Plan B parked items)."""
     if _same_formulation(opt, old, new):
         return ""
     lead = float(opt.Y_history[new]) - float(opt.Y_history[old])
-    yard = _yardstick(opt)
-    if lead < 0 or lead >= yard.value:
+    # Fix A follow-up (ruling on ties): a lead is a tie under what one new
+    # result needs to read Rising, rise_threshold(yard, 1), so Results'
+    # tie and Insights' Rising never disagree.
+    need = insights.rise_threshold(_yardstick(opt), 1)
+    if lead < 0 or lead >= need:
         return ""
     if f"{lead:.2f}" == "0.00":
         return wording.tie_equal(int(opt.formulation_ids[new]), int(opt.formulation_ids[old]),
                                  f"{opt.Y_history[new]:.2f}")
     return wording.tie_line(int(opt.formulation_ids[new]), f"{opt.Y_history[new]:.2f}",
-                            f"{lead:.2f}", int(opt.formulation_ids[old]),
-                            f"{yard.value:.1f}" if yard.from_repeats else None)
+                            f"{lead:.2f}", int(opt.formulation_ids[old]), f"{need:.1f}")
 
 
 def _move_sentence(opt, before, after):

@@ -52,6 +52,9 @@ def statistic_names_in(text):
 # 36 outside, no bias clause (t = 2.45 < t_{0.975, 3} = 3.18), the Repeat
 # limit 7.4 -> 2.8 (√2 × 1.96 × the assumed 1 point); Line C no bias clause
 # (t = 2.69) and Within noise, not Rising (2.5 < 1 × √2 × z_4 = 3.16).
+# Fix A follow-up: the Within-noise sentence names that 3.2 (decision 4);
+# Line B's Repeat limit is 8.2, the larger of 2.8 and √2 × its own
+# Round-ahead half-width, while Repeats have under 3 df (decision 2).
 FIRST_SCREENS = {
     "Snack bar": (
         "not_yet", W.pred_gate(3),
@@ -67,13 +70,13 @@ FIRST_SCREENS = {
     "Line B": (
         "off", W.pred_off_coverage([3, 4, 5], 8, 36, 4),
         "flat", W.progress_flat(2, "90.09", 100, 11, 3, near_no=10),
-        W.next_plain_repeat(21, 11, "10.5", half_text="2.8", round_no=6)),
+        W.next_plain_repeat(21, 11, "10.5", half_text="8.2", round_no=6)),
     "Line C": (
         "not_yet", W.pred_no_skill(None,
                                    [W.clause_wide(["Firmness", "Juiciness", "Cook loss"],
                                                   cause=True, most="Cook loss")],
                                    skill_text="−0.47") + " " + W.CHECK_SCATTER,
-        "within_noise", W.progress_within_noise(5, "2.5", "89.84", 100, 18, near_no=20),
+        "within_noise", W.progress_within_noise(5, "2.5", "89.84", 100, 18, "3.2", near_no=20),
         W.next_plain_no_skill(6, 4)),
     "Upgrade check": (
         "not_yet", W.pred_too_few(2),
@@ -96,8 +99,10 @@ UNREACHED = {
     "reliable_all_clauses": W.pred_reliable(
         [4, 5, 6], 33, 36, 4, [W.clause_wide(["Cook loss"]), W.clause_bias("1.2", False),
                                W.clause_guard()]),
-    "within_noise": W.progress_within_noise(5, "0.4", "89.84", 100, 18),
-    "within_noise_measured": W.progress_within_noise(5, "0.4", "89.84", 100, 18, "1.2"),
+    # Fix A follow-up (decision 4): the threshold the rise needed, one new
+    # result on the assumed 1 point (2.3), and 4 on a measured SD (3.2).
+    "within_noise": W.progress_within_noise(5, "0.4", "89.84", 100, 18, "2.3"),
+    "within_noise_measured": W.progress_within_noise(5, "0.4", "89.84", 100, 18, "3.2"),
     "flat_tied": W.progress_flat(3, "90.09", 100, 11, 3, luck_text="88", tie_no=12),
     "no_new_best_tied": W.progress_no_new_best(5, "90.45", 100, 15, 4, tie_no=18),
     "misses": W.next_plain_misses(6, 4),

@@ -8,8 +8,19 @@ changes.
   the model's fitted noise SD and the Repeat SD (3 df or more) without the
   pair being tested; the flagged pair stays in the reported Repeat SD.
 - I9: cross-validation folds keep each Round, and each Repeat group, whole.
-- I11: the Repeat SD counts from 3 degrees of freedom, not 3 pairs."""
+- I11: the Repeat SD counts from 3 degrees of freedom, not 3 pairs.
+
+Fix A follow-up (owner's rulings on fix A's open decisions):
+- 2: until the leave-one-out Repeat SD has 3 df, a Repeat disagrees only
+  beyond BOTH sqrt(2) x 1.96 x max(model noise, the assumed 1 point) and
+  sqrt(2) x its own Round-ahead half-width; from 3 df, sqrt(2) x 1.96 x
+  that Repeat SD alone.
+- 3: a noise SD from Repeats takes t_q = t_df^-1(0.95^(1/q)) for z_q.
+- 4: Within noise and Rising name the threshold; ties use
+  rise_threshold(yard, 1).
+- Fix A's re-measured coverage and skill-gate figures on screen."""
 import math
+import re
 from statistics import NormalDist
 from types import SimpleNamespace
 
@@ -197,8 +208,10 @@ def test_the_threshold_scales_with_the_repeat_sd(_cwd, monkeypatch):
     monkeypatch.setattr(insights, "repeat_sd",
                         lambda o, name: insights.RepeatSpread(0.4, 3, 3, 3))
     a = insights.improvement(opt)
-    assert a.threshold == pytest.approx(0.4 * math.sqrt(2) * 1.6449, abs=1e-3)
-    assert a.state == "yes"                         # 1.0 ≥ 0.93
+    # Fix A follow-up (owner, decision 3): an SD from Repeats on 3 df takes
+    # t_{3}⁻¹(0.95) = 2.353 for z = 1.645: 0.93 -> 1.33, so 1.0 is now under.
+    assert a.threshold == pytest.approx(0.4 * math.sqrt(2) * 2.353, abs=1e-3)
+    assert a.state == "barely"                      # 1.0 < 1.33
 
 
 def test_rising_fires_about_one_time_in_twenty_by_chance():
@@ -270,7 +283,9 @@ def test_a_low_model_noise_yields_to_the_repeat_sd(_cwd):
     opt, checks = _pair(-4.0, noise=0.3, others=others)
     assert insights.disagreeing_repeat(opt, checks) is None    # 4.0 < 5.88
     # 2 df: the assumed 1 point, not the model's 0.3 (limit 2.77, not 0.83).
-    opt, checks = _pair(-4.0, noise=0.3, others=others[:2])
+    # Fix A follow-up (decision 2): under 3 df the pair must also beat its
+    # own predictive limit, here √2 × 1.96 × 1.0 = 2.77 too (check sd 1).
+    opt, checks = _pair_sd(-4.0, noise=0.3, sd=1.0, others=others[:2])
     d = insights.disagreeing_repeat(opt, checks)
     assert d is not None and (d.basis, d.df) == ("assumed", 2)
     assert d.limit == pytest.approx(LIMIT * 1.0)
@@ -313,12 +328,15 @@ def test_the_flagged_pair_stays_in_the_reported_repeat_sd(_cwd):
 def test_without_a_fitted_noise_the_assumed_point_is_used(_cwd):
     """Fixed noise (Custom settings) fits no noise to judge by: σ is the
     assumed 1 point while Repeats are short (limit 2.77), whatever the
-    check's own interval (sd 2: the earlier rule's limit was 5.54)."""
-    opt, checks = _pair(-3.0, noise=None)
+    check's own interval. Fix A follow-up (decision 2): under 3 df the pair
+    must beat its own predictive limit as well, so the check here has sd 1
+    (limit 2.77 both ways); at sd 2 (5.54) a 3-point pair is not flagged
+    (test_under_three_df_a_repeat_must_beat_both_limits)."""
+    opt, checks = _pair_sd(-3.0, noise=None, sd=1.0)
     d = insights.disagreeing_repeat(opt, checks)
     assert d is not None and (d.basis, d.noise) == ("assumed", None)
     assert d.limit == pytest.approx(LIMIT * 1.0)
-    opt, checks = _pair(-2.7, noise=None)
+    opt, checks = _pair_sd(-2.7, noise=None, sd=1.0)
     assert insights.disagreeing_repeat(opt, checks) is None
 
 
@@ -407,3 +425,184 @@ def test_the_model_key_follows_the_rounds_and_the_salt_moved(_cwd):
     opt.batch_history[5] = 3
     assert insights.model_key(opt, insights.SCORE, list(range(6))) != key
     assert insights.MODEL_SALT != "0.8.0-speed-1"
+
+
+# ------------------------------------------------------------------ #
+#  Fix A follow-up (owner's rulings on fix A's open decisions 2-4)
+# ------------------------------------------------------------------ #
+
+def _pair_sd(gap, noise, sd, others=()):
+    """_pair with the later one's Round-ahead check at predictive sd `sd`:
+    its own predictive limit is √2 × 1.96 × sd."""
+    opt, checks = _pair(gap, noise, others)
+    c = checks[-1]
+    checks[-1] = _score_check(c.formulation, c.round, c.measured, sd=sd, noise=noise)
+    return opt, checks
+
+
+def test_under_three_df_a_repeat_must_beat_both_limits(_cwd):
+    """Ruling (decision 2): until the Repeat SD (pair left out) has 3 df,
+    a pair is flagged only beyond BOTH √2 × 1.96 × max(model noise, the
+    assumed 1 point) and the old limit from its own predictive half-width
+    (√2 × 1.96 × 2 = 5.54 here). The limit it broke is the larger."""
+    opt, checks = _pair(-3.0, noise=None)             # 3.0 > 2.77 but < 5.54
+    assert insights.disagreeing_repeat(opt, checks) is None
+    opt, checks = _pair(-6.0, noise=None)
+    d = insights.disagreeing_repeat(opt, checks)
+    assert d is not None and (d.basis, d.sigma) == ("assumed", pytest.approx(1.0))
+    assert d.limit == pytest.approx(LIMIT * 2.0)
+    assert d.predictive == pytest.approx(LIMIT * 2.0)
+    # A narrow predictive interval does not lower the floor: 2.0 < 2.77.
+    opt, checks = _pair_sd(-2.0, noise=None, sd=0.5)
+    assert insights.disagreeing_repeat(opt, checks) is None
+    opt, checks = _pair_sd(-3.0, noise=0.3, sd=0.5)
+    d = insights.disagreeing_repeat(opt, checks)
+    assert d is not None and d.limit == pytest.approx(LIMIT * 1.0)
+
+
+def test_from_three_df_the_repeat_sd_alone_sets_the_limit(_cwd):
+    """From 3 df: √2 × 1.96 × the leave-one-out Repeat SD alone; neither
+    the model's noise (2.5) nor the predictive half-width (sd 2) counts."""
+    g = 1.2 * math.sqrt(2)
+    others = [(1, 6, g), (2, 7, -g), (3, 8, g)]
+    opt, checks = _pair(-4.0, noise=2.5, others=others)
+    d = insights.disagreeing_repeat(opt, checks)
+    assert d is not None and (d.basis, d.df) == ("repeats", 3)
+    assert d.limit == pytest.approx(LIMIT * 1.2)
+    assert d.predictive is None
+
+
+def test_rise_threshold_uses_t_on_the_repeats_df():
+    """Ruling (decision 3): a noise SD from Repeats with df degrees of
+    freedom takes t_q = t_df⁻¹(0.95^(1/q)) for z_q; the assumed floor
+    keeps z_q."""
+    from scipy.special import stdtrit
+    assert insights.rise_quantile(4) == pytest.approx(insights.rise_z(4))
+    assert insights.rise_quantile(4, 3) == pytest.approx(float(stdtrit(3, 0.95 ** 0.25)))
+    assert insights.rise_quantile(4, 3) == pytest.approx(4.146, abs=1e-3)
+    assert insights.rise_threshold(1.2, 4, df=3) == pytest.approx(1.2 * math.sqrt(2) * 4.146,
+                                                                  abs=1e-3)
+    assert insights.rise_threshold(1.0, 4) == pytest.approx(3.159, abs=1e-3)
+    yard = insights.Yardstick(1.2, 1.2, 3, True, df=3)
+    assert insights.rise_threshold(yard, 1) == pytest.approx(
+        1.2 * math.sqrt(2) * float(stdtrit(3, 0.95)))
+    assumed = insights.Yardstick(1.0, None, 0, False, assumed=True)
+    assert insights.rise_threshold(assumed, 1) == pytest.approx(math.sqrt(2) * 1.6449, abs=1e-4)
+
+
+def test_improvement_uses_t_when_the_sd_is_from_repeats(_cwd, monkeypatch):
+    c = insights.improvement(_rounds([[70.0, 72.0], [74.3]]))
+    assert c.df == 0 and c.threshold == pytest.approx(2.326, abs=1e-3)
+    opt = _rounds([[86.0], [87.0]])
+    monkeypatch.setattr(insights, "repeat_sd",
+                        lambda o, name: insights.RepeatSpread(0.4, 3, 3, 3))
+    a = insights.improvement(opt)
+    assert (a.q, a.df) == (1, 3)
+    assert a.threshold == pytest.approx(0.4 * math.sqrt(2) * 2.353, abs=1e-3)
+    assert a.state == "barely"                      # 1.0 < 1.33
+    yard = insights.Yardstick(0.4, 0.4, 3, True, df=3)
+    b = insights.improvement(opt, yardstick=yard)
+    assert (b.df, b.threshold) == (3, pytest.approx(a.threshold))
+
+
+def test_with_sd_from_three_df_rising_fires_at_most_one_time_in_twenty():
+    """Fix A's I6 simulation with σ estimated from 3 df: with z it read
+    Rising 13.7 % of the time at q = 4; with t_q it is about 3.3 % (Šidák
+    on t is conservative: the q comparisons share one estimated SD)."""
+    import numpy as np
+    rng = np.random.default_rng(2)
+    n = 200_000
+    for q in (1, 4):
+        rise = rng.standard_normal((n, q)).max(1) - rng.standard_normal(n)
+        s = np.sqrt(rng.chisquare(3, n) / 3)
+        rate = float(np.mean(rise >= insights.rise_threshold(s, q, df=3)))
+        assert 0.025 < rate < 0.055, (q, rate)
+        z_rate = float(np.mean(rise >= insights.rise_threshold(s, q)))
+        assert z_rate > 0.09, (q, z_rate)
+
+
+# Fix A follow-up (owner, decision 4): Within noise and Rising name the
+# threshold the rise is judged against (Improvement.threshold, q), on
+# screen and in the tooltip; ties use rise_threshold(yard, 1).
+
+def test_the_short_rise_names_what_a_rise_needs():
+    import wording as W
+    assert W.short_rise("2.5", "3.2") == "Up 2.5, needs 3.2 to count."
+    assert W.short_rise("3.5", "3.2", rising=True) == "Up 3.5, beats the 3.2 needed."
+    assert W.rise_factor("2.23", 4) == "√2 × 2.23 (best of 4)"
+    assert W.rise_factor("4.15", 4, df=3) == "√2 × 4.15 (best of 4, t on 3 df)"
+    assert W.rise_factor("1.64", 1) == "√2 × 1.64"
+
+
+def test_the_progress_sentences_name_the_threshold():
+    import wording as W
+    assert W.progress_within_noise(5, "2.5", "89.84", 100, 18, "3.2", near_no=20) == (
+        "Round 5 raised Best so far by 2.5 points, to 89.84 of 100 (Formulation 18, tied with "
+        "Formulation 20), less than the 3.2 points needed to count as a rise.")
+    assert W.progress_rising(5, "3.5", "89.84", 100, 18, "3.2") == (
+        "Round 5 raised Best so far by 3.5 points, to 89.84 of 100 (Formulation 18), more "
+        "than the 3.2 points needed to count as a rise.")
+    tip = W.tip_progress(W.TIP_THRESHOLD_ASSUMED, ("3.16", W.rise_factor("2.23", 4), "1"))
+    assert "noise SD × √2 × the max-of-q factor" in tip
+    assert tip.endswith("This Round: 1 × √2 × 2.23 (best of 4) = 3.16 points.")
+    for text in (tip, W.short_rise("2.5", "3.2")):
+        assert not any(p.search(text) for p in _banned()), text
+
+
+def _banned():
+    from tests.test_food_bo import _BANNED
+    return _BANNED
+
+
+def test_the_ui_says_the_rise_against_its_threshold(_cwd):
+    import ui_insights
+    import wording as W
+    opt = _rounds([[70.0, 72.0], [74.5, 60.0, 61.0, 62.0]])     # Line C's case
+    yard = insights.noise_yardstick(opt)
+    a = insights.improvement(opt, yardstick=yard)
+    facts = SimpleNamespace(best=insights.best_facts(opt), tie=None, improvement=a,
+                            progress="within_noise", yardstick=yard)
+    assert ui_insights.progress_short(opt, facts) == (
+        "Up 2.5, needs 3.2 to count. Best so far: 74.50 of 100, Formulation 3.")
+    assert ui_insights.progress_sentence(opt, facts).endswith(
+        "less than the 3.2 points needed to count as a rise.")
+    stand = ui_insights.stand_text(a, yard)
+    assert stand.startswith("Within noise: up 2.5 points in the last Round, under the 3.2 "
+                            "points needed: √2 × 2.23 (best of 4) × the 1-point noise threshold")
+    assert W.tip_progress(W.TIP_THRESHOLD_ASSUMED, (
+        "3.16", W.rise_factor("2.23", 4), "1")) in ui_insights._progress_tip(opt, facts)
+
+
+def test_ties_use_the_q1_rise_threshold(_cwd):
+    """A lead of 2.0 is under rise_threshold(1 point, 1) = 2.33: a tie on
+    Results and in Progress figures, as Rising would not read on it."""
+    import ui_insights
+    import ui_results
+    opt = _rounds([[70.0, 72.0]])
+    yard = insights.noise_yardstick(opt)
+    assert insights.rise_threshold(yard, 1) == pytest.approx(2.326, abs=1e-3)
+    assert ui_results._tie(opt, 0, 1) == (
+        "Tied with Formulation 1: 2.00 apart, under the 2.3 points needed to differ.")
+    assert ui_insights.tie_text(opt, yard).startswith(
+        "Formulation 1 (70.00) is within the 2.3 points needed to differ")
+    assert ui_insights.near_tie(opt, yard) == 1
+    opt = _rounds([[70.0, 72.4]])
+    assert ui_results._tie(opt, 0, 1) == ""
+    assert ui_insights.tie_text(opt, insights.noise_yardstick(opt)) == ""
+
+
+def test_the_screen_s_figures_are_fix_a_s_re_measured_ones():
+    """Fix A re-measured (fix-a-report.md, I9): coverage on the 48 simulated
+    projects, all Rounds, 90.6 % of measured values and 90.0 % of Overall
+    scores before the second widening; the skill gate at n = 10 reads "no
+    better" for a correct model in 4.1 % of windows (was 6.9 %), below 0.20
+    in 12.5 % at n = 10 and 11.0 % at n = 15 (were 15.3 % and 12.3 %)."""
+    import wording as W
+    assert W.SIMULATED_COVERAGE == {"measurements": 91, "score": 90}
+    assert "about 91 % (measurements) / 90 %" in W.coverage_reading()
+    how = W.how_skill()
+    assert "in 4.1 % of windows of 10 checks (n = 10), and below 0.20 in 12.5 %" in how
+    assert "under 7 %" not in how and "about 15 %" not in how
+    for text in (W.TIP_RELIABLE_LIMITS, " ".join(W.MODEL_LIMITS)):
+        assert ("below 0.20 in 12.5 % of windows of 10 checks (n = 10) and 11.0 % of windows "
+                "of 15 (n = 15)") in text, text

@@ -1342,13 +1342,10 @@ def progress_sentence(opt, facts):
     little = getattr(facts, "little", None)
     a = facts.improvement
     if facts.progress in ("rising", "within_noise"):
-        threshold = 1.0 if a.sd is None else a.sd
-        d = 2 if f"{a.rise:.1f}" in ("0.0", f"{threshold:.1f}") else 1
-        sd = None if a.sd is None else f"{a.sd:.{d}f}"
+        rise, need = rise_and_need(a)
         build = (wording.progress_rising if facts.progress == "rising"
                  else wording.progress_within_noise)
-        return build(f.round, f"{a.rise:.{d}f}", score, ceiling, f.formulation, sd,
-                     near_no=near)
+        return build(f.round, rise, score, ceiling, f.formulation, need, near_no=near)
     if facts.progress == "flat":
         luck = None if facts.luck_repeat is None else _whole(facts.luck_repeat)
         return wording.progress_flat(a.rounds, score, ceiling, f.formulation, f.round,
@@ -1365,16 +1362,44 @@ def progress_sentence(opt, facts):
                                       without=None if one else scored_without(opt, f.round))
 
 
+def rise_and_need(answer):
+    """The rise and what it needed (Improvement.threshold; fix A follow-up),
+    as the screen prints them: one decimal, unless the rise would read 0.0
+    or the same as its threshold; then hundredths, so the words never
+    contradict the numbers (Task 6 review M-1)."""
+    threshold = answer.threshold if answer.threshold is not None else (
+        insights.rise_threshold(1.0 if answer.sd is None else answer.sd, max(1, answer.q),
+                                answer.df or None))
+    d = 2 if f"{answer.rise:.1f}" in ("0.0", f"{threshold:.1f}") else 1
+    return f"{answer.rise:.{d}f}", f"{threshold:.{d}f}"
+
+
+def rise_factor_text(q, df=None):
+    """rise_factor's words for the max-of-q factor (z, or t on `df`)."""
+    return wording.rise_factor(f"{insights.rise_quantile(max(1, q), df or None):.2f}",
+                               max(1, q), df or None)
+
+
+def tie_need(yard):
+    """What a lead must beat to be more than a tie: rise_threshold(yard, 1),
+    the rule Rising uses for one new result (fix A follow-up, ruling on
+    ties), so a tie and Rising never disagree. None without a yardstick."""
+    if yard is None or yard.value is None:
+        return None
+    return insights.rise_threshold(yard, 1)
+
+
 def near_tie(opt, yard):
     """Best so far's runner-up within the noise threshold (tie_text's rule:
     insights.tie_partner, a Repeat never one; the lead to the hundredth
     under the threshold), as its Formulation number; None without one."""
     top = opt.best_index()
     other = None if top is None else insights.tie_partner(opt, top)
-    if other is None or yard is None or yard.value is None:
+    need = tie_need(yard)
+    if other is None or need is None:
         return None
     lead = float(opt.Y_history[top]) - float(opt.Y_history[other])
-    if round(lead, 2) >= round(yard.value, 2):
+    if round(lead, 2) >= round(need, 2):
         return None
     return int(opt.formulation_ids[other])
 
@@ -1551,9 +1576,8 @@ def progress_short(opt, facts):
     best = wording.short_best(f"{f.score:.2f}", ceiling, f.formulation, tie)
     a = facts.improvement
     if facts.progress in ("rising", "within_noise"):
-        threshold = 1.0 if a.sd is None else a.sd
-        d = 2 if f"{a.rise:.1f}" in ("0.0", f"{threshold:.1f}") else 1
-        return f"{wording.short_rise(f'{a.rise:.{d}f}')} {best}"
+        rise, need = rise_and_need(a)
+        return f"{wording.short_rise(rise, need, rising=facts.progress == 'rising')} {best}"
     if facts.progress == "flat":
         return f"{wording.short_flat(a.rounds)} {best}"
     if facts.progress == "no_new_best" or one_round(opt):
@@ -2300,22 +2324,19 @@ def stand_text(answer, yard=None):
     first line on the tab that names the threshold."""
     if answer.state == "not_lately":
         return wording.stand_not_lately(answer.rounds)
-    threshold = 1.0 if answer.sd is None else answer.sd
-    d = 2 if f"{answer.rise:.1f}" in ("0.0", f"{threshold:.1f}") else 1
-    rise = f"{answer.rise:.{d}f}"
-    sd = None if answer.sd is None else f"{answer.sd:.{d}f}"
+    rise, need = rise_and_need(answer)
+    sd = None if answer.sd is None else f"{answer.sd:.1f}"
     assumed = (sd is None and yard is not None and getattr(yard, "assumed", False))
+    basis = wording.beat_by(
+        sd, assumed=assumed, pairs=yard.pairs if assumed else 0,
+        left_out=getattr(yard, "left_out", 0) if assumed else 0,
+        df=getattr(yard, "df", 0) or None if assumed else None)
+    # Fix A follow-up (decision 4): the threshold itself, Improvement's,
+    # and its make-up: noise SD × √2 × the max-of-q factor.
+    threshold = wording.rise_needs(need, rise_factor_text(answer.q, answer.df), basis)
     if answer.state == "yes":
-        return wording.stand_yes(rise, wording.beat_by(
-            sd, assumed=assumed, pairs=yard.pairs if assumed else 0,
-            left_out=getattr(yard, "left_out", 0) if assumed else 0,
-            df=getattr(yard, "df", 0) or None if assumed else None))
-    line = wording.stand_barely(rise, sd)
-    if assumed:
-        line = line.replace(wording.beat_by(), wording.beat_by(
-            None, assumed=True, pairs=yard.pairs, left_out=getattr(yard, "left_out", 0),
-            df=getattr(yard, "df", 0) or None))
-    return line
+        return wording.stand_yes(rise, threshold)
+    return wording.stand_barely(rise, threshold_text=threshold)
 
 
 # (id of the project, Repeat pairs, whether Progress's line 1 named the
@@ -2478,14 +2499,20 @@ def tie_text(opt, yard):
     threshold, equal scores included; '' otherwise."""
     top = opt.best_index()
     other = None if top is None else insights.tie_partner(opt, top)
-    if other is None or yard.value is None:
+    need = tie_need(yard)
+    if other is None or need is None:
         return ""
     lead = float(opt.Y_history[top]) - float(opt.Y_history[other])
-    if round(lead, 2) >= round(yard.value, 2):
+    if round(lead, 2) >= round(need, 2):
         return ""
+    # Fix A follow-up (ruling on ties): rise_threshold(yard, 1), Rising's
+    # rule for one new result, named with its make-up.
+    df = yard.df if yard.from_repeats else None
     return wording.tie_runner_up(int(opt.formulation_ids[other]),
                                  f"{float(opt.Y_history[other]):.2f}",
-                                 threshold_text(yard, assumed=False))
+                                 wording.rise_needs(f"{need:.1f}", rise_factor_text(1, df),
+                                                    threshold_text(yard, assumed=False),
+                                                    what="needed to differ"))
 
 
 def progress_frame(opt):
@@ -4601,14 +4628,26 @@ def _predictions_tip(opt, facts):
     return _joined(opt, parts)
 
 
+def _rise_tip(facts, yard):
+    """tip_progress for this project: the rule and the noise SD's basis,
+    then, after a rise, the latest Round's threshold and its make-up (fix A
+    follow-up, decision 4)."""
+    a = getattr(facts, "improvement", None)
+    need = None
+    if a is not None and a.state in ("yes", "barely") and a.threshold is not None:
+        sd = 1.0 if a.sd is None else a.sd
+        need = (f"{a.threshold:.2f}", rise_factor_text(a.q, a.df),
+                "1" if a.sd is None else f"{sd:.2f}")
+    return wording.tip_progress(_threshold_tip(yard), need)
+
+
 def _progress_tip(opt, facts):
     """The Progress line's rule (§7): the word that holds and its condition,
     then the rise rule against the noise threshold and its basis."""
     if facts.progress is None:
         return None
     yard = facts.yardstick if facts.yardstick is not None else insights.noise_yardstick(opt)
-    return _joined(opt, [_rule_text(opt, ("progress", facts.progress)),
-                         wording.tip_progress(_threshold_tip(yard))])
+    return _joined(opt, [_rule_text(opt, ("progress", facts.progress)), _rise_tip(facts, yard)])
 
 
 def _next_tip(opt, facts):
@@ -4642,14 +4681,14 @@ def _next_tip(opt, facts):
         # T0′: the expected improvement the row weighed, and its threshold.
         parts.append(wording.tip_next_gain(f"{step.gain:.1f}", _threshold_tip(yard)))
     elif step.kind in ("untested", "explore", "close"):
-        parts.append(wording.tip_progress(_threshold_tip(yard)))
+        parts.append(_rise_tip(facts, yard))
     if step.kind in ("rising", "see"):
         # T0′: Best so far, the number Progress weighs, then its rule.
         best = facts.best
         if best is not None:
             parts.append(wording.tip_next_best(f"{best.score:.2f}", opt.utility_ceiling(),
                                                best.formulation, best.round))
-        parts.append(wording.tip_progress(_threshold_tip(yard)))
+        parts.append(_rise_tip(facts, yard))
     return _joined(opt, parts)
 
 

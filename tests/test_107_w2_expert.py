@@ -317,8 +317,10 @@ def test_line_b_names_the_repeat_and_the_bias(project):
     nxt = ui_insights.tooltip_for(opt, "next", facts)
     assert facts.next.kind == "repeat"
     # ±2.8 = √2 × 1.96 × the assumed 1 point (ftue fix A, cold read I7); ±7.4 before.
+    # Fix A follow-up (decision 2): under 3 df the pair must beat both that
+    # and √2 × its own Round-ahead half-width, so the limit is the larger, ±8.2.
     assert ("Formulation 21, a Repeat of Formulation 11, differs by 10.5 points: more than "
-            "±2.8") in nxt
+            "±8.2") in nxt
 
 
 def test_the_process_only_tooltips_say_trial(project):
