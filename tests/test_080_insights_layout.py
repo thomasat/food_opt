@@ -214,9 +214,10 @@ def test_best_so_far_reads_two_decimals_as_on_results(insights_scored):
 def test_the_repeats_line_only_after_a_rise():
     assert ui_insights.stand_text(insights.Improvement("not_lately", None, None, 3)) == (
         "Flat: no higher score in 3 Rounds.")
-    assert ui_insights.stand_text(insights.Improvement("barely", 0.2, 1.2, 0)) == (
-        "Within noise: up 0.2 points in the last Round, under the noise threshold (Repeat SD "
-        "1.2 points).")
+    # Fix A follow-up (decision 4): the threshold and its make-up, q = 1.
+    assert ui_insights.stand_text(insights.Improvement("barely", 0.2, 1.2, 0, 2.79, 1)) == (
+        "Within noise: up 0.2 points in the last Round, under the 2.8 points needed: √2 × 1.64 "
+        "× the noise threshold (Repeat SD 1.2 points).")
 
 
 def _standing(higher, close_no=None, close=None):

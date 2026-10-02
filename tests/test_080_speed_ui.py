@@ -128,7 +128,8 @@ def test_opening_a_project_sends_its_fits_overall_score_first(stuck, five_rounds
     at.run()
     assert not at.exception
     specs = insights_jobs.plan(five_rounds)
-    assert len(stuck.sent) == sum(1 + len(insights.folds(len(s.rows))) for s in specs)
+    assert len(stuck.sent) == sum(1 + len(insights.cv_folds(five_rounds, s.rows))
+                                  for s in specs)
     assert stuck.sent[0] == (0, "main")
 
 

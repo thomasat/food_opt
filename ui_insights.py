@@ -3,6 +3,7 @@ and never call Streamlit; render() at the bottom is the only Streamlit code."""
 import contextlib
 import itertools
 import math
+import re
 import threading
 
 import altair as alt
@@ -713,6 +714,15 @@ def column_models(opt):
     return models, insights.column_factor(opt, checks)
 
 
+def track_short(t):
+    """track_text, short (concision round): the record and each warning in
+    a few words; track_text is its tooltip."""
+    return wording.round_track_short(
+        t.rounds or None, t.inside if t.record else None, t.total, rough=bool(t.rough),
+        gap_text=None if t.gap is None else f"{abs(t.gap):.1f}", below=(t.gap or 0) < 0,
+        see_insights=bool(t.see_insights), no_skill=t.no_skill is not None)
+
+
 def track_text(t):
     """The line for insights.round_track's answer: rough only when too few
     landed inside; a bias in Insights' own words; holding otherwise — each
@@ -903,7 +913,7 @@ def render(opt):
     # their results. A waiting one, or one moved to Not scored, is not
     # scored, so it counts towards neither MIN_ROWS nor "So far: N".
     n = opt.complete_count()
-    st.caption(_say(opt, header_text(opt)))
+    st.caption(_say(opt, header_text(opt)), help=_say(opt, header_detail(opt)))
     if insights_jobs.stopped():
         # C2 (review M5): the workers broke too often; everything is now
         # worked out here, behind each screen's own indicator.
@@ -956,9 +966,11 @@ def render(opt):
         # search: one indicator per wait (V28, Plan A review C M-2).
         standing = _stand(opt, computed, yard, spinner=not cold or quiet)
     places.bar.empty()
-    gain = shown_gain(opt, computed["fitted"].get(insights.SCORE), checks)
+    score = computed["fitted"].get(insights.SCORE)
+    gain = shown_gain(opt, score, checks)
     with insights.memo_in_use(memo(opt)):
-        facts = insights.status_facts(opt, checks, standing, gain)
+        facts = screen_facts(opt, checks, standing, gain,
+                             withheld=claims_withheld_reason(opt, score, checks))
     _finish(opt, places, facts)
     with places.explored:
         explored_fold(opt, computed)
@@ -1124,7 +1136,8 @@ def _fill_in(opt, places):
         standing = _stand(opt, computed, yard)
     gain = shown_gain(opt, score, checks)
     with insights.memo_in_use(mem):
-        facts = insights.status_facts(opt, checks, standing, gain)
+        facts = screen_facts(opt, checks, standing, gain,
+                             withheld=claims_withheld_reason(opt, score, checks), partial=True)
     _finish(opt, places, facts)
 
 
@@ -1174,18 +1187,97 @@ def _wide_clause_names(names):
     return [f"the {wording.OVERALL_SCORE_COLUMN}" if n == insights.SCORE else n for n in names]
 
 
+# Fix round B (five-second re-test, Line C Q4): the wide clause names its
+# cause when every wide output's current model was widened by at least this
+# calibration factor (its cross-validated errors this much larger than its
+# own uncertainty: results vary more than the model explains), and the
+# output it is largest for when that factor is at least MOST_FACTOR times
+# the next one's.
+CAUSE_FACTOR = 1.5
+MOST_FACTOR = 1.5
+
+
+def wide_cause(names, factors):
+    """None: no cause is said (an output under CAUSE_FACTOR, or a factor
+    not known yet); else the output the cause is clearly largest for, ''
+    when none is (or there is one output)."""
+    got = [factors.get(n) for n in names]
+    if not names or any(f is None or f < CAUSE_FACTOR for f in got):
+        return None
+    if len(names) < 2:
+        return ""
+    ranked = sorted(zip(got, names), reverse=True)
+    return ranked[0][1] if ranked[0][0] >= MOST_FACTOR * ranked[1][0] else ""
+
+
+def current_factors(opt, names):
+    """{output: its current model's calibration factor} for `names`, from
+    the fitted models kept for this data (the memo), never fitted here; an
+    output whose model is not in yet is left out."""
+    mem, out = memo(opt), {}
+    for spec in _plan(opt):
+        if spec.stage == insights_jobs.NOW and spec.name in names:
+            hit = mem.get(spec.key)
+            if hit is not None and hit.get("widen") is not None:
+                out[spec.name] = float(hit["widen"])
+    return out
+
+
+def little_more(standing, gain, yard, withheld, settings=()):
+    """Fix round B (walkthrough ruling): the "little more" clause's items
+    (wording.binding_plain, empty when nothing binds), or None when it is
+    not said: it needs the predicted best and the expected improvement
+    both claimed (`withheld` None) and both at or under the noise
+    threshold. `settings`: the names that are process settings (said by
+    value, not amount)."""
+    if (standing is None or withheld or gain is None or yard is None or yard.value is None
+            or getattr(standing, "higher", True) or gain > yard.value):
+        return None
+    return tuple(wording.binding_plain(b.kind, b.name, b.text, values=b.name in settings)
+                 for b in (getattr(standing, "binding", None) or ()))
+
+
+def screen_facts(opt, checks, standing=None, gain=None, withheld=None, partial=False):
+    """insights.status_facts, with what the first screen's sentences need
+    beyond it (fix round B), set on the facts: `wide_factors` (the wide
+    outputs' calibration factors, current_factors) and `little`
+    (little_more). `partial` (the workers are still fitting): the
+    Predictions line waits (facts.pending) while a wide output's factor is
+    not in yet, so it is drawn once, final (R-I8)."""
+    facts = insights.status_facts(opt, checks, standing, gain)
+    if facts is None:
+        return None
+    wide = next((c[1] for c in facts.clauses if c[0] == "wide"), None)
+    if wide:
+        facts.wide_factors = current_factors(opt, wide)
+        if partial and len(facts.wide_factors) < len(wide):
+            facts.pending = tuple(facts.pending) + ("predictions",)
+    settings = [n for n in insights.path_choices(opt) if insights.is_setting(opt, n)]
+    facts.little = little_more(standing, gain, facts.yardstick, withheld, settings)
+    return facts
+
+
 def prediction_sentence(opt, facts):
     """The Predictions line's sentence for facts.prediction_row (R-B1 rows
     1-9), its clauses in the ruling's order. The Overall score's steady bias
-    joins rows 7-8's sentence ("and have run about …") and row 2's (", and
-    predictions have run …"), and is a clause on the others."""
+    joins rows 7-8's sentence (", and scores have come in …") and row 2's,
+    and is a clause on the others. Rows 7-8 give the skill with its
+    meaning; a wide clause names its cause when wide_cause finds one, and
+    the sentence then ends with what to check (fix round B)."""
     row, h = facts.prediction_row, facts.headline
     bias = next((c[1] for c in facts.clauses if c[0] == "bias"), None)
     gap = None if bias is None else (f"{abs(bias):.1f}", bias < 0)
-    tail = []
+    fact = getattr(facts, "skill", None)
+    skill = None if fact is None else skill_value(fact.value)
+    tail, check = [], False
     for c in facts.clauses:
         if c[0] == "wide":
-            tail.append(wording.clause_wide(_wide_clause_names(c[1])))
+            most = wide_cause(c[1], getattr(facts, "wide_factors", None) or {})
+            check = most is not None
+            names = _wide_clause_names(c[1])
+            tail.append(wording.clause_wide(
+                names, cause=check,
+                most=_wide_clause_names([most])[0] if most else None))
         elif c[0] == "over_wide":
             tail.append(wording.CLAUSE_OVER_WIDE)
         elif c[0] == "bias" and row not in ("no_skill", "unclear"):
@@ -1196,21 +1288,22 @@ def prediction_sentence(opt, facts):
         return wording.PRED_OFF_REPEAT
     if row == "gate":
         return wording.pred_gate(facts.scored, insights.MIN_ROWS)
+    then = f" {wording.CHECK_SCATTER}" if check else ""
     if row == "too_few":
-        return wording.pred_too_few(facts.checked, insights.SKILL_MIN, tail)
+        return wording.pred_too_few(facts.checked, insights.SKILL_MIN, tail) + then
     if row == "wide":
         return wording.pred_wide(tail)
     if row == "no_skill":
-        return wording.pred_no_skill(gap, tail)
+        return wording.pred_no_skill(gap, tail, skill_text=skill) + then
     if row == "unclear":
-        return wording.pred_unclear(gap, tail)
+        return wording.pred_unclear(gap, tail, skill_text=skill) + then
     allowed = insights.allowed_misses(h.total)
     if row == "off_coverage":
         return wording.pred_off_coverage(h.rounds, h.total - h.inside, h.total, allowed,
                                          None if gap is None else wording.bias_fact(*gap))
     if row == "caution":
-        return wording.pred_caution(h.rounds, h.total - h.inside, h.total, allowed, tail)
-    return wording.pred_reliable(h.rounds, h.inside, h.total, allowed, tail)
+        return wording.pred_caution(h.rounds, h.total - h.inside, h.total, allowed, tail) + then
+    return wording.pred_reliable(h.rounds, h.inside, h.total, allowed, tail) + then
 
 
 def one_round(opt):
@@ -1242,26 +1335,93 @@ def progress_sentence(opt, facts):
     ceiling = opt.utility_ceiling()
     score = f"{f.score:.2f}"
     tie = None if facts.tie is None else int(opt.formulation_ids[facts.tie])
+    # Fix round B (walkthrough ruling): a runner-up within the noise
+    # threshold is named too ("tied with Formulation 18"); one at an equal
+    # score keeps its own sentence.
+    near = None if tie is not None else near_tie(opt, facts.yardstick)
+    little = getattr(facts, "little", None)
     a = facts.improvement
     if facts.progress in ("rising", "within_noise"):
-        threshold = 1.0 if a.sd is None else a.sd
-        d = 2 if f"{a.rise:.1f}" in ("0.0", f"{threshold:.1f}") else 1
-        sd = None if a.sd is None else f"{a.sd:.{d}f}"
+        rise, need = rise_and_need(a)
         build = (wording.progress_rising if facts.progress == "rising"
                  else wording.progress_within_noise)
-        return build(f.round, f"{a.rise:.{d}f}", score, ceiling, f.formulation, sd)
+        return build(f.round, rise, score, ceiling, f.formulation, need, near_no=near)
     if facts.progress == "flat":
         luck = None if facts.luck_repeat is None else _whole(facts.luck_repeat)
         return wording.progress_flat(a.rounds, score, ceiling, f.formulation, f.round,
-                                     luck_text=luck, tie_no=tie)
+                                     luck_text=luck, tie_no=tie, near_no=near, little=little)
     order = insights.scored_rounds(opt)
     if facts.progress == "no_new_best":
         return wording.progress_no_new_best(order[-1][0], score, ceiling, f.formulation,
-                                            f.round, tie_no=tie)
+                                            f.round, tie_no=tie, near_no=near, little=little)
     one = one_round(opt)
     return wording.progress_too_early(score, ceiling, f.formulation, f.round, one_round=one,
                                       values=not opt.has_ingredients(),
-                                      cold=one and _one_round_cold(opt, f.round), tie_no=tie)
+                                      cold=one and _one_round_cold(opt, f.round), tie_no=tie,
+                                      near_no=near,
+                                      without=None if one else scored_without(opt, f.round))
+
+
+def rise_and_need(answer):
+    """The rise and what it needed (Improvement.threshold; fix A follow-up),
+    as the screen prints them: one decimal, unless the rise would read 0.0
+    or the same as its threshold; then hundredths, so the words never
+    contradict the numbers (Task 6 review M-1)."""
+    threshold = answer.threshold if answer.threshold is not None else (
+        insights.rise_threshold(1.0 if answer.sd is None else answer.sd, max(1, answer.q),
+                                answer.df or None))
+    d = 2 if f"{answer.rise:.1f}" in ("0.0", f"{threshold:.1f}") else 1
+    return f"{answer.rise:.{d}f}", f"{threshold:.{d}f}"
+
+
+def rise_factor_text(q, df=None):
+    """rise_factor's words for the max-of-q factor (z, or t on `df`)."""
+    return wording.rise_factor(f"{insights.rise_quantile(max(1, q), df or None):.2f}",
+                               max(1, q), df or None)
+
+
+def tie_need(yard):
+    """What a lead must beat to be more than a tie: rise_threshold(yard, 1),
+    the rule Rising uses for one new result (fix A follow-up, ruling on
+    ties), so a tie and Rising never disagree. None without a yardstick."""
+    if yard is None or yard.value is None:
+        return None
+    return insights.rise_threshold(yard, 1)
+
+
+def near_tie(opt, yard):
+    """Best so far's runner-up within the noise threshold (tie_text's rule:
+    insights.tie_partner, a Repeat never one; the lead to the hundredth
+    under the threshold), as its Formulation number; None without one."""
+    top = opt.best_index()
+    other = None if top is None else insights.tie_partner(opt, top)
+    need = tie_need(yard)
+    if other is None or need is None:
+        return None
+    lead = float(opt.Y_history[top]) - float(opt.Y_history[other])
+    if round(lead, 2) >= round(need, 2):
+        return None
+    return int(opt.formulation_ids[other])
+
+
+def scored_without(opt, best_round):
+    """Fix round B (five-second re-test, Upgrade check Q2): when no earlier
+    formulation is compared with Best so far because every scored one
+    outside its Round lacks a measurement (FoodOptimizer.best_candidates),
+    (their Rounds, the measurements they lack, said); None otherwise."""
+    candidates = set(opt.best_candidates())
+    if any(opt.batch_history[i] != best_round for i in candidates):
+        return None
+    left = [i for i in range(len(opt.Y_history))
+            if opt.fully_measured(i) and not opt.is_set_aside(i) and i not in candidates
+            and opt.batch_history[i] != best_round and opt.batch_history[i] is not None]
+    if not left:
+        return None
+    rounds = sorted({int(opt.batch_history[i]) for i in left})
+    names = []
+    for i in left:
+        names += [n for n in opt.not_expected(i) if n not in names]
+    return (rounds, number_list(names)) if names else None
 
 
 def _close_change(b):
@@ -1292,7 +1452,8 @@ def next_sentence(opt, facts):
         return wording.next_plain_repeat(d.later, d.earlier, f"{abs(d.diff):.1f}",
                                          lower=d.diff < 0,
                                          half_text=None if d.limit is None else f"{d.limit:.1f}",
-                                         values=values)
+                                         values=values,
+                                         round_no=no if opt.pending_batch else opt.next_batch_no())
     if step.kind == "misses":
         return wording.next_plain_misses(no, left)
     if step.kind == "early":
@@ -1314,10 +1475,11 @@ def next_sentence(opt, facts):
     return wording.next_plain_see(no, left, repeat_no=ask, values=values)
 
 
-def status_texts(opt, facts):
-    """{line: its full text, through for_project}: 'Predictions: **Not
-    yet.** …', 'Progress: **Flat.** …', 'Next: …' (M7: no word). The
-    lines facts.pending names are left out."""
+def status_full_texts(opt, facts):
+    """{line: its full sentence, through for_project}: 'Predictions: **Not
+    yet.** …', 'Progress: **Flat.** …', 'Next: …' (M7: no word). Shown
+    first in the line's tooltip since the concision round. The lines
+    facts.pending names are left out."""
     out = {}
     if "predictions" not in facts.pending:
         out["predictions"] = wording.status_line(
@@ -1332,14 +1494,128 @@ def status_texts(opt, facts):
     return {k: _say(opt, v) for k, v in out.items()}
 
 
+def status_texts(opt, facts):
+    """{line: its on-screen text, through for_project} (concision round):
+    'Predictions: **Reliable.** 33 of 35 results in range.', its bold word
+    and one short fact; the full sentence is in its tooltip
+    (status_full_texts). The lines facts.pending names are left out."""
+    out = {}
+    if "predictions" not in facts.pending:
+        out["predictions"] = wording.status_line(
+            wording.STATUS_PREDICTIONS, prediction_short(opt, facts),
+            wording.PREDICTIONS_WORDS[facts.predictions])
+    if "progress" not in facts.pending:
+        word = None if facts.progress is None else wording.PROGRESS_WORDS[facts.progress]
+        out["progress"] = wording.status_line(wording.STATUS_PROGRESS,
+                                              progress_short(opt, facts), word)
+    if "next" not in facts.pending:
+        out["next"] = wording.status_line(wording.STATUS_NEXT, next_short(opt, facts))
+    return {k: _say(opt, v) for k, v in out.items()}
+
+
+def _full_sentence(line):
+    """A full status line's sentence, its label and bold word taken off."""
+    return re.sub(r"^\w+: (\*\*[^*]+\*\* )?", "", line)
+
+
+def status_help(opt, facts, which):
+    """The line's tooltip: its full sentence, then W2's exact rule."""
+    full = status_full_texts(opt, facts).get(which)
+    tip = tooltip_for(opt, which, facts)
+    parts = [p for p in (full and _full_sentence(full), tip) if p]
+    return "\n\n".join(parts) or None
+
+
 def _status_line(opt, facts, which):
-    """One status line, with W2's exact-rule tooltip; its caption while its
-    facts are still being worked out (R-I8)."""
+    """One status line, short (concision round), its full sentence and
+    W2's exact rule in the tooltip; its caption while its facts are still
+    being worked out (R-I8)."""
     text = None if facts is None else status_texts(opt, facts).get(which)
     if text is None:
         st.caption(_say(opt, _PLACEHOLDERS[which]))
     else:
-        st.markdown(text, help=tooltip_for(opt, which, facts))
+        st.markdown(text, help=status_help(opt, facts, which))
+
+
+def prediction_short(opt, facts):
+    """The Predictions line on screen (concision round): one fact, the
+    numbers kept; the check advice kept when the full sentence gives it."""
+    row, h = facts.prediction_row, facts.headline
+    check = False
+    for c in facts.clauses:
+        if c[0] == "wide":
+            check = wide_cause(c[1], getattr(facts, "wide_factors", None) or {}) is not None
+    then = f" {wording.SHORT_CHECK_SCATTER}" if check else ""
+    if row == "off_repeat":
+        return wording.SHORT_OFF_REPEAT
+    if row == "gate":
+        return wording.short_gate(facts.scored, insights.MIN_ROWS)
+    if row == "too_few":
+        return wording.short_too_few(facts.checked, insights.SKILL_MIN) + then
+    if row == "wide":
+        return wording.SHORT_WIDE
+    if row == "no_skill":
+        return wording.SHORT_NO_SKILL + then
+    if row == "unclear":
+        return wording.SHORT_UNCLEAR + then
+    allowed = insights.allowed_misses(h.total)
+    if row in ("off_coverage", "caution"):
+        line = wording.short_out_of_range(h.total - h.inside, h.total, allowed)
+        return line + (then if row == "caution" else "")
+    return wording.short_in_range(h.inside, h.total) + then
+
+
+def progress_short(opt, facts):
+    """The Progress line on screen (concision round): one fact and Best so
+    far; ties within noise, luck and "little more" are in the tooltip."""
+    f = facts.best
+    if f is None:
+        return wording.NO_COMPLETE_FORMULATION
+    ceiling = opt.utility_ceiling()
+    tie = None if facts.tie is None else int(opt.formulation_ids[facts.tie])
+    best = wording.short_best(f"{f.score:.2f}", ceiling, f.formulation, tie)
+    a = facts.improvement
+    if facts.progress in ("rising", "within_noise"):
+        rise, need = rise_and_need(a)
+        return f"{wording.short_rise(rise, need, rising=facts.progress == 'rising')} {best}"
+    if facts.progress == "flat":
+        return f"{wording.short_flat(a.rounds)} {best}"
+    if facts.progress == "no_new_best" or one_round(opt):
+        return best
+    without = scored_without(opt, f.round)
+    return f"{best} {wording.short_lack(*without)}" if without else best
+
+
+def next_short(opt, facts):
+    """The Next line on screen (concision round): the action, the Repeat
+    request and the check advice kept; the reason is in the tooltip."""
+    no = opt.pending_batch_no
+    left = len(open_rows(opt)) if opt.pending_batch else 0
+    step = facts.next
+    if step is None:
+        return wording.short_tail(no, left)
+    ask = (facts.best.formulation if getattr(step, "assumed", False) and facts.best is not None
+           else None)
+    if step.kind == "repeat":
+        d = step.disagreement
+        return wording.short_check_repeat(
+            d.later, d.earlier, f"{abs(d.diff):.1f}", lower=d.diff < 0,
+            round_no=no if opt.pending_batch else opt.next_batch_no())
+    if step.kind == "misses":
+        return f"{wording.short_tail(no, left)} {wording.SHORT_MISSES}"
+    if step.kind == "early":
+        return wording.short_tail(no, left)
+    if step.kind == "no_skill":
+        return f"{wording.short_tail(no, left)} {wording.SHORT_NO_SKILL_NEXT}"
+    if step.kind == "untested":
+        return wording.short_untested(no, open_round=bool(opt.pending_batch))
+    if step.kind == "close":
+        line = wording.short_close(_close_change(step.binding),
+                                   settings_only=not insights.has_ingredient_choice(opt))
+        return f"{line} {wording.short_add_repeat(ask)}" if ask is not None else line
+    if ask is not None:
+        return wording.short_repeat(ask, no, left, opt.next_batch_no())
+    return wording.short_tail(no, left)
 
 
 def _status_lines(opt, facts):
@@ -1473,7 +1749,8 @@ def threshold_text(yard, assumed=True):
     if yard.from_repeats:
         return wording.beat_by(f"{yard.value:.1f}")
     return wording.beat_by(None, assumed=assumed and getattr(yard, "assumed", False),
-                           pairs=yard.pairs, left_out=getattr(yard, "left_out", 0))
+                           pairs=yard.pairs, left_out=getattr(yard, "left_out", 0),
+                           df=getattr(yard, "df", 0) or None)
 
 
 def skill_value(value):
@@ -1500,9 +1777,24 @@ def header_text(opt, h=None):
     waiting = opt.awaited_rows()
     sets = {tuple(opt.waiting_on(i)) for i in waiting}
     names = number_list(next(iter(sets))) if len(sets) == 1 else ""
+    # Fix round B (five-second re-test): the waiting formulations by number.
+    return wording.insights_header_short(opt.complete_count(),
+                                         order[-1][0] if order else None,
+                                         len(waiting), names,
+                                         numbers=[int(opt.formulation_ids[i]) for i in waiting])
+
+
+def header_detail(opt):
+    """header_text's full line, for its tooltip: '… (all results in) …
+    and is not used yet.'"""
+    order = insights.scored_rounds(opt)
+    waiting = opt.awaited_rows()
+    sets = {tuple(opt.waiting_on(i)) for i in waiting}
+    names = number_list(next(iter(sets))) if len(sets) == 1 else ""
     return wording.insights_header_line(opt.complete_count(),
                                         order[-1][0] if order else None,
-                                        len(waiting), names)
+                                        len(waiting), names,
+                                        numbers=[int(opt.formulation_ids[i]) for i in waiting])
 
 
 def _wide(opt, h):
@@ -2032,20 +2324,19 @@ def stand_text(answer, yard=None):
     first line on the tab that names the threshold."""
     if answer.state == "not_lately":
         return wording.stand_not_lately(answer.rounds)
-    threshold = 1.0 if answer.sd is None else answer.sd
-    d = 2 if f"{answer.rise:.1f}" in ("0.0", f"{threshold:.1f}") else 1
-    rise = f"{answer.rise:.{d}f}"
-    sd = None if answer.sd is None else f"{answer.sd:.{d}f}"
+    rise, need = rise_and_need(answer)
+    sd = None if answer.sd is None else f"{answer.sd:.1f}"
     assumed = (sd is None and yard is not None and getattr(yard, "assumed", False))
+    basis = wording.beat_by(
+        sd, assumed=assumed, pairs=yard.pairs if assumed else 0,
+        left_out=getattr(yard, "left_out", 0) if assumed else 0,
+        df=getattr(yard, "df", 0) or None if assumed else None)
+    # Fix A follow-up (decision 4): the threshold itself, Improvement's,
+    # and its make-up: noise SD × √2 × the max-of-q factor.
+    threshold = wording.rise_needs(need, rise_factor_text(answer.q, answer.df), basis)
     if answer.state == "yes":
-        return wording.stand_yes(rise, wording.beat_by(
-            sd, assumed=assumed, pairs=yard.pairs if assumed else 0,
-            left_out=getattr(yard, "left_out", 0) if assumed else 0))
-    line = wording.stand_barely(rise, sd)
-    if assumed:
-        line = line.replace(wording.beat_by(), wording.beat_by(
-            None, assumed=True, pairs=yard.pairs, left_out=getattr(yard, "left_out", 0)))
-    return line
+        return wording.stand_yes(rise, threshold)
+    return wording.stand_barely(rise, threshold_text=threshold)
 
 
 # (id of the project, Repeat pairs, whether Progress's line 1 named the
@@ -2208,14 +2499,20 @@ def tie_text(opt, yard):
     threshold, equal scores included; '' otherwise."""
     top = opt.best_index()
     other = None if top is None else insights.tie_partner(opt, top)
-    if other is None or yard.value is None:
+    need = tie_need(yard)
+    if other is None or need is None:
         return ""
     lead = float(opt.Y_history[top]) - float(opt.Y_history[other])
-    if round(lead, 2) >= round(yard.value, 2):
+    if round(lead, 2) >= round(need, 2):
         return ""
+    # Fix A follow-up (ruling on ties): rise_threshold(yard, 1), Rising's
+    # rule for one new result, named with its make-up.
+    df = yard.df if yard.from_repeats else None
     return wording.tie_runner_up(int(opt.formulation_ids[other]),
                                  f"{float(opt.Y_history[other]):.2f}",
-                                 threshold_text(yard, assumed=False))
+                                 wording.rise_needs(f"{need:.1f}", rise_factor_text(1, df),
+                                                    threshold_text(yard, assumed=False),
+                                                    what="needed to differ"))
 
 
 def progress_frame(opt):
@@ -3673,7 +3970,9 @@ def _explored_map(opt, computed):
     show_chart(explore_map_chart(values.pool_mean, values.pool_sd, tested, picks, ref, opt))
     if picks:
         st.caption(_say(opt, wording.why_chart_caption(f"{len(values.pool_mean):,}",
-                                                       line=ref is not None)))
+                                                       line=ref is not None)),
+                   help=_say(opt, wording.why_chart_caption_full(
+                       f"{len(values.pool_mean):,}", line=ref is not None)))
 
 
 def _point_to_uncertainty():
@@ -3694,7 +3993,9 @@ def _explored_pointer(opt, computed):
     # Charts proto: the triangle is in this fold now, above the map.
     text = wording.explored_pointer(_try_one_label(opt), settings_only=not opt.has_ingredients(),
                                     triangle=False)
-    st.button(_say(opt, text), type="tertiary", key=POINTER_KEY,
+    tip = wording.explored_pointer_help(_try_one_label(opt),
+                                        settings_only=not opt.has_ingredients(), triangle=False)
+    st.button(_say(opt, text), type="tertiary", key=POINTER_KEY, help=_say(opt, tip),
               disabled=confirmation_open(), on_click=_point_to_uncertainty)
 
 
@@ -3727,8 +4028,8 @@ def explored_link(opt, step):
 def _explored_body(opt, computed):
     values = not opt.has_ingredients()
     total = opt.has_formulation_total()
-    st.caption(_say(opt, wording.basis_charts(values, total)),
-               help=tooltip_for(opt, "basis_explored"))
+    tip = tooltip_for(opt, "basis_explored")
+    st.caption(_say(opt, wording.basis_charts(values, total)), help=tip)
     # Charts proto: 1. What you've tried (parallel coordinates; model-free,
     # drawn whatever the checks say), 2. How the app chooses, 3. the
     # triangle, 4. the map, then the pointer.
@@ -4931,14 +5232,26 @@ def _predictions_tip(opt, facts):
     return _joined(opt, parts)
 
 
+def _rise_tip(facts, yard):
+    """tip_progress for this project: the rule and the noise SD's basis,
+    then, after a rise, the latest Round's threshold and its make-up (fix A
+    follow-up, decision 4)."""
+    a = getattr(facts, "improvement", None)
+    need = None
+    if a is not None and a.state in ("yes", "barely") and a.threshold is not None:
+        sd = 1.0 if a.sd is None else a.sd
+        need = (f"{a.threshold:.2f}", rise_factor_text(a.q, a.df),
+                "1" if a.sd is None else f"{sd:.2f}")
+    return wording.tip_progress(_threshold_tip(yard), need)
+
+
 def _progress_tip(opt, facts):
     """The Progress line's rule (§7): the word that holds and its condition,
     then the rise rule against the noise threshold and its basis."""
     if facts.progress is None:
         return None
     yard = facts.yardstick if facts.yardstick is not None else insights.noise_yardstick(opt)
-    return _joined(opt, [_rule_text(opt, ("progress", facts.progress)),
-                         wording.tip_progress(_threshold_tip(yard))])
+    return _joined(opt, [_rule_text(opt, ("progress", facts.progress)), _rise_tip(facts, yard)])
 
 
 def _next_tip(opt, facts):
@@ -4972,14 +5285,14 @@ def _next_tip(opt, facts):
         # T0′: the expected improvement the row weighed, and its threshold.
         parts.append(wording.tip_next_gain(f"{step.gain:.1f}", _threshold_tip(yard)))
     elif step.kind in ("untested", "explore", "close"):
-        parts.append(wording.tip_progress(_threshold_tip(yard)))
+        parts.append(_rise_tip(facts, yard))
     if step.kind in ("rising", "see"):
         # T0′: Best so far, the number Progress weighs, then its rule.
         best = facts.best
         if best is not None:
             parts.append(wording.tip_next_best(f"{best.score:.2f}", opt.utility_ceiling(),
                                                best.formulation, best.round))
-        parts.append(wording.tip_progress(_threshold_tip(yard)))
+        parts.append(_rise_tip(facts, yard))
     return _joined(opt, parts)
 
 
@@ -5071,9 +5384,12 @@ def basis_line(opt, which, facts=None):
     "progress" or "next". The fold label carries no tooltip, so the help
     sits here. W1 draws it first inside each figures fold:
     st.caption(text, help=help)."""
-    text = {"predictions": wording.BASIS_PREDICTIONS, "progress": wording.BASIS_PROGRESS,
+    full = {"predictions": wording.BASIS_PREDICTIONS, "progress": wording.BASIS_PROGRESS,
             "next": wording.BASIS_NEXT}[which]
-    return _say(opt, text), tooltip_for(opt, f"basis_{which}", facts)
+    # Concision round: the short basis on screen, the full one first in its help.
+    tip = tooltip_for(opt, f"basis_{which}", facts)
+    return (_say(opt, wording.BASIS_SHORT[which]),
+            "\n\n".join(t for t in (_say(opt, full), tip) if t))
 
 
 def _model_and_method(opt, computed):
@@ -5107,6 +5423,8 @@ def _status_table(opt, computed):
     columns = [_say(opt, c) for c in wording.STATUS_TABLE_COLUMNS]
     frame = pd.DataFrame([[_say(opt, c) for c in row] for row in rows], columns=columns)
     st.table(frame.set_index(columns[0]))
+    # Fix round B (statistician I8): which row wins when several hold.
+    st.caption(_say(opt, wording.STATUS_TABLE_ORDER))
 
 
 def _glossary(opt):

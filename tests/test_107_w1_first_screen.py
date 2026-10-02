@@ -35,19 +35,71 @@ _SHORT = {D.SNACK: "Snack bar", D.LINE_A: "Line A", D.LINE_B: "Line B", D.LINE_C
           D.UPGRADE: "Upgrade check", D.TIMING: "Timing check"}
 
 # The process-only study (T0's fixture): Not yet (skill −0.03, n = 16),
-# Rising, and Next's rising row with the Repeat sentence, in Trial forms.
+# the Overall score's intervals wide, Within noise and Next's see row with
+# the Repeat sentence, in Trial forms. Ftue fix A: the rise of 1.9 from a
+# Round of 4 is under 1 × √2 × z_4 = 3.16 (cold read I6; it read Rising),
+# and the Round-grouped folds widen the Overall score's intervals (I9).
 _PROCESS_ONLY = (
-    "not_yet", wording.pred_unclear(),
-    "rising", wording.progress_rising(5, "1.9", "87.92", 100, 21),
-    wording.next_plain_rising(6, 4, repeat_no=21, values=True))
+    "not_yet", wording.pred_unclear(clauses=[wording.clause_wide(["the Overall score"])],
+                                    skill_text="−0.03"),
+    "within_noise", wording.progress_within_noise(5, "1.9", "87.92", 100, 21, "3.2"),
+    wording.next_plain_see(6, 4, repeat_no=21, values=True))
 
 # R-I8: at most 130 words above the fold (header + 3 lines + button +
-# link), pinned per project as they stand.
+# link), pinned per project as they stand. Fix round B: Lines A and C carry
+# the ledger's ruled sentences past it (OVER_BUDGET); the Timing check, the
+# longest before, stays at or under it.
 _BUDGET = 130
-_WORDS = {D.SNACK: 65, D.LINE_A: 118, D.LINE_B: 113, D.LINE_C: 119, D.UPGRADE: 79,
-          # Timing: 125 since ftue fix C (its link is "Make a Repeat of
-          # Formulation 24", one word shorter than the Explored link).
-          D.TIMING: 125, D.PROCESS_ONLY: 109}
+# Fix round C: each link is shorter ("Why the model suggested Round 6",
+# "Make a Repeat of Formulation 24") than the Explored link it replaces.
+# Concision round (owner, 2026-10-01: "too wordy"): each status line is its
+# bold word and one short fact, the full sentence in its tooltip; every
+# project is now well under the budget (before: Snack 65, Line A 149,
+# Line B 111, Line C 157, Upgrade 85, Timing 129, process-only 154).
+# Fix A follow-up (decision 4): Within noise names what the rise needed
+# ("Up 2.5, needs 3.2 to count."), 3 words more: Line C 65 -> 68,
+# process-only 67 -> 70.
+_WORDS = {D.SNACK: 39, D.LINE_A: 63, D.LINE_B: 66, D.LINE_C: 68, D.UPGRADE: 47,
+          D.TIMING: 49, D.PROCESS_ONLY: 70}
+_OVER_BUDGET = set()
+# The concision round's exact lines (the full sentences, FIRST_SCREENS in
+# tests/test_107_ftue.py, open each line's tooltip).
+_SHORT_LINES = {
+    D.SNACK: ("Predictions: **Not yet.** Needs 5 scored formulations; 3 so far.",
+              "Progress: **Too early.** Best so far: 96.00 of 100, Formulations 1 and 3.",
+              "Next: Make the next Round."),
+    D.LINE_A: ("Predictions: **Reliable.** 33 of 35 results in range.",
+               "Progress: **No new best.** Best so far: 90.45 of 100, Formulation 15.",
+               "Next: Record Round 6's 4 open formulations. In Round 7, add a Repeat of "
+               "Formulation 15."),
+    D.LINE_B: ("Predictions: **Off.** 8 of 36 results out of range; up to 4 is normal.",
+               "Progress: **Flat.** No new best in 2 Rounds. Best so far: 90.09 of 100, "
+               "Formulation 11.",
+               "Next: Check panel, suppliers and equipment before Round 6. Formulation 11's "
+               "Repeat scored 10.5 points lower."),
+    D.LINE_C: ("Predictions: **Not yet.** No better than averaging past scores. New panel or "
+               "method? Check its consistency.",
+               # Fix A follow-up (decision 4): the rise against the 3.2 it needed.
+               "Progress: **Within noise.** Up 2.5, needs 3.2 to count. Best so far: 89.84 of 100, "
+               "Formulation 18.",
+               "Next: Record Round 6's 4 open formulations. Suggestions are a guided search, "
+               "not a forecast."),
+    D.UPGRADE: ("Predictions: **Not yet.** 2 of 10 formulations checked.",
+                "Progress: **Too early.** Best so far: 90.50 of 100, Formulation 6. Rounds 1–2 "
+                "lack Cook loss.",
+                "Next: Make the next Round."),
+    D.TIMING: ("Predictions: **Reliable.** 58 of 60 results in range.",
+               "Progress: **Flat.** No new best in 7 Rounds. Best so far: 92.50 of 100, "
+               "Formulation 24.",
+               "Next: Make the next Round with a Repeat of Formulation 24."),
+    D.PROCESS_ONLY: ("Predictions: **Not yet.** Not clearly better than averaging past scores. "
+                     "New panel or method? Check its consistency.",
+                     "Progress: **Within noise.** Up 1.9, needs 3.2 to count. Best so far: "
+                     "87.92 of 100, "
+                     "Trial 21.",
+                     "Next: Record Round 6's 4 open trials. In Round 7, add a Repeat of "
+                     "Trial 21."),
+}
 
 
 def _install(name):
@@ -126,6 +178,15 @@ def _status(at):
     return [t for k, t in first_screen(at) if k == "markdown"]
 
 
+def _status_helps(at):
+    """The three status lines' tooltips, in order."""
+    out = []
+    for el, _ in _walk(at.tabs[3]):
+        if el.type == "markdown" and el.value.startswith(("Predictions:", "Progress:", "Next:")):
+            out.append(el.proto.help)
+    return out[:3]
+
+
 def _expected(name):
     word_p, pred, word_g, prog, nxt = (_PROCESS_ONLY if name == D.PROCESS_ONLY
                                        else FIRST_SCREENS[_SHORT[name]])
@@ -151,8 +212,49 @@ def _words(text):
 # ------------------------------------------------------------------ #
 
 @pytest.mark.parametrize("name", D.ALL)
-def test_the_three_status_lines_are_the_rulings_sentences(screens, name):
-    assert _status(screens[name]) == _expected(name)
+def test_the_three_status_lines_are_the_short_lines(screens, name):
+    """Concision round: the exact short lines on screen."""
+    assert _status(screens[name]) == list(_SHORT_LINES[name])
+
+
+# Concision round: what moved off screen is first in each line's tooltip
+# (its full sentence), sampled per project: (line index, words).
+_IN_TOOLTIP = {
+    D.SNACK: [(0, "The app starts checking its predictions once 5 formulations have results"),
+              (1, "One Round so far, laid out to cover your allowed amounts.")],
+    D.LINE_A: [(0, "results landed inside the range the app predicted (up to 3 misses are normal)"),
+               (1, "tied with Formulation 18"),
+               (1, "The app expects little more inside your current limits"),
+               (2, "(the same amounts again) to measure how much results vary.")],
+    D.LINE_B: [(0, "fell outside the range the app predicted, where up to 4 are normal"),
+               (1, "tied with Formulation 10"),
+               (2, "Formulation 21, a Repeat of Formulation 11, scored 10.5 points lower"),
+               # Fix A follow-up (decision 2): the larger of the two limits.
+               (2, "(up to 8.2 points)")],
+    D.LINE_C: [(0, "skill −0.47, where 0 matches that average and 1 is exact"),
+               (0, "those for Firmness, Juiciness and Cook loss are still very uncertain"),
+               (1, "tied with Formulation 20"),
+               # Fix A follow-up (decision 4): the threshold, not the noise SD.
+               (1, "less than the 3.2 points needed to count as a rise."),
+               (2, "Until predictions beat the average")],
+    D.UPGRADE: [(0, "needs 10 before it can say how far to trust them"),
+                (1, "so they are not compared with it.")],
+    D.TIMING: [(1, "probably helped by luck: a Repeat of it is predicted near 90"),
+               (2, "about 1.1 points of gain on average")],
+    D.PROCESS_ONLY: [(0, "skill −0.03"),
+                     (1, "less than the 3.2 points needed to count as a rise."),
+                     (2, "(the same values again)")],
+}
+
+
+@pytest.mark.parametrize("name", D.ALL)
+def test_each_status_tooltip_opens_on_its_full_sentence(screens, name):
+    """Concision round: nothing is lost. Each line's tooltip opens on its
+    full sentence (status_full_texts), then W2's exact rule."""
+    helps = _status_helps(screens[name])
+    assert len(helps) == 3 and all("\n\n" in h for h in helps), helps
+    for k, words in _IN_TOOLTIP[name]:
+        assert words in helps[k].split("\n\n")[0], (k, helps[k])
 
 
 @pytest.mark.parametrize("name", D.ALL)
@@ -190,7 +292,7 @@ def test_next_names_its_status_word_only_for_predictions_and_progress(screens):
 @pytest.mark.parametrize("name", D.ALL)
 def test_the_word_budget(screens, name):
     words = sum(_words(t) for _, t in first_screen(screens[name]))
-    assert words <= _BUDGET
+    assert words <= _BUDGET or name in _OVER_BUDGET
     assert words == _WORDS[name]
 
 
@@ -204,8 +306,11 @@ def test_no_statistic_name_in_a_status_sentence(screens, name):
 def test_each_status_sentence_is_at_most_two_body_lines(screens, name):
     """R-I8: about 220 characters at the 980 px main block; Next may run to
     three (the review's own Line B and Timing check sentences do)."""
+    from tests.test_107_ftue import LONGER
     p, g, n = (_sentence(line) for line in _status(screens[name]))
-    assert len(p) <= 220 and len(g) <= 220 and len(n) <= 330
+    short = _SHORT.get(name)
+    assert len(p) <= LONGER.get((short, "pred"), 220)
+    assert len(g) <= LONGER.get((short, "prog"), 220) and len(n) <= 330
 
 
 # ------------------------------------------------------------------ #
@@ -233,9 +338,13 @@ def test_the_upgrade_files_predicted_best_is_only_in_its_fold(screens):
     assert inside and all(f[:1] == (wording.FOLD_PROGRESS_FIGURES,) for _, f in inside)
 
 
-def test_luck_at_level_0_on_the_timing_check_only(screens):
-    with_luck = [n for n in D.ALL if "probably helped by luck" in _status(screens[n])[1]]
+def test_luck_in_the_progress_tooltip_on_the_timing_check_only(screens):
+    """Concision round: the luck clause moved from level 0 to the line's
+    tooltip (its full sentence); the Repeat it explains is still asked on
+    screen."""
+    with_luck = [n for n in D.ALL if "probably helped by luck" in _status_helps(screens[n])[1]]
     assert with_luck == [D.TIMING]
+    assert not any("luck" in line for n in D.ALL for line in _status(screens[n]))
 
 
 # ------------------------------------------------------------------ #
@@ -262,7 +371,8 @@ def test_the_repeat_link_only_where_next_asks_with_no_why_link(screens):
     """R-I3, ruled in by the early walkthrough (ftue fix C): drawn on the
     Timing check alone (Line A asks too, but its Why link outranks it)."""
     drawn = [name for name in D.ALL
-             if any(t.startswith("Make a Repeat") for _, t in first_screen(screens[name]))]
+             if any(t.startswith("Repeat ") for k, t in first_screen(screens[name])
+                    if k == "button:tertiary")]
     assert drawn == [D.TIMING]
 
 
@@ -301,11 +411,13 @@ def test_todays_exact_lines_sit_in_their_figures_folds(screens):
              "1 = perfect), better than the average of earlier results.")
     assert _folds_of(at, skill) == [pred]
     assert _folds_of(at, wording.TRUST_BEFOREHAND) == [pred]
-    assert _folds_of(at, wording.BASIS_PREDICTIONS) == [pred]
+    assert _folds_of(at, wording.BASIS_SHORT["predictions"]) == [pred]
     line1 = wording.stand_best("90.45", 15, 4) + " " + wording.stand_since(1)
     assert _folds_of(at, line1) == [prog]
-    assert _folds_of(at, wording.BASIS_PROGRESS) == [prog]
-    tie = wording.tie_runner_up(18, "90.12", wording.beat_by())
+    assert _folds_of(at, wording.BASIS_SHORT["progress"]) == [prog]
+    # Fix A follow-up (ruling on ties): the tie names rise_threshold(yard, 1).
+    tie = wording.tie_runner_up(18, "90.12", wording.rise_needs(
+        "2.3", "√2 × 1.64", wording.beat_by(), what="needed to differ"))
     assert _folds_of(at, tie) == [prog]
     reasoning = ui_insights.next_step_text(
         opt, insights.next_step(opt, checks, ui_insights.standing_for(
@@ -328,9 +440,13 @@ def test_the_disagreeing_repeat_is_said_once_at_each_level(screens):
     """Line B: Next carries the Repeat (level 0, and verbatim in Next-step
     reasoning), so Prediction figures does not say it again."""
     at = screens[D.LINE_B]
+    # Concision round: short at level 0 (the full sentence in its tooltip),
+    # verbatim in Next-step reasoning.
+    short = [f for el, f in _walk(at.tabs[3]) if "Formulation 11's Repeat scored" in _text(el)]
+    assert short == [()]
     said = [f for el, f in _walk(at.tabs[3])
             if "Formulation 21, a Repeat of Formulation 11, scored" in _text(el)]
-    assert said == [(), (wording.FOLD_NEXT_REASONING,)]
+    assert said == [(wording.FOLD_NEXT_REASONING,)]
 
 
 def test_one_round_does_not_say_it_came_from_the_latest_round(screens):
@@ -338,7 +454,9 @@ def test_one_round_does_not_say_it_came_from_the_latest_round(screens):
     texts = [_text(el) for el, _ in _walk(screens[D.SNACK].tabs[3])]
     assert not any(wording.STAND_LATEST in t for t in texts)
     # Its tie is named at level 0 (equal scores) and in Progress figures.
-    assert any(t == wording.tie_runner_up(3, "96.00", wording.beat_by()) for t in texts)
+    # Fix A follow-up (ruling on ties): the tie names rise_threshold(yard, 1).
+    assert any(t == wording.tie_runner_up(3, "96.00", wording.rise_needs(
+        "2.3", "√2 × 1.64", wording.beat_by(), what="needed to differ")) for t in texts)
 
 
 def test_the_gate_line_is_gone_from_the_gate(screens):
@@ -414,4 +532,4 @@ def test_a_failed_fit_keeps_the_progress_line_alone(screens, monkeypatch):
     texts = [t for _, t in screen]
     assert wording.INSIGHTS_FAILED in texts
     assert not any(t.startswith("Predictions:") or t.startswith("Next:") for t in texts)
-    assert [t for t in texts if t.startswith("Progress: **")] == [_expected(D.LINE_B)[1]]
+    assert [t for t in texts if t.startswith("Progress: **")] == [_SHORT_LINES[D.LINE_B][1]]

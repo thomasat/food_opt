@@ -55,12 +55,13 @@ class _Settings:
 # ------------------------------------------------------------------ #
 
 def test_the_role_key_is_the_rulings_line():
-    assert wording.WHY_ROLE_KEY == ("Refines the best = a small change to your best. "
-                                    "Explores = far from anything made so far. "
-                                    "Balanced = in between.")
+    # Concision round (2026-10-01).
+    assert wording.WHY_ROLE_KEY == ("Refines the best: near your best. "
+                                    "Explores: far from all made. "
+                                    "Balanced: between.")
     # One vocabulary with the Role column and the Compared with cell.
     for word in (wording.ROLE_REFINES, wording.ROLE_EXPLORES, wording.ROLE_BALANCED):
-        assert f"{word.capitalize()} = " in wording.WHY_ROLE_KEY
+        assert f"{word.capitalize()}: " in wording.WHY_ROLE_KEY
 
 
 def test_the_why_folds_plain_labels():
@@ -68,11 +69,12 @@ def test_the_why_folds_plain_labels():
     assert wording.CLOSEST_MADE == "Closest formulation already made"
     assert wording.WHY_RECALCULATED == "Figures recalculated from today's results."
     assert wording.why_picked_after([23, 24, 25]) == (
-        "Formulations 23–25 (marked ·): what each adds on top of the ones picked before it.")
+        "Formulations 23–25, marked ·: what each adds to earlier picks.")
     assert wording.why_picked_after([23]) == (
-        "Formulation 23 (marked ·): what it adds on top of the ones picked before it.")
-    assert wording.why_compared_with(15) == (
-        "The Compared with column above is always Best so far (Formulation 15).")
+        "Formulation 23, marked ·: what it adds to earlier picks.")
+    assert wording.why_compared_with(15) == "Compared with: always Best so far, Formulation 15."
+    assert wording.why_gain_short("verdict") == (
+        "Expected gain not shown: predictions miss too often.")
     assert wording.why_gain_said(wording.WHY_CHECKING).startswith("Expected gain is not shown")
     assert wording.why_gain_said(wording.why_guard_line(verdict=True)).startswith(
         "Expected gain is not shown: ")
@@ -100,8 +102,10 @@ def test_the_512_draws_are_the_samplers_own():
 
 
 def test_the_repeat_lines():
-    assert wording.repeat_link(24) == "Make a Repeat of Formulation 24"
+    assert wording.repeat_link(24) == "Repeat Formulation 24"
     assert wording.repeat_after_generate(24) == (
+        "Click Generate first. The Repeat of Formulation 24 then opens below.")
+    assert wording.repeat_after_generate_help(24) == (
         "Click Generate first: the Repeat of Formulation 24 then opens, filled in, under "
         "Add a formulation to this round.")
 
@@ -395,8 +399,10 @@ def test_a_withheld_gain_is_said_in_the_folds_own_words(monkeypatch):
     [frame] = [d.value for d in fold.dataframe]
     assert wording.EXPECTED_GAIN not in frame.columns
     captions = [c.value for c in fold.caption]
-    assert wording.why_gain_said(wording.why_guard_line([wording.GUARD_FLOOR])) in captions
-    assert not any(c.startswith("Expected improvement") for c in captions)   # the former name
+    # Concision round: the short line on screen, the full one in its help.
+    [line] = [c for c in fold.caption if c.value == wording.why_gain_short("guard")]
+    assert line.proto.help == wording.why_gain_said(wording.why_guard_line([wording.GUARD_FLOOR]))
+    assert not any(c.startswith("Expected improvement") for c in captions)
 
 
 # ------------------------------------------------------------------ #

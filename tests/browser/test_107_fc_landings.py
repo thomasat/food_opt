@@ -2,10 +2,10 @@
 800: where each Insights link lands (ledger, "Early walkthrough" rulings;
 05-walkthrough-retest-early.md §3, §5 items 2, 5, 9).
 
-- "Why the model suggested Round 6" (Lines A and C): Make a round, the Why
+- "Why Round 6 was suggested" (Lines A and C): Make a round, the Why
   fold open, its heading just under the app's header bar and its first line
   the role key, all in view.
-- "Make a Repeat of Formulation 24", with no Round open (a copy of the
+- "Repeat Formulation 24", with no Round open (a copy of the
   Timing check): Make a round at the top with the one-line instruction;
   after Generate, "Add a formulation to this round" open, in view, filled
   in from Formulation 24 with the note "Repeat of Formulation 24", and
@@ -13,7 +13,7 @@
 - The same link with a Round of the user's own open (another copy, its
   Round 13 holding one own formulation, so no Why link): the Add fold open
   and filled in at once, in view.
-- "See the amounts you have not tried" (a copy of the Timing check whose
+- "See untried amounts" (a copy of the Timing check whose
   noise threshold is measured, so Next asks for no Repeat and the Explored
   link has the place): the Explored and unexplored fold open, in view.
 
@@ -88,7 +88,7 @@ def _panel(page):
 def _insights_link(page, name, label):
     """Open `name`, then Insights, and wait (up to 5 min) for the link."""
     _open_project(page, name)
-    page.get_by_role("tab", name="Insights").first.click()
+    page.get_by_role("tab", name="Review").first.click()
     link = _panel(page).get_by_role("button", name=label)
     link.first.wait_for(timeout=300000)
     settle(page, 2)
@@ -124,7 +124,7 @@ def _in_view(locator):
 
 @pytest.mark.parametrize("name", (LINE_A, LINE_C))
 def test_the_why_link_lands_on_the_open_why_fold(page, name):
-    _insights_link(page, name, "Why the model suggested Round 6").click()
+    _insights_link(page, name, "Why Round 6 was suggested").click()
     box = _landed(page, "why_these_place", "Why these suggestions")
     key = _place(page, "why_these_place").get_by_text(ROLE_KEY)
     _in_view(key)
@@ -140,7 +140,7 @@ def _own_form(page):
 
 
 def test_the_repeat_link_with_no_round_open_waits_for_generate(page):
-    _insights_link(page, REPEAT_COPY, "Make a Repeat of Formulation 24").click()
+    _insights_link(page, REPEAT_COPY, "Repeat Formulation 24").click()
     settle(page, 3)
     panel = _panel(page)
     line = panel.get_by_text(re.compile(r"^Click Generate first: the Repeat of Formulation 24"))
@@ -165,7 +165,7 @@ def test_the_repeat_link_with_no_round_open_waits_for_generate(page):
 
 
 def test_the_repeat_link_with_a_round_open_fills_the_add_fold(page):
-    _insights_link(page, OWN_ROUND_COPY, "Make a Repeat of Formulation 24").click()
+    _insights_link(page, OWN_ROUND_COPY, "Repeat Formulation 24").click()
     _landed(page, "add_own_place", "Add a formulation to this round")
     place, note = _own_form(page)
     _in_view(place.locator('[data-testid="stNumberInput"] input').first)
@@ -175,7 +175,7 @@ def test_the_repeat_link_with_a_round_open_fills_the_add_fold(page):
 
 
 def test_the_explored_link_lands_on_the_open_fold(page):
-    _insights_link(page, EXPLORED_COPY, re.compile(r"^See the amounts you have not tried")).click()
+    _insights_link(page, EXPLORED_COPY, re.compile(r"^See untried amounts")).click()
     box = _landed(page, "insights_explored_place", "Explored and unexplored")
     strips = _place(page, "insights_explored_place").get_by_text("Where you have tested")
     _in_view(strips.first)

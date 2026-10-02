@@ -9736,7 +9736,7 @@ class TestTheFormulaColumn:
         # The head names the number it fills to AND where that number is
         # set, so the line is read the same on a round made to another size.
         assert opt.worked_out_captions() == [
-            "Water is calculated to bring the total to the 100 g default "
+            "Water fills to the 100 g default "
             "batch size: between 40.00 and 62.00 g. "
             "Its own Lowest and Highest (20.00 to 60.00 g) do not apply "
             "while the calculation does."]
@@ -11138,8 +11138,7 @@ class TestPreMixes:
         assert opt.pending_batch is None
         assert opt.pending_batch_no is None
         assert wording.batch_discarded_notice(no) == (
-            f"Round {no} was discarded: your set-up changed after it was "
-            "made. Generate a new one.")
+            f"Round {no} was discarded: your set-up changed. Generate a new one.")
         # And what the screen's question is built from, in wave 1's words.
         assert wording.saving_discards_round(no, "3 formulations", 1) == (
             f"Saving will discard Round {no}: 3 formulations, 1 of them "

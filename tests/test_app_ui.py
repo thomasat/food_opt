@@ -1351,7 +1351,9 @@ def test_the_ingredient_uploader_help_names_the_real_columns(burger):
     # not — what a blank Unit cell means — and says it in this project's unit.
     assert uploader.proto.help == ("Leave the Unit column blank and the app "
                                    "reads it as g."), uploader.proto.help
-    assert any(c.value.startswith("A file with the columns Name, Lowest, Highest")
+    # Concision round: the caption names the columns; its "?" lists them all.
+    assert any(c.value == wording.INGREDIENTS_FILE_CAPTION
+               and c.proto.help.startswith("A file with the columns Name, Lowest, Highest")
                for c in at.caption), [c.value for c in at.caption]
 def test_an_ingredient_added_mid_run_may_keep_a_lowest_of_its_own(burger):
     """0.5.0: the grid lets a new row start above 0 — "5 g of salt in every
@@ -2007,9 +2009,11 @@ def test_result_inputs_carry_the_goal_and_unit_and_are_ordered_by_importance(ope
     labels = [n.label for n in at.number_input]
     assert (labels.index("Firmness (N) · Target 6 N")
             < labels.index("Juiciness (/10) · Target 7"))
-    assert any(c.value == ("One number per measurement; the panel mean where "
-                           "a panel rated it. Leave blank if the result isn't "
-                           "in yet; you can add it later on Results.") for c in at.caption), \
+    assert any(c.value == "Leave a result blank until it is in."
+               and c.proto.help == ("One number per measurement; the panel mean where "
+                                    "a panel rated it. Leave blank if the result isn't "
+                                    "in yet; you can add it later on Results.")
+               for c in at.caption), \
         [c.value for c in at.caption]
 
 
@@ -4221,7 +4225,7 @@ def test_the_limits_caption_covers_a_property_named_in_the_app(with_properties):
     at.run()
     assert any(c.value == wording.LIMITS_CAPTION
                for c in at.caption), [c.value for c in at.caption]
-    assert wording.LIMITS_CAPTION.startswith(
+    assert wording.LIMITS_HELP.startswith(
         "Generated formulations satisfy the limits listed here.")
     said = [c.value for c in at.caption if wording.PROPERTY_BLANK_RULE in c.value]
     assert said == [wording.properties_grid_caption(True)], said
@@ -6287,7 +6291,8 @@ def test_the_upload_is_folded_away_beneath(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     fold = next(e for e in at.get("popover") if e.proto.popover.label == wording.UPLOAD_INGREDIENTS_EXPANDER)
-    assert any(c.value == ("A file with the columns Name, Lowest, Highest "
+    assert any(c.value == "Columns: Name, Lowest, Highest; others optional."
+               and c.proto.help == ("A file with the columns Name, Lowest, Highest "
                            "and, optionally, Unit, Calculation, Part of, Preparation and Composition (%). Extra numeric columns "
                            "become properties you can set limits on.")
                for c in fold.caption), \
@@ -6841,9 +6846,10 @@ def test_the_partial_sentence_is_said_once_on_the_tab(burger):
     at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
     sentence = wording.COMPLETE_RESULTS_CAPTION
-    assert sentence == ("A formulation counts once all its results are in; "
-                        "“—” means it is scored without that "
-                        "measurement, so it is not compared for Best so far."), sentence
+    assert sentence == "“—”: scored without that measurement.", sentence
+    assert wording.complete_results_help() == (
+        "A formulation counts once all its results are in; “—” means it is scored without "
+        "that measurement, so it is not compared for Best so far.")
     # Only while a dash is on screen (spec 2026-09-30 §4, audit V9).
     assert sum(1 for c in at.caption if c.value == sentence) == 0, \
         [c.value for c in at.caption]
@@ -6856,8 +6862,7 @@ def test_the_partial_sentence_is_said_once_on_the_tab(burger):
     at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
     said = [c.value for c in at.caption]
-    assert sum(1 for c in said if c.startswith("A formulation counts once all its results "
-                                               "are in; “—” means")) == 1, said
+    assert sum(1 for c in said if c.startswith("“—”: scored without")) == 1, said
 
 
 def test_the_correct_picker_offers_not_scored_formulations(scored):
@@ -7268,7 +7273,7 @@ def test_changing_the_default_batch_size_says_what_the_rest_row_takes(
     assert sum(1 for line in said if line.startswith("Water ")) == 1, said
     # ...and the consequence under the grid is read at the new size on the
     # very run the number moved, not on the next visit to the tab.
-    assert any(line.startswith("Water is calculated to bring the total to "
+    assert any(line.startswith("Water fills to "
                                "the 250 g default batch size: between ")
                for line in said), said
     assert not any("100 g default batch size" in line for line in said), said
@@ -7296,7 +7301,7 @@ def test_the_rule_column_says_what_it_is_for_before_any_row_has_one(burger):
     at.run()
     said = _tab1_captions(at)
     assert not any(c.value.startswith("To calculate a row from the others") for c in at.caption)
-    assert any(c.startswith("Methylcellulose is calculated to bring the total "
+    assert any(c.startswith("Methylcellulose fills "
                             "to the 20 g default batch size: ")
                for c in said), said
 
@@ -7450,9 +7455,10 @@ def test_a_formulation_recorded_later_is_noted_as_made_earlier(burger):
 def test_the_restore_uploader_says_what_to_give_it(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert any(c.value == ("A copy you saved yourself, or one the app saved "
-                           "before a change. The current project is copied "
-                           "first.")
+    assert any(c.value == "The current project is copied first."
+               and c.proto.help == ("A copy you saved yourself, or one the app saved "
+                                    "before a change. The current project is copied "
+                                    "first.")
                for c in at.sidebar.caption), \
         [c.value for c in at.sidebar.caption]
 
@@ -9713,8 +9719,7 @@ def test_a_batch_discarded_by_the_total_says_the_total_did_it(burger):
     at.run()
     assert not at.exception
     assert any(i.value == ("Round 1 was discarded: the default batch size "
-                           "changed after it was made. Generate "
-                           "a new one.") for i in at.info), \
+                           "changed. Generate a new one.") for i in at.info), \
         [i.value for i in at.info]
     assert FoodOptimizer("burger").pending_batch is None
 
@@ -10180,7 +10185,7 @@ def test_the_grid_says_worked_out_and_the_caption_says_what_it_comes_to(
     assert (row[wording.LOWEST_LABEL], row[wording.HIGHEST_LABEL]) == (
         "", "")
     assert row[wording.FORMULA_LABEL] == "Fill to total"
-    assert any(c.value.startswith("Water is calculated to bring the total to "
+    assert any(c.value.startswith("Water fills to "
                                   "the 50 g default batch size: ")
                for c in at.caption), [c.value for c in at.caption]
     details = next(e for e in at.expander if e.label == wording.CALCULATION_SYNTAX_LABEL)

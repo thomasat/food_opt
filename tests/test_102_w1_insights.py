@@ -349,10 +349,13 @@ def test_three_pairs_measure_the_threshold_and_say_their_df():
     for i, v in zip((0, 1, 2), (70.0, 72.0, 71.0)):
         opt.Y_history[i] = v
     y = insights.noise_yardstick(opt)
-    assert (y.pairs, y.from_repeats, y.assumed, y.df, y.groups) == (3, True, False, 2, 1)
+    # Ftue fix A (cold read I11): 3 pairs on 2 df do not yet measure it.
+    assert (y.pairs, y.from_repeats, y.assumed, y.df, y.groups) == (3, False, True, 2, 1)
     assert ui_insights.repeats_text(y) == wording.stand_repeats(
         f"{y.sd:.1f}", 3, df=2, groups=1)
-    assert "(3 results of 1 formulation, 2 df)" in ui_insights.repeats_text(y)
+    # Fix round B (statistician I11): the df, not the pairs; fix round A
+    # moves the gate itself to 3 df.
+    assert ", 2 df (3 results of 1 formulation)" in ui_insights.repeats_text(y)
 
 
 def test_the_threshold_text_says_assumed_below_three_pairs():
@@ -370,14 +373,17 @@ def test_rising_and_within_noise_say_the_threshold_is_assumed():
     """The 02 Round 3 pin's words (review B2): '…above the 1-point noise
     threshold (assumed …)'."""
     yard = insights.Yardstick(1.0, None, 0, False, assumed=True)
-    yes = ui_insights.stand_text(insights.Improvement("yes", 6.3, None, 0), yard)
-    assert yes == wording.stand_yes("6.3", wording.beat_by(None, assumed=True))
-    barely = ui_insights.stand_text(insights.Improvement("barely", 0.4, None, 0), yard)
-    assert barely == ("Within noise: up 0.4 points in the last Round, under "
-                      + wording.beat_by(None, assumed=True) + ".")
+    # Fix A follow-up (decision 4): the threshold (√2 × 1.645 × 1 = 2.3)
+    # and its make-up, the assumed noise threshold its last factor.
+    yes = ui_insights.stand_text(insights.Improvement("yes", 6.3, None, 0, 2.326, 1), yard)
+    assert yes == wording.stand_yes("6.3", wording.rise_needs(
+        "2.3", "√2 × 1.64", wording.beat_by(None, assumed=True)))
+    barely = ui_insights.stand_text(insights.Improvement("barely", 0.4, None, 0, 2.326, 1), yard)
+    assert barely == ("Within noise: up 0.4 points in the last Round, under the 2.3 points "
+                      "needed: √2 × 1.64 × " + wording.beat_by(None, assumed=True) + ".")
     # Measured, or not said to be assumed: today's words.
-    assert ui_insights.stand_text(insights.Improvement("yes", 6.3, None, 0)) == \
-        wording.stand_yes("6.3", wording.beat_by())
+    assert ui_insights.stand_text(insights.Improvement("yes", 6.3, None, 0, 2.326, 1)) == \
+        wording.stand_yes("6.3", wording.rise_needs("2.3", "√2 × 1.64", wording.beat_by()))
     _clean(yes, barely)
 
 
@@ -577,10 +583,27 @@ def _said(opt, checks):
 def test_no_check_advice_at_any_round_of_02_clean_or_drift(project, name):
     """Ruling B1: 02 and 03 clean show no "check" at any Round (their
     biases are the model's), and the drift run makes no causal claim: the
-    Round-ahead check cannot see a change it learned from its first Round."""
+    Round-ahead check cannot see a change it learned from its first Round.
+    Fix A's follow-up (owner, decision 2): 03 clean's F16, a Repeat of F12
+    2.84 points apart, beat √2 × 1.96 × the assumed 1 point (2.77) at
+    Rounds 4-6; until the Repeat SD has 3 df a pair must also beat its own
+    predictive limit, which it does not, so fix A's exception is gone."""
     for r in range(3, 9):
         opt, checks = upto(project, name, r)
         step, texts = _said(opt, checks)
+        if name == E.BAR_DRIFT and r == 7:
+            # Fix A follow-up (decision 2), an open owner decision against
+            # B1: from 3 df the leave-one-out Repeat SD alone sets the
+            # limit. At Round 7, F20 (a Repeat of F14 across the drift) is
+            # 1.62 points off; the other Repeats' SD is 0.49 on 3 df, so the
+            # limit is √2 × 1.96 × 0.49 = 1.35. Before, the model's noise SD
+            # (1.14) set σ and the limit was 3.16.
+            d = step.disagreement
+            assert step.kind == "repeat" and (d.later, d.earlier, d.basis, d.df) == (
+                20, 14, "repeats", 3)
+            assert d.diff == pytest.approx(1.62, abs=0.01)
+            assert d.limit == pytest.approx(1.35, abs=0.01)
+            continue
         assert step.kind != "repeat", (name, r)
         for t in texts:
             assert wording.CHECK_IF_CHANGED not in t and "Check" not in t, (name, r, t)
@@ -595,14 +618,19 @@ def test_the_drift_runs_repeat_is_reported_with_its_numbers(project):
     yard = insights.noise_yardstick(opt, checks)
     assert (yard.pairs, yard.df, yard.groups, yard.from_repeats) == (4, 4, 4, True)
     assert ui_insights.repeats_text(yard) == (
-        "Repeat SD of the Overall score: 0.7 points from 4 pairs (8 results of 4 "
-        "formulations, 4 df); this is the noise threshold.")
+        "Repeat SD of the Overall score: 0.7 points, 4 df (8 results of 4 "
+        "formulations); this is the noise threshold.")
 
 
 def test_line_b_keeps_check_through_its_disagreeing_repeat(project):
     opt, checks = project(D.LINE_B)
     step, texts = _said(opt, checks)
     assert (step.kind, step.disagreement.later, step.disagreement.earlier) == ("repeat", 21, 11)
+    # Fix A's follow-up (decision 2): under 3 df the pair beats both limits,
+    # √2 × 1.96 × the assumed 1 point (2.77) and its own predictive limit.
+    d = step.disagreement
+    assert (d.basis, d.df) == ("assumed", 0)
+    assert abs(d.diff) > d.limit >= d.predictive > 2.77
     text = ui_insights.next_step_text(opt, step)[0]
     assert text.startswith("Formulation 21, a Repeat of Formulation 11, scored 10.5 points lower.")
     assert text.endswith(wording.CHECK_IF_CHANGED)
@@ -615,9 +643,11 @@ def test_02_round_3_reads_assumed_and_asks_for_a_repeat(project):
     opt, checks = project(E.PATTY_ROUND3)
     yard = insights.noise_yardstick(opt, checks)
     answer = insights.improvement(opt, yardstick=yard)
+    # Fix A follow-up (decision 4): the threshold of a Round of 4, 3.2.
     assert ui_insights.stand_text(answer, yard) == (
-        "Rising: up 6.3 points in the last Round, above the 1-point noise threshold "
-        "(assumed: no Repeats yet; a Repeat of Best so far would measure it).")
+        "Rising: up 6.3 points in the last Round, above the 3.2 points needed: √2 × 2.23 "
+        "(best of 4) × the 1-point noise threshold (assumed: no Repeats yet; a Repeat of Best "
+        "so far would measure it).")
     step = insights.next_step(opt, checks, None)
     assert step.kind == "rising"
     assert ui_insights.next_step_text(opt, step)[0].endswith(wording.NEXT_REPEAT_TO_MEASURE)
@@ -651,7 +681,8 @@ def test_02_falls_through_to_rising_or_see_under_the_gate(project):
 
 
 @pytest.mark.parametrize("name,line", [
-    (E.PATTY, "Predictions have run high: Overall score by about 3.7 points (Rounds 3–8)."),
+    (E.PATTY, "Results have come in below the predictions: Overall score by about 3.7 points "
+              "(Rounds 3–8)."),
     (E.BAR_DRIFT, ""),
     (D.LINE_A, ""),
 ])
@@ -662,11 +693,21 @@ def test_the_steady_bias_on_the_campaign_projects(project, name, line):
     assert ui_insights.steady_bias_text(opt, checks) == line
 
 
-def test_03_clean_says_its_bias_both_ways_without_advice(project):
+def test_03_clean_says_its_bias_both_ways_without_advice(project, monkeypatch):
+    """Under the t rule (ftue fix A, cold read I5) 03 clean's Crumbliness
+    bias no longer shows; its Overall score's still does. The both-ways
+    wording is checked under the earlier 2-standard-error rule."""
     opt, checks = project(E.BAR_CLEAN)
+    # Re-pinned: fix round B says a bias as results coming in above or below
+    # the predictions (statistician's cold read), not "Predictions have run".
+    assert ui_insights.steady_bias_text(opt, checks) == (
+        "Results have come in above the predictions: Overall score by about 2.1 points "
+        "(Rounds 3–8).")
+    monkeypatch.setattr(insights, "t_critical", lambda df, p=0.975: 2.0)
     line = ui_insights.steady_bias_text(opt, checks)
-    assert line.startswith("Predictions have run high: Crumbliness")
-    assert "; low: Overall score by about 2.1 points" in line and line.endswith("(Rounds 3–8).")
+    assert line.startswith("Results have come in below the predictions: Crumbliness")
+    assert "; above them: Overall score by about 2.1 points" in line and line.endswith(
+        "(Rounds 3–8).")
 
 
 # ------------------------------------------------------------------ #
@@ -674,12 +715,13 @@ def test_03_clean_says_its_bias_both_ways_without_advice(project):
 # ------------------------------------------------------------------ #
 
 @pytest.mark.parametrize("acquisition,ref", [
-    (None, "the model's best tested formulation"),
+    (None, "the highest the model draws for the tested formulations (approximate)"),
     ("qlogei", "Best so far's measured {best}")])
 def test_the_expected_improvement_is_an_average_gain_over_its_reference(
         monkeypatch, acquisition, ref):
-    """Review I6: under qLogNEI (the default) the reference is the model's
-    best tested formulation; under qLogEI, Best so far's measured score.
+    """Review I6: under qLogNEI (the default) the reference is the highest
+    the model draws for the tested formulations (fix round B, statistician
+    I1: no single incumbent); under qLogEI, Best so far's measured score.
     Never "the best single new formulation beats … by"."""
     import bo_views
     opt = _patty(rows=6)
@@ -753,8 +795,10 @@ def test_the_02_round_3_tab_says_assumed_once_and_asks_for_a_repeat(tabs):
     texts = _tab_texts(tabs[E.PATTY_ROUND3])
     said = " ".join(texts)
     assert said.count("(assumed:") == 1, said
-    assert any(t.startswith("Rising: up 6.3 points in the last Round, above the 1-point noise "
-                            "threshold (assumed: no Repeats yet;") for t in texts)
+    # Fix A follow-up (decision 4): the threshold, then its make-up.
+    assert any(t.startswith("Rising: up 6.3 points in the last Round, above the 3.2 points "
+                            "needed: √2 × 2.23 (best of 4) × the 1-point noise threshold "
+                            "(assumed: no Repeats yet;") for t in texts)
     nxt = texts[texts.index(f"##### {wording.Q_NEXT}") + 1]
     assert nxt.endswith(wording.NEXT_REPEAT_TO_MEASURE)
     # Fewer than 10 checks: effects and the expected gain wait.
@@ -763,12 +807,14 @@ def test_the_02_round_3_tab_says_assumed_once_and_asks_for_a_repeat(tabs):
 
 def test_the_02_final_tab_states_its_bias_and_never_says_check(tabs):
     texts = _tab_texts(tabs[E.PATTY])
-    assert "Predictions have run high: Overall score by about 3.7 points (Rounds 3–8)." in texts
+    assert ("Results have come in below the predictions: Overall score by about 3.7 points "
+            "(Rounds 3–8).") in texts
     said = " ".join(texts)
     assert wording.CHECK_IF_CHANGED not in said and "Check the panel" not in said
     nxt = texts[texts.index(f"##### {wording.Q_NEXT}") + 1]
     assert nxt.startswith("Measured values in Rounds 6–8 fell outside")
-    assert nxt.endswith("Overall-score predictions have run about 3.7 points high (Rounds 3–8).")
+    assert nxt.endswith("Overall scores have come in about 3.7 points below the predictions "
+                        "(Rounds 3–8).")
     assert wording.gain_unreliable(wording.GAIN_REASON_VERDICT) in texts
 
 

@@ -273,7 +273,10 @@ def test_bias_item_units(unit, said):
     assert wording.bias_item("Crumbliness", "0.4", unit) == said
 
 
-def test_03_clean_bias_line_reads_points_not_score(standing_of):
+def test_03_clean_bias_line_reads_points_not_score(standing_of, monkeypatch):
+    # Crumbliness's bias shows under the earlier 2-standard-error rule only
+    # (ftue fix A, cold read I5); its wording is checked under that rule.
+    monkeypatch.setattr(insights, "t_critical", lambda df, p=0.975: 2.0)
     *_, opt, _best = standing_of(E.BAR_CLEAN)
     line = ui_insights.steady_bias_text(opt, insights.check_rounds(opt))
     assert "Crumbliness by about 0.4 points" in line and " score;" not in line
@@ -287,15 +290,20 @@ def test_the_rough_track_line_says_more_misses_once():
     line = wording.round_track_rough(13, 16, "5.5", see_insights=True, rounds=[2, 3, 4, 5])
     # The bias as one fact (polish round 8).
     assert line == ("Overall score, Rounds 2–5: 13 of 16 inside their 95 % interval; "
-                    "Overall-score predictions have run about 5.5 points high. More misses "
-                    "than expected; many more in the measured values.")
+                    "Overall scores have come in about 5.5 points below the predictions. More "
+                    "misses than expected; many more in the measured values.")
     assert line.lower().count("misses than expected") == 1
     # Without the measurements' verdict, as before.
     assert wording.round_track_rough(13, 16, "5.5", rounds=[2, 3, 4, 5]).endswith(
-        "predictions have run about 5.5 points high. More misses than expected.")
+        "scores have come in about 5.5 points below the predictions. More misses than "
+        "expected.")
 
 
 def test_line_b_track_line(tmp_path, monkeypatch):
+    # Line B's bias line shows under the earlier 2-standard-error rule only
+    # (ftue fix A, cold read I5: t = 2.45 < t_{0.975, 3} = 3.18); the
+    # wording with a bias is checked under that rule.
+    monkeypatch.setattr(insights, "t_critical", lambda df, p=0.975: 2.0)
     monkeypatch.chdir(tmp_path)
     opt = D.load(D.LINE_B)
     line = ui_insights.track_text(insights.round_track(opt, insights.check_rounds(opt)))
@@ -665,7 +673,9 @@ def test_the_upgrade_files_predicted_gain_is_withheld(upgrade):
     assert reason == wording.gain_reason_too_few(2)
     line = ui_insights.standing_text(opt, standing, yard, withheld=reason)
     assert "Predicted gain" not in line and "+9.3" not in line
-    assert line.startswith("Predicted best: 100 (95 % interval 93–100), in untested amounts.")
+    # 87–100 since ftue fix A's Round-grouped folds (cold read I9); 93–100
+    # before.
+    assert line.startswith("Predicted best: 100 (95 % interval 87–100), in untested amounts.")
     assert line.endswith("Its gain over Best so far is not reported: fewer than 10 "
                          "Round-ahead checks of the Overall score so far (2).")
 
@@ -724,9 +734,12 @@ def test_line_b_never_says_no_repeats_yet(tmp_path, monkeypatch):
     opt = D.load(D.LINE_B)
     checks = insights.check_rounds(opt)
     yard = insights.noise_yardstick(opt, checks)
-    assert (yard.pairs, yard.left_out, yard.assumed) == (0, 1, True)
+    # Ftue fix A (cold read I7): the disagreeing Repeat stays in the Repeat
+    # SD, so Line B counts its one pair (1 df, 3 needed). Re-pinned: fix
+    # round B (statistician I11) says degrees of freedom, not pairs.
+    assert (yard.pairs, yard.left_out, yard.assumed, yard.df) == (1, 0, True, 1)
     text = ui_insights.threshold_text(yard)
-    assert "the only Repeat disagrees" in text and "no Repeats yet" not in text
+    assert "1 df of Repeats, 3 needed" in text and "no Repeats yet" not in text
 
 
 # ------------------------------------------------------------------ #
@@ -777,11 +790,18 @@ def test_the_steady_bias_reads_as_one_fact_on_both_screens(tmp_path, monkeypatch
     monkeypatch.chdir(tmp_path)
     opt = D.load(name)
     checks = insights.check_rounds(opt)
+    # Ftue fix A (cold read I5): on t_{0.975, 3} = 3.18 standard errors
+    # neither Line shows an Overall-score bias (t = 2.45 and 2.69; Line C's
+    # Cook loss bias still shows) ...
+    assert insights.score_steady_bias(opt, checks) is None
+    assert "Overall score" not in ui_insights.steady_bias_text(opt, checks)
+    # ... so the one-fact wording is checked under the earlier 2-SE rule.
+    monkeypatch.setattr(insights, "t_critical", lambda df, p=0.975: 2.0)
     track = ui_insights.track_text(insights.round_track(opt, checks))
     insights_line = ui_insights.steady_bias_text(opt, checks)
     fact = wording.bias_fact(gap)
-    assert fact == f"predictions have run about {gap} points high"
-    assert f"; Overall-score {fact}" in track, track
+    assert fact == f"scores have come in about {gap} points below the predictions"
+    assert f"; Overall {fact}" in track, track
     assert f"Overall score by about {gap} points" in insights_line
     for line in (track, insights_line):
         assert "read about" not in line and "so new predictions" not in line, line
@@ -808,7 +828,7 @@ def test_a_new_project_shows_one_water_caption_after_the_batch_size(tmp_path, mo
     assert not at.exception
     water = [c.value for c in at.caption if c.value.startswith("Water ")]
     assert len(water) == 1, water
-    assert water[0].startswith("Water is calculated to bring the total to the 100 g")
+    assert water[0].startswith("Water fills to the 100 g")
     said = [c.value for c in at.caption]
     assert wording.rest_row_keeps_the_others("100 g") in said, said
     assert wording.rest_row_keeps_the_others("100 g") == (

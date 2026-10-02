@@ -23,7 +23,7 @@ def _isolate_cwd(tmp_path, monkeypatch):
 def _requests(opt, name):
     X, Y = insights.xy(opt, name, list(range(len(opt.Y_history))))
     main = {"id": 1, "kind": "main", "cfg": None, "X": X.tolist(), "Y": Y.tolist()}
-    kept, held = insights.folds(len(opt.Y_history))[0]
+    kept, held = insights.cv_folds(opt, range(len(opt.Y_history)))[0]
     fold = {"id": 2, "kind": "fold", "cfg": None, "X": X[kept].tolist(), "Y": Y[kept].tolist(),
             "Xt": X[held].tolist(), "Yt": Y[held].tolist()}
     return main, fold, (X, Y, kept, held)

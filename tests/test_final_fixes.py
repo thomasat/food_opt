@@ -30,9 +30,11 @@ def test_the_header_names_the_latest_scored_round_while_a_later_one_waits():
     for no in (7, 8, 9):
         _tell(opt, no, 3, drop=("Cook loss",))
     assert [r for r, _ in insights.scored_rounds(opt)] == [1, 2]
+    # Ledger, early five-second re-test (fix round B): the header names the
+    # waiting formulation(s) by number instead of counting "N more".
     assert ui_insights.header_text(opt) == (
         "Based on 6 scored formulations (all results in), up to Round 2. "
-        "3 more are waiting for Cook loss and are not used yet.")
+        "Formulations 7–9 are waiting for Cook loss and are not used yet.")
 
 
 def test_the_header_leaves_out_a_round_moved_to_not_scored():
@@ -52,7 +54,9 @@ def test_header_text_with_every_formulation_waiting():
     opt = _patty(rows=0)
     for no in (1, 2, 3):
         _tell(opt, no, 1, drop=("Cook loss",))
-    assert ui_insights.header_text(opt) == "3 formulations are waiting for Cook loss."
+    # Ledger, early five-second re-test (fix round B): the header names the
+    # waiting formulation(s) by number instead of counting "N more".
+    assert ui_insights.header_text(opt) == "Formulations 1–3 are waiting for Cook loss."
 
 
 # ------------------------------------------------------------------ #

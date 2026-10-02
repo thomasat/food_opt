@@ -331,21 +331,24 @@ def _same_formulation(opt, i, j):
 
 def _tie(opt, old, new):
     """The tie sentence when Best so far moved from row `old` to row `new`
-    by less than Repeats differ (1 point without 3 pairs), else ''. A lead
+    by less than one new result needs to differ (rise_threshold(yard, 1):
+    2.33 × the noise SD, t on the Repeats' df), else ''. A lead
     of 0.00 is an exact tie, said as one; a Repeat of the same make-up is
     never a tie (Plan B parked items)."""
     if _same_formulation(opt, old, new):
         return ""
     lead = float(opt.Y_history[new]) - float(opt.Y_history[old])
-    yard = _yardstick(opt)
-    if lead < 0 or lead >= yard.value:
+    # Fix A follow-up (ruling on ties): a lead is a tie under what one new
+    # result needs to read Rising, rise_threshold(yard, 1), so Results'
+    # tie and Insights' Rising never disagree.
+    need = insights.rise_threshold(_yardstick(opt), 1)
+    if lead < 0 or lead >= need:
         return ""
     if f"{lead:.2f}" == "0.00":
         return wording.tie_equal(int(opt.formulation_ids[new]), int(opt.formulation_ids[old]),
                                  f"{opt.Y_history[new]:.2f}")
     return wording.tie_line(int(opt.formulation_ids[new]), f"{opt.Y_history[new]:.2f}",
-                            f"{lead:.2f}", int(opt.formulation_ids[old]),
-                            f"{yard.value:.1f}" if yard.from_repeats else None)
+                            f"{lead:.2f}", int(opt.formulation_ids[old]), f"{need:.1f}")
 
 
 def _move_sentence(opt, before, after):
@@ -405,9 +408,11 @@ def _best(opt):
     if is_best:
         # One rule line (audit V8, review I10), then what the last Round
         # did, then what is still waiting.
+        without = opt.best_scored_without()
         st.caption(wording.for_project(opt, wording.BEST_RULE_WITHOUT
-                                       if opt.best_scored_without()
-                                       else wording.BEST_RULE))
+                                       if without else wording.BEST_RULE),
+                   help=wording.for_project(opt, wording.BEST_RULE_WITHOUT_HELP
+                                            if without else wording.BEST_RULE_HELP))
         repeats = best_repeats_text(opt)
         if repeats:
             st.caption(wording.for_project(opt, repeats))
@@ -468,7 +473,7 @@ def _best(opt):
         # the fold below must grey these on the same run.
         missing = {"number": number, "names": waiting, "slot": st.container()}
     if partial:
-        st.caption(_complete_results_caption(opt))
+        st.caption(_complete_results_caption(opt), help=_complete_results_help(opt))
     return partial, missing, waiting is None
 
 
@@ -512,6 +517,11 @@ def _waiting_lines(opt):
                                           opt.batch_history[rows[0]] if len(rows) == 1
                                           else None))
     return lines
+
+
+def _complete_results_help(opt):
+    return wording.for_project(opt, wording.complete_results_help(
+        not opt.best_scored_without()))
 
 
 def _complete_results_caption(opt):
@@ -702,7 +712,7 @@ def _all_formulations(opt, said_partial=False):
     # What a dash means, only while a dash is in the table (audit V9): a
     # waiting cell is not one.
     if not said_partial and any(opt.not_expected(i) for i in range(len(opt.Y_history))):
-        st.caption(_complete_results_caption(opt))
+        st.caption(_complete_results_caption(opt), help=_complete_results_help(opt))
     # One workbook, not a comma-separated file: the same table the screen
     # shows, and a Set-up sheet beside it saying what the targets and the
     # allowed amounts were. A column of numbers with nothing to read it

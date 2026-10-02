@@ -89,7 +89,7 @@ def test_a_lead_within_one_point_is_a_tie(tmp_path, monkeypatch):
     opt.Y_history[3] = opt.Y_history[old] + 0.2
     line = ui_results._progress_line(opt)
     assert line == wording.tie_line(4, f"{opt.Y_history[3]:.2f}", "0.20",
-                                    int(opt.formulation_ids[old]))
+                                    int(opt.formulation_ids[old]), "2.3")
     assert ui_results._move_sentence(opt, int(opt.formulation_ids[old]), 4) == line
 
 
@@ -104,15 +104,17 @@ def test_a_lead_beyond_the_yardstick_is_a_move(tmp_path, monkeypatch):
         wording.best_moved(int(opt.formulation_ids[old]), 4))
 
 
-@pytest.mark.parametrize("lead, tie", [(0.95, True), (1.05, False)])
-def test_one_point_is_the_line_without_repeats(tmp_path, monkeypatch, lead, tie):
+# Fix A follow-up (ruling on ties): the line is rise_threshold(1 point, 1)
+# = √2 × 1.645 = 2.33, where one new result would read Rising, not 1 point.
+@pytest.mark.parametrize("lead, tie", [(2.30, True), (2.36, False)])
+def test_the_q1_rise_threshold_is_the_line_without_repeats(tmp_path, monkeypatch, lead, tie):
     monkeypatch.chdir(tmp_path)
     opt = _patty(rows=3)
     _tell(opt, 4, 2)
     old = max(range(3), key=lambda i: opt.Y_history[i])
     opt.Y_history[3] = opt.Y_history[old] + lead
     said = ui_results._progress_line(opt)
-    assert said.endswith("within the 1-point noise threshold, so the two are tied.") is tie, said
+    assert said.endswith("under the 2.3 points needed to differ.") is tie, said
 
 
 def test_a_late_value_that_makes_a_tie_is_said_under_best_so_far(tmp_path, monkeypatch):
@@ -134,11 +136,12 @@ def test_a_late_value_that_makes_a_tie_is_said_under_best_so_far(tmp_path, monke
     _submit_button(at, "Save Juiciness").click()
     at.run()
     assert not at.exception
-    tie = wording.tie_line(2, "70.50", "0.50", 1)
+    tie = wording.tie_line(2, "70.50", "0.50", 1, "2.3")
     flashes = [f.value for f in at.success]
-    # Said once: the tie already says Formulation 2 scored (review M-1).
-    assert tie in flashes, flashes
-    assert not any("Formulation 2 scored." in f for f in flashes), flashes
+    # Re-pinned (concision round): the short tie line no longer says
+    # Formulation 2 scored, so the flash says it once, first.
+    assert "Formulation 2 scored. " + tie in flashes, flashes
+    assert sum(f.count("Formulation 2 scored") for f in flashes) == 1, flashes
     # The box is back on Best so far, and the line under it says the tie.
     assert FoodOptimizer("late").best_formulation_no() == 2
     said = _captions(at)
@@ -169,8 +172,8 @@ def test_a_process_only_tie_says_trial(trial_tie):
     """Task 8 review I-1: the line under Best so far goes through
     for_project."""
     said = _captions(_results(project="ferment"))
-    assert ("Trial 2 scored 60.50, 0.50 above Trial 1: within the 1-point noise threshold, "
-            "so the two are tied.") in said, said
+    # Concision round and fix A follow-up (ruling on ties): the short line.
+    assert "Tied with Trial 1: 0.50 apart, under the 2.3 points needed to differ." in said, said
     assert not any("Formulation" in c for c in said), said
 
 
@@ -186,8 +189,9 @@ def test_scoring_a_not_scored_trial_flashes_trial(trial_tie):
     at.run()
     assert not at.exception
     flashes = [f.value for f in at.success]
-    assert ("Trial 3 scored 61.00, 0.50 above Trial 2: within the 1-point noise threshold, "
-            "so the two are tied. " + wording.COPY_KEPT) in flashes, flashes
+    # Concision round and fix A follow-up (ruling on ties): the short line.
+    assert ("Trial 3 scored. Tied with Trial 2: 0.50 apart, under the 2.3 points needed to "
+            "differ. " + wording.COPY_KEPT) in flashes, flashes
     assert not any("Formulation" in f for f in flashes), flashes
 
 
@@ -196,12 +200,13 @@ def test_the_tie_uses_the_repeats_from_three_pairs(tmp_path, monkeypatch):
     opt = _patty(rows=4)
     monkeypatch.setattr(insights, "noise_yardstick",
                         lambda o, checks=(), name=insights.SCORE:
-                        insights.Yardstick(2.0, 2.0, 4, True))
+                        insights.Yardstick(2.0, 2.0, 4, True, df=4))
     old = max(range(3), key=lambda i: opt.Y_history[i])
     opt.Y_history[3] = opt.Y_history[old] + 1.5
     opt.batch_history[3] = 2
-    assert ui_results._tie(opt, old, 3).endswith(
-        "within the noise threshold (Repeat SD 2.0 points), so the two are tied.")
+    # Fix A follow-up (ruling on ties): rise_threshold(yard, 1), t on 4 df:
+    # 2.0 × √2 × 2.13 = 6.0.
+    assert ui_results._tie(opt, old, 3).endswith("under the 6.0 points needed to differ.")
 
 
 # ------------------------------------------------------------------ #

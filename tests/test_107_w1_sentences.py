@@ -104,24 +104,29 @@ def _best(opt, rounds_since=0, latest=True):
 def test_within_noise_says_less_than_the_threshold(opt):
     f = _best(opt)
     facts = _facts("reliable", progress="within_noise", best=f,
-                   improvement=insights.Improvement("barely", 0.4, None, 0))
+                   improvement=insights.Improvement("barely", 0.4, None, 0, 2.326, 1))
+    # Fix A follow-up (decision 4): the threshold itself (√2 × 1.645 × 1).
     assert ui_insights.progress_sentence(opt, facts) == wording.progress_within_noise(
-        f.round, "0.4", f"{f.score:.2f}", 100, f.formulation)
+        f.round, "0.4", f"{f.score:.2f}", 100, f.formulation, "2.3")
 
 
 def test_a_measured_threshold_is_said_with_its_size(opt):
     f = _best(opt)
     facts = _facts("reliable", progress="rising", best=f,
-                   improvement=insights.Improvement("yes", 2.5, 1.2, 0))
+                   improvement=insights.Improvement("yes", 4.5, 1.2, 0, 3.99, 1, 3))
+    # Fix A follow-up (decisions 3, 4): 1.2 × √2 × t_{3}⁻¹(0.95) = 3.99.
     assert ui_insights.progress_sentence(opt, facts) == wording.progress_rising(
-        f.round, "2.5", f"{f.score:.2f}", 100, f.formulation, "1.2")
+        f.round, "4.5", f"{f.score:.2f}", 100, f.formulation, "4.0")
 
 
 def test_a_rise_that_would_read_as_the_threshold_gets_hundredths(opt):
     f = _best(opt)
     facts = _facts("reliable", progress="within_noise", best=f,
-                   improvement=insights.Improvement("barely", 0.96, None, 0))
-    assert "by 0.96 points" in ui_insights.progress_sentence(opt, facts)
+                   improvement=insights.Improvement("barely", 2.31, None, 0, 2.326, 1))
+    # Fix A follow-up (decision 4): the rise is read against the threshold
+    # (2.33), not the noise SD; both in hundredths when they read alike.
+    said = ui_insights.progress_sentence(opt, facts)
+    assert "by 2.31 points" in said and "the 2.33 points needed" in said
 
 
 def test_flat_with_luck_and_a_tie(opt):
@@ -185,7 +190,7 @@ def test_the_repeat_row_says_the_limit_in_plain_words(opt):
     d = insights.Disagreement(21, 11, -10.54, 20, 7.42)
     facts = _next(opt, "repeat", disagreement=d)
     assert ui_insights.next_sentence(opt, facts) == wording.next_plain_repeat(
-        21, 11, "10.5", half_text="7.4")
+        21, 11, "10.5", half_text="7.4", round_no=opt.next_batch_no())
 
 
 def test_at_the_gate_next_is_the_tail(opt):

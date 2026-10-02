@@ -84,7 +84,9 @@ def test_each_figures_fold_opens_on_its_basis_line_with_its_help(screens, name):
         assert first.type == "caption" and first.value == text, (which, first.value)
         assert first.proto.help, which
     nxt = _leaves(_fold(at, wording.for_project(opt, wording.FOLD_NEXT_REASONING)))[0]
-    assert nxt.proto.help.startswith("Next-step rule that holds: ")
+    # Concision round: the full basis first in the help, then the rule.
+    assert nxt.proto.help.startswith(wording.BASIS_NEXT)
+    assert "\n\nNext-step rule that holds: " in nxt.proto.help
 
 
 @pytest.mark.parametrize("name", _NAMES)
@@ -215,7 +217,10 @@ def test_the_folds_have_their_new_names(screens, name):
 
 def test_the_pointer_names_the_folds_as_drawn():
     opt = D.load(D.LINE_A)
-    text = wording.explored_pointer(ui_insights._try_one_label(opt))
+    # Concision round: the link is short; the folds are named in its help.
+    assert wording.explored_pointer(ui_insights._try_one_label(opt)) == (
+        "Show uncertainty along one ingredient")
+    text = wording.explored_pointer_help(ui_insights._try_one_label(opt))
     assert wording.try_one_fold(True) in text
     assert "under Trade-offs" in text and wording.trade_offs_fold(True).startswith("Trade-offs")
 

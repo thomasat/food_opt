@@ -68,8 +68,10 @@ def test_the_caption_names_only_what_carries_both_widenings():
     the caption names what carries both, in plain words."""
     assert wording.HOW_WIDENED_SCORE == (
         "Overall score, second factor: the root-mean-square of the standardised Round-ahead "
-        "errors of earlier Rounds' Overall scores (at least 5), floored at 1. It corrects for "
-        "choosing formulations by a high predicted score, and it applies on top of the first "
+        "errors of earlier Rounds' Overall scores (at least 5, computed after the first "
+        "factor), floored at 1. Where formulations were chosen for a high predicted score it "
+        "widens their intervals, which partly restores coverage; it does not correct the "
+        "predicted value itself, which can still run high. It applies on top of the first "
         "factor to the predicted best, Best so far's predicted Repeat and the Predicted "
         "Overall score column on Make a round.")
     assert "at the top" not in wording.score_widen_text(1.3, 2.5)
@@ -240,7 +242,7 @@ def test_a_repeat_of_best_so_far_is_never_its_tie_partner():
 def test_the_tie_partner_is_the_next_highest_different_formulation():
     import ui_results
     opt = _repeat_of(_three([60.0, 70.0, 69.8]), 2, 70.3)
-    assert ui_results._progress_line(opt) == wording.tie_line(4, "70.30", "0.50", 3)
+    assert ui_results._progress_line(opt) == wording.tie_line(4, "70.30", "0.50", 3, "2.3")
 
 
 def test_best_so_far_moving_to_its_own_repeat_flashes_what_the_line_says():
@@ -249,7 +251,7 @@ def test_best_so_far_moving_to_its_own_repeat_flashes_what_the_line_says():
     import ui_results
     opt = _repeat_of(_three([60.0, 70.0, 69.8]), 2, 70.3)
     line = ui_results._progress_line(opt)
-    assert ui_results._move_sentence(opt, 2, 4) == line == wording.tie_line(4, "70.30", "0.50", 3)
+    assert ui_results._move_sentence(opt, 2, 4) == line == wording.tie_line(4, "70.30", "0.50", 3, "2.3")
 
 
 def test_an_exact_tie_is_said_as_a_tie():

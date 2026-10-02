@@ -359,7 +359,8 @@ def _no_batch(opt):
     # The Repeat link's request waits for Generate (ftue fix C): one line.
     request = _repeat_request(opt)
     if request is not None:
-        st.caption(wording.for_project(opt, wording.repeat_after_generate(request["no"])))
+        st.caption(wording.for_project(opt, wording.repeat_after_generate(request["no"])),
+                   help=wording.for_project(opt, wording.repeat_after_generate_help(request["no"])))
     # Only while it is news: before five formulations have results (spec
     # 2026-09-30 §3, audit V16). Set up › Advanced › How it works keeps it.
     if opt.complete_count() < COLD_START_RUNS:
@@ -631,7 +632,7 @@ def _own_formulation(opt):
         if not opt.pending_batch:
             # Adding one with nothing open opens the batch, so the order
             # matters: generated formulations can only join it first.
-            st.caption(wording.ADD_OWN_NO_BATCH_CAPTION)
+            st.caption(wording.ADD_OWN_NO_BATCH_CAPTION, help=wording.ADD_OWN_NO_BATCH_HELP)
         for var in opt.varying_variables():
             low, high = (float(b) for b in var['bounds'])
             # No min_value/max_value: clamping would turn a deliberate 30 g
@@ -691,7 +692,7 @@ def _worked_out_boxes(opt):
     worked = [v for v in opt.variables if opt.has_formula(v)]
     if not worked:
         return
-    st.caption(wording.WORKED_OUT_BOXES_CAPTION)
+    st.caption(wording.WORKED_OUT_BOXES_CAPTION, help=wording.WORKED_OUT_BOXES_HELP)
     typed = {var['name']: st.session_state.get(_own_key(var['name']))
              for var in opt.varying_variables()}
     filled = {}
@@ -867,7 +868,8 @@ def _predicted_measurements(opt, preds):
         shown = cells.set_index(formulation)
         st.table(shown.style.set_tooltips(
             tips.drop(columns=[formulation]).set_axis(shown.index)))
-        st.caption(wording.for_project(opt, wording.PREDICTED_MEASUREMENTS_CAPTION))
+        st.caption(wording.for_project(opt, wording.PREDICTED_MEASUREMENTS_CAPTION),
+                   help=wording.for_project(opt, wording.PREDICTED_MEASUREMENTS_HELP))
 
 
 def _models_ready(opt):
@@ -1078,14 +1080,16 @@ def _show_predictions(opt, later):
     with notes:
         t = _track(opt)
         if t is not None:
-            st.caption(wording.for_project(opt, ui_insights.track_text(t)),
-                       help=track_help(opt, t))
+            st.caption(wording.for_project(opt, ui_insights.track_short(t)),
+                       help=wording.for_project(opt, ui_insights.track_text(t)) + "\n\n"
+                       + track_help(opt, t))
             if _warns(t):
                 # E2 (04 §3, review I1, I7): the one link on this screen.
                 link(wording.LINK_PREDICTION_CHECK, wording.TAB_INSIGHTS, key="link_trust")
         if _a_suggestion_below_best(opt, preds):
             st.caption(wording.for_project(opt, wording.predictions_round_caption(
-                values=not opt.has_ingredients())))
+                values=not opt.has_ingredients())),
+                help=wording.for_project(opt, wording.predictions_round_help()))
         if not ui_insights.waiting(opt, "now"):
             _predicted_measurements(opt, preds)
         _why_these(opt, preds)
@@ -1291,7 +1295,8 @@ def _why_fold(opt, preds):
         if checks is None:
             # Not known yet: shown as withheld until it is (item 8).
             hide = True
-            st.caption(say(wording.why_gain_said(wording.WHY_CHECKING)))
+            st.caption(say(wording.WHY_GAIN_CHECKING_SHORT),
+                       help=say(wording.why_gain_said(wording.WHY_CHECKING)))
         else:
             # Withheld by the rule Progress uses for its expected
             # improvement, and said with the same reason (T47 review
@@ -1299,7 +1304,7 @@ def _why_fold(opt, preds):
             reason = ui_insights.withheld(opt, score, checks)
             hide = reason is not None
             if hide:
-                st.caption(say(wording.why_gain_said(
+                st.caption(say(wording.why_gain_short(reason)), help=say(wording.why_gain_said(
                     why_withheld_line(opt, score, checks, reason))))
         frame, value_col = why_frame(opt, why, preds, hide=hide)
         help_text = (wording.OPTIMISTIC_SCORE_HELP if why.kind == "qucb"
@@ -1323,7 +1328,9 @@ def _why_fold(opt, preds):
             return
         ui_insights.show_chart(chart)
         st.caption(wording.for_project(opt, wording.why_chart_caption(
-            f"{len(why.pool_mean):,}", line=ref is not None)))
+            f"{len(why.pool_mean):,}", line=ref is not None)),
+            help=wording.for_project(opt, wording.why_chart_caption_full(
+                f"{len(why.pool_mean):,}", line=ref is not None)))
 
 
 _GUARD_WORDS = {"floor": wording.GUARD_FLOOR, "noise": wording.GUARD_NOISE}
@@ -1424,7 +1431,8 @@ def _downloads(opt, scale_to, sized, said_size=False):
     # One line, and it follows the box: the file a tick produces has no
     # sheet called Results (spec 2026-09-30 §3, audit V12). The sheet
     # names are behind the button's "?", which follows the box too.
-    st.caption(wording.for_project(opt, wording.workbook_line(print_pack)))
+    st.caption(wording.for_project(opt, wording.workbook_line(print_pack)),
+               help=wording.for_project(opt, wording.workbook_line_full(print_pack)))
     st.download_button(
         wording.DOWNLOAD_BATCH_SHEETS,
         data=opt.workbook_bytes(rows, scale_to, sized, print_pack=print_pack),
@@ -1536,7 +1544,7 @@ def _record_results(opt):
                 st.session_state[f'f{number}_note'] = draft.get('note', row.get('note') or '')
             if f'f{number}_leave_out' not in st.session_state:
                 st.session_state[f'f{number}_leave_out'] = draft.get('not_scored', False)
-    st.caption(wording.RECORD_RESULTS_LINE)
+    st.caption(wording.RECORD_RESULTS_LINE, help=wording.RECORD_RESULTS_HELP)
     left_out, entered, partly = set(), 0, 0
 
     for row in rows:
@@ -1847,7 +1855,9 @@ def _upload(opt):
     came_back = bool(st.session_state.get(_SHEETS_DOWNLOADED))
     with st.expander(wording.UPLOAD_EXPANDER, expanded=came_back):
         st.caption(wording.for_project(opt, wording.UPLOAD_SHEETS_ARE_BACK_CAPTION if came_back
-                   else wording.UPLOAD_HELP_CAPTION))
+                   else wording.UPLOAD_HELP_CAPTION),
+                   help=wording.for_project(opt, wording.UPLOAD_SHEETS_ARE_BACK_HELP if came_back
+                                            else wording.UPLOAD_HELP_DETAIL))
         sheet_file = st.file_uploader(
             wording.UPLOAD_RESULTS_FILE, type=["xlsx", "csv"],
             # Per project: an uploader cannot be emptied from session state,

@@ -117,12 +117,12 @@ def test_a_steady_gap_is_said_the_same_way_on_both_screens():
     # (Firmness's constant +0.1 is steady too: a measurement has no floor
     # without 3 Repeat pairs, review I2.)
     assert ui_insights.steady_bias_text(opt, checks).startswith(
-        "Predictions have run high: Overall score by about 1.5 points;")
+        "Results have come in below the predictions: Overall score by about 1.5 points;")
     t = insights.round_track(opt, checks)
     assert not t.rough and t.gap == pytest.approx(-1.5)
     assert ui_insights.track_text(t) == (
-        "Overall score, Round 2: 11 of 11 inside their 95 % interval; Overall-score "
-        "predictions have run about 1.5 points high.")      # one fact (polish round)
+        "Overall score, Round 2: 11 of 11 inside their 95 % interval; Overall scores have "
+        "come in about 1.5 points below the predictions.")      # one fact (polish round)
     _clean(verdict, line, ui_insights.track_text(t))
 
 
@@ -163,7 +163,7 @@ def test_how_says_the_bias_rule_in_plain_words():
         "Mean error: the average of measured minus predicted over every Round checked, for "
         "the Overall score and each measurement (formulations with all results in, at least "
         "5). It is a steady bias when its size exceeds the noise threshold (for a measurement, "
-        "its own Repeat SD from 3 pairs, else no floor) and 2 standard errors. From 4 Rounds "
+        "its own Repeat SD once it has 3 df, else no floor) and 2 standard errors. From 4 Rounds "
         "checked, each Round's mean error counts as one value, because a Round's formulations "
         "sit close together and share the model's error; before that, each formulation "
         "counts. A steady bias is reported as a fact, with no advice to check the bench.")
@@ -203,10 +203,10 @@ def test_a_pair_left_out_is_said_as_left_out():
     opt, checks = _pair(-10.0)
     flagged = insights.disagreeing_repeat(opt, checks)
     rows = {r.name: r for r in insights.details(opt, checks, flagged=flagged)}
+    # Ftue fix A (cold read I7): the disagreeing pair now stays in.
     for r in rows.values():
-        assert (r.pairs, r.left_out) == (0, 1)
-        assert wording.repeat_compare(r.ratio, r.repeat_sd, r.pairs, r.left_out) == (
-            "1 pair left out (it disagreed)")
+        assert (r.pairs, r.left_out) == (1, 0)
+    assert wording.repeat_compare(None, None, 0, 1) == "1 pair left out (it disagreed)"
     kept = {r.name: r for r in insights.details(opt, checks)}
     assert all(r.left_out == 0 for r in kept.values())
     assert wording.repeat_compare(None, None, 0) == "no Repeats yet"

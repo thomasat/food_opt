@@ -183,8 +183,8 @@ def test_exact_texts_from_the_rulings():
     # B1: one line naming every biased output.
     assert W.steady_bias_line([W.bias_item("Overall score", "4.3"),
                                W.bias_item("Firmness", "3", "N")], rounds=[3, 4, 5, 6, 7]) == (
-        "Predictions have run high: Overall score by about 4.3 points, Firmness by about 3 N "
-        "(Rounds 3–7).")
+        "Results have come in below the predictions: Overall score by about 4.3 points, "
+        "Firmness by about 3 N (Rounds 3–7).")
     assert W.CHECK_IF_CHANGED == ("If something changed (panel, supplier, equipment), check it "
                                   "before relying on the next suggestions.")
     assert W.HOW_CHANGE_LIMIT == (
@@ -204,8 +204,8 @@ def test_exact_texts_from_the_rulings():
     assert W.next_misses([5, 6, 7], W.next_bias("4.1")) == (
         "Measured values in Rounds 5–7 fell outside their 95 % interval more often than 95 % "
         "intervals allow: the intervals are too narrow here, so new predictions carry more "
-        "error than their intervals show. Overall-score predictions have run about 4.1 points "
-        "high.")
+        "error than their intervals show. Overall scores have come in about 4.1 points below "
+        "the predictions.")
     # I4: effect claims withheld below n = 10 and below skill 0.20.
     assert W.effects_wait_line(6) == (
         "Ingredient effects are reported once Round-ahead checks show the Overall score's "
@@ -217,7 +217,8 @@ def test_exact_texts_from_the_rulings():
     # I6: the expected-improvement sentence, {ref} both ways.
     assert W.gain_line("2.66", None, W.beat_by()) == (
         "Expected gain, next Round: 2.66 points (model, one formulation): the model's "
-        "average gain of one new formulation over the model's best tested formulation, "
+        "average gain of one new formulation over the highest the model draws for the tested "
+        "formulations (approximate), "
         "counting no gain as zero; under the 1-point noise threshold.")
     assert "over Best so far's measured 91.69, counting no gain as zero" in W.gain_line(
         "2.66", None, W.beat_by(), measured_text="91.69")
@@ -228,10 +229,9 @@ def test_exact_texts_from_the_rulings():
                                                    "Expected gain (points)")
     # I7: the Repeats line, two decimals.
     assert W.best_repeats_line(14, ["67.30", "66.34", "75.61"], "75.17") == (
-        "Repeats of Formulation 14: 67.30, 66.34, 75.61 (mean with Formulation 14: 75.17).")
+        "Repeats of Formulation 14: 67.30, 66.34, 75.61. Mean of all: 75.17.")
     assert W.best_repeats_line(14, ["67.30", W.repeat_score("75.61", True)], "78.12") == (
-        "Repeats of Formulation 14: 67.30, 75.61 (disagrees). Mean with Formulation 14: "
-        "78.12.")
+        "Repeats of Formulation 14: 67.30, 75.61 (disagrees). Mean of all: 78.12.")
     # I8: the Set up callout.
     assert W.setup_callout("Textured pea protein", "30 g") == (
         "Textured pea protein: Highest 30 g. Next step suggests raising it; change the Highest "
@@ -254,12 +254,16 @@ def test_exact_texts_from_the_rulings():
     assert "today's measurements, targets, Share of score and model settings" in (
         W.how_checks())
     assert W.stand_repeats("9.6", 8, df=5, groups=3) == (
-        "Repeat SD of the Overall score: 9.6 points from 8 pairs (8 results of 3 formulations, "
-        "5 df); this is the noise threshold.")
+        "Repeat SD of the Overall score: 9.6 points, 5 df (8 results of 3 formulations); this "
+        "is the noise threshold.")
     # M10 / D4: the skill paragraph states its cut and its cost plainly.
     skill = W.how_skill()
-    assert ("The cut is −0.20: a correct model reads “no better than the average” in under "
-            "7 % of cases at n = 10, and below 0.20 in about 15 %.") in skill
+    # Fix round B (statistician I4): the rates as a simulation's, with n;
+    # ftue fix A re-measured them (I9 folds): 4.1 % and 12.5 % at n = 10.
+    assert ("The cut is −0.20. In 24 simulated projects whose model's errors matched its own "
+            "stated uncertainty (true skill 0.20 or more), the skill read “no better than the "
+            "average” in 4.1 % of windows of 10 checks (n = 10), and below 0.20 in "
+            "12.5 %") in skill
     assert "percentile" not in skill
     # M11 / D5: the verdict example from allowed_misses(n); the kernel named.
     assert "(for 36 values, up to 4 misses)" in W.how_verdict(36, 4)

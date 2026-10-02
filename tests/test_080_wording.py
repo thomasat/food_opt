@@ -70,7 +70,7 @@ def _new_lines():
         w.more_label(False, True),
         w.BEST_RULE, w.BEST_RULE_WITHOUT, w.overall_score_line(90.45, 100),
         w.overall_score_line(88.0, 100, "Aroma"), w.OVERALL_SCORE_HELP,
-        w.tie_line(22, "90.65", "0.20", 15, "1.2"), w.tie_line(22, "90.65", "0.20", 15),
+        w.tie_line(22, "90.65", "0.20", 15, "4.0"), w.tie_line(22, "90.65", "0.20", 15, "2.3"),
         w.MEASURED_WAITING, w.waiting_list("Cook loss", [22], 6),
         w.waiting_list("Cook loss", [21, 22]), w.MOVE_TO_NOT_SCORED_HELP,
         w.never_coming_warning(19, "Cook loss"), w.EDIT_PAST_FOLD,
@@ -163,7 +163,7 @@ def test_exact_texts_from_the_spec():
         "Overall score, Rounds 2–7: 30 of 32 inside their 95 % interval; mean error −4.3 "
         "points (measured minus predicted).")
     assert w.next_bias("4.1", rounds=[3, 4, 5, 6, 7]) == (
-        "Overall-score predictions have run about 4.1 points high (Rounds 3–7).")
+        "Overall scores have come in about 4.1 points below the predictions (Rounds 3–7).")
     assert w.next_misses([5, 6, 7]) == (
         "Measured values in Rounds 5–7 fell outside their 95 % interval more often than 95 % "
         "intervals allow: the intervals are too narrow here, so new predictions carry more "
@@ -180,7 +180,8 @@ def test_exact_texts_from_the_spec():
     # beats … by".
     assert w.gain_line("2.66", None, w.beat_by()) == (
         "Expected gain, next Round: 2.66 points (model, one formulation): the model's "
-        "average gain of one new formulation over the model's best tested formulation, "
+        "average gain of one new formulation over the highest the model draws for the tested "
+        "formulations (approximate), "
         "counting no gain as zero; under the 1-point noise threshold.")
     assert w.stand_best("90.65", 15, 4) == (
         "Best so far: Overall score 90.65, Formulation 15 (Round 4).")
@@ -205,12 +206,15 @@ def test_exact_texts_from_the_spec():
     assert w.details_window([2, 3, 4, 5], 3, [3, 4, 5]) == (
         "Table: all Rounds checked (Rounds 2–5). Verdict: the last 3 (Rounds 3–5).")
     assert w.overall_score_line(90.45, 100) == "Overall score 90.45 of 100."
-    assert w.tie_line(22, "90.65", "0.20", 15, "1.2") == (
-        "Formulation 22 scored 90.65, 0.20 above Formulation 15: within the noise threshold "
-        "(Repeat SD 1.2 points), so the two are tied.")
+    # Concision round (2026-10-01): short, the threshold kept. Fix A
+    # follow-up (ruling on ties): the q = 1 rise threshold, 1.2 × √2 × 2.35.
+    assert w.tie_line(22, "90.65", "0.20", 15, "4.0") == (
+        "Tied with Formulation 15: 0.20 apart, under the 4.0 points needed to differ.")
+    # Re-pinned (stale since the fourth tab became "4 · Review"): "in the
+    # review", not "on Insights".
     assert w.never_coming_warning(19, "Cook loss") == (
         "Cook loss for Formulation 19 will never come? It stays in your records, unscored, "
-        "and stops counting on Insights.")
+        "and stops counting in the review.")
     assert w.EDIT_PAST_FOLD == "Correct, delete or add past formulations"
     assert w.NEXT_MAKE_A_ROUND == "Next: Make a round"
     assert w.START_FROM_BEST_SO_FAR == "Start from Best so far"
@@ -239,17 +243,17 @@ def test_singular_and_plural_forms():
     # Polish round 8: the bias as one fact, no reading clause.
     assert w.score_gap_line(6, 12, -5.2, w.beat_by("1.3")).endswith(
         "This exceeds the noise threshold (Repeat SD 1.3 points) and 2 standard errors: "
-        "Overall-score predictions have run about 5.2 points high.")
+        "Overall scores have come in about 5.2 points below the predictions.")
     assert w.score_gap_line(6, 12, 2.0, w.beat_by()).endswith(
-        "This exceeds the 1-point noise threshold and 2 standard errors: Overall-score "
-        "predictions have run about 2.0 points low.")
+        "This exceeds the 1-point noise threshold and 2 standard errors: Overall scores "
+        "have come in about 2.0 points above the predictions.")
     assert w.insights_header_line(0, None, 1, "Aroma") == "1 formulation is waiting for Aroma."
     assert w.insights_header_line(1, 1) == (
         "Based on 1 scored formulation (all results in), up to Round 1.")
     assert w.stand_since(1) == "No higher score in the Round since."
     assert w.stand_since(2) == "No higher score in the 2 Rounds since."
     assert w.trust_early(1) == "Not judged yet: 1 value checked; the verdict needs 10."
-    assert w.waiting_list("Cook loss", [22], 6) == "Waiting for Cook loss: Formulation 22 (Round 6)."
+    assert w.waiting_list("Cook loss", [22], 6) == "Waiting for Cook loss: Formulation 22, Round 6."
     assert w.waiting_list("Cook loss", [21, 22]) == "Waiting for Cook loss: Formulations 21–22."
     assert w.more_label(True, True) == "More · Not scored"
 

@@ -47,7 +47,10 @@ def test_saving_the_missing_value_scores_it_and_the_box_follows_the_new_best(one
     at.run()
     assert not at.exception
     flashes = [s.value for s in at.success]
-    assert "Formulation 4 scored. " + wording.best_moved(2, 4) in flashes, flashes
+    # Fix A follow-up (ruling on ties): a lead of 1.20 is under what one new
+    # result needs to differ (√2 × 1.645 × 1 = 2.3), so it is a tie, not a move.
+    assert ("Formulation 4 scored. "
+            + wording.tie_line(4, "", "1.20", 2, "2.3")) in flashes, flashes
     reopened = FoodOptimizer("burger")
     assert reopened.fully_measured(reopened.index_of_formulation(4))
     assert reopened.best_formulation_no() == 4
@@ -201,9 +204,10 @@ def test_a_process_only_project_says_trial_throughout(trial_waiting):
     at.run()
     _submit_button(at, "Move to Not scored").click()
     at.run()
+    # Re-pinned (stale since the fourth tab became "4 · Review").
     assert [w.value for w in at.warning] == [
         "Aroma for Trial 2 will never come? It stays in your records, unscored, and stops "
-        "counting on Insights."]
+        "counting in the review."]
     at.button(key="set_aside_2__yes").click()   # the Yes, by key: it shares the label
     at.run()
     assert "Trial 2 moved to Not scored." in _successes(at), _successes(at)
@@ -279,5 +283,5 @@ def test_insights_does_not_count_a_not_scored_row_as_scored(one_waiting):
     at.run()
     assert not at.exception
     captions = [c.value for c in at.tabs[3].caption]
-    assert any(c.startswith("Based on 2 scored formulations (all results in),")
+    assert any(c.startswith("2 scored formulations,")
                for c in captions), captions

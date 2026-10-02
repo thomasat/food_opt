@@ -2,6 +2,7 @@
 is widened by score_widen of the checks of the Rounds before it, so the
 record counts the range Make a round showed and stays before the fact."""
 import dataclasses
+import math
 from types import SimpleNamespace
 
 import pytest
@@ -112,14 +113,18 @@ def test_only_works_out_the_pairs_asked_for_and_keeps_nothing():
 
 
 def test_a_disagreeing_repeat_is_judged_on_the_range_shown():
+    """Ftue fix A (cold read I7): the limit is √2 × 1.96 × σ, σ a noise SD
+    (here the assumed 1 point: 2.77), no longer the range shown, so the
+    range's widening leaves it alone."""
     opt = _patty(rows=6)
     _repeat_of(opt, 0, 4)
-    opt.Y_history[4] = opt.Y_history[0] - 10.0              # √2 × 1.96 × 2 = 5.54 < 10
+    opt.Y_history[4] = opt.Y_history[0] - 10.0
     shown = _check(insights.SCORE, 2, 5, opt.Y_history[4], opt.Y_history[4], 2.0)
     checks = _values(2) + [shown]
-    assert insights.disagreeing_repeat(opt, checks) is not None
-    wide = dataclasses.replace(shown, widen=2.0)                # × 2: 11.09 > 10
-    assert insights.disagreeing_repeat(opt, _values(2) + [wide]) is None
+    d = insights.disagreeing_repeat(opt, checks)
+    assert d is not None and d.limit == pytest.approx(math.sqrt(2) * insights.Z95)
+    wide = dataclasses.replace(shown, widen=2.0)
+    assert insights.disagreeing_repeat(opt, _values(2) + [wide]) == d
 
 
 def test_make_a_rounds_factor_leaves_out_the_open_rounds_own_checks():

@@ -199,6 +199,12 @@ def test_the_settings_only_forms_name_no_ingredient_or_amount():
 #  The review's own texts (R-B1, R-I5), word for word
 # ------------------------------------------------------------------ #
 
+# Ftue fix A (statistician's cold read I5, I6, I7, I9) changed the facts
+# of Lines A-C; the texts below are the review's words on the new facts.
+# Fix A follow-up (decision 4): Line C's Within-noise sentence names the
+# 3.2 points (1 × √2 × z_4 = 3.16) the rise is judged against (decision 4);
+# Line B's Repeat limit is 8.2, the larger of 2.8 and its own predictive
+# limit while Repeats have under 3 df (decision 2).
 _EXACT = {
     "Snack bar": (
         "The app starts checking its predictions once 5 formulations have results; 3 have so far.",
@@ -206,23 +212,29 @@ _EXACT = {
         "for best at 96.00 of 100.",
         "Make the next Round."),
     "Line A": (
-        "In Rounds 3–5, 32 of 35 results landed inside the range the app predicted (up to 3 "
+        "In Rounds 3–5, 33 of 35 results landed inside the range the app predicted (up to 3 "
         "misses are normal), and score predictions beat the average of earlier results.",
-        "Round 5 did not beat Best so far, 90.45 of 100 (Formulation 15, Round 4).",
+        "Round 5 did not beat Best so far, 90.45 of 100 (Formulation 15, Round 4; tied with "
+        "Formulation 18). The app expects little more inside your current limits; the best it "
+        "predicts sits at the most Textured pea protein and the least Beet juice powder allowed.",
         "Record the 4 formulations still open in Round 6. In the next Round, include a Repeat of "
         "Formulation 15 (the same amounts again) to measure how much results vary."),
     "Line B": (
-        "In Rounds 3–5, 10 of 36 results fell outside the range the app predicted, where up to 4 "
-        "are normal, and predictions have run about 5.5 points high.",
-        "No higher score in 2 Rounds. Best so far is 90.09 of 100 (Formulation 11, Round 3).",
-        "Formulation 21, a Repeat of Formulation 11, scored 10.5 points lower, more than two "
-        "makes of one formulation should differ (up to 7.4). If something changed (panel, "
-        "supplier, equipment), check it before relying on the next suggestions."),
+        "In Rounds 3–5, 8 of 36 results fell outside the range the app predicted, where up to 4 "
+        "are normal.",
+        "No higher score in 2 Rounds. Best so far is 90.09 of 100 (Formulation 11, Round 3; tied "
+        "with Formulation 10).",
+        "Check what changed before you make Round 6. Formulation 21, a Repeat of Formulation 11, "
+        "scored 10.5 points lower, more than two makes of one formulation should differ (up to "
+        "8.2 points). Look at the panel, suppliers and equipment."),
     "Line C": (
-        "Score predictions do no better than the average of earlier results and have run about "
-        "4.3 points high; those for Firmness, Juiciness and Cook loss are still very uncertain.",
-        "Round 5 raised Best so far by 2.5 points, to 89.84 of 100 (Formulation 18), more than "
-        "the 1 point results are assumed to vary until 3 Repeats measure it.",
+        "Score predictions do no better than simply using the average of earlier scores (skill "
+        "−0.47, where 0 matches that average and 1 is exact); those for Firmness, Juiciness and "
+        "Cook loss are still very uncertain, because results vary more from one formulation to "
+        "the next than the app can explain, most for Cook loss. If the panel or method is new, "
+        "check how consistently it measures.",
+        "Round 5 raised Best so far by 2.5 points, to 89.84 of 100 (Formulation 18, tied with "
+        "Formulation 20), less than the 3.2 points needed to count as a rise.",
         # The review: "…treat the suggestions as a guided search…" (style
         # guide rule 7 retires "treat … as"; t0-report).
         "Record the 4 formulations still open in Round 6, then make the next Round. Until "
@@ -230,14 +242,14 @@ _EXACT = {
     "Upgrade check": (
         "The app has checked its predictions against 2 formulations and needs 10 before it can "
         "say how far to trust them.",
-        "Best so far is 90.50 of 100 (Formulation 6, Round 3); no earlier scored formulation to "
-        "compare it with.",
+        "Best so far is 90.50 of 100 (Formulation 6, Round 3). Rounds 1–2 were scored without "
+        "Cook loss, so they are not compared with it.",
         "Make the next Round."),
     "Timing check": (
         "In Rounds 10–12, 58 of 60 results landed inside the range the app predicted (up to 5 "
         "misses are normal), and score predictions beat the average of earlier results.",
-        "No higher score in 7 Rounds. Best so far is 92.50 of 100 (Formulation 24, Round 5), "
-        "probably helped by luck: a Repeat of it is predicted near 90.",
+        "No higher score in 7 Rounds. Best so far is 92.50 of 100 (Formulation 24, Round 5; tied "
+        "with Formulation 3), probably helped by luck: a Repeat of it is predicted near 90.",
         "Make the next Round. The app still expects about 1.1 points of gain on average from "
         "amounts it has not tried, more than results are assumed to vary. Include a Repeat of "
         "Formulation 24 to measure how much they vary."),
@@ -268,8 +280,8 @@ def test_the_templates_for_unreached_states():
         "(5 of 35, where up to 3 are normal).")
     assert W.PRED_WIDE == ("The app's predictions are still very uncertain, so results "
                            "landing inside them prove little yet.")
-    assert W.pred_unclear() == ("Score predictions are not yet clearly better than the "
-                                "average of earlier results.")
+    assert W.pred_unclear() == ("Score predictions are not yet clearly better than simply "
+                                "using the average of earlier scores.")
     assert W.PRED_OFF_REPEAT == (
         "A Repeat came out far from its original (see Next), so the conditions the predictions "
         "learned from may have changed.")
@@ -278,12 +290,14 @@ def test_the_templates_for_unreached_states():
     assert W.pred_reliable([3], 11, 12, 1, [W.clause_wide(["Cook loss"]),
                                             W.clause_bias("1.2", False),
                                             W.clause_guard()]).endswith(
-        "earlier results; those for Cook loss are still very uncertain; predictions have run "
-        "about 1.2 points low; the app does not yet read what each ingredient does.")
+        "earlier results; those for Cook loss are still very uncertain; scores have come in "
+        "about 1.2 points above the predictions; the app does not yet read what each ingredient "
+        "does.")
     assert "(up to 1 miss is normal)" in W.pred_reliable([3], 11, 12, 1)
-    assert W.progress_within_noise(5, "0.4", "89.84", 100, 18) == (
+    # Fix A follow-up (decision 4): the threshold, not the noise SD.
+    assert W.progress_within_noise(5, "0.4", "89.84", 100, 18, "2.3") == (
         "Round 5 raised Best so far by 0.4 points, to 89.84 of 100 (Formulation 18), less than "
-        "the 1 point results are assumed to vary until 3 Repeats measure it.")
+        "the 2.3 points needed to count as a rise.")
     # R-I2: no line but Next's repeat row says "check".
     for text in (*_status_lines(),):
         if "check it before" in text:
@@ -327,15 +341,15 @@ def test_the_in_place_edits():
 
 def test_the_fold_labels_and_links():
     """§2, 02 §4, R-I4, R-I14."""
-    assert W.FOLD_PREDICTION_FIGURES == "Prediction figures — 95 % intervals, mean error, skill"
-    assert W.FOLD_PROGRESS_FIGURES == (
-        "Progress figures — expected gain, Repeats, noise threshold")
+    # Concision round (2026-10-01): fold labels and links at most 5 words.
+    assert W.FOLD_PREDICTION_FIGURES == "Prediction figures"
+    assert W.FOLD_PROGRESS_FIGURES == "Progress figures"
     assert (W.FOLD_NEXT_REASONING, W.FOLD_MEASURED_CHART, W.FOLD_METHOD, W.FOLD_EXPLORED) == (
-        "Next-step reasoning", "Measured against predicted (chart)", "Method and definitions",
+        "Next-step reasoning", "Measured against predicted", "Method and definitions",
         "Explored and unexplored")
-    assert W.trade_offs_fold() == "Trade-offs: two measurements, three ingredients"
-    assert W.why_link(6) == "Why the model suggested Round 6"
-    assert W.for_project(_SettingsOnly(), W.repeat_link(24)) == "Make a Repeat of Trial 24"
+    assert W.trade_offs_fold() == "Trade-offs"
+    assert W.why_link(6) == "Why Round 6 was suggested"
+    assert W.for_project(_SettingsOnly(), W.repeat_link(24)) == "Repeat Trial 24"
     # Every Basis line starts the same way (R-I6: the fold's help sits on it).
     for text in (W.BASIS_PREDICTIONS, W.BASIS_PROGRESS, W.BASIS_NEXT, W.basis_explored()):
         assert text.startswith("Basis: "), text
@@ -354,8 +368,10 @@ def test_the_status_tooltip_is_the_reviews_exact_rule():
         "each Round) = 0.36 over 15 formulations, at least 0.20 over at least 10 needed. Each "
         "Round is predicted by models refitted today on earlier Rounds only.")
     # R-I11: Reliable's own limits, both figures.
-    assert "15 %" in W.TIP_RELIABLE_LIMITS and "12 %" in W.TIP_RELIABLE_LIMITS
-    assert "91 %" in W.TIP_RELIABLE_LIMITS and "89 %" in W.TIP_RELIABLE_LIMITS
+    # Ftue fix A re-measured both (I9 folds): 12.5 % and 11.0 % (were 15 %
+    # and 12 %); coverage 91 % and 90 % (was 89 %).
+    assert "12.5 %" in W.TIP_RELIABLE_LIMITS and "11.0 %" in W.TIP_RELIABLE_LIMITS
+    assert "91 %" in W.TIP_RELIABLE_LIMITS and "90 %" in W.TIP_RELIABLE_LIMITS
 
 
 @pytest.mark.parametrize("tip", [
@@ -419,7 +435,8 @@ def test_the_gate_shows_only_what_applies():
 def test_the_known_limits_hold_every_item_of_the_review():
     """R-I12, R-I11, §8."""
     text = " ".join(W.MODEL_LIMITS)
-    for needle in ("91 %", "89 %", "15 %", "12 %", "differ slightly from the suggestion model",
+    # Ftue fix A re-measured: 90 % (was 89 %), 12.5 % and 11.0 % (15 %, 12 %).
+    for needle in ("91 %", "90 %", "12.5 %", "11.0 %", "differ slightly from the suggestion model",
                    "cut at 0 and the score ceiling", "waiting for results are left out",
                    "one noisy maximum", "few degrees of freedom", "many comparisons",
                    "a Repeat of an earlier formulation in each Round", "35 %", "75–89 %"):
@@ -470,7 +487,8 @@ def test_the_glossary_maps_each_plain_word_to_its_bo_term(settings):
     assert "Not judged yet" in rows[0][2]
     # I12: the corrected facts.
     meanings = {row[0]: row[2] for row in rows}
-    assert "Not the acquisition's incumbent under qLogNEI" in meanings["Best so far"]
+    # Fix round B (statistician I1): qLogNEI has no single incumbent.
+    assert "no single incumbent" in meanings["Best so far"]
     assert "not the Gaussian process's fitted noise" in meanings["noise threshold"]
     assert terms["score predictions beat the average · skill"].endswith("(Q²-type, not R²)")
     assert "not the acquisition's exploitation–exploration split" in meanings[

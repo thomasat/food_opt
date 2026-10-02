@@ -37,7 +37,7 @@ def test_header_text_leaves_out_waiting_and_set_aside_rows():
     opt.set_aside_formulation(8)
     text = ui_insights.header_text(opt)
     assert text == ("Based on 6 scored formulations (all results in), up to Round 2. "
-                    "1 more is waiting for Cook loss and is not used yet.")
+                    "Formulation 7 is waiting for Cook loss and is not used yet.")
 
 
 def _recorded(opt, complete, waiting):
@@ -62,7 +62,7 @@ def test_the_header_and_the_gate_count_the_same_scored_formulations(burger, comp
     captions = [c.value for c in at.tabs[3].caption]
     assert captions[0] == (
         f"Based on {complete} scored formulations (all results in), up to Round 1. "
-        "1 more is waiting for Juiciness and is not used yet."), captions
+        f"Formulation {complete + 1} is waiting for Juiciness and is not used yet."), captions
     # Said once (Task 6), by the Predictions status line since ftue W1.
     gates = [m.value for m in at.tabs[3].markdown if "once 5 formulations have results" in m.value]
     assert gates == [wording.status_line(wording.STATUS_PREDICTIONS, wording.pred_gate(complete), wording.PREDICTIONS_WORDS["not_yet"])], gates
@@ -252,8 +252,11 @@ def test_the_tab_shows_the_new_header_verdict_and_record(insights_scored):
 def verdict_project():
     """Six Rounds of a noisy _burger: a verdict (holding), Firmness and
     Juiciness with wide likely ranges, the Overall score's not, and 9
-    fully measured Overall-score checks in the headline's Rounds."""
-    return _burger(rounds=6, noise=2.0)
+    fully measured Overall-score checks in the headline's Rounds. Noise
+    1.5, not 2.0, since ftue fix A's Round-grouped folds (cold read I9)
+    widen the Overall score's range at 2.0 too, and every range wide is a
+    verdict of its own."""
+    return _burger(rounds=6, noise=1.5)
 
 
 def test_the_tab_shows_the_verdict_the_wide_line_and_the_record(verdict_project):

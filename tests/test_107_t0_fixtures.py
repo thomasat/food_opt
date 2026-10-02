@@ -27,7 +27,7 @@ def test_the_snack_bar_sits_at_the_gate():
 def test_the_process_only_project_is_a_study_of_settings_alone():
     opt = D.load(D.PROCESS_ONLY)
     assert not opt.has_ingredients() and len(opt._process_settings()) == 3
-    assert wording.for_project(opt, wording.why_link(6)) == "Why the model suggested Round 6"
+    assert wording.for_project(opt, wording.why_link(6)) == "Why Round 6 was suggested"
     assert wording.for_project(opt, "Formulation 15") == "Trial 15"
     # Line A's shape: Rounds of 5, 4, 4, 4 and 3, a Repeat of Best so far in
     # Round 5, Round 6 open with 4 generated picks.

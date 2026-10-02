@@ -310,8 +310,8 @@ def test_gate_before_five_scored(scored):     # 2 scored rows
     tab = at.tabs[3]
     # Once on the tab: the Predictions status line's (ftue W1, R-B1 row 3).
     md_lines = [m.value for m in tab.markdown]
-    assert md_lines.count(wording.status_line(wording.STATUS_PREDICTIONS, wording.pred_gate(2), wording.PREDICTIONS_WORDS["not_yet"])) == 1
-    assert sum(wording.pred_gate(2) in m for m in md_lines) == 1
+    assert md_lines.count(wording.status_line(wording.STATUS_PREDICTIONS, wording.short_gate(2), wording.PREDICTIONS_WORDS["not_yet"])) == 1
+    assert sum(wording.short_gate(2) in m for m in md_lines) == 1
     assert any("Best so far:" in m.value for m in tab.markdown)   # "Where do you stand?" shows
     md = " ".join(m.value for m in tab.markdown)
     assert wording.Q_TRUST not in md and wording.Q_NEXT not in md
@@ -399,7 +399,8 @@ def test_final_wave_wording():
     assert wording.try_one_fold(False) == "Try one ingredient"
     assert wording.path_not_checked("Fat: at most 16 g", "Fat") == (
         "Not checked: Fat: at most 16 g — some ingredients have no Fat value.")
-    assert wording.INSIGHTS_FAILED == "Insights could not be prepared for this project."
+    # Re-pinned (stale since the fourth tab became "4 · Review").
+    assert wording.INSIGHTS_FAILED == "The review could not be prepared for this project."
     assert wording.CHANGE_NONE == (
         "Nothing to change yet: every ingredient and process setting is fixed.")
     assert wording.DETAILS_NONE == "This table fills in once a Round has been checked."
@@ -553,12 +554,16 @@ def test_unchecked_rounds_caption(insights_scored):
 
 def test_how_range_wording_says_the_range_is_widened():
     """03 §5.7: the interval named, for one new value, its formula and its clipping."""
+    # Ledger, statistician cold read I2 (fix round B): no "19 in 20" claim; the
+    # plain reading gives the 95 % aim and the coverage measured on simulated projects.
+    # Ftue fix A's re-run (I9 folds): 90 % of Overall scores (was 89 %).
     assert wording.HOW_RANGE == (
         "95 % interval: the model's 95 % prediction interval for one new measured value, "
         "mean ± 1.96 × predictive SD × calibration factor. The predictive SD includes Repeat "
         "noise, so the interval covers a single result, not the long-run mean. Its ends are "
-        "cut at the measurement's Range (0–100 for the Overall score). Plain reading: about "
-        "19 in 20 new results fall inside.")
+        "cut at the measurement's Range (0–100 for the Overall score). Plain reading: Aims for "
+        "95 %; measured about 91 % (measurements) / 90 % (Overall score) on simulated "
+        "projects.")
     assert wording.HOW_RANGE_FIXED_TINY == (
         "95 % interval: your model settings fix Repeat noise near zero, so the interval "
         "reflects model uncertainty only, times the calibration factor.")

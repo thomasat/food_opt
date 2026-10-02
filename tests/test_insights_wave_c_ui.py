@@ -297,8 +297,9 @@ def test_pair_axis_wording():
 
 
 def test_exact_wave_c_strings_for_the_expander_and_the_pair():
-    assert wording.trade_offs_fold() == "Trade-offs: two measurements, three ingredients"
-    assert wording.trade_offs_fold(False) == "Trade-offs: two measurements"
+    # Concision round: fold labels at most 5 words.
+    assert wording.trade_offs_fold() == "Trade-offs"
+    assert wording.trade_offs_fold(False) == "Trade-offs"
     assert wording.Q_PAIR == "Two measurements against each other"
     assert wording.PAIR_CAPTION == (
         "Measured values, one dot per formulation; lines at the targets. No dot near both "
