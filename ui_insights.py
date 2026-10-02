@@ -1577,7 +1577,8 @@ def progress_short(opt, facts):
     a = facts.improvement
     if facts.progress in ("rising", "within_noise"):
         rise, need = rise_and_need(a)
-        return f"{wording.short_rise(rise, need, rising=facts.progress == 'rising')} {best}"
+        short = wording.short_rise_best(f"{f.score:.2f}", f.formulation, tie)
+        return f"{wording.short_rise(rise, need, rising=facts.progress == 'rising')} {short}"
     if facts.progress == "flat":
         return f"{wording.short_flat(a.rounds)} {best}"
     if facts.progress == "no_new_best" or one_round(opt):

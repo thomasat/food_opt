@@ -56,11 +56,12 @@ _BUDGET = 130
 # bold word and one short fact, the full sentence in its tooltip; every
 # project is now well under the budget (before: Snack 65, Line A 149,
 # Line B 111, Line C 157, Upgrade 85, Timing 129, process-only 154).
-# Fix A follow-up (decision 4): Within noise names what the rise needed
-# ("Up 2.5, needs 3.2 to count."), 3 words more: Line C 65 -> 68,
-# process-only 67 -> 70.
-_WORDS = {D.SNACK: 39, D.LINE_A: 63, D.LINE_B: 66, D.LINE_C: 68, D.UPGRADE: 47,
-          D.TIMING: 49, D.PROCESS_ONLY: 70}
+# Fix A follow-up (decision 4): Within noise names what the rise needed,
+# trimmed to 10 words after the bold word ("Up 2.5, needs 3.2. Best so
+# far: 89.84, Formulation 18."): Line C and process-only one word fewer,
+# 65 -> 64 and 67 -> 66.
+_WORDS = {D.SNACK: 39, D.LINE_A: 63, D.LINE_B: 66, D.LINE_C: 64, D.UPGRADE: 47,
+          D.TIMING: 49, D.PROCESS_ONLY: 66}
 _OVER_BUDGET = set()
 # The concision round's exact lines (the full sentences, FIRST_SCREENS in
 # tests/test_107_ftue.py, open each line's tooltip).
@@ -80,7 +81,7 @@ _SHORT_LINES = {
     D.LINE_C: ("Predictions: **Not yet.** No better than averaging past scores. New panel or "
                "method? Check its consistency.",
                # Fix A follow-up (decision 4): the rise against the 3.2 it needed.
-               "Progress: **Within noise.** Up 2.5, needs 3.2 to count. Best so far: 89.84 of 100, "
+               "Progress: **Within noise.** Up 2.5, needs 3.2. Best so far: 89.84, "
                "Formulation 18.",
                "Next: Record Round 6's 4 open formulations. Suggestions are a guided search, "
                "not a forecast."),
@@ -94,8 +95,7 @@ _SHORT_LINES = {
                "Next: Make the next Round with a Repeat of Formulation 24."),
     D.PROCESS_ONLY: ("Predictions: **Not yet.** Not clearly better than averaging past scores. "
                      "New panel or method? Check its consistency.",
-                     "Progress: **Within noise.** Up 1.9, needs 3.2 to count. Best so far: "
-                     "87.92 of 100, "
+                     "Progress: **Within noise.** Up 1.9, needs 3.2. Best so far: 87.92, "
                      "Trial 21.",
                      "Next: Record Round 6's 4 open trials. In Round 7, add a Repeat of "
                      "Trial 21."),

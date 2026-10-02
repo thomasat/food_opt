@@ -281,7 +281,9 @@ def test_a_low_model_noise_yields_to_the_repeat_sd(_cwd):
     disagree when other Repeats (3 df) show more spread."""
     others = [(1, 6, 3.0), (2, 7, -3.0), (3, 8, 3.0)]   # Repeat SD 2.12 on 3 df
     opt, checks = _pair(-4.0, noise=0.3, others=others)
-    assert insights.disagreeing_repeat(opt, checks) is None    # 4.0 < 5.88
+    # 4.0 < √2 × t_{0.975, 3} × 2.12 = 9.54 (coordinator's ruling on 03
+    # drift: t on the Repeats' df; 5.88 on 1.96).
+    assert insights.disagreeing_repeat(opt, checks) is None
     # 2 df: the assumed 1 point, not the model's 0.3 (limit 2.77, not 0.83).
     # Fix A follow-up (decision 2): under 3 df the pair must also beat its
     # own predictive limit, here √2 × 1.96 × 1.0 = 2.77 too (check sd 1).
@@ -302,14 +304,15 @@ def test_lines_a_and_c_case_a_low_model_noise_alone_flags_nothing(_cwd):
 def test_the_pair_tested_is_left_out_of_sigma(_cwd):
     """Three quiet Repeats (3 df, SD 1.2) and one 10 points off: with the
     pair in, the Repeat SD (3.69 on 4 df) would set a limit of 10.2 and
-    hide it; left out, σ = 1.2 and the limit 3.33."""
+    hide it; left out, σ = 1.2 and the limit √2 × t_{0.975, 3} × 1.2 =
+    5.40 (t on the Repeats' df; 3.33 on 1.96)."""
     g = 1.2 * math.sqrt(2)
     others = [(1, 6, g), (2, 7, -g), (3, 8, g)]
     opt, checks = _pair(-10.0, noise=0.2, others=others)
     d = insights.disagreeing_repeat(opt, checks)
     assert d is not None and d.basis == "repeats" and d.df == 3
     assert d.sigma == pytest.approx(1.2) and d.repeat_sd == pytest.approx(1.2)
-    assert d.limit == pytest.approx(LIMIT * 1.2)
+    assert d.limit == pytest.approx(math.sqrt(2) * insights.t_critical(3) * 1.2)
 
 
 def test_the_flagged_pair_stays_in_the_reported_repeat_sd(_cwd):
@@ -461,15 +464,21 @@ def test_under_three_df_a_repeat_must_beat_both_limits(_cwd):
 
 
 def test_from_three_df_the_repeat_sd_alone_sets_the_limit(_cwd):
-    """From 3 df: √2 × 1.96 × the leave-one-out Repeat SD alone; neither
-    the model's noise (2.5) nor the predictive half-width (sd 2) counts."""
+    """From 3 df: √2 × t_{0.975, df} × the leave-one-out Repeat SD alone
+    (coordinator's ruling on 03 drift: t whenever the SD comes from
+    Repeats); neither the model's noise (2.5) nor the predictive
+    half-width (sd 2) counts. Limit √2 × 3.182 × 1.2 = 5.40."""
     g = 1.2 * math.sqrt(2)
     others = [(1, 6, g), (2, 7, -g), (3, 8, g)]
-    opt, checks = _pair(-4.0, noise=2.5, others=others)
+    opt, checks = _pair(-6.0, noise=2.5, others=others)
     d = insights.disagreeing_repeat(opt, checks)
     assert d is not None and (d.basis, d.df) == ("repeats", 3)
-    assert d.limit == pytest.approx(LIMIT * 1.2)
+    assert d.limit == pytest.approx(math.sqrt(2) * insights.t_critical(3) * 1.2)
+    assert d.limit == pytest.approx(5.40, abs=0.01)
     assert d.predictive is None
+    # 5.0 beat √2 × 1.96 × 1.2 = 3.33, but not the t limit.
+    opt, checks = _pair(-5.0, noise=2.5, others=others)
+    assert insights.disagreeing_repeat(opt, checks) is None
 
 
 def test_rise_threshold_uses_t_on_the_repeats_df():
@@ -527,8 +536,11 @@ def test_with_sd_from_three_df_rising_fires_at_most_one_time_in_twenty():
 
 def test_the_short_rise_names_what_a_rise_needs():
     import wording as W
-    assert W.short_rise("2.5", "3.2") == "Up 2.5, needs 3.2 to count."
-    assert W.short_rise("3.5", "3.2", rising=True) == "Up 3.5, beats the 3.2 needed."
+    # Coordinator: at most 10 words after the bold word, Best so far kept.
+    assert W.short_rise("2.5", "3.2") == "Up 2.5, needs 3.2."
+    assert W.short_rise("3.5", "3.2", rising=True) == "Up 3.5, beats 3.2."
+    assert W.short_rise_best("89.84", 18) == "Best so far: 89.84, Formulation 18."
+    assert W.short_rise_best("96.00", 1, tie_no=3) == "Best so far: 96.00, Formulations 1 and 3."
     assert W.rise_factor("2.23", 4) == "√2 × 2.23 (best of 4)"
     assert W.rise_factor("4.15", 4, df=3) == "√2 × 4.15 (best of 4, t on 3 df)"
     assert W.rise_factor("1.64", 1) == "√2 × 1.64"
@@ -563,7 +575,8 @@ def test_the_ui_says_the_rise_against_its_threshold(_cwd):
     facts = SimpleNamespace(best=insights.best_facts(opt), tie=None, improvement=a,
                             progress="within_noise", yardstick=yard)
     assert ui_insights.progress_short(opt, facts) == (
-        "Up 2.5, needs 3.2 to count. Best so far: 74.50 of 100, Formulation 3.")
+        "Up 2.5, needs 3.2. Best so far: 74.50, Formulation 3.")
+    assert len(ui_insights.progress_short(opt, facts).split()) <= 10
     assert ui_insights.progress_sentence(opt, facts).endswith(
         "less than the 3.2 points needed to count as a rise.")
     stand = ui_insights.stand_text(a, yard)
