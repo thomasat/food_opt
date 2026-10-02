@@ -96,7 +96,9 @@ def test_answer_lines_open_with_the_cards_word(screens, name):  # noqa: F811
         assert re.sub(r":red\[(.*)\]", r"\1", q1).startswith(f"**{plain(p['word'])}.**")
         # Review story: Q3's answer is a finding, never the Next card's word.
         assert not q3.startswith(f"**{plain(n['word'])}.**")
-        assert re.match(r"\*\*.+ matters most\.\*\*|\*\*No single change", q3), q3
+        # Review story 3: no clear leader over tested amounts reads
+        # 'No single ingredient (or setting) clearly leads yet'.
+        assert re.match(r"\*\*.+ matters most\.\*\*|\*\*No single (ingredient|setting)", q3), q3
     assert q2.startswith(f"**{plain(g['word'])}.**")
     assert re.match(r"\*\*\d+ tested\.\*\* ", q4), q4
     for line in (q1, q2, q3, q4):

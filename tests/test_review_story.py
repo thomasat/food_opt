@@ -311,7 +311,8 @@ def test_the_finding_line():
     assert U.driver_finding(None, _Prof([_Col("Salt", 4.0)]), fine) == "**Salt matters most.**"
     for p, g in ((_Prof([_Col("Salt", 4.0)]), noise), (_Prof([_Col("Salt", 0.0)]), fine),
                  (None, None)):
-        assert U.driver_finding(None, p, g) == f"**{wording.STORY_NO_DRIVER}.**"
+        # Review story 3: one line for every no-leader case.
+        assert U.driver_finding(None, p, g) == f"**{wording.story_no_leader()}.**"
     for line in ("**Oat flour matters most.** Best so far uses its Highest.",
                  "**Textured soy protein matters most.** Then Methylcellulose."):
         assert _words(line) <= 10
@@ -322,7 +323,9 @@ def test_the_finding_is_not_the_next_cards_word(screens):
     nxt = cards(at)[2]["word"]
     line = next(t for k, t in sections(at)[wording.Q3_TITLE] if k == "markdown")
     assert not line.startswith(f"**{nxt}")
-    assert re.match(r"\*\*.+ matters most\.\*\*|\*\*No single change", line), line
+    # Review story 3: no clear leader over tested amounts reads
+    # 'No single ingredient (or setting) clearly leads yet'.
+    assert re.match(r"\*\*.+ matters most\.\*\*|\*\*No single (ingredient|setting)", line), line
 
 
 def test_the_profiler_defaults_to_four_columns():
@@ -469,6 +472,10 @@ def test_pilot_story(pilot):
                         line)
     line = next(t for k, t in got[wording.Q3_TITLE] if k == "markdown")
     assert " matters most.**" in line
+    # Review story 3: two rows moved together (|r| >= 0.7) across the 10
+    # Rounds; noted under the profiler (by pattern: no pilot names here).
+    assert any(re.fullmatch(r".+ and .+ moved together: effects mixed\.", t)
+               for k, t in got[wording.Q3_TITLE] if k == "caption"), got[wording.Q3_TITLE]
     before = cards(_open(R6), order="screen")
     assert [c["word"] for c in before[:2]] == ["No new best", "Not yet"]
     assert re.fullmatch(r"(\d+) / \1 in range · needs 10", before[1]["lines"][0])

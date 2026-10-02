@@ -2223,6 +2223,34 @@ def correlated_pair(opt):
     return None if best is None else (best[1], best[2], best[0])
 
 
+# Review story 3: two rows whose tested amounts moved together this closely
+# (|Pearson r|) are noted under the profiler: no model can separate them.
+MOVED_R = 0.7
+
+
+def moved_pairs(opt, threshold=MOVED_R):
+    """[(a, b, r)]: every two varying continuous rows (the profiler's
+    choices, ingredients and process settings; not a calculated row) whose
+    amounts across the fully measured formulations have |r| >= `threshold`
+    (to two decimals), strongest first; r signed. A row that never varied is left out."""
+    names = [n for n in path_choices(opt) if not opt.has_formula(_var(opt, n))]
+    rows = [start_recipe(opt, i) for i in range(len(opt.Y_history)) if opt.fully_measured(i)]
+    if len(rows) < 3:
+        return []
+    span = {n: float(_var(opt, n)['bounds'][1]) - float(_var(opt, n)['bounds'][0])
+            for n in names}
+    cols = {n: [float(r.get(n, 0.0) or 0.0) for r in rows] for n in names}
+    cols = {n: v for n, v in cols.items() if max(v) - min(v) > max(VARIED * span[n], _EPS)}
+    out = []
+    for a, b in itertools.combinations(list(cols), 2):
+        r = statistics.correlation(cols[a], cols[b])
+        # Compared as shown, to two decimals: an r the note would print as
+        # 0.70 is noted, so the number and the rule never disagree.
+        if round(abs(r), 2) >= threshold - 1e-12:
+            out.append((a, b, r))
+    return sorted(out, key=lambda t: -abs(t[2]))
+
+
 def best_refusal(opt):
     """Why no Round could be made now (the refusals `ask` raises before it
     searches), or None."""

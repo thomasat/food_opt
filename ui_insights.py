@@ -4405,9 +4405,9 @@ class ProfileColumn:
         self.effect = (max(score) - min(score)) if score else 0.0
         # The rise and fall near what has been tested (Compare all's dark
         # bar): what the columns are ranked by, so a large swing that is
-        # all guesswork does not lead.
-        near_score = [m for m, ok in zip(score, near) if ok]
-        self.near_effect = (max(near_score) - min(near_score)) if near_score else 0.0
+        # all guesswork does not lead. Review story 3: within each tested
+        # stretch on its own (the largest), never across an untested gap.
+        self.near_effect = max([max(m) - min(m) for t, m in _runs(near, score) if t] or [0.0])
 
     @property
     def name(self):
@@ -4427,6 +4427,37 @@ class Profile:
     @property
     def greyed(self):
         return self.gain_drawn and self.reason is not None
+
+
+def _runs(flags, values):
+    """[(flag, [values])]: `values` cut into runs of equal `flags`."""
+    out = []
+    for f, v in zip(flags, values):
+        if out and out[-1][0] == f:
+            out[-1][1].append(v)
+        else:
+            out.append((f, [v]))
+    return out
+
+
+def split_tested(amounts, near, points):
+    """Review story 3: the line through `amounts` (each point a dict of
+    numbers, its x added) cut into runs, [(tested, [points])], at the
+    halfway amounts insights.untested_runs shades from, the values there
+    halfway too, so the solid and the faded pieces meet where the grey
+    begins."""
+    out = []
+    for a, ok, p in zip(amounts, near, points):
+        pt = dict(p, x=a)
+        if out and out[-1][0] != ok:
+            prev = out[-1][1][-1]
+            mid = {f: (prev[f] + pt[f]) / 2 for f in pt}
+            out[-1][1].append(mid)
+            out.append((ok, [dict(mid)]))
+        if not out:
+            out.append((ok, []))
+        out[-1][1].append(pt)
+    return out
 
 
 def _near_flags(opt, recipes, tested):
@@ -4597,6 +4628,13 @@ def _profile_row_frame(opt, cols, kind, name, labels, texts):
                            text=f"{fmt(p.mean)} ({range_text(p.low, p.high, fmt)})",
                            bo=wording.profiler_bo(p.mean, p.low, p.high))
             recs.append(rec)
+        # Review story 3: the drawn line and band, solid over tested
+        # amounts and faded over untested ones (the same rule as the grey).
+        points = [{"v": r["v"], "low": r["low"], "high": r["high"]}
+                  for r in recs[-len(path.amounts):]]
+        for k, (ok, run) in enumerate(split_tested(path.amounts, c.near, points)):
+            recs += [dict(p, col=col, mark="seg_t" if ok else "seg_u", run=f"{c.name}#{k}")
+                     for p in run]
         for lo, hi in insights.untested_runs(path, c.near):
             recs.append({"col": col, "mark": "grey", "x": lo, "x2": hi, "region": untested_name})
         recs.append({"col": col, "mark": "ref", "x": path.start_amount, "role": ref_name})
@@ -4619,6 +4657,12 @@ def _profile_row_frame(opt, cols, kind, name, labels, texts):
                       "no": int(opt.formulation_ids[i]), "what": tested_name,
                       "bo": wording.PLOT_BO_MODEL_FREE} for i, a, sc in c.rings]
     return pd.DataFrame(recs)
+
+
+# Review story 3: over untested amounts the line is thin, dashed and faint
+# and the band a third as strong, so a model curve there reads as a guess.
+_UNTESTED_LINE = {"strokeWidth": 1.2, "strokeDash": [3, 3], "opacity": 0.45}
+_UNTESTED_BAND = 0.35
 
 
 def profile_chart(opt, profile, columns=None, rows=None, gain=True):
@@ -4649,7 +4693,7 @@ def profile_chart(opt, profile, columns=None, rows=None, gain=True):
     tgt_c, tgt_o = mark("neutral")
     ring_c, ring_o = mark("neutral")
     texts = (_say(opt, profile.ref_label), _say(opt, wording.PLOT_TARGET),
-             _say(opt, wording.PLOT_UNTESTED), _say(opt, wording.PROFILER_TESTED),
+             _say(opt, wording.PROFILER_UNTESTED_DASHED), _say(opt, wording.PROFILER_TESTED),
              _say(opt, wording.PLOT_INTERVAL))
     ref_name, target_name, untested_name, tested_name, band_name = texts
     # The header under each column: its name and unit, wrapped to the panel.
@@ -4703,18 +4747,25 @@ def profile_chart(opt, profile, columns=None, rows=None, gain=True):
                           .encode(x=x, x2="x2:Q",
                                   fill=alt.Fill("region:N", scale=regions, legend=legend))
                           .transform_filter(_only("grey")))
-        if kind == "gain":
-            layers.append(base.mark_area(color=gain_c, opacity=0.25, tooltip=False)
-                          .encode(x=x, y=y).transform_filter(_only("curve")))
-        else:
-            layers.append(base.mark_area(opacity=band_o, tooltip=False)
-                          .encode(x=x, y=alt.Y("low:Q", scale=ys, axis=y_axis), y2="high:Q",
-                                  fill=alt.Fill("band:N", scale=regions, legend=legend))
-                          .transform_filter(_only("curve")))
-        layers += [base.mark_line(color=gain_c if kind == "gain" else blue, strokeWidth=2,
-                                  **({"strokeDash": [4, 3]} if kind == "gain" and profile.greyed
-                                     else {}))
-                   .encode(x=x, y=y, tooltip=tip).transform_filter(_only("curve")),
+        # Review story 3: each piece of line and band drawn by its run
+        # (detail), solid where tested, faded where not.
+        run = alt.Detail("run:N")
+        line_c = gain_c if kind == "gain" else blue
+        for seg, fade in (("seg_t", 1.0), ("seg_u", _UNTESTED_BAND)):
+            if kind == "gain":
+                layers.append(base.mark_area(color=gain_c, opacity=0.25 * fade, tooltip=False)
+                              .encode(x=x, y=y, detail=run).transform_filter(_only(seg)))
+            else:
+                layers.append(base.mark_area(opacity=band_o * fade, tooltip=False)
+                              .encode(x=x, y=alt.Y("low:Q", scale=ys, axis=y_axis), y2="high:Q",
+                                      fill=alt.Fill("band:N", scale=regions, legend=legend),
+                                      detail=run)
+                              .transform_filter(_only(seg)))
+        solid = {"strokeDash": [4, 3]} if kind == "gain" and profile.greyed else {}
+        layers += [base.mark_line(color=line_c, strokeWidth=2, tooltip=False, **solid)
+                   .encode(x=x, y=y, detail=run).transform_filter(_only("seg_t")),
+                   base.mark_line(color=line_c, tooltip=False, **_UNTESTED_LINE)
+                   .encode(x=x, y=y, detail=run).transform_filter(_only("seg_u")),
                    # Wide invisible points: the hover reads anywhere along the line.
                    base.mark_point(size=80, opacity=0, filled=True)
                    .encode(x=x, y=y, tooltip=tip).transform_filter(_only("curve"))]
@@ -4912,7 +4963,26 @@ def _profiler(opt, computed):
         elif profile.reason is not None:
             st.caption(_say(opt, wording.HERO_WITHHELD[hero_reason_key(profile.reason)]),
                        help=_say(opt, wording.tip_hero_hidden(profile.reason)))
+        note = moved_note(opt, shown)
+        if note is not None:
+            st.caption(_say(opt, note[0]), help=_say(opt, note[1]))
     return profile, shown, guard
+
+
+def moved_note(opt, shown):
+    """Review story 3: (note, its "?") for the strongest pair of rows
+    that moved together (|r| >= insights.MOVED_R) with at least one of
+    them among the `shown` columns, the other pairs in the "?"; or None."""
+    pairs = insights.moved_pairs(opt)
+    on_screen = [p for p in pairs if p[0] in shown or p[1] in shown]
+    if not on_screen:
+        return None
+    a, b, r = on_screen[0]
+    # The column further left (or the one shown) named first.
+    a, b = sorted((a, b), key=lambda n: list(shown).index(n) if n in shown else len(shown))
+    n = sum(1 for i in range(len(opt.Y_history)) if opt.fully_measured(i))
+    others = [p for p in pairs if p is not on_screen[0]]
+    return wording.moved_note(a, b), wording.moved_help(a, b, r, n, others)
 
 
 # ------------------------------------------------------------------ #
@@ -5026,7 +5096,8 @@ def _drives_section(opt, slot, computed, facts):
         ev = wording.evidence([wording.ev_profiler(opt.complete_count(), profile.ref_label,
                                                    profile.ref_no,
                                                    cfg.get("acquisition", "qlognei"))])
-        ev = f"{wording.story_driver_help(profile.ref_label)}\n\n{ev}"
+        rule = wording.story_leader_rule(f"{leader_noise(opt):g}")
+        ev = f"{wording.story_driver_help(profile.ref_label)} {rule}\n\n{ev}"
     with slot.answer.container():
         st.markdown(_say(opt, line),
                     help=_say(opt, ev) if ev else _evidence_help(opt, facts, "next"))
@@ -5507,19 +5578,45 @@ def driver_finding(opt, profile, guard):
     """Q3's answer, a finding: '**Methylcellulose matters most.** Best so
     far uses its Highest.' — the column that moves the predicted Overall score
     most near tested formulations (the profiler's own ranking), and where
-    the reference sits; '**No single change clearly leads.**' under the
-    noise guard or with no effect."""
-    if profile is None or guard is None or guard.fires or not profile.columns:
-        return wording.answer_line(wording.STORY_NO_DRIVER, "")
+    the reference sits. Review story 3: from tested stretches only
+    (near_effect); with no clear leader there (clear_leader), under the
+    noise guard or with no effect, '**No single ingredient clearly leads
+    yet.**'."""
+    if (profile is None or guard is None or guard.fires or not profile.columns
+            or not clear_leader(profile, leader_noise(opt))):
+        kind = ("ingredients" if opt is None or not getattr(profile, "columns", None)
+                else _more_kind(opt, [c.name for c in profile.columns]))
+        return wording.answer_line(wording.story_no_leader(kind), "")
     lead = profile.columns[0]
-    if lead.effect <= 0:
-        return wording.answer_line(wording.STORY_NO_DRIVER, "")
     rest = ""
     if lead.end:
         rest = wording.story_driver_end(profile.ref_label, lead.end)
-    elif len(profile.columns) > 1 and profile.columns[1].effect > 0:
+    elif len(profile.columns) > 1 and profile.columns[1].near_effect > 0:
         rest = wording.story_driver_then(profile.columns[1].name)
     return wording.answer_line(wording.story_driver(lead.name), rest)
+
+
+def leader_noise(opt):
+    """The Overall score's noise SD a lead must beat (noise_yardstick's:
+    Repeats' from 3 df, else the assumed 1 point)."""
+    if opt is None:
+        return insights.ASSUMED_NOISE_SD
+    try:
+        value = insights.noise_yardstick(opt).value
+    except Exception:
+        value = None
+    return insights.ASSUMED_NOISE_SD if value is None else float(value)
+
+
+def clear_leader(profile, noise):
+    """Review story 3: whether the first column clearly leads over its
+    tested stretch: it moves the predicted Overall score by at least
+    `noise`, and the next column by under NEAR_TIE of that (the trust
+    audit's near tie: the named top was often wrong within 20 %)."""
+    cols = profile.columns
+    lead = cols[0].near_effect
+    second = cols[1].near_effect if len(cols) > 1 else 0.0
+    return lead >= noise - 1e-12 and second < insights.NEAR_TIE * lead
 
 
 def path_frame(opt, axes, lines):

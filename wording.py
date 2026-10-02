@@ -6804,8 +6804,11 @@ def model_summary(facts):
         (f"Acquisition: {acq}; {q}, chosen one at a time (sequential greedy) under the linear "
          f"limits, {f.restarts} restarts from {f.raw_samples} raw samples, {f.mc_samples} "
          "quasi-Monte Carlo samples."),
-        cold,
     ]
+    # Review story 3: Expected gain defined once, beside the acquisition.
+    if f.acquisition == "qlognei":
+        lines.append(METHOD_GAIN)
+    lines.append(cold)
     if f.robust:
         lines.append("Input warping: on for the suggestion model (robust), not used by the "
                      "models on this tab.")
@@ -8847,3 +8850,52 @@ def story_trust_so_far(inside, total, needed):
     2: it read '…; 10 needed to judge', 12 words with its bold word, over
     the 10 a status line may take)."""
     return f"{inside} of {total} landed in range; needs {needed}"
+
+
+# --- review story 3 ---
+# Review story 3 (prototype, 2026-10-02; owner: demo the yogurt pilot only,
+# and fade the profiler's untested stretches so a model curve there does
+# not read as a finding): the line thin and dashed, the band lighter, over
+# amounts not tested near; the finding from tested stretches only; a note
+# when two rows moved together; and Expected gain defined once.
+PROFILER_UNTESTED_DASHED = "Not tested near here (dashed)"
+
+
+def story_no_leader(kind="ingredients"):
+    """'No single ingredient clearly leads yet' (`kind`, _more_kind's)."""
+    what = {"settings": "setting", "both": "ingredient or setting"}.get(kind, "ingredient")
+    return f"No single {what} clearly leads yet"
+
+
+def story_leader_rule(noise_text):
+    """The finding's "?", its rule: tested stretches only."""
+    return (f"Counted over tested amounts only: the dashed, untested stretches are the model's "
+            f"guess. A clear lead moves the predicted {OVERALL_SCORE_COLUMN} by at least "
+            f"{noise_text} points (one tasting's noise) and by a quarter more than the next row.")
+
+
+def moved_note(first, second):
+    """'Tap water and Coconut cream moved together: effects mixed.'"""
+    return f"{first} and {second} moved together: effects mixed."
+
+
+def moved_r(r):
+    """'r = −0.70' (Pearson's r, signed, two decimals)."""
+    return f"r = {r:.2f}".replace("-", "−")
+
+
+def moved_help(first, second, r, n, others=()):
+    """The note's "?": the exact r, why it matters, and any other pairs."""
+    text = (f"{first} and {second} changed together across the {n} tested {FORMULATION}s "
+            f"({moved_r(r)}). No model can separate their effects: what the chart credits to "
+            f"one may belong to the other. Noted from |r| ≥ 0.7. To separate them, test "
+            f"{FORMULATION}s that change one without the other.")
+    if others:
+        text += " Also moved together: " + "; ".join(
+            f"{a} and {b} ({moved_r(x)})" for a, b, x in others) + "."
+    return text
+
+
+METHOD_GAIN = ("Expected gain: expected improvement in the Overall score (qLogNEI), in points: "
+               "how much a formulation is expected to add above the model's estimate of the best "
+               "tested formulation. Not information gain.")
