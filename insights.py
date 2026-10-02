@@ -1138,6 +1138,9 @@ class MissDiagnosis:
     items: list             # MissItem, most misses first
     score: object = None    # the Overall score's ScoreRecord (Headline.score)
     score_ok: bool = False  # its misses within allowed_misses: as expected
+    # "one_way": the usual side of every measurement with ONE_WAY_MIN misses
+    # or more, "above", "below" or "mixed" (they differ); None otherwise.
+    side: str | None = None
 
 
 def far_from_tested(opt, formulation, round_no):
@@ -1194,17 +1197,51 @@ def miss_diagnosis(opt, checks, h=None):
     concentrated = (near_checked == 0 or
                     n_far * near_checked >= (len(misses) - n_far) * far_checked)
     one_way = sum(max(m.above, m.below) for m in items if m.misses >= ONE_WAY_MIN)
+    side = None
     if n_far > MOSTLY * len(misses) and concentrated:
         kind = "new_ground"
     elif one_way >= ONE_WAY * len(misses):
         kind = "one_way"
+        sides = {"above" if m.above >= m.below else "below"
+                 for m in items if m.misses >= ONE_WAY_MIN}
+        side = sides.pop() if len(sides) == 1 else "mixed"
     else:
         kind = "unexplained"
     score = h.score
     score_ok = bool(score is not None and score.total
                     and score.total - score.inside <= allowed_misses(score.total))
     return MissDiagnosis(kind, list(h.rounds), len(misses), len(values), n_far,
-                         far_checked, one_way, items, score, score_ok)
+                         far_checked, one_way, items, score, score_ok, side)
+
+
+# The CV-widening "check your panel's consistency" (ui_insights.wide_cause)
+# is backed only when Repeats show the noise is large: the Repeat SD, from
+# YARDSTICK_DF degrees of freedom (noise_yardstick's own rule), at least
+# this share of the spread of scores between formulations.
+REPEATS_VARY = 0.5
+
+
+@dataclass
+class RepeatsVary:
+    sd: float           # the Repeat SD, points
+    df: int
+    pairs: int
+    spread: float       # sd of the scored formulations' Overall scores
+
+
+def repeats_vary(opt, yard=None):
+    """RepeatsVary when the Repeats measure the noise and it is large
+    against the differences between formulations, else None."""
+    yard = yard if yard is not None else noise_yardstick(opt)
+    if not getattr(yard, "from_repeats", False) or yard.value is None:
+        return None
+    ys = [float(opt.Y_history[i]) for i in opt.best_candidates()]
+    if len(ys) < 3:
+        return None
+    spread = statistics.stdev(ys)
+    if yard.value < REPEATS_VARY * spread:
+        return None
+    return RepeatsVary(float(yard.value), int(yard.df), int(yard.pairs), spread)
 
 
 @dataclass

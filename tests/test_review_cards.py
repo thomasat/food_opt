@@ -51,8 +51,11 @@ EXPECTED = {
                                       "Expected gain hidden: predictions miss too often."]),
     D.LINE_C: (
         "Based on 21 formulations · Round 6 open",
+        # Review diagnosis ruling 2 (2026-10-02): the CV-widening rule no
+        # longer says "Check your panel's consistency" without Repeat
+        # evidence (Line C's one Repeat pair has 1 df); it asks for a Repeat.
         [("Predictions", "Not yet", ["No better than averaging",
-                                     ":red[**Check your panel's consistency**]"]),
+                                     "Repeat Formulation 18 to check noise"]),
          ("Progress", "Within noise", ["Best 89.84 · +2.5 (needs 3.2)"]),
          ("Next", "Record Round 6", ["4 formulations open", "Guided search, not a forecast"])],
         "How the app chose Round 6", ["Suggestions go where expected gain peaks.",
@@ -73,8 +76,9 @@ EXPECTED = {
         "Where the app looks next", ["Suggestions go where expected gain peaks."]),
     D.PROCESS_ONLY: (
         "Based on 21 trials · Round 6 open",
+        # Review diagnosis ruling 2: as Line C, in the study's own word.
         [("Predictions", "Not yet", ["Not clearly better than averaging",
-                                     ":red[**Check your panel's consistency**]"]),
+                                     "Repeat Trial 21 to check noise"]),
          ("Progress", "Within noise", ["Best 87.92 · +1.9 (needs 3.2)"]),
          ("Next", "Record Round 6", ["4 trials open", "Round 7: Repeat Trial 21"])],
         "How the app chose Round 6", ["Suggestions go where expected gain peaks.",
@@ -230,7 +234,9 @@ def test_predictions_tooltip_says_the_coverage_and_skill_exactly(screens):
     assert "skill 1 − SSE/SSE(mean of the rows before each Round) = 0.36 over 15" in rule
 
 
-@pytest.mark.parametrize("name", [D.LINE_B, D.LINE_C, D.UPGRADE, D.PROCESS_ONLY])
+# Review diagnosis ruling 2: Line C and the process-only study have no
+# warning left to show; their Repeat request is a neutral line, not red.
+@pytest.mark.parametrize("name", [D.LINE_B, D.UPGRADE])
 def test_warnings_are_never_folded(screens, name):
     """Off and every check-worthy line keep a red line of their own on the
     card, not in a fold or a tooltip only."""

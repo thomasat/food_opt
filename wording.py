@@ -7870,7 +7870,7 @@ HERO_GAIN = "Expected gain"
 # misses fell, a description, never a cause, and asks for a Repeat.
 CARD_DIAG = {
     "new_ground": "Misses mostly on new ground",
-    "one_way": "Misses mostly one way",
+    "one_way": "Each measurement misses one way",
     "unexplained": "Misses not explained yet",
 }
 
@@ -7893,18 +7893,33 @@ _DIAG_PLAIN = {
                    "before ({far_checked} of {checked} values checked were). That says where "
                    "they fell, not why."),
     "one_way": ("Most misses ({one_way} of {misses}) ran one way for their measurement: "
-                "steadily above or below the predictions, not scattered. That says how they "
+                "steadily {side} the predictions, not scattered. That says how they "
                 "fell, not why."),
     "unexplained": "The misses follow no clear pattern yet.",
 }
 
 
-def diag_plain(kind, far, misses, score=None, far_checked=0, checked=0, one_way=0):
+_SIDE_WORDS = {"above": "above", "below": "below", "mixed": "above or below"}
+
+
+def card_diag(kind, side=None):
+    """The Predictions card's diagnosis line, at most 6 words: one way says
+    which way when every measurement's misses agree ('Results mostly above
+    predictions'; "results", the app's word for measured values, so it is
+    not read as the Overall score on the line under it)."""
+    if kind == "one_way" and side in ("above", "below"):
+        return f"Results mostly {side} predictions"
+    return CARD_DIAG[kind]
+
+
+def diag_plain(kind, far, misses, score=None, far_checked=0, checked=0, one_way=0,
+               side=None):
     """The diagnosis in plain words, for the Predictions tooltip. `score`:
     (inside, total) of the Overall score when it is as expected, said
     because the suggestions are made on it."""
     line = _DIAG_PLAIN[kind].format(far=far, misses=misses, f=FORMULATION,
-                                    far_checked=far_checked, checked=checked, one_way=one_way)
+                                    far_checked=far_checked, checked=checked, one_way=one_way,
+                                    side=_SIDE_WORDS.get(side, "above or below"))
     if score is not None:
         line += (f" The {OVERALL_SCORE_COLUMN}, which the suggestions use, was {score[0]} of "
                  f"{score[1]} in range.")
@@ -7984,3 +7999,17 @@ def next_misses_diag(rounds, kind, repeat_no=None, bias_text=""):
             f"often than 95 % intervals allow{_DIAG_WHERE[kind]}, so new predictions can miss "
             f"by more than their intervals show. {ask}")
     return f"{line} {bias_text}" if bias_text else line
+
+
+# The CV-widening check (ui_insights.wide_cause), review diagnosis ruling 2
+# (2026-10-02): "check your panel" only with Repeat evidence. Without it the
+# card asks for a Repeat (card_noise_repeat); with Repeats that vary a lot
+# it says so, and the tooltip keeps the consistency advice, backed.
+CARD_REPEATS_VARY = "Repeats vary a lot"
+
+
+def repeats_vary_line(sd_text, df, spread_text):
+    """The Repeat evidence behind CHECK_SCATTER, for the tooltip."""
+    return (f"Repeats differ with an SD of {points_text(sd_text)} ({df} df), at least half "
+            f"the SD of scores between {FORMULATION}s ({points_text(spread_text)}): "
+            "results vary a lot from one make to the next.")

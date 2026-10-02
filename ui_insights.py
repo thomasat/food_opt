@@ -1313,7 +1313,7 @@ def prediction_sentence(opt, facts):
         return wording.PRED_OFF_REPEAT
     if row == "gate":
         return wording.pred_gate(facts.scored, insights.MIN_ROWS)
-    then = f" {wording.CHECK_SCATTER}" if check else ""
+    then = scatter_tail(opt, facts) if check else ""
     if row == "too_few":
         return wording.pred_too_few(facts.checked, insights.SKILL_MIN, tail) + then
     if row == "wide":
@@ -1577,7 +1577,7 @@ def prediction_short(opt, facts):
     for c in facts.clauses:
         if c[0] == "wide":
             check = wide_cause(c[1], getattr(facts, "wide_factors", None) or {}) is not None
-    then = f" {wording.SHORT_CHECK_SCATTER}" if check else ""
+    then = scatter_tail(opt, facts, short=True) if check else ""
     if row == "off_repeat":
         return wording.SHORT_OFF_REPEAT
     if row == "gate":
@@ -5256,7 +5256,7 @@ def _diag_score(d):
 
 def diag_plain_text(d):
     return wording.diag_plain(d.kind, d.far, d.misses, _diag_score(d), d.far_checked,
-                              d.checked, d.one_way)
+                              d.checked, d.one_way, d.side)
 
 
 def diag_tip(opt, d):
@@ -5267,6 +5267,44 @@ def diag_tip(opt, d):
                             d.checked, f"{100 * FAR_FROM_TESTED:.0f}", d.kind,
                             score=None if d.score is None else (d.score.inside, d.score.total),
                             score_rounds=None if d.score is None else d.score.rounds)
+
+
+def scatter_check(opt, facts):
+    """Ruling 2: the CV-widening check (wide_cause) as the card may say it.
+    None when the rule does not fire; else (RepeatsVary, None) when the
+    Repeats show large noise (the panel advice is backed), or (None, N)
+    with N the Formulation to repeat to check noise (Best so far)."""
+    fire = any(c[0] == "wide" and wide_cause(c[1], getattr(facts, "wide_factors", None) or {})
+               is not None for c in facts.clauses)
+    if not fire:
+        return None
+    vary = insights.repeats_vary(opt, getattr(facts, "yardstick", None))
+    if vary is not None:
+        return vary, None
+    best = getattr(facts, "best", None)
+    return None, (best.formulation if best is not None else None)
+
+
+def scatter_tail(opt, facts, short=False):
+    """The sentence the wide clause ends with: the consistency advice and
+    its Repeat evidence when backed; else the Repeat that would measure the
+    noise; '' when the rule does not fire."""
+    found = scatter_check(opt, facts)
+    if found is None:
+        return ""
+    vary, no = found
+    if vary is not None:
+        if short:
+            return f" {wording.SHORT_CHECK_SCATTER}"
+        return (f" {wording.CHECK_SCATTER} "
+                f"{wording.repeats_vary_line(f'{vary.sd:.1f}', vary.df, f'{vary.spread:.1f}')}")
+    if no is None:
+        return ""
+    if short:
+        return f" {wording.short_add_repeat(no)}"
+    ask = wording.next_plain_repeat_ask(no, open_round=bool(opt.pending_batch),
+                                        values=not opt.has_ingredients())
+    return f" {ask}"
 
 
 def diag_for(opt, checks, h):
@@ -5581,8 +5619,7 @@ def _check_round(opt):
 def predictions_card(opt, facts):
     row, h = facts.prediction_row, facts.headline
     word = wording.PREDICTIONS_WORDS[facts.predictions]
-    check = any(c[0] == "wide" and wide_cause(c[1], getattr(facts, "wide_factors", None) or {})
-                is not None for c in facts.clauses)
+    check = scatter_check(opt, facts)
     lines = []
     if row == "off_repeat":
         lines.append((wording.CARD_OFF_REPEAT, True))
@@ -5601,8 +5638,12 @@ def predictions_card(opt, facts):
                                                 insights.allowed_misses(h.total)), True))
     else:
         lines.append((wording.card_in_range(h.inside, h.total), False))
-    if check:
-        lines.append((wording.CARD_CHECK_SCATTER, True))
+    if check is not None:
+        # Ruling 2: the panel is named only with Repeat evidence; without
+        # it, the neutral data request.
+        vary, no = check
+        lines.append((wording.CARD_REPEATS_VARY, True) if vary is not None
+                     else (wording.card_noise_repeat(no), False))
     off = facts.predictions == "off"
     d = getattr(facts, "diagnosis", None)
     if off and facts.disagreement is not None:
@@ -5611,7 +5652,7 @@ def predictions_card(opt, facts):
     elif off and d is not None:
         # Review diagnosis: where the misses fell, then the score the
         # suggestions use when it is as expected; no check advice.
-        lines.append((wording.CARD_DIAG[d.kind], False))
+        lines.append((wording.card_diag(d.kind, d.side), False))
         if d.score_ok:
             lines.append((wording.card_score_in_range(d.score.inside, d.score.total), False))
     return Card(word, lines, "off" if off else None)

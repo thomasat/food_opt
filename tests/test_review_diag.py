@@ -216,6 +216,42 @@ def test_line_b_still_checks_the_panel(demos):
     assert not any(line in p["lines"] for line in wording.CARD_DIAG.values())
 
 
+def test_one_way_says_which_way():
+    """Ruling 1: one way names the side when every measurement agrees."""
+    assert wording.card_diag("one_way", "above") == "Results mostly above predictions"
+    assert wording.card_diag("one_way", "below") == "Results mostly below predictions"
+    assert wording.card_diag("one_way", "mixed") == "Each measurement misses one way"
+    for side in ("above", "below", "mixed"):
+        assert _words(wording.card_diag("one_way", side)) <= 6
+
+
+@pytest.mark.parametrize("name,line", [(D.LINE_C, "Repeat Formulation 18 to check noise"),
+                                       (D.PROCESS_ONLY, "Repeat Trial 21 to check noise")])
+def test_cv_widening_asks_for_a_repeat_not_the_panel(demos, name, line):
+    """Ruling 2: the CV-widening rule names the panel only with Repeat
+    evidence; these two have one Repeat pair (1 df), so they ask for one."""
+    p = cards(demos[name])[0]
+    assert line in p["lines"]
+    texts = [p["word"], *p["lines"], p["help"]]
+    assert not [t for t in texts if BENCH.search(t)]
+    assert "to measure how much results vary" in p["help"]
+    assert ("the same values again" in p["help"]) == (name == D.PROCESS_ONLY)
+
+
+def test_repeats_that_vary_a_lot_back_the_panel_advice(line_a):
+    """Ruling 2: Repeats measuring the noise (3+ df) at half the spread of
+    scores or more: "Repeats vary a lot", the advice kept in the tooltip."""
+    import types
+    big = types.SimpleNamespace(from_repeats=True, value=50.0, df=3, pairs=3)
+    small = types.SimpleNamespace(from_repeats=True, value=0.1, df=3, pairs=3)
+    assumed = types.SimpleNamespace(from_repeats=False, value=50.0, df=1, pairs=1)
+    assert insights.repeats_vary(line_a, big).sd == 50.0
+    assert insights.repeats_vary(line_a, small) is None
+    assert insights.repeats_vary(line_a, assumed) is None
+    assert _words(wording.CARD_REPEATS_VARY) <= 6
+    assert "results vary a lot" in wording.repeats_vary_line("50.0", 3, "4.6")
+
+
 @pytest.mark.parametrize("name", [D.SNACK, D.LINE_A, D.LINE_C, D.PROCESS_ONLY])
 def test_no_diagnosis_where_nothing_is_off(demos, name):
     for c in cards(demos[name]):
@@ -271,7 +307,8 @@ def _check_off_without_repeat(at, name):
     assert not [t for t in texts if BENCH.search(t)], name
     p, _, n = cards(at)
     assert p["word"] == ":red[Off]"
-    assert any(line in p["lines"] for line in wording.CARD_DIAG.values())
+    assert p["lines"][1] in (*wording.CARD_DIAG.values(), "Results mostly above predictions",
+                             "Results mostly below predictions")
     assert any(line.startswith("Repeat Formulation ") and line.endswith("to check noise")
                for line in n["lines"])
     for line in p["lines"] + n["lines"]:
