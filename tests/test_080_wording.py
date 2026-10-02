@@ -44,7 +44,7 @@ def _new_lines():
         w.next_close_to_top(), w.next_close_to_top(settings_only=True),
         w.NEXT_RISING, w.NEXT_SEE, w.change_on_setup("Coconut oil"),
         w.change_on_setup("Salt", highest=False), w.CHANGE_LIMITS_ON_SETUP,
-        w.try_one(True), w.try_one(False), w.try_one(True, False),
+        w.try_one_fold(True), w.try_one_fold(False), w.try_one_fold(True, False),
         w.near_line("Coconut oil", "1.4", "Best so far"),
         w.near_line("Salt", "0.3", "Formulation 9", only=True),
         w.near_two("Coconut oil", "Salt", "1.4", "1.2", "Best so far"),
@@ -258,7 +258,7 @@ def test_process_only_forms_name_settings_not_ingredients():
     """Spec review I14: a sentence naming ingredients or amounts has a form
     for a study of process settings alone."""
     w = wording
-    assert "ingredient" not in w.try_one(True, has_ingredients=False).lower()
+    assert "ingredient" not in w.try_one_fold(True, has_ingredients=False).lower()
     assert "values" in w.next_untested(values=True)
     assert "ingredient" not in w.next_close_to_top(settings_only=True)
     assert "ingredient" not in w.near_none(settings_only=True)
