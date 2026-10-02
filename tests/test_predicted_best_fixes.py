@@ -122,7 +122,7 @@ def test_make_a_round_shows_the_record_only_from_matching_checks(warm_round):
     # bias, said as Insights says it (0.8.0 e2e fixes, review B1, I1).
     # Two ASCII fragments (the help's proto escapes the minus sign).
     line = "Overall score, Round 3: 5 of 5 inside their 95 % interval; mean error"
-    action = "Predictions have run high: Overall score by about 2.0 points (Round 3)"
+    action = "Results have come in below the predictions: Overall score by about 2.0 points (Round 3)"
     assert line in str(_batch_table(at).proto)
     assert action.rstrip(".") in str(_batch_table(at).proto)
     at.session_state[ui_insights.CACHE_KEY] = ("stale", {"fitted": {}, "checks": _five_score_checks()})
@@ -131,7 +131,11 @@ def test_make_a_round_shows_the_record_only_from_matching_checks(warm_round):
 
 
 def test_the_help_says_fall_inside():
-    assert "About 19 in 20 new results fall inside." in wording.PREDICTED_SCORE_HELP
+    # Ledger, statistician cold read I2 (fix round B): no "19 in 20" claim; the
+    # plain reading gives the 95 % aim and the coverage measured on simulated projects.
+    assert "About 19 in 20" not in wording.PREDICTED_SCORE_HELP
+    assert ("Aims for 95 %; measured about 91 % (measurements) / 89 % (Overall score) on "
+            "simulated projects.") in wording.PREDICTED_SCORE_HELP
 
 
 # ------------------------------------------------------------------ #
