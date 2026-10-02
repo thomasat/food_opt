@@ -966,7 +966,7 @@ SAVE_UPLOADED_RESULTS = "Save uploaded results"
 # The table drawn above it, so the reader checks the numbers the app read
 # rather than a count of them: a firmness of 74 written for 7.4 passed the
 # count without anybody seeing it.
-UPLOAD_PREVIEW_CAPTION = "Review the imported values before saving."
+UPLOAD_PREVIEW_CAPTION = "Check the imported values before saving."
 
 
 def upload_partial_flash(parsed_n, total_n, batch_no, left_n):
@@ -3687,7 +3687,7 @@ CUSTOM_SUBJECT = "Recorded for"
 CUSTOM_VALUE = "Value"
 CUSTOM_INGREDIENT_LABEL = "Ingredient"
 CUSTOM_ROUND_LABEL = "Round for additional records"
-CUSTOM_IMPORT_FOUND = "Additional records found. Review the entries below before saving."
+CUSTOM_IMPORT_FOUND = "Additional records found. Check the entries below before saving."
 CUSTOM_SAVED = "Additional records saved."
 
 def custom_record_option(name, scope, opt=None):
@@ -3840,7 +3840,7 @@ PREPARATION_SHEET_EMPTY = (
 RESULTS_SHEET_TITLE = f"{RESULTS_SHEET} — Enter measurements here"
 RESULTS_SHEET_INTRO = (
     f"Each {FORMULATION} has its own column. Blank means not recorded yet. "
-    "Enter results, then upload this workbook, review the import and save "
+    "Enter results, then upload this workbook, check the import and save "
     "in the app.")
 ACTUAL_SHEET_HEADING = "Actual amounts and settings — optional"
 ACTUAL_SHEET_HELP = ("Blank means the planned value. Enter what was actually "
@@ -3895,10 +3895,10 @@ PATH_NO_ROOM_DOWN = "the other ingredients are all at their Lowest"
 PATH_NO_ROOM_UP = "the other ingredients are all at their Highest"
 
 
-TAB_INSIGHTS = "Insights"
-INSIGHTS_NONE = "Insights appear once formulations are scored."
+TAB_INSIGHTS = "4 · Review"
+INSIGHTS_NONE = "The review appears once formulations are scored."
 INSIGHTS_WORKING = "Preparing the insights…"
-INSIGHTS_FAILED = "Insights could not be prepared for this project."
+INSIGHTS_FAILED = "The review could not be prepared for this project."
 
 
 def insights_gate(n):
@@ -5014,7 +5014,7 @@ def move_to_not_scored_help(n):
 def never_coming_warning(no, names_text):
     """The Move to Not scored confirmation (spec review I9)."""
     return (f"{names_text or 'The results'} for {FORMULATION_CAP} {no} will never come? It "
-            "stays in your records, unscored, and stops counting on Insights.")
+            "stays in your records, unscored, and stops counting in the review.")
 
 
 EDIT_PAST_FOLD = f"Correct, delete or add past {FORMULATION}s"
@@ -5778,7 +5778,7 @@ def gain_pending(round_no=None):
 
 # C2 (review M5): the indicator once the workers have broken 3 times in 10
 # minutes and Insights calculates in the app's own process.
-INSIGHTS_IN_PROCESS = ("Background checks stopped after repeated failures. Insights now "
+INSIGHTS_IN_PROCESS = ("Background checks stopped after repeated failures. The review now "
                        "calculates in this window, so it is slower until the app is restarted.")
 
 
