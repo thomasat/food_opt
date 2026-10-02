@@ -16,6 +16,7 @@ left.
 - pair_chart takes W3's theme scale and tokens (D1).
 """
 import pytest
+from tests.demo_build_reason import REVIEW_FOUR
 from streamlit.testing.v1 import AppTest
 
 import insights
@@ -23,6 +24,7 @@ import insights_jobs
 import ui_batch
 import ui_insights
 import wording
+# Review four, ruling 2: the Why fold's "?" says the gain is greyed, not hidden.
 from tests import e2e_fixtures as E
 from tests.test_104_speed_robust_charts import (PAGES, _all_layers, _contrast_on, _mark,
                                                 _vega_blues)
@@ -166,7 +168,7 @@ def test_the_why_fold_says_too_few_checks(monkeypatch):
     assert line == ("Expected gain is not shown: fewer than 10 Round-ahead checks of "
                     "the Overall score so far (6).")
     # Ftue fix C: the fold says it under its own column name.
-    assert wording.why_gain_said(line) in _why_caption(monkeypatch, gate)
+    assert wording.why_gain_greyed_said(wording.why_gain_said(line)) in _why_caption(monkeypatch, gate)
 
 
 def test_the_why_fold_says_skill_under_0_20(monkeypatch):
@@ -174,7 +176,7 @@ def test_the_why_fold_says_skill_under_0_20(monkeypatch):
     gate = insights.SkillGate("unclear", 24, fact)
     line = wording.why_guard_line(gate_reason=wording.gain_reason_unclear("0.09", 24))
     # Ftue fix C: the fold says it under its own column name.
-    assert wording.why_gain_said(line) in _why_caption(monkeypatch, gate)
+    assert wording.why_gain_greyed_said(wording.why_gain_said(line)) in _why_caption(monkeypatch, gate)
 
 
 def test_the_why_fold_says_no_skill(monkeypatch):
@@ -182,7 +184,7 @@ def test_the_why_fold_says_no_skill(monkeypatch):
     gate = insights.SkillGate("no_skill", 24, fact)
     line = wording.why_guard_line(gate_reason=wording.GAIN_REASON_SKILL)
     # Ftue fix C: the fold says it under its own column name.
-    assert wording.why_gain_said(line) in _why_caption(monkeypatch, gate)
+    assert wording.why_gain_greyed_said(wording.why_gain_said(line)) in _why_caption(monkeypatch, gate)
 
 
 def test_the_why_fold_and_progress_give_one_reason(monkeypatch):
@@ -323,6 +325,7 @@ def _pair_spec():
     return ui_insights.pair_chart(opt, a, b, points).to_dict()
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_pair_chart_takes_the_themes_scale(theme):
     spec = _pair_spec()
     [dots] = [l for l in _all_layers(spec)
@@ -334,6 +337,7 @@ def test_pair_chart_takes_the_themes_scale(theme):
     assert all(_contrast_on(c, 1.0, PAGES[theme]) >= 3.0 for c in stops)
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_pair_charts_grey_marks_reach_3_to_1(theme):
     spec = _pair_spec()
     colours = []

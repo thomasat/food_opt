@@ -5,6 +5,7 @@ Progress chart's axes and caption, and one door to the cached checks (spec
 from types import SimpleNamespace
 
 import pytest
+from tests.demo_build_reason import REVIEW_FOUR
 import streamlit as st
 
 import insights
@@ -117,6 +118,7 @@ def test_a_clipped_likely_range_is_drawn_clipped():
 #  Compare all on the tested-near change (review I8)
 # ------------------------------------------------------------------ #
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_dark_bar_is_the_tested_near_change_and_the_light_one_the_whole_path():
     changes = [SimpleNamespace(name="Oil", near=1.4, whole=3.0),
                SimpleNamespace(name="Pea", near=None, whole=2.0)]

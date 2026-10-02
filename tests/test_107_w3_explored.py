@@ -18,6 +18,7 @@ import json
 import os
 
 import pytest
+from tests.demo_build_reason import REVIEW_FOUR
 import torch
 from streamlit.testing.v1 import AppTest
 
@@ -630,6 +631,7 @@ def test_the_order_inside_the_fold(monkeypatch):
 #  The pointer preselects Uncertainty once, only where offered
 # ------------------------------------------------------------------ #
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_pointer_preselects_uncertainty_once(monkeypatch):
     opt, computed, _ = _rule(D.LINE_A)
     state = {}

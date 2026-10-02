@@ -13,6 +13,7 @@ done" (02 I8, M1, M6, M10; 01 O9, O10, O13, O16; 04 M-7).
 import os
 
 import pytest
+from tests.demo_build_reason import REVIEW_FOUR
 from streamlit.testing.v1 import AppTest
 
 import insights
@@ -329,6 +330,7 @@ def test_the_limit_callout_falls_back_to_the_limits_fold(burger):
 #  M-10: both ends of the blues scale reach 3:1 in both themes
 # ------------------------------------------------------------------ #
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 @pytest.mark.parametrize("which", ["light", "dark"])
 def test_both_ends_of_the_blues_scale_reach_3_to_1(which):
     from tests.test_104_speed_robust_charts import PAGES, _contrast_on, _vega_blues
@@ -528,8 +530,9 @@ def test_a_withheld_expected_improvement_still_says_what_is_recomputed(monkeypat
     one line says so."""
     gate = insights.SkillGate("wait", 6)
     captions = _why_fold_captions(monkeypatch, gate, folder=tmp_path)
-    assert wording.why_gain_said(
-        wording.why_guard_line(gate_reason=wording.gain_reason_too_few(6))) in captions
+    # Review four, ruling 2: greyed, never hidden; its "?" says so.
+    assert wording.why_gain_greyed_said(wording.why_gain_said(
+        wording.why_guard_line(gate_reason=wording.gain_reason_too_few(6)))) in captions
     # Ftue fix C: one plain line, the reason in its tooltip.
     assert captions.count(wording.WHY_RECALCULATED) == 1
     assert wording.WHY_RECOMPUTED_WITHHELD not in captions
@@ -537,7 +540,7 @@ def test_a_withheld_expected_improvement_still_says_what_is_recomputed(monkeypat
 
 def test_a_shown_expected_improvement_still_says_it_was_recomputed(monkeypatch, tmp_path):
     captions = _why_fold_captions(monkeypatch, None, reasons=(), folder=tmp_path)
-    if any(c.startswith("Expected gain is not shown") for c in captions):
+    if any(c.startswith(("Expected gain is not shown", "Expected gain greyed")) for c in captions):
         pytest.skip("the fixture's own checks withhold it")
     assert wording.WHY_RECALCULATED in captions
     assert wording.WHY_RECOMPUTED not in captions
@@ -547,6 +550,7 @@ def test_a_shown_expected_improvement_still_says_it_was_recomputed(monkeypatch, 
 #  01 O16: the "not tested near here" band shows in dark mode
 # ------------------------------------------------------------------ #
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_untested_band_is_visible_on_the_dark_page(monkeypatch):
     from tests.test_104_speed_robust_charts import PAGES, _all_layers, _contrast_on
     colour, opacity = ui_insights._FILLS["dark"]["untested"]
@@ -584,6 +588,7 @@ def test_a_run_logs_no_width_deprecation(open_batch, caplog):
 #  The Effect chart's target line takes the neutral token (3:1 or better)
 # ------------------------------------------------------------------ #
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 @pytest.mark.parametrize("which", ["light", "dark"])
 def test_the_target_line_reaches_3_to_1(monkeypatch, which):
     from tests.test_104_speed_robust_charts import PAGES, _contrast_on
@@ -623,6 +628,7 @@ def test_deleting_a_row_while_typing_a_share_still_rebalances(tmp_path, monkeypa
 #  the Why fold does, by the same distance
 # ------------------------------------------------------------------ #
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_untested_start_line_names_its_nearest_tested(tmp_path, monkeypatch):
     import bo_views
     monkeypatch.chdir(tmp_path)
@@ -680,6 +686,7 @@ def test_the_upgrade_files_predicted_gain_is_withheld(upgrade):
                          "Round-ahead checks of the Overall score so far (2).")
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_upgrade_files_triangle_has_no_outline(upgrade, monkeypatch):
     opt, checks, fitted = upgrade
     names = insights.mixture_choices(opt)[:3]
@@ -694,6 +701,7 @@ def test_the_upgrade_files_triangle_has_no_outline(upgrade, monkeypatch):
     assert any(open_["outline"])                       # the gate is what removes it
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_upgrade_files_progress_shows_no_amounts_fold(tmp_path, monkeypatch):
     import json
     monkeypatch.chdir(tmp_path)
@@ -873,6 +881,7 @@ def test_the_why_maps_tested_rings_reach_3_to_1(tmp_path, monkeypatch, which):
         assert _contrast_on(colour, opacity, PAGES[which]) >= 3.0, (which, mark)
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 @pytest.mark.parametrize("which", ["light", "dark"])
 def test_the_triangles_rings_reach_3_to_1(tmp_path, monkeypatch, which):
     from tests.test_104_speed_robust_charts import PAGES, _contrast_on

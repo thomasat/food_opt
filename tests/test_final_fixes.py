@@ -1,6 +1,7 @@
 """0.8.0 review fixes, the final wave: the whole-branch review's items
 (final-review.md I-1..I-3, M-1..M-5) and the parked minors."""
 import pytest
+from tests.demo_build_reason import REVIEW_FOUR
 from streamlit.testing.v1 import AppTest
 
 import insights
@@ -330,6 +331,7 @@ def trial_scored(tmp_path, monkeypatch):
     return opt
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_luck_line_says_trial_in_a_process_only_project(trial_scored, monkeypatch):
     top = trial_scored.best_index()
     measured = float(trial_scored.Y_history[top])

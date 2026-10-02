@@ -1258,13 +1258,13 @@ def prediction_sentence(opt, facts):
     said = measures_text(facts) if getattr(facts, "measures_miss", False) else ""
     where = f" {diag_plain_text(d)}" if d is not None else ""
     if row == "off_coverage":
-        return wording.on_score(wording.pred_off_coverage(
+        return _on_score(facts, wording.pred_off_coverage(
             rounds, total - inside, total, allowed,
             None if gap is None else wording.bias_fact(*gap))) + said + then + where
     if row == "caution":
-        return (wording.on_score(wording.pred_caution(rounds, total - inside, total, allowed,
+        return (_on_score(facts, wording.pred_caution(rounds, total - inside, total, allowed,
                                                       tail)) + said + then + where)
-    return (wording.on_score(wording.pred_reliable(rounds, inside, total, allowed, tail))
+    return (_on_score(facts, wording.pred_reliable(rounds, inside, total, allowed, tail))
             + said + then + where)
 
 
@@ -1278,6 +1278,13 @@ def score_counts(facts):
         return ((h.inside, h.total, list(h.rounds or [])) if h is not None
                 else (0, 0, []))
     return r.inside, r.total, list(r.rounds or [])
+
+
+def _on_score(facts, text):
+    """wording.on_score when the counts are the Overall score's record;
+    unchanged when score_counts fell back to the headline's."""
+    r = getattr(getattr(facts, "headline", None), "score", None)
+    return wording.on_score(text) if r is not None and r.total else text
 
 
 def measures_text(facts):
@@ -1603,9 +1610,9 @@ def prediction_short(opt, facts):
     inside, total, _ = score_counts(facts)      # review four, ruling 1
     allowed = insights.allowed_misses(total)
     if row in ("off_coverage", "caution"):
-        line = wording.on_score(wording.short_out_of_range(total - inside, total, allowed))
+        line = _on_score(facts, wording.short_out_of_range(total - inside, total, allowed))
         return line + (then if row == "caution" else "")
-    return wording.on_score(wording.short_in_range(inside, total)) + then
+    return _on_score(facts, wording.short_in_range(inside, total)) + then
 
 
 def progress_short(opt, facts):
@@ -4586,7 +4593,7 @@ def profile_chart(opt, profile, columns=None, rows=None, gain=True):
         out_rows.append(
             alt.layer(*layers, data=df).properties(width=_PANEL_W, height=_PANEL_H[kind])
             .facet(column=alt.Column("col:N", sort=order, title=None, header=header),
-                   spacing=8, bounds="flush")
+                   spacing=14, bounds="flush")   # review four: tick labels clear
             .resolve_scale(x="independent"))
     chart = alt.vconcat(*out_rows, spacing=8).resolve_scale(
         fill="shared", stroke="shared", strokeDash="shared")
@@ -4632,8 +4639,9 @@ def profile_cached(opt, fitted, ref):
     hit = st.session_state.get(PROFILE_CACHE)
     if hit and hit[0] == key:
         return hit[1]
-    with st.spinner(_say(opt, wording.INSIGHTS_WORKING)):
-        value = profile_data(opt, fitted, recipe, label, number, is_pick, reason)
+    # Review four: no spinner of its own (V28, one indicator per wait): Q3
+    # is drawn on the tab's first screen, under the progress bar's place.
+    value = profile_data(opt, fitted, recipe, label, number, is_pick, reason)
     st.session_state[PROFILE_CACHE] = (key, value)
     return value
 

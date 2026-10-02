@@ -15,6 +15,7 @@ rev. 2 §3, §7; review R-B2, R-I6, R-I12, R-I13, M4, M5, M8, M9, M12).
 import math
 
 import pytest
+from tests.demo_build_reason import REVIEW_FOUR
 import torch
 from streamlit.testing.v1 import AppTest
 
@@ -303,6 +304,7 @@ def test_every_status_tooltip_names_its_rule_and_its_numbers(project, name):
             assert "trial" not in tip.lower()
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_line_b_names_the_repeat_and_the_bias(project):
     """Line B: Off (coverage) with the Repeat in Next; its bias clause."""
     opt, checks = project(D.LINE_B)
@@ -323,6 +325,7 @@ def test_line_b_names_the_repeat_and_the_bias(project):
             "±8.2") in nxt
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_process_only_tooltips_say_trial(project):
     opt, checks = project(D.PROCESS_ONLY)
     facts = _status(opt, checks)

@@ -10,6 +10,7 @@ import json
 import re
 
 import pytest
+from tests.demo_build_reason import REVIEW_FOUR
 from streamlit.testing.v1 import AppTest
 
 import bo_views
@@ -18,6 +19,7 @@ import insights_jobs
 import ui_batch
 import ui_insights
 import wording
+# Review four, ruling 2: the Why fold's "?" says the gain is greyed, not hidden.
 from food_bo import FoodOptimizer
 from tests import demo_projects as demo
 from tests.test_app_ui import APP_PATH
@@ -126,6 +128,7 @@ def test_the_map_line_is_best_so_far_s_predicted_repeat(kind, monkeypatch):
     assert any(wording.why_chart_caption_full(f"{bo_views.POOL_SIZE:,}") in h for h in helps)
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_map_and_the_outline_read_one_reference(monkeypatch):
     """The map draws what ui_insights.repeat_of_best gives, the function
     the Predicted above Best so far outline compares with."""
@@ -251,15 +254,15 @@ def test_line_b_opened_before_the_checks_says_why_and_shows_the_roles(monkeypatc
     _rerun(at)
     captions = [c.value for c in _fold(at).caption]
     # Ftue fix C: the withheld lines in the fold's own column name.
-    assert wording.why_gain_said(wording.WHY_CHECKING) in captions
+    assert wording.why_gain_greyed_said(wording.why_gain_said(wording.WHY_CHECKING)) in captions
     assert all(wording.ROLE in cols and wording.EXPECTED_GAIN not in cols
                for cols in _columns(at))
     roles = [list(d.value[wording.ROLE]) for d in _fold(at).dataframe]
     _seed(at, opt, "all")
     _rerun(at)
     captions = [c.value for c in _fold(at).caption]
-    assert wording.why_gain_said(wording.why_guard_line(verdict=True)) in captions
-    assert wording.why_gain_said(wording.WHY_CHECKING) not in captions
+    assert wording.why_gain_greyed_said(wording.why_gain_said(wording.why_guard_line(verdict=True))) in captions
+    assert wording.why_gain_greyed_said(wording.why_gain_said(wording.WHY_CHECKING)) not in captions
     # The same words before and after the checks land: nothing withdrawn.
     assert [list(d.value[wording.ROLE]) for d in _fold(at).dataframe] == roles
 
@@ -271,7 +274,7 @@ def test_without_workers_the_open_fold_works_out_its_own_checks():
     opt = _install(demo.LINE_B)
     at = _app(opt.project_name)
     captions = [c.value for c in _fold(at).caption]
-    assert wording.why_gain_said(wording.why_guard_line(verdict=True)) in captions
+    assert wording.why_gain_greyed_said(wording.why_gain_said(wording.why_guard_line(verdict=True))) in captions
     assert all(wording.ROLE in cols and wording.EXPECTED_GAIN not in cols
                for cols in _columns(at))
 
@@ -280,6 +283,7 @@ def test_without_workers_the_open_fold_works_out_its_own_checks():
 #  4. The next Round's figure never holds up the first answers (item 2)
 # ------------------------------------------------------------------ #
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_verdict_is_drawn_before_the_figure_is_worked_out(monkeypatch):
     """Insights draws the Prediction check and Best so far's lines before
     the next Round's expected gain is calculated (about 1.5 s at

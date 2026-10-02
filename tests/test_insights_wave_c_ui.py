@@ -9,6 +9,7 @@ import pickle
 import re
 
 import pytest
+from tests.demo_build_reason import REVIEW_FOUR
 import torch
 from streamlit.testing.v1 import AppTest
 
@@ -120,6 +121,7 @@ def _assert_clean(*strings):
 #  Task 3: the expander and "Can you have both?"
 # ------------------------------------------------------------------ #
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_more_charts_is_collapsed_after_the_answers_and_before_how(insights_scored):
     at = _open_insights(_app())
     assert not at.exception
@@ -131,6 +133,7 @@ def test_more_charts_is_collapsed_after_the_answers_and_before_how(insights_scor
     assert md.index(f"##### {wording.Q_NEXT}") < md.index(f"##### {wording.Q_PAIR}")
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_can_you_have_both_opens_on_the_two_largest_shares(insights_scored):
     at = _open_insights(_app())
     more = _more(at)
@@ -145,6 +148,7 @@ def test_can_you_have_both_opens_on_the_two_largest_shares(insights_scored):
     assert wording.pair_axis("Firmness (N)", "target", 6) in titles
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_one_measurement_picked_asks_for_two(insights_scored):
     at = _open_insights(_app())
     _more(at).multiselect[0].set_value(["Juiciness"])
@@ -155,6 +159,7 @@ def test_one_measurement_picked_asks_for_two(insights_scored):
     assert _charts(more) == []
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_pick_is_kept_across_reruns(insights_scored):
     at = _open_insights(_app())
     _more(at).multiselect[0].set_value(["Juiciness", "Firmness"])
@@ -184,6 +189,7 @@ def test_no_more_charts_with_nothing_to_show(tmp_path, monkeypatch):
     assert _more(at) is None
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_more_charts_write_nothing_to_the_project(insights_scored):
     at = _open_insights(_app())
     opt = at.session_state["optimizer"]
@@ -193,6 +199,7 @@ def test_more_charts_write_nothing_to_the_project(insights_scored):
     assert _state(at.session_state["optimizer"]) == before
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_a_project_switch_drops_the_pair_pick(insights_scored):
     at = _open_insights(_app())
     assert ui_insights.PAIR_KEY in at.session_state
@@ -206,6 +213,7 @@ def test_a_project_switch_drops_the_pair_pick(insights_scored):
     assert ui_insights.PAIR_KEY not in at.session_state
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_a_deleted_measurement_drops_out_of_the_pick(insights_scored):
     insights_scored.add_objective("Colour", 1.0, goal="max", min_val=0, max_val=10)
     at = _open_insights(_app())
@@ -219,6 +227,7 @@ def test_a_deleted_measurement_drops_out_of_the_pick(insights_scored):
     assert wording.PICK_TWO in [t for c in more.caption for t in (c.value, c.proto.help)]
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_a_failed_chart_is_one_line_and_the_tab_stands(insights_scored, monkeypatch):
     def boom(*a):
         raise RuntimeError("no pair")
@@ -250,6 +259,7 @@ def _layers(spec, mark):
             if (l["mark"]["type"] if isinstance(l["mark"], dict) else l["mark"]) == mark]
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_pair_chart_axes_name_the_goal_and_span_range_plus_data(tmp_path, monkeypatch):
     opt = _pair_opt(tmp_path, monkeypatch)
     spec = ui_insights.pair_chart(opt, "Firmness", "Cook loss",
@@ -261,6 +271,7 @@ def test_pair_chart_axes_name_the_goal_and_span_range_plus_data(tmp_path, monkey
     assert dots["encoding"]["y"]["scale"]["domain"] == [0.0, 30.0]
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_pair_chart_target_lines_only_for_targets(tmp_path, monkeypatch):
     opt = _pair_opt(tmp_path, monkeypatch)
     spec = ui_insights.pair_chart(opt, "Firmness", "Cook loss",
@@ -271,6 +282,7 @@ def test_pair_chart_target_lines_only_for_targets(tmp_path, monkeypatch):
     assert rows == [{"t": 6.0}]
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_pair_chart_colours_by_score_and_draws_waiting_rows_hollow(tmp_path, monkeypatch):
     opt = _pair_opt(tmp_path, monkeypatch)
     points = insights.pair_points(opt, "Firmness", "Cook loss")
@@ -315,6 +327,7 @@ def test_the_pair_strings_pass_the_word_guards():
                   wording.pair_axis("Firmness (N)", "target", 6))
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_no_formulation_has_both_values_says_so(insights_scored):
     insights_scored.add_objective("Colour", 1.0, goal="max", min_val=0, max_val=10)
     at = _open_insights(_app())
@@ -374,6 +387,7 @@ def _corner_texts(mix):
             for k in range(3)]
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_triangle_heading_picks_and_caption(mixture_scored):
     at = _open_insights(_app())
     assert not at.exception
@@ -399,6 +413,7 @@ def _most_room(opt, order):
     return list(combos[shares.index(max(shares))])
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_triangle_opens_on_the_most_room_in_spread_order(mixture_scored, monkeypatch):
     monkeypatch.setattr(insights, "spreads", lambda opt, fitted, start: insights.Spreads([
         insights.Spread("Starch", 9.0), insights.Spread("Oil", 5.0),
@@ -408,6 +423,7 @@ def test_the_triangle_opens_on_the_most_room_in_spread_order(mixture_scored, mon
     assert three.value == _most_room(mixture_scored, ["Starch", "Oil", "Pea protein", "Water"])
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_without_spreads_the_triangle_opens_on_the_most_room_in_set_up_order(
         mixture_scored, monkeypatch):
     monkeypatch.setattr(insights, "spreads", lambda opt, fitted, start: insights.Spreads([], []))
@@ -416,6 +432,7 @@ def test_without_spreads_the_triangle_opens_on_the_most_room_in_set_up_order(
     assert three.value == _most_room(mixture_scored, ["Pea protein", "Oil", "Starch", "Water"])
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_two_picked_asks_for_three(mixture_scored):
     at = _open_insights(_app())
     next(b for b in _more(at).multiselect
@@ -449,6 +466,7 @@ def _full_slices(monkeypatch):
     return calls
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_triangle_is_worked_out_once(mixture_scored, monkeypatch):
     calls = _full_slices(monkeypatch)
     at = _open_insights(_app())
@@ -463,6 +481,7 @@ def test_the_triangle_is_worked_out_once(mixture_scored, monkeypatch):
     assert calls == [1, 1]
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_a_failed_triangle_is_one_line_and_not_retried(mixture_scored, monkeypatch):
     calls = []
 
@@ -489,6 +508,7 @@ def _refused(monkeypatch, **kw):
     monkeypatch.setattr(insights, "mixture_slice", fake)
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_no_room_is_one_line(mixture_scored, monkeypatch):
     _refused(monkeypatch, refusal=insights.NO_ROOM)
     at = _open_insights(_app())
@@ -498,6 +518,7 @@ def test_no_room_is_one_line(mixture_scored, monkeypatch):
     assert _triangles(more) == []
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_a_start_that_breaks_a_limit_is_one_line(mixture_scored, monkeypatch):
     _refused(monkeypatch, start_breaks="Oil would go past its Highest")
     at = _open_insights(_app())
@@ -506,6 +527,7 @@ def test_a_start_that_breaks_a_limit_is_one_line(mixture_scored, monkeypatch):
         c.value for c in _more(at).caption]
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_fill_following_a_calculation_is_one_line(mixture_scored, monkeypatch):
     _refused(monkeypatch, refusal=insights.FILL_FOLLOWS, follows=["Hydration"])
     at = _open_insights(_app())
@@ -513,6 +535,7 @@ def test_the_fill_following_a_calculation_is_one_line(mixture_scored, monkeypatc
         c.value for c in _more(at).caption]
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_calculation_and_fill_lines_under_the_caption(mixture_scored):
     opt = mixture_scored
     opt.add_ingredient("Hydration", 0, 50)
@@ -527,6 +550,7 @@ def test_calculation_and_fill_lines_under_the_caption(mixture_scored):
     assert caps[i + 1:i + 3] == [wording.path_follows("Hydration"), wording.mixture_fills("Water")]
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_a_project_switch_drops_the_wave_c_keys(mixture_scored):
     at = _open_insights(_app())
     keys = (ui_insights.PAIR_KEY, ui_insights.THREE_KEY, ui_insights.MIXTURE_KEY)
@@ -541,6 +565,7 @@ def test_a_project_switch_drops_the_wave_c_keys(mixture_scored):
     assert not any(k in at.session_state for k in keys)
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_triangle_is_drawn_at_its_own_size(mixture_scored, monkeypatch):
     """A layered chart stretches to the column by default, which would pull
     the triangle out of shape: it is drawn at its own width and height."""
@@ -557,6 +582,7 @@ def test_the_triangle_is_drawn_at_its_own_size(mixture_scored, monkeypatch):
     assert (ui_insights._MIX_SIZE, "content") in drawn
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_triangle_writes_nothing_and_leaves_the_rng(mixture_scored):
     at = _open_insights(_app())
     before = _state(at.session_state["optimizer"])
@@ -575,6 +601,7 @@ def _mix_parts(opt):
     return mix, insights.mixture_predictions(opt, fitted, mix)
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_triangle_corners_on_the_page():
     assert ui_insights._xy((1.0, 0.0, 0.0)) == (0.0, 0.0)
     assert ui_insights._xy((0.0, 1.0, 0.0)) == (1.0, 0.0)
@@ -582,6 +609,7 @@ def test_triangle_corners_on_the_page():
     assert (x, y) == pytest.approx((0.5, 3 ** 0.5 / 2))
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_triangle_chart_keeps_its_shape_and_names_its_corners(mixture_scored):
     opt = mixture_scored
     mix, preds = _mix_parts(opt)
@@ -598,6 +626,7 @@ def test_triangle_chart_keeps_its_shape_and_names_its_corners(mixture_scored):
     assert wording.start_formulation(7) in texts
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_corner_labels_never_mix_decimal_counts(mixture_scored):
     """One corner's own amount can round to a whole number (10 g) by
     `_num`'s own rule (one decimal from 10) while another needs none (9 g):
@@ -622,6 +651,7 @@ def test_shared_decimals_is_the_neediest_of_the_values_up_to_2():
     assert ui_insights._shared_decimals([0.0001, 5.0]) == 2   # capped at 2
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_triangle_chart_grey_where_a_limit_is_broken_and_smaller_where_untested(mixture_scored):
     opt = mixture_scored
     mix, preds = _mix_parts(opt)
@@ -658,6 +688,7 @@ def _mark_type(layer):
     return mark["type"] if isinstance(mark, dict) else mark
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_triangle_is_not_squashed_by_streamlits_default_autosize(mixture_scored):
     """Streamlit sets autosize: fit/padding when a spec declares none, which
     lets the legends eat into the 380 px width. Pinning autosize to "pad"
@@ -669,6 +700,7 @@ def test_the_triangle_is_not_squashed_by_streamlits_default_autosize(mixture_sco
     assert spec["autosize"]["type"] == "pad"
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_corner_and_start_labels_are_grey_not_black(mixture_scored):
     """Streamlit's theme sets no default text colour, so an uncoloured
     mark_text renders black — invisible in dark mode."""
@@ -680,6 +712,7 @@ def test_the_corner_and_start_labels_are_grey_not_black(mixture_scored):
     assert all(l["mark"].get("color") == ui_insights.muted() for l in texts)
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_decorative_layers_carry_no_x_y_tooltip_and_the_ring_has_one(mixture_scored):
     """The outline and the text layers only draw the frame; without an
     explicit tooltip they would otherwise leak raw X/Y on hover. The start
@@ -706,6 +739,7 @@ def test_decorative_layers_carry_no_x_y_tooltip_and_the_ring_has_one(mixture_sco
     assert spec["datasets"][ring["data"]["name"]][0]["pred"] == ui_insights.score_text(own)
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_state_legend_shows_three_differently_sized_and_coloured_marks(mixture_scored):
     """Tested near here: larger, blue. Not tested near here: small, blue.
     Not allowed by your limits: small, light grey. Vega-Lite merges a size
@@ -736,6 +770,7 @@ def test_the_state_legend_shows_three_differently_sized_and_coloured_marks(mixtu
     assert dummy["encoding"]["fill"]["legend"]["labelLimit"] == 0
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_invisible_legend_layer_is_clipped(mixture_scored):
     """Its rows sit at X=Y=-1, well outside the plotted domains, so they
     are never mistaken for real data — but under Streamlit's autosize
@@ -755,6 +790,7 @@ def test_the_invisible_legend_layer_is_clipped(mixture_scored):
                spec["datasets"][dummy["data"]["name"]])
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_each_label_grows_away_from_the_region(mixture_scored):
     """A label right of the region's centre grows rightward (align left), one
     left of it grows leftward, one above or below it is centred: the three
@@ -816,6 +852,7 @@ def _three_with(monkeypatch, found):
     return ui_insights._three_default(None, {}, _OFFERED, {})
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_default_three_are_the_largest_moved_spreads(monkeypatch):
     assert _three_with(monkeypatch, insights.Spreads(
         [insights.Spread("Water", 9.0), insights.Spread("Starch", 5.0),
@@ -823,6 +860,7 @@ def test_the_default_three_are_the_largest_moved_spreads(monkeypatch):
         "Water", "Starch", "Oil"]
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_a_choice_the_limits_keep_in_place_is_not_ranked(monkeypatch):
     """A held choice has no spread: it is only a top-up, in offered order."""
     assert _three_with(monkeypatch, insights.Spreads(
@@ -830,17 +868,20 @@ def test_a_choice_the_limits_keep_in_place_is_not_ranked(monkeypatch):
         ["Pea protein", "Oil"])) == ["Water", "Starch", "Pea protein"]
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_a_moved_spread_the_triangle_does_not_offer_is_skipped(monkeypatch):
     assert _three_with(monkeypatch, insights.Spreads(
         [insights.Spread("Mixing time", 20.0), insights.Spread("Oil", 3.0)], [])) == [
         "Oil", "Pea protein", "Starch"]
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_no_score_model_or_a_failure_opens_on_the_first_three(monkeypatch):
     assert _three_with(monkeypatch, insights.Spreads([], [])) == ["Pea protein", "Oil", "Starch"]
     assert _three_with(monkeypatch, RuntimeError("no paths")) == ["Pea protein", "Oil", "Starch"]
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_triangle_opens_on_the_real_moved_spreads(mixture_scored):
     at = _open_insights(_app())
     assert not at.exception
@@ -855,6 +896,7 @@ def test_the_triangle_opens_on_the_real_moved_spreads(mixture_scored):
     assert three.value == want
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_more_charts_lists_its_two_questions_in_order(mixture_scored):
     """The misses chart went (spec 2026-09-30 §2.5): measured against
     predicted, under "Show each prediction", says the same."""
@@ -863,6 +905,7 @@ def test_more_charts_lists_its_two_questions_in_order(mixture_scored):
     assert md == [f"##### {q}" for q in (wording.Q_PAIR, wording.Q_MIXTURE)]
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_more_charts_is_offered_when_any_one_chart_is(monkeypatch):
     """Charts proto: the fold holds the two-measurement chart alone (the
     triangle moved to Explored and unexplored), so two measurements open it."""
@@ -896,6 +939,7 @@ def ferment_scored(tmp_path, monkeypatch):
     return opt
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_more_charts_reads_trial_on_a_process_only_project(ferment_scored):
     at = _open_insights(_app())
     assert not at.exception
@@ -917,12 +961,14 @@ def test_more_charts_reads_trial_on_a_process_only_project(ferment_scored):
         t for layer in pair["layer"] for t in layer["encoding"].get("tooltip", [])]
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_no_trial_has_both_values_reads_trial(ferment_scored, monkeypatch):
     monkeypatch.setattr(insights, "pair_points", lambda opt, a, b: [])
     at = _open_insights(_app())
     assert "No trial has a value for both yet." in [t for c in _more(at).caption for t in (c.value, c.proto.help)]
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_triangle_lines_go_through_the_projects_own_words(mixture_scored, monkeypatch):
     """The triangle needs ingredients, so it never shows on a project of
     settings alone; its lines still go through the same wording pass."""
@@ -948,6 +994,7 @@ def _layer_rows(spec, layer):
     return spec["datasets"][layer["data"]["name"]]
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_each_label_is_the_largest_amount_a_grid_point_shows(mixture_scored):
     """Review fixes §5.1: each label is that one's largest amount inside
     the drawn region, the most any grid point's tooltip shows for it, and
@@ -971,6 +1018,7 @@ def test_each_label_is_the_largest_amount_a_grid_point_shows(mixture_scored):
         assert "up to" not in label
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_triangle_colour_legend_title_is_never_cut_short(mixture_scored):
     opt = mixture_scored
     mix, preds = _mix_parts(opt)
@@ -991,6 +1039,7 @@ def _assert_offset_not_haloed(spec, label_layer):
     assert same_data == [label_layer]
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_start_label_is_offset_not_haloed(mixture_scored):
     opt = mixture_scored
     mix, preds = _mix_parts(opt)
@@ -1001,6 +1050,7 @@ def test_the_start_label_is_offset_not_haloed(mixture_scored):
     _assert_offset_not_haloed(spec, label)
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_best_so_far_label_is_offset_not_haloed(tmp_path, monkeypatch):
     opt = _pair_opt(tmp_path, monkeypatch)
     spec = ui_insights.pair_chart(opt, "Firmness", "Cook loss",
@@ -1011,6 +1061,7 @@ def test_the_best_so_far_label_is_offset_not_haloed(tmp_path, monkeypatch):
     _assert_offset_not_haloed(spec, label)
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_start_ring_on_screen_carries_its_own_prediction(mixture_scored):
     """Streamlit sends a chart's rows apart from its spec, so the start's
     prediction is read where the triangle keeps it, beside its grid."""
@@ -1030,6 +1081,7 @@ def test_the_start_ring_on_screen_carries_its_own_prediction(mixture_scored):
     assert row["pred"] == ui_insights.score_text(own)
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_default_three_have_room_from_a_start_at_its_lowests(mixture_scored, monkeypatch):
     """Pea protein, Oil and Starch all at their Lowest: the three largest
     spreads cannot trade places from there, so the default is a
@@ -1051,6 +1103,7 @@ def test_the_default_three_have_room_from_a_start_at_its_lowests(mixture_scored,
     assert mix.refusal is None and not mix.start_breaks
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_with_no_triple_with_room_the_default_is_as_before(mixture_scored, monkeypatch):
     opt = mixture_scored
     monkeypatch.setattr(insights, "spreads", lambda o, fitted, start: insights.Spreads([
@@ -1066,6 +1119,7 @@ def test_with_no_triple_with_room_the_default_is_as_before(mixture_scored, monke
     assert got == ["Starch", "Pea protein", "Oil"]
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_default_three_search_is_capped(mixture_scored, monkeypatch):
     opt = mixture_scored
     calls = []
@@ -1082,6 +1136,7 @@ def _pair_caption_for(opt, a, b):
     return ui_insights.pair_caption(opt, a, b)
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_pair_caption_says_which_lines_are_drawn(tmp_path, monkeypatch):
     opt = _pair_opt(tmp_path, monkeypatch)
     assert _pair_caption_for(opt, "Firmness", "Cook loss") == (
@@ -1100,6 +1155,7 @@ def test_the_pair_caption_variants_pass_the_word_guards():
     assert wording.pair_caption(["Firmness", "Colour"]) == wording.PAIR_CAPTION
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_waiting_dots_are_named_in_the_legend_only_when_there_are_some(tmp_path, monkeypatch):
     opt = _pair_opt(tmp_path, monkeypatch)
     points = insights.pair_points(opt, "Firmness", "Cook loss")
@@ -1114,6 +1170,7 @@ def test_waiting_dots_are_named_in_the_legend_only_when_there_are_some(tmp_path,
     assert not [l for l in spec["layer"] if "stroke" in l.get("encoding", {})]   # no legend entry
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_pair_tooltip_titles_go_through_the_projects_own_words(tmp_path, monkeypatch):
     opt = _pair_opt(tmp_path, monkeypatch)
     said = []

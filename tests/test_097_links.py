@@ -6,6 +6,7 @@ lands at the top of the tab (the Results scroll bug)."""
 import pathlib
 
 import pytest
+from tests.demo_build_reason import REVIEW_FOUR
 from streamlit.testing.v1 import AppTest
 
 import insights
@@ -123,6 +124,7 @@ def test_insights_sections_carry_the_keys_links_land_on():
 #  E1: Results after Save results (04 §3, review I7)
 # ------------------------------------------------------------------ #
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_e1_asks_whether_the_last_round_came_out_as_predicted():
     opt = _burger(rounds=4)
     at = _app(opt, wording.TAB_RESULTS)

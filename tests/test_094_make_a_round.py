@@ -13,6 +13,7 @@ import insights
 import ui_batch
 import ui_insights
 import wording
+# Review four, ruling 2: the Why fold's "?" says the gain is greyed, not hidden.
 from food_bo import FoodOptimizer
 from tests.test_app_ui import APP_PATH
 from tests.test_insights import _burger
@@ -183,7 +184,7 @@ def test_the_fold_withholds_by_progresss_rule(monkeypatch, reasons, state, line)
     assert wording.ROLE in frame.columns
     assert wording.EXPECTED_GAIN not in frame.columns
     # Ftue fix C: said under the fold's own column name.
-    assert wording.why_gain_said(line) in [c.value for c in fold.caption]
+    assert wording.why_gain_greyed_said(wording.why_gain_said(line)) in [c.value for c in fold.caption]
     assert not any("(marked ·)" in c.value for c in fold.caption)
 
 

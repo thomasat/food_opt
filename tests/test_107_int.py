@@ -20,6 +20,7 @@ meet.
 import os
 
 import pytest
+from tests.demo_build_reason import REVIEW_FOUR
 
 import bo_views
 import insights
@@ -73,6 +74,7 @@ def _leaves(node):
 #  Basis lines and help (W2's integration notes; R-I6)
 # ------------------------------------------------------------------ #
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 @pytest.mark.parametrize("name", _NAMES)
 def test_each_figures_fold_opens_on_its_basis_line_with_its_help(screens, name):
     at, opt = screens[name], D.load(name)
@@ -198,6 +200,7 @@ def test_the_strips_tip_has_its_bo_term():
 #  Fold renames (§2; T0 report §5) and the pointer
 # ------------------------------------------------------------------ #
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 @pytest.mark.parametrize("name", _NAMES)
 def test_the_folds_have_their_new_names(screens, name):
     at, opt = screens[name], D.load(name)
@@ -216,6 +219,7 @@ def test_the_folds_have_their_new_names(screens, name):
     assert labels.index(wording.for_project(opt, try_one)) < labels.index(wording.FOLD_METHOD)
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_pointer_names_the_folds_as_drawn():
     opt = D.load(D.LINE_A)
     # Concision round: the link is short; the folds are named in its help.

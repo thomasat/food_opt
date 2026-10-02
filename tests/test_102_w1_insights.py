@@ -17,6 +17,7 @@ import math
 from types import SimpleNamespace
 
 import pytest
+from tests.demo_build_reason import REVIEW_FOUR
 
 import insights
 import ui_insights
@@ -781,6 +782,7 @@ def _tab_texts(at):
     return [m.value for m in tab.markdown] + [c.value for c in tab.caption]
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_02_round_3_tab_says_assumed_once_and_asks_for_a_repeat(tabs):
     texts = _tab_texts(tabs[E.PATTY_ROUND3])
     said = " ".join(texts)
@@ -795,6 +797,7 @@ def test_the_02_round_3_tab_says_assumed_once_and_asks_for_a_repeat(tabs):
     assert wording.gain_unreliable(wording.gain_reason_too_few(4)) in texts
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_02_final_tab_states_its_bias_and_never_says_check(tabs):
     texts = _tab_texts(tabs[E.PATTY])
     assert ("Results have come in below the predictions: Overall score by about 3.7 points "

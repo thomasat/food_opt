@@ -8454,7 +8454,7 @@ def q3_answer(name):
     return f"{name} moves the score most"
 
 
-Q3_FLAT = "No single change stands out"
+Q3_FLAT = "No single change clearly leads"
 
 
 def q4_word(n):
@@ -8545,3 +8545,10 @@ def ev_tried(n):
     """Q4's evidence: model-free."""
     return (f"model-free: {n} {FORMULATION}s with all results; untested = no {FORMULATION} "
             "within 15 % of a row's span")
+
+
+def why_gain_greyed_said(line):
+    """Ruling 2: a withheld line (why_gain_said) as the greyed column's "?":
+    shown greyed, never hidden, and the suggestions made the same way."""
+    line = line.replace("Expected gain is not shown", "Expected gain is greyed", 1)
+    return f"{line} Suggestions are made the same way regardless."

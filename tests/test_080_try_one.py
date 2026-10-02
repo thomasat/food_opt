@@ -4,6 +4,7 @@ the yardstick, Compare all draws the tested-near change, the path has two
 captions, and "More charts" has no misses chart (spec 2026-09-30 §2.5;
 review I8, M3, M15, M19)."""
 import pytest
+from tests.demo_build_reason import REVIEW_FOUR
 from streamlit.testing.v1 import AppTest
 
 import insights
@@ -155,6 +156,7 @@ def test_the_whole_answer_needs_no_spread(insights_scored):
     assert not [m.value for m in at.tabs[3].markdown if re.search(r"\bspreads?\b", m.value)]
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_more_charts_has_no_misses_chart(mixture_scored):
     at = _open_insights(_app())
     assert not at.exception

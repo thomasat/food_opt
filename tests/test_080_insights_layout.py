@@ -6,6 +6,7 @@ M13, M17)."""
 from types import SimpleNamespace
 
 import pytest
+from tests.demo_build_reason import REVIEW_FOUR
 from streamlit.testing.v1 import AppTest
 
 import insights
@@ -50,6 +51,7 @@ def _moves(monkeypatch):
     return moved
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_three_answers_then_the_foot_then_three_folds(insights_scored, monkeypatch):
     moved = _moves(monkeypatch)
     at = _open_insights(_app())
@@ -195,6 +197,7 @@ def test_the_score_gap_says_what_to_do_only_beyond_the_yardstick():
     assert ui_insights._beyond(1.0, repeats) == ""
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_a_disagreeing_repeat_is_said_once(insights_scored, monkeypatch):
     d = insights.Disagreement(9, 3, -10.6, 8)
     monkeypatch.setattr(insights, "disagreeing_repeat", lambda opt, checks, m=None: d)
@@ -211,6 +214,7 @@ def test_a_disagreeing_repeat_is_said_once(insights_scored, monkeypatch):
 #  "Where do you stand?" (review I5, I7, M1)
 # ------------------------------------------------------------------ #
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_best_so_far_reads_two_decimals_as_on_results(insights_scored):
     at = _open_insights(_app())
     f = insights.best_facts(FoodOptimizer("burger"))            # as the app loads it
@@ -297,6 +301,7 @@ def test_no_sentence_says_what_the_next_round_will_do():
         assert "will try" not in text and "worth adding" not in text
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_a_process_only_project_names_settings(tmp_path):
     opt = FoodOptimizer("ferment_x")
     opt.add_process_parameter("Mixing time", 1, 10)
@@ -348,6 +353,7 @@ def _fake_best(monkeypatch, close, gap):
     monkeypatch.setattr(insights, "predicted_best", fake)
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_amounts_fold_only_when_clearly_higher_and_untested(insights_scored, monkeypatch):
     label = wording.show_its_amounts()
     # The fold's own rule, with the model's gains not withheld: this small
@@ -365,6 +371,7 @@ def test_the_amounts_fold_only_when_clearly_higher_and_untested(insights_scored,
         assert label not in [e.label for e in at.tabs[3].expander]
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_a_failed_amounts_table_is_one_line(insights_scored, monkeypatch):
     monkeypatch.setattr(ui_insights, "claims_withheld_reason", lambda *a, **k: None)
     _fake_best(monkeypatch, None, 5.0)

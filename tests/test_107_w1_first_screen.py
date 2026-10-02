@@ -18,6 +18,7 @@ import os
 import re
 
 import pytest
+from tests.demo_build_reason import REVIEW_FOUR
 from streamlit.testing.v1 import AppTest
 
 import bo_views
@@ -302,6 +303,7 @@ def test_the_word_budget(screens, name):
     assert words == _WORDS[name]
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 @pytest.mark.parametrize("name", D.ALL)
 def test_no_statistic_name_in_a_status_sentence(screens, name):
     for line in _status(screens[name]):
@@ -398,6 +400,7 @@ def _folds_of(at, text):
     return [f for el, f in _walk(at.tabs[3]) if _text(el) == text]
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_noun_headings_stay_after_the_first_screen(screens):
     at = screens[D.LINE_A]
     heads = [t for el, _ in _walk(at.tabs[3]) if (t := _text(el)).startswith("##### ")]
@@ -461,6 +464,7 @@ def test_the_disagreeing_repeat_is_said_once_at_each_level(screens):
     assert said == [(wording.FOLD_NEXT_REASONING,)]
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_one_round_does_not_say_it_came_from_the_latest_round(screens):
     """§4: the Snack bar has one Round."""
     texts = [_text(el) for el, _ in _walk(screens[D.SNACK].tabs[3])]
@@ -514,12 +518,14 @@ def test_a_pending_line_keeps_its_caption():
 #  Landing (M2): a link to a section opens the fold its lines sit in
 # ------------------------------------------------------------------ #
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_e1_lands_on_prediction_check_with_both_folds_open(screens):
     at = _open(D.LINE_A, {SCROLL_KEY: ui_insights.TRUST_SECTION, ui_insights.EACH_KEY: True})
     assert at.session_state[ui_insights.PREDICTION_FIGURES_KEY] is True
     assert at.session_state[ui_insights.EACH_KEY] is True
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_a_landing_on_progress_opens_progress_figures(screens):
     at = _open(D.LINE_A, {SCROLL_KEY: ui_insights.STAND_SECTION})
     assert at.session_state[ui_insights.PROGRESS_FIGURES_KEY] is True

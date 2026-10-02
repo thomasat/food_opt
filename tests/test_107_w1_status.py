@@ -47,6 +47,9 @@ def _stand_in(monkeypatch, verdict="within", flagged=None, fact=None, bias=None,
     """The inputs status_facts reads, stood in for: one row of the table."""
     monkeypatch.setattr(insights, "headline", lambda opt, checks: _headline(h_state, wide))
     monkeypatch.setattr(insights, "verdict_state", lambda opt, h, checks: verdict)
+    # Review four, ruling 1: the word reads the Overall score's verdict;
+    # stood in with the same state, so the table reads as before.
+    monkeypatch.setattr(insights, "score_verdict_state", lambda opt, h, checks: verdict)
     monkeypatch.setattr(insights, "disagreeing_repeat", lambda opt, checks, matches=None: flagged)
     monkeypatch.setattr(insights, "skill", lambda opt, checks, name=insights.SCORE: fact)
     monkeypatch.setattr(insights, "score_steady_bias", lambda opt, checks, flagged=None: bias)
@@ -70,10 +73,12 @@ def opt():
 
 # (verdict, disagreeing Repeat, skill, Overall-score checks) -> row.
 _ROWS = [
-    # Row 1: a disagreeing Repeat, coverage not unreliable.
-    ("within", _REPEAT, _skill("skill"), 15, "off_repeat"),
-    ("caution", _REPEAT, _skill("no_skill"), 15, "off_repeat"),
-    ("early", _REPEAT, None, 2, "off_repeat"),
+    # Row 1 (review four, ruling 1): a disagreeing Repeat is no longer a
+    # Predictions row; it is the Next card's, in red. The score's record
+    # decides (was off_repeat for all three).
+    ("within", _REPEAT, _skill("skill"), 15, "reliable"),
+    ("caution", _REPEAT, _skill("no_skill"), 15, "caution"),
+    ("early", _REPEAT, None, 2, "too_few"),
     # Row 2: unreliable coverage; with a disagreeing Repeat too, the coverage
     # sentence is used and Next carries the Repeat (Line B).
     ("unreliable", None, _skill("skill"), 15, "off_coverage"),
@@ -128,8 +133,9 @@ def test_nothing_scored_and_nothing_waiting_has_no_status_lines(monkeypatch):
 
 
 def test_every_row_is_reached_by_some_state():
-    """The table above covers all nine rows (the gate by its own test)."""
-    assert {r for *_, r in _ROWS} | {"gate"} == set(insights.PREDICTION_ROWS)
+    """The table above covers all nine rows (the gate by its own test);
+    review four, ruling 1: off_repeat is no longer reached."""
+    assert {r for *_, r in _ROWS} | {"gate", "off_repeat"} == set(insights.PREDICTION_ROWS)
 
 
 # ------------------------------------------------------------------ #
@@ -166,7 +172,10 @@ def test_off_repeat_takes_no_clause(monkeypatch, opt, verdict, flagged, fact, n)
     _stand_in(monkeypatch, verdict=verdict, flagged=flagged, fact=fact, bias=-5.5,
               wide=["Firmness"])
     facts = insights.status_facts(opt, _score_checks(n))
-    assert facts.clauses == [] and facts.disagreement is _REPEAT
+    # Review four, ruling 1: Reliable on the score now, so its clauses are
+    # said (was: row 1, the Repeat alone); the Repeat stays a fact for Next.
+    assert facts.prediction_row == "reliable" and facts.disagreement is _REPEAT
+    assert ("bias", -5.5) in facts.clauses
 
 
 def test_off_coverage_carries_the_bias_alone(monkeypatch, opt):

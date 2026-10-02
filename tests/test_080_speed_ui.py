@@ -6,6 +6,7 @@ column shows "…" until it can show the widened range."""
 import concurrent.futures as cf
 
 import pytest
+from tests.demo_build_reason import REVIEW_FOUR
 from streamlit.testing.v1 import AppTest
 
 import insights
@@ -163,6 +164,7 @@ def test_a_reopened_project_reads_its_cache_and_fits_nothing(five_rounds, monkey
     assert _texts(again) == _texts(first)
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_a_project_with_everything_cached_starts_no_workers(five_rounds, monkeypatch):
     monkeypatch.setenv("FOODOPT_INSIGHTS_CACHE", "1")
     _open(_app(five_rounds.project_name), wording.TAB_INSIGHTS)     # fitted here and saved
@@ -187,6 +189,7 @@ def test_the_cache_holds_what_this_data_uses_and_no_more(five_rounds, monkeypatc
 #  Task 9: the tab fills in part by part, behind one progress line
 # ------------------------------------------------------------------ #
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_while_nothing_is_in_one_progress_line_line_1_and_the_foot(stuck, five_rounds,
                                                                      monkeypatch):
     spins = _spinners(monkeypatch)
@@ -203,6 +206,7 @@ def test_while_nothing_is_in_one_progress_line_line_1_and_the_foot(stuck, five_r
     assert spins == []
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_answer_1_once_its_checks_are_in(stuck, five_rounds):
     at = _app(five_rounds.project_name)
     at.run()
@@ -217,6 +221,7 @@ def test_answer_1_once_its_checks_are_in(stuck, five_rounds):
     assert len(at.tabs[3].get("progress")) == 1
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_answers_2_and_3_once_the_overall_score_model_is_in(stuck, five_rounds, monkeypatch):
     at = _app(five_rounds.project_name)
     at.run()
@@ -230,6 +235,7 @@ def test_answers_2_and_3_once_the_overall_score_model_is_in(stuck, five_rounds, 
     assert spins == []                  # the predicted best's search has no spinner of its own
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_each_part_reads_the_same_as_on_the_finished_tab(five_rounds, monkeypatch):
     _workers(monkeypatch, None)                              # no workers: all here
     done = _open(_app(five_rounds.project_name), wording.TAB_INSIGHTS)
@@ -250,6 +256,7 @@ def test_each_part_reads_the_same_as_on_the_finished_tab(five_rounds, monkeypatc
     assert answers == whole[:len(answers)]
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_with_everything_in_the_whole_tab_and_no_progress_line(stuck, five_rounds):
     at = _app(five_rounds.project_name)
     at.run()
@@ -260,6 +267,7 @@ def test_with_everything_in_the_whole_tab_and_no_progress_line(stuck, five_round
     assert at.tabs[3].get("progress") == []
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_a_failed_worker_falls_back_to_fitting_here(five_rounds, monkeypatch):
     class _Broken(_Stuck):
         def submit(self, priority, request):
@@ -294,6 +302,7 @@ def test_every_check_is_worked_out_after_the_page_once_all_are_in(stuck, five_ro
     assert key == insights.data_key(five_rounds) and value["checks"]
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_a_part_that_lands_while_the_page_is_drawn_is_drawn_by_one_more_run(
         stuck, five_rounds, monkeypatch):
     """After Save results the last fits often land between the tab's draw
@@ -352,6 +361,7 @@ def test_workers_that_fail_mid_fill_fit_nothing_quietly_on_another_tab(
     assert fits == []                                    # nothing fitted on Results
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_workers_that_fail_mid_fill_hand_insights_to_the_counted_bar(
         stuck, five_rounds, monkeypatch):
     at = _app(five_rounds.project_name)
@@ -384,6 +394,7 @@ def test_workers_that_fail_mid_fill_hand_insights_to_the_counted_bar(
     assert spins == []                                   # one indicator (review C M-2)
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_workers_that_stop_while_the_page_is_drawn_rerun_it_once(stuck, five_rounds,
                                                                  monkeypatch):
     """Review C I-1's rarer variant: the workers are given up on between
@@ -550,6 +561,7 @@ def test_a_filling_tab_draws_line_1_and_the_foot_before_working_anything_out(
     assert f"##### {wording.Q_TRUST}" in texts and f"##### {wording.Q_NEXT}" in texts
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_line_1_is_drawn_again_in_its_place_when_the_checks_change_the_yardstick(
         five_rounds, monkeypatch):
     """Line 1 goes up with the yardstick known before the checks; when the

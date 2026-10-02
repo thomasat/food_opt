@@ -399,11 +399,13 @@ def test_a_withheld_gain_is_said_in_the_folds_own_words(monkeypatch):
     at = _app(opt, state={ui_batch.WHY_KEY: True})
     fold = _why_fold(at)
     [frame] = [d.value for d in fold.dataframe]
-    assert wording.EXPECTED_GAIN not in frame.columns
+    # Review four, ruling 2: the column stays, greyed; the line says greyed.
+    assert wording.EXPECTED_GAIN in frame.columns
     captions = [c.value for c in fold.caption]
     # Concision round: the short line on screen, the full one in its help.
-    [line] = [c for c in fold.caption if c.value == wording.why_gain_short("guard")]
-    assert line.proto.help == wording.why_gain_said(wording.why_guard_line([wording.GUARD_FLOOR]))
+    [line] = [c for c in fold.caption if c.value == wording.why_gain_greyed("guard")]
+    assert line.proto.help == wording.why_gain_greyed_said(
+        wording.why_gain_said(wording.why_guard_line([wording.GUARD_FLOOR])))
     assert not any(c.startswith("Expected improvement") for c in captions)
 
 

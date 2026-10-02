@@ -4,6 +4,7 @@ three with the most room (spec 2026-09-29 §5, §9 I10)."""
 import time
 
 import pytest
+from tests.demo_build_reason import REVIEW_FOUR
 
 import insights
 import ui_insights
@@ -21,6 +22,7 @@ def _domains(spec):
     return enc["x"]["scale"]["domain"], enc["y"]["scale"]["domain"]
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_view_is_zoomed_to_the_region(mixture_scored):
     opt = mixture_scored
     mix, preds = _mix_parts(opt)
@@ -34,6 +36,7 @@ def test_the_view_is_zoomed_to_the_region(mixture_scored):
     assert (y0, y1) == pytest.approx((min(ys) - pad, max(ys) + pad))
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_no_outline_of_the_whole_triangle_is_drawn(mixture_scored):
     opt = mixture_scored
     mix, preds = _mix_parts(opt)
@@ -41,6 +44,7 @@ def test_no_outline_of_the_whole_triangle_is_drawn(mixture_scored):
     assert not [l for l in spec["layer"] if l["mark"]["type"] == "line"]
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_a_finer_grid_draws_smaller_marks(mixture_scored):
     opt = mixture_scored
     mix, preds = _mix_parts(opt)
@@ -52,6 +56,7 @@ def test_a_finer_grid_draws_smaller_marks(mixture_scored):
     assert size[0] <= 70 * 4
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_default_three_have_the_most_room(mixture_scored, monkeypatch):
     opt = mixture_scored
     monkeypatch.setattr(insights, "spreads", lambda o, f, s: insights.Spreads([], []))

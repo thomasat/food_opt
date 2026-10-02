@@ -1357,15 +1357,15 @@ def _why_fold(opt, preds):
             # Not known yet: greyed until it is (item 8).
             grey = True
             st.caption(say(wording.WHY_GAIN_CHECKING_SHORT),
-                       help=say(wording.why_gain_said(wording.WHY_CHECKING)))
+                       help=say(wording.why_gain_greyed_said(
+                           wording.why_gain_said(wording.WHY_CHECKING))))
         else:
             reason = ui_insights.withheld(opt, score, checks)
             grey = reason is not None
             if grey:
-                st.caption(say(wording.why_gain_greyed(reason)), help=say(" ".join([
-                    wording.why_gain_said(why_withheld_line(opt, score, checks, reason)),
-                    wording.tip_gain_greyed(wording._WHY_GAIN_SHORT.get(
-                        reason, wording._WHY_GAIN_SHORT["noise"]))])))
+                st.caption(say(wording.why_gain_greyed(reason)), help=say(
+                    wording.why_gain_greyed_said(wording.why_gain_said(
+                        why_withheld_line(opt, score, checks, reason)))))
         frame, value_col = why_frame(opt, why, preds)
         help_text = (wording.OPTIMISTIC_SCORE_HELP if why.kind == "qucb"
                      else wording.tip_expected_gain(why.kind))

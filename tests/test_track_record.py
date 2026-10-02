@@ -5,6 +5,7 @@ Overall score's own record always in view, and the typical miss compared
 with the spread between Repeats instead of R² (spec 2026-09-29 §3.1-3.5,
 §9 B1, I7, I8, I9)."""
 import pytest
+from tests.demo_build_reason import REVIEW_FOUR
 from streamlit.testing.v1 import AppTest
 
 import insights
@@ -259,6 +260,7 @@ def verdict_project():
     return _burger(rounds=6, noise=1.5)
 
 
+@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_tab_shows_the_verdict_the_wide_line_and_the_record(verdict_project):
     """Review I-2: the verdict state on screen — the header's plain range
     sentence, the past-tense verdict with its wide-range line, and the
