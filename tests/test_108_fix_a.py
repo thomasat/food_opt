@@ -333,3 +333,77 @@ def test_each_check_carries_its_model_s_fitted_noise(_cwd):
                           list(range(dict(insights.round_order(opt))[first])))
     assert [c.noise for c in score if c.round == first][0] == pytest.approx(
         insights.fitted_noise_sd(fitted.model))
+
+
+# ------------------------------------------------------------------ #
+#  I9: cross-validation folds hold out a Round, and a Repeat group, whole
+# ------------------------------------------------------------------ #
+
+def _held_sets(folds):
+    return [sorted(held) for _, held in folds]
+
+
+def test_units_are_dealt_to_folds_whole():
+    units = ["a", "a", "b", "b", "b", "c", "d", "e", "f", "f"]
+    got = insights.folds(units)
+    # Six units over 5 folds, in turn: a and f share fold 0.
+    assert _held_sets(got) == [[0, 1, 8, 9], [2, 3, 4], [5], [6], [7]]
+    for kept, held in got:
+        assert sorted(kept + held) == list(range(10))
+        assert not {units[p] for p in held} & {units[p] for p in kept}
+
+
+def test_few_units_make_few_folds():
+    assert _held_sets(insights.folds(["x", "x", "y"])) == [[0, 1], [2]]
+    assert insights.folds(["x", "x", "x"]) == []
+
+
+def test_an_int_is_one_row_per_unit():
+    assert _held_sets(insights.folds(7)) == [[0, 5], [1, 6], [2], [3], [4]]
+
+
+def test_rounds_are_units_and_repeats_join_them(_cwd):
+    from tests.test_complete_results import _patty
+    opt = _patty(rows=9)                          # Rounds 1, 2, 3 of three
+    units = insights.fold_units(opt, list(range(9)))
+    assert len(set(units)) == 3
+    assert units[0] == units[1] == units[2] and units[3] == units[4] == units[5]
+    _repeat_of(opt, 0, 7)                         # a Round 3 Repeat of a Round 1 row
+    units = insights.fold_units(opt, list(range(9)))
+    assert len(set(units)) == 2 and units[0] == units[7] == units[8]
+    assert _held_sets(insights.cv_folds(opt, range(9))) == [[0, 1, 2, 6, 7, 8], [3, 4, 5]]
+
+
+def test_one_round_falls_back_to_rows_with_repeats_kept_together(_cwd):
+    from tests.test_complete_results import _patty
+    opt = _patty(rows=3)
+    for i in range(3):
+        opt.batch_history[i] = 1
+    assert len(set(insights.fold_units(opt, [0, 1, 2]))) == 3
+    _repeat_of(opt, 0, 2)
+    units = insights.fold_units(opt, [0, 1, 2])
+    assert units[0] == units[2] != units[1]
+
+
+def test_the_widening_and_the_workers_use_the_round_folds(_cwd, monkeypatch):
+    import insights_jobs
+    from tests.test_complete_results import _patty
+    opt = _patty(rows=9)
+    seen = []
+    real = insights._fit_gp
+    monkeypatch.setattr(insights, "_fit_gp",
+                        lambda o, name, rows: seen.append(list(rows)) or real(o, name, rows))
+    insights._cv_z(opt, insights.SCORE, list(range(9)))
+    assert seen == [[3, 4, 5, 6, 7, 8], [0, 1, 2, 6, 7, 8], [0, 1, 2, 3, 4, 5]]
+    spec = insights_jobs.plan(opt)[0]
+    folds = insights_jobs._requests(opt, spec)[1:]
+    assert [len(f["Xt"]) for f in folds] == [3, 3, 3]
+
+
+def test_the_model_key_follows_the_rounds_and_the_salt_moved(_cwd):
+    from tests.test_complete_results import _patty
+    opt = _patty(rows=6)
+    key = insights.model_key(opt, insights.SCORE, list(range(6)))
+    opt.batch_history[5] = 3
+    assert insights.model_key(opt, insights.SCORE, list(range(6))) != key
+    assert insights.MODEL_SALT != "0.8.0-speed-1"

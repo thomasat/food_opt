@@ -61,7 +61,7 @@ def test_a_fold_answer_equals_the_folds_made_here():
     use = _rows(opt)
     X, Y = insights.xy(opt, "Firmness", use)
     build = insights.builder(None)
-    z = [v for kept, held in insights.folds(len(use))
+    z = [v for kept, held in insights.cv_folds(opt, use)
          for v in insights.fold_z(build, X[kept], Y[kept], X[held], Y[held])]
     assert z == pytest.approx(insights._cv_z(opt, "Firmness", use), abs=1e-12)
     assert insights.widen_from(z) == pytest.approx(insights._widen(opt, "Firmness", use))

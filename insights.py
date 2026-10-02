@@ -115,7 +115,7 @@ FIT_OPTIONS = {"ftol": 1e-6}
 # Part of every model_key: bump it whenever a change here could change a
 # fitted model's numbers, and a saved fit from before is never used again.
 # That includes a torch, gpytorch or botorch upgrade (review A M-6).
-MODEL_SALT = "0.8.0-speed-1"
+MODEL_SALT = "0.8.0-ftue-fa-folds-1"
 # The fitted models a caller keeps (insights_jobs, the saved cache): model_key
 # -> {"state": hyper_state(gp), "widen": float} or {"error": str}. Set with
 # memo_in_use(); None: every fit is made fresh, as before.
@@ -195,10 +195,12 @@ def rebuild(opt, name, rows, state):
 def model_key(opt, name, use):
     """Everything one display model and its widening depend on: the model
     settings, the output, each training row (make-up and results), the
-    folds, the fit options and MODEL_SALT."""
+    folds (their number and each row's Round, which groups them: ftue fix
+    A, cold read I9), the fit options and MODEL_SALT."""
     return _digest({"salt": MODEL_SALT, "settings": _digest(_model_settings(opt)),
                     "name": name, "rows": [_row_key(opt, i) for i in use],
-                    "folds": FOLDS, "fit": FIT_OPTIONS})
+                    "folds": FOLDS, "rounds": [_round_of(opt, i) for i in use],
+                    "fit": FIT_OPTIONS})
 
 
 def fit(opt, name, rows):
@@ -233,15 +235,70 @@ def fit(opt, name, rows):
 FOLDS = 5
 
 
-def folds(n):
-    """[(kept, held)] positions of n rows: row k goes to fold k % FOLDS; a
-    fold with nothing held is left out."""
+def _round_of(opt, i):
+    return opt.batch_history[i] if i < len(opt.batch_history) else None
+
+
+def fold_units(opt, rows):
+    """One label per position of `rows`: the rows that must be held out
+    together (ftue fix A, cold read I9). A Round's formulations sit close
+    together, and a Repeat is a near copy, so a row held out with its Round
+    or its Repeat left in training is predicted too well and the widening
+    comes out too small. Each Round is one unit (a row with no Round is its
+    own); when every row is in one Round (the cold start) each row is its
+    own unit. Then every Repeat group (repeat_groups) joins the units of
+    its rows into one."""
+    labels = [("round", r) if r is not None else ("row", i)
+              for i, r in ((i, _round_of(opt, i)) for i in rows)]
+    if len(set(labels)) < 2:
+        labels = [("row", i) for i in rows]
+    parent = list(range(len(rows)))
+
+    def root(p):
+        while parent[p] != p:
+            parent[p] = parent[parent[p]]
+            p = parent[p]
+        return p
+
+    def join(a, b):
+        parent[root(b)] = root(a)
+
+    first = {}
+    for p, label in enumerate(labels):
+        if label in first:
+            join(first[label], p)
+        else:
+            first[label] = p
+    where = {i: p for p, i in enumerate(rows)}
+    for group in repeat_groups(opt, list(rows)):
+        for i in group[1:]:
+            join(where[group[0]], where[i])
+    return [root(p) for p in range(len(rows))]
+
+
+def folds(units):
+    """[(kept, held)] positions for cross-validation, from fold_units'
+    labels (an int n: n rows, each its own unit): the units, in the order
+    they first appear, are dealt to FOLDS folds in turn, so a
+    Round, and a Repeat group, is always held out whole (ftue fix A, cold
+    read I9; before, row k went to fold k % FOLDS). A fold with nothing
+    held or nothing kept is left out."""
+    if isinstance(units, int):
+        units = list(range(units))
+    fold = {u: j % FOLDS for j, u in enumerate(dict.fromkeys(units))}
     out = []
-    for k in range(FOLDS):
-        held = [p for p in range(n) if p % FOLDS == k]
-        if held:
-            out.append(([p for p in range(n) if p % FOLDS != k], held))
+    for f in range(FOLDS):
+        held = [p for p, u in enumerate(units) if fold[u] == f]
+        kept = [p for p, u in enumerate(units) if fold[u] != f]
+        if held and kept:
+            out.append((kept, held))
     return out
+
+
+def cv_folds(opt, rows):
+    """folds(fold_units(opt, rows)): the folds the widening of a model
+    fitted on `rows` is worked out from, here and in insights_jobs."""
+    return folds(fold_units(opt, list(rows)))
 
 
 def held_z(gp, Xt, Yt):
@@ -262,11 +319,12 @@ def fold_z(build, X, Y, Xt, Yt):
 
 def _cv_z(opt, name, use):
     """Standardised misses of each row when it was held out: rows go to
-    FOLDS folds by row order (folds()), and each fold is predicted by a
-    model fitted on the others. A fold whose fit fails is skipped. Only
-    `use` is ever seen, so a Round-ahead check stays honest."""
+    FOLDS folds a Round, and a Repeat group, at a time (cv_folds), and each
+    fold is predicted by a model fitted on the others. A fold whose fit
+    fails is skipped. Only `use` is ever seen, so a Round-ahead check stays
+    honest."""
     z = []
-    for kept, held in folds(len(use)):
+    for kept, held in cv_folds(opt, use):
         try:
             gp = _fit_gp(opt, name, [use[p] for p in kept])
             z.extend(held_z(gp, *xy(opt, name, [use[p] for p in held])))
@@ -414,6 +472,8 @@ def round_keys(opt):
     rows = [_row_key(opt, i) for i in range(len(opt.Y_history))]
     return {r: _digest({"settings": settings, "round": r, "first": first,
                         "train": rows[:first],
+                        # The training rows' Rounds group the folds (I9).
+                        "train_rounds": [_round_of(opt, i) for i in range(first)],
                         "targets": [(i, rows[i]) for i, b in enumerate(opt.batch_history)
                                     if b == r]})
             for r, first in round_order(opt)}

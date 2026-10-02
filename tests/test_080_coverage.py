@@ -37,9 +37,21 @@ def test_the_fixture_was_made_by_this_fit(entries):
 # later ones (hindsight, which I1 forbids) only raises coverage, and would
 # pass every lower bound below. A fixture regenerated with a MODEL_SALT
 # bump updates these on purpose.
-PINNED = {"measured": (4271, 4702), "score_raw": (1406, 1584), "score": (1463, 1584),
-          "window_measured": (1394, 1497), "window_score_raw": (468, 504),
-          "window_score": (484, 504)}
+#
+# Re-pinned by ftue fix A (statistician's cold read I9, MODEL_SALT
+# "0.8.0-speed-1" -> "0.8.0-ftue-fa-folds-1"): the cross-validation folds
+# behind the first widening now hold out a Round, and a Repeat group,
+# whole (before, row k went to fold k % 5, so a held-out row kept its
+# Round's near neighbours and its Repeat in training). Old -> new:
+#   measured          4271 -> 4262 of 4702  (90.8 % -> 90.6 %)
+#   score_raw         1406 -> 1425 of 1584  (88.8 % -> 90.0 %)
+#   score             1463 -> 1465 of 1584  (92.4 % -> 92.5 %)
+#   window_measured   1394 -> 1415 of 1497  (93.1 % -> 94.5 %)
+#   window_score_raw   468 ->  472 of 504   (92.9 % -> 93.7 %)
+#   window_score       484 ->  487 of 504   (96.0 % -> 96.6 %)
+PINNED = {"measured": (4262, 4702), "score_raw": (1425, 1584), "score": (1465, 1584),
+          "window_measured": (1415, 1497), "window_score_raw": (472, 504),
+          "window_score": (487, 504)}
 
 
 def test_coverage_is_exactly_the_before_the_fact_figure(entries):
