@@ -4031,11 +4031,28 @@ def how_models(kernel=None, noise=None):
 
 
 HOW_MODELS = how_models()
+
+
+# Fix round B (statistician I2): what the 95 % intervals aim for, and how
+# often they held on the app's simulated projects — one constant, which fix
+# round A sets from its own re-run (fix-a-report.md); 91 / 89 until then.
+SIMULATED_COVERAGE = {"measurements": 91, "score": 89}
+
+
+def coverage_reading():
+    """'Aims for 95 %; measured about 91 % (measurements) / 89 % (Overall
+    score) on simulated projects.' The plain reading of a 95 % interval
+    (never "about 19 in 20", which the record does not bear out)."""
+    c = SIMULATED_COVERAGE
+    return (f"Aims for 95 %; measured about {c['measurements']} % (measurements) / "
+            f"{c['score']} % ({OVERALL_SCORE_COLUMN}) on simulated projects.")
+
+
 HOW_RANGE = ("95 % interval: the model's 95 % prediction interval for one new measured value, "
              "mean ± 1.96 × predictive SD × calibration factor. The predictive SD includes Repeat "
              "noise, so the interval covers a single result, not the long-run mean. Its ends are "
-             "cut at the measurement's Range (0–100 for the Overall score). Plain reading: about "
-             "19 in 20 new results fall inside.")
+             "cut at the measurement's Range (0–100 for the Overall score). Plain reading: "
+             + coverage_reading())
 HOW_RANGE_FIXED_TINY = ("95 % interval: your model settings fix Repeat noise near zero, so the "
                         "interval reflects model uncertainty only, times the calibration factor.")
 
@@ -4054,7 +4071,7 @@ def how_verdict(n=35, allowed=3):
 
 HOW_VERDICT = how_verdict()
 HOW_NOISE_THRESHOLD = ("Noise threshold: the Repeat SD of the Overall score, pooled over Repeat "
-                       "groups, once there are 3 Repeat pairs and it is at least 0.05; until "
+                       "groups, once it has 3 degrees of freedom and is at least 0.05; until "
                        "then, 1 point, assumed rather than measured. Rises, "
                        "ties, local effects and predicted gains are compared with it. It is a "
                        "fixed rule, not a significance test.")
@@ -4125,7 +4142,7 @@ def predicted_score_help(n=None, factor_text=None):
             f"Gaussian process fitted to {fitted}.")
     if factor_text is not None:
         line += f" Intervals widened ×{factor_text} by the project's Round-ahead record."
-    return line + " About 19 in 20 new results fall inside."
+    return f"{line} {coverage_reading()}"
 
 
 PREDICTED_SCORE_HELP = predicted_score_help()
@@ -4313,13 +4330,15 @@ def points_text(text):
     return "1 point" if text in ("1", "1.0") else f"{text} points"
 
 
-def beat_by(sd_text=None, assumed=False, pairs=0, left_out=0):
+def beat_by(sd_text=None, assumed=False, pairs=0, left_out=0, df=None):
     """The noise threshold's one name (spec review I5; 03 §5.3): the Repeat
     SD from 3 pairs or more, else the fixed 1 point. `assumed` (0.8.0 e2e
     fixes, review B2): the 1 point is said to be assumed, with the Repeat
     that would measure it, while there are fewer than 3 pairs (`pairs`).
     `left_out`: pairs left out because a Repeat disagrees (polish round:
-    "no Repeats yet" beside Line B's one Repeat read as false)."""
+    "no Repeats yet" beside Line B's one Repeat read as false). `df` (fix
+    round B, statistician I11): the Repeats' degrees of freedom, said
+    instead of their pairs."""
     if sd_text:
         return f"the noise threshold (Repeat SD {sd_text} points)"
     if not assumed:
@@ -4329,7 +4348,8 @@ def beat_by(sd_text=None, assumed=False, pairs=0, left_out=0):
                  else "the only Repeat disagrees" if left_out == 1
                  else "every Repeat disagrees")
     else:
-        basis = f"{pairs_text(pairs)} of Repeats, 3 needed"
+        basis = (f"{df} df of Repeats, 3 needed" if df is not None
+                 else f"{pairs_text(pairs)} of Repeats, 3 needed")
         if left_out:
             basis += (f", and {left_out} left out as "
                       f"{'it disagrees' if left_out == 1 else 'they disagree'}")
@@ -4381,7 +4401,7 @@ def trust_within(inside, total, rounds, measurements=False, allowed=None):
 HOW_BIAS = ("Mean error: the average of measured minus predicted over every Round checked, "
             f"for the Overall score and each measurement ({FORMULATION}s with all results in, "
             "at least 5). It is a steady bias when its size exceeds the noise threshold (for a "
-            "measurement, its own Repeat SD from 3 pairs, else no floor) and 2 standard "
+            "measurement, its own Repeat SD once it has 3 df, else no floor) and 2 standard "
             "errors. From 4 Rounds checked, each Round's mean error counts as one value, "
             f"because a Round's {FORMULATION}s sit close together and share the model's "
             f"error; before that, each {FORMULATION} counts. A steady bias is reported as a "
@@ -4520,17 +4540,23 @@ def stand_best(score_text, n, rnd, without_text=""):
 
 
 def stand_repeats(sd_text, pairs, df=None, groups=None):
-    """The Repeat SD with its basis (03 §5.3): it is the noise threshold
-    only from 3 pairs. `df` and `groups` (0.8.0 e2e fixes, review I13; 03
-    I7): its degrees of freedom and the formulations made more than once,
-    so '9.6 points from 8 pairs' says it rests on 5 df."""
-    head = f"Repeat SD of the {OVERALL_SCORE_COLUMN}: {sd_text} points from {pairs_text(pairs)}"
-    if df is not None and groups:
-        results = df + groups
+    """The Repeat SD with its basis (03 §5.3; fix round B, statistician
+    I11: its degrees of freedom, not its pairs): it is the noise threshold
+    only from 3 df. 'Repeat SD of the Overall score: 0.8 points, 1 df (2
+    results of 1 formulation). The noise threshold stays at 1 point until
+    3 df.' Without `df`, the pairs as before."""
+    if df is None:
+        head = (f"Repeat SD of the {OVERALL_SCORE_COLUMN}: {sd_text} points from "
+                f"{pairs_text(pairs)}")
+        if pairs < 3:
+            return f"{head}. The noise threshold stays at 1 point until 3 pairs."
+        return f"{head}; this is the noise threshold."
+    head = f"Repeat SD of the {OVERALL_SCORE_COLUMN}: {sd_text} points, {df} df"
+    if groups:
         made = f"{FORMULATION}" if groups == 1 else f"{FORMULATION}s"
-        head += f" ({results} results of {groups} {made}, {df} df)"
-    if pairs < 3:
-        return f"{head}. The noise threshold stays at 1 point until 3 pairs."
+        head += f" ({df + groups} results of {groups} {made})"
+    if df < 3:
+        return f"{head}. The noise threshold stays at 1 point until 3 df."
     return f"{head}; this is the noise threshold."
 
 
@@ -4857,6 +4883,7 @@ def widen_text(factor):
 
 HOW_WIDENED = ("Calibration factor: the root-mean-square of standardised errors (measured − "
                "predicted, ÷ predictive SD) in 5-fold cross-validation of the current model, "
+               "the folds grouped by Round (a formulation and its Repeats in one fold), "
                "floored at 1. Every 95 % interval is multiplied by it. ×1.0: not widened; ×2.5: "
                "errors 2.5 times the model's own SD.")
 
@@ -4870,10 +4897,13 @@ def score_widen_text(own, top):
 
 HOW_WIDENED_SCORE = (f"{OVERALL_SCORE_COLUMN}, second factor: the root-mean-square of the "
                      f"standardised Round-ahead errors of earlier {ROUND_CAP}s' "
-                     f"{OVERALL_SCORE_COLUMN}s (at least 5), floored at 1. It corrects for "
-                     f"choosing {FORMULATION}s by a high predicted score, and it applies on top "
-                     "of the first factor to the predicted best, Best so far's predicted Repeat "
-                     f"and the Predicted {OVERALL_SCORE_COLUMN} column on {TAB_BATCH_NAME}.")
+                     f"{OVERALL_SCORE_COLUMN}s (at least 5, computed after the first factor), "
+                     f"floored at 1. Where {FORMULATION}s were chosen for a high predicted score "
+                     "it widens their intervals, which partly restores coverage; it does not "
+                     "correct the predicted value itself, which can still run high. It applies "
+                     "on top of the first factor to the predicted best, Best so far's predicted "
+                     f"Repeat and the Predicted {OVERALL_SCORE_COLUMN} column on "
+                     f"{TAB_BATCH_NAME}.")
 HOW_REPEATS_COMPARED = ("Error ÷ Repeat noise: the median absolute error divided by 0.674 × "
                         "Repeat SD, which is the median absolute error Repeat noise alone would "
                         "give. Near 1: the model misses by about as much as measurement noise. "
@@ -5180,9 +5210,12 @@ def how_skill(cut_text="−0.20", settings_only=False):
             f"pooled over every {ROUND_CAP} checked ({FORMULATION}s with all results in for the "
             "Overall score). 1: exact; 0: no better than that average. Shown from 10 values. "
             f"At or below {cut_text}: no better than the average; below 0.20: not clearly "
-            f"better; 0.20 or more: better. The cut is {cut_text}: a correct model reads "
-            "“no better than the average” in under 7 % of cases at n = 10, and below 0.20 in "
-            f"about 15 %. {effects} are reported only from 10 values and skill 0.20.")
+            f"better; 0.20 or more: better. The cut is {cut_text}. In 24 simulated projects "
+            "whose model's errors matched its own stated uncertainty (true skill 0.20 or more), "
+            "the skill read “no better than the average” in under 7 % of windows of 10 checks "
+            "(n = 10), and below 0.20 in about 15 %; near a true skill of 0.20 it reads below "
+            f"0.20 about half the time. {effects} are reported only from 10 values and skill "
+            "0.20.")
 
 
 def _skill_basis(value_text, n, rounds=None):
@@ -5297,8 +5330,9 @@ ROLE_REFINES = SUGGESTION_CLOSE
 ROLE_BALANCED = SUGGESTION_BALANCED
 ROLE_EXPLORES = SUGGESTION_DIFFERENT
 EXPECTED_IMPROVEMENT_HELP = (f"The model's average gain of this one {FORMULATION}'s score "
-                             "(without Repeat noise) over the model's best tested "
-                             f"{FORMULATION}, counting no gain as zero, in points.")
+                             "(without Repeat noise) over the highest the model draws for the "
+                             f"tested {FORMULATION}s, drawn afresh each time (no single "
+                             "incumbent), counting no gain as zero, in points; approximate.")
 EXPECTED_IMPROVEMENT_EI_HELP = (f"The model's average gain of this one {FORMULATION}'s score "
                                 "over Best so far's measured score, counting no gain as zero, "
                                 "in points.")
@@ -5409,9 +5443,10 @@ WHY_RECOMPUTED_WITHHELD = ("Model sd and the map are recomputed from today's rec
 
 HOW_EXPECTED_IMPROVEMENT = (
     "Expected improvement (model, one formulation): the suggestion model's average gain of one "
-    f"{FORMULATION}'s score, without Repeat noise, over the model's best tested {FORMULATION} "
-    "(qLogNEI, the default) or Best so far's measured score (qLogEI), counting no gain as "
-    f"zero. It is not the gain of a whole {ROUND_CAP} and not a gain in a measured "
+    f"{FORMULATION}'s score, without Repeat noise, over the highest latent value among the "
+    f"tested {FORMULATION}s in each posterior draw (qLogNEI, the default: no single incumbent; "
+    "shown as the exp of a log value, so approximate) or Best so far's measured score (qLogEI), "
+    f"counting no gain as zero. It is not the gain of a whole {ROUND_CAP} and not a gain in a measured "
     "result. Model sd: the suggestion model's standard deviation for the mean, narrower than "
     "the 95 % interval.")
 
@@ -5433,7 +5468,7 @@ def gain_line(value_text, round_no, threshold_text, above=False, recomputed=Fals
     which = _gain_which(round_no)
     how = "above" if above else "under"
     ref = (f"Best so far's measured {measured_text}" if measured_text is not None
-           else f"the model's best tested {FORMULATION}")
+           else f"the highest the model draws for the tested {FORMULATION}s (approximate)")
     # 0.8.0 e2e fixes A5 (review I6): what the statistic is, never "the best
     # single new formulation beats … by", which an average with zeros is not.
     line = (f"Expected improvement, {which}: {value_text} points (model, one {FORMULATION}): "
@@ -6234,12 +6269,14 @@ def trade_offs_fold(has_triangle=True):
 BASIS_PREDICTIONS = (
     f"Basis: each {ROUND_CAP} predicted by models fitted only to the {ROUND_CAP}s before it, "
     "recomputed with today's settings (rolling-origin, pseudo-prospective validation); 95 % "
-    "posterior predictive intervals widened by 5-fold cross-validation; skill against the "
+    f"posterior predictive intervals widened by 5-fold cross-validation grouped by {ROUND_CAP}; "
+    "skill against the "
     f"average of the {FORMULATION}s recorded before each {ROUND_CAP}.")
 BASIS_PROGRESS = (
     f"Basis: Best so far is the highest measured Overall score among {FORMULATION}s with all "
-    "results in; a rise counts from the noise threshold up, the pooled Repeat SD from 3 pairs, "
-    "else 1 point; expected improvement is the suggestion model's acquisition value.")
+    "results in; a rise counts from the noise threshold up, the pooled Repeat SD once it has 3 "
+    "degrees of freedom, else 1 point; expected improvement is the suggestion model's "
+    "acquisition value.")
 BASIS_NEXT = ("Basis: the Next-step rules are tried in the order listed under Method and "
               "definitions, and the first that holds is shown; its full sentence follows.")
 
@@ -6284,7 +6321,8 @@ TIP_MEAN_ERROR = (
     "the noise threshold and 2 standard errors.")
 TIP_NOISE_THRESHOLD = (
     f"Noise threshold: the smallest difference counted as more than chance: how much Repeats "
-    f"of one {FORMULATION} differ, or 1 point, assumed, until 3 Repeat pairs exist. BO term: "
+    f"of one {FORMULATION} differ, or 1 point, assumed, until the Repeats give 3 degrees of "
+    "freedom (3 df). BO term: "
     "pooled replicate (pure-error) SD; not the Gaussian process's fitted noise.")
 
 
@@ -6400,10 +6438,10 @@ def tip_skill_too_few(n):
 TIP_REFITTED = f"Each {ROUND_CAP} is predicted by models refitted today on earlier {ROUND_CAP}s only."
 # R-I11: what "Reliable" can and cannot promise, in its own tooltip.
 TIP_RELIABLE_LIMITS = (
-    f"Reliable can change between {ROUND_CAP}s by chance: a model whose true skill is 0.20 or "
-    "more reads below 0.20 about 15 % of the time at n = 10, and 12 % at n = 15. On projects "
-    "built by the app's suggestions, the 95 % intervals have covered about 91 % of measured "
-    "values and 89 % of Overall scores.")
+    f"Reliable can change between {ROUND_CAP}s by chance. In 24 simulated projects whose true "
+    "skill was 0.20 or more, the skill read below 0.20 in about 15 % of windows of 10 checks "
+    "(n = 10) and 12 % of windows of 15 (n = 15); a model whose true skill is near 0.20 reads "
+    "below 0.20 about half the time. The 95 % intervals: " + coverage_reading())
 
 
 def tip_repeat_off(later, earlier, diff_text, half_text):
@@ -6434,11 +6472,14 @@ def tip_guard(reasons):
 
 
 def tip_threshold_measured(sd_text, pairs, df=None):
-    tail = f", {df} df" if df is not None else ""
-    return f"pooled Repeat SD {sd_text} points from {pairs_text(pairs)}{tail}"
+    """'pooled Repeat SD 1.2 points, 3 df' (fix round B, statistician I11:
+    its degrees of freedom, not its pairs); pairs only without df."""
+    if df is not None:
+        return f"pooled Repeat SD {sd_text} points, {df} df"
+    return f"pooled Repeat SD {sd_text} points from {pairs_text(pairs)}"
 
 
-TIP_THRESHOLD_ASSUMED = "1 point, assumed: fewer than 3 Repeat pairs"
+TIP_THRESHOLD_ASSUMED = "1 point, assumed: the Repeats give fewer than 3 degrees of freedom (3 df)"
 
 
 def tip_progress(threshold_text):
@@ -6479,7 +6520,12 @@ MODEL_SUMMARY_LEAD = ("Bayesian optimisation: a Gaussian-process surrogate model
                       "score chooses each Round's suggestions; this tab also fits one Gaussian "
                       "process per measurement for its predictions.")
 _ACQUISITION_NAMES = {
-    "qlognei": "qLogNEI (noisy expected improvement over the model's best tested {f}, log form)",
+    # Fix round B (statistician I1): qNEI has no single incumbent.
+    "qlognei": ("qLogNEI (noisy expected improvement, log form: in each posterior draw, the gain "
+                "of a candidate over the highest latent value among the tested {f}s, counting no "
+                "gain as zero, averaged over the draws; there is no single incumbent, and from "
+                "the second pick on the earlier picks count as tested; shown as the exp of the "
+                "log value, so approximate)"),
     "qlogei": "qLogEI (expected improvement over the best measured Overall score, log form)",
     "qucb": "qUCB (upper confidence bound, β = {beta})",
 }
@@ -6567,12 +6613,15 @@ def model_summary(facts):
                      "models on this tab.")
     lines += [
         (f"Interval calibration: each model's 95 % intervals are multiplied by the "
-         f"root-mean-square of {f.folds}-fold cross-validated standardised errors (at least 1); "
-         f"the Overall score's are widened again by earlier {ROUND_CAP}s' Round-ahead record."),
+         f"root-mean-square of {f.folds}-fold cross-validated standardised errors (at least 1), "
+         f"the folds grouped by {ROUND_CAP} with a {FORMULATION} and its Repeats always in one "
+         "fold, the hyperparameters refitted in each; the Overall score's are widened again by "
+         f"earlier {ROUND_CAP}s' Round-ahead record."),
         (f"Validation: rolling-origin (pseudo-prospective): each {ROUND_CAP} predicted by models "
          f"refitted on earlier {ROUND_CAP}s only, recomputed with today's measurements, targets, "
          "Share of score and model settings. Skill, coverage and bias are defined under How each "
-         "status is decided."),
+         f"status is decided. Changing model settings re-scores every earlier {ROUND_CAP}, so a "
+         "record read after choosing settings to suit it is no longer a fair test."),
     ]
     return lines
 
@@ -6581,10 +6630,21 @@ MODEL_LIMITS_HEADING = "Known limits"
 # R-I12's known limits, §7's own, R-I11's two figures and §8's reason for
 # drawing no projection of the whole space (02-chart-audit §6).
 MODEL_LIMITS = (
-    ("Coverage: on projects built by the app's suggestions, the 95 % intervals have covered "
-     "about 91 % of measured values and 89 % of Overall scores, short of 95 %."),
-    ("Reliable can change between Rounds by chance: a model whose true skill is 0.20 or more "
-     "reads below 0.20 about 15 % of the time at n = 10, and 12 % at n = 15."),
+    (f"Coverage: the 95 % intervals aim for 95 %; on simulated projects built by the app's "
+     f"suggestions they covered about {SIMULATED_COVERAGE['measurements']} % of measured values "
+     f"and {SIMULATED_COVERAGE['score']} % of Overall scores, short of 95 %."),
+    # Fix round B (statistician I4): the error rates exactly, with their n.
+    ("Reliable can change between Rounds by chance. In 24 simulated projects whose true skill "
+     "was 0.20 or more, the skill read below 0.20 in about 15 % of windows of 10 checks (n = 10) "
+     "and 12 % of windows of 15 (n = 15); a model whose true skill is near 0.20 reads below 0.20 "
+     "about half the time. No interval is shown for the skill."),
+    # Fix round B (statistician I10).
+    (f"Misses within a {ROUND_CAP}, and across the measurements of one {FORMULATION}, are not "
+     "independent, so the coverage check's 1 in 10 and 1 in 100 are approximate: it flags too "
+     "often."),
+    # Fix round B (statistician I12).
+    (f"Changing model settings re-scores every earlier {ROUND_CAP}, so a record read after "
+     "choosing settings to suit it is no longer a fair test."),
     ("The models on this tab are refitted with their own tolerance, so they differ slightly "
      "from the suggestion model."),
     "Intervals are cut at 0 and the score ceiling, so coverage near 100 reads high.",
@@ -6593,7 +6653,8 @@ MODEL_LIMITS = (
      f"design, not from the model, so the first {ROUND_CAP}s show nothing of how well it "
      "chooses."),
     "Best so far is one noisy maximum, so it tends to read high.",
-    "A noise threshold from few Repeat pairs rests on few degrees of freedom.",
+    ("A noise threshold from few Repeats rests on few degrees of freedom: at 3 df its 95 % "
+     "interval runs from about 0.57 to 3.7 times the estimate."),
     "No correction is made for the many comparisons on this tab.",
     (f"A change at the bench shows only through a Repeat of an earlier {FORMULATION} in each "
      f"{ROUND_CAP}: the Round-ahead check learns it from its first {ROUND_CAP} on."),
@@ -6604,6 +6665,9 @@ MODEL_LIMITS = (
 
 # --- §7, I13, R-I13: How each status is decided ----------------------
 STATUS_TABLE = "How each status is decided"
+# Fix round B (statistician I8): the precedence, under the table.
+STATUS_TABLE_ORDER = ("Within each line the rows are tried from top to bottom; the first that "
+                      "holds is the status shown.")
 STATUS_TABLE_COLUMNS = ("Line", "Status", "Exact rule")
 
 
@@ -6622,7 +6686,7 @@ def status_rule_rows(cut_text="−0.20", settings_only=False):
         (p, f"{words['off']} (coverage)",
          f"Many more misses than expected: in {window}, as many misses outside the 95 % "
          "intervals or more would happen less than 1 time in 100 under a binomial at 5 % per "
-         "value."),
+         "value, which treats misses as independent (they are not quite: see Known limits)."),
         (p, f"{words['not_yet']} (gate)", f"Fewer than 5 {FORMULATION}s with all results in."),
         (p, f"{words['not_yet']} (more misses)",
          "More misses than expected: as many misses or more would happen less than 1 time in "
@@ -6694,29 +6758,31 @@ GLOSSARY_ROWS = (
      "Not yet covers the Prediction check's Not judged yet."),
     ("the range the app predicted · 95 % interval",
      "95 % posterior predictive interval (calibrated)",
-     "Where one new measured value should land about 19 times in 20: posterior mean ± 1.96 × "
-     "predictive SD × calibration factor, cut at the Range."),
+     "Where one new measured value should land: posterior mean ± 1.96 × predictive SD × "
+     "calibration factor, cut at the Range. " + coverage_reading()),
     ("score predictions beat the average · skill", "out-of-sample skill score (Q²-type, not R²)",
      "1 − SSE/SSE(running mean of earlier results), pooled over Rounds; 0 = as good as the "
      "average, 1 = perfect."),
-    ("predictions have run high or low · mean error", "mean prediction error (bias)",
+    ("scores have come in below or above the predictions · mean error",
+     "mean prediction error (bias)",
      "Average of measured − predicted; a steady bias beyond the noise threshold and 2 standard "
      "errors."),
     ("Rising · Within noise · Flat · Too early · No new best",
      "improvement of the best observed value against replicate noise",
      "The rise of Best so far in the latest Round, compared with the noise threshold."),
     ("Best so far", "best observed value",
-     "The highest measured Overall score among formulations with all results in. Not the "
-     "acquisition's incumbent under qLogNEI, which is the model's best tested formulation."),
+     "The highest measured Overall score among formulations with all results in. Not what "
+     "qLogNEI compares with: it has no single incumbent, but takes the highest latent value "
+     "among the tested formulations in each posterior draw."),
     ("probably helped by luck", "regression to the mean",
      "A Repeat of Best so far is predicted below its measured score by more than the noise "
      "threshold."),
     ("Repeat · pair · df", "replicate · replicate pair · degrees of freedom",
-     "The same amounts made again; a Repeat and its original are a pair; df = results − "
-     "formulations made more than once."),
+     "The same amounts made again; a Repeat and its original are a pair; df = (results of "
+     "formulations made more than once) − (number of such formulations)."),
     ("noise threshold", "pooled replicate (pure-error) SD",
-     "Pooled SD of Repeats of the Overall score from 3 pairs (at least 0.05), else 1 point, "
-     "assumed; not the Gaussian process's fitted noise."),
+     "Pooled SD of Repeats of the Overall score once it has 3 degrees of freedom (3 df; at "
+     "least 0.05), else 1 point, assumed; not the Gaussian process's fitted noise."),
     ("Where you have tested", "marginal coverage of each input (model-free)",
      "Each recorded formulation as a tick at its amount, one input at a time; combinations can "
      "be untested where every strip looks covered."),
@@ -6733,15 +6799,17 @@ GLOSSARY_ROWS = (
      "Misses outside the 95 % intervals against a binomial at 5 %: as expected from 1 in 10 up, "
      "many more below 1 in 100; Not judged yet under 10 values or with every interval wide."),
     ("calibration factor", "cross-validated calibration factor",
-     "Root-mean-square of 5-fold cross-validated standardised errors, at least 1; every 95 % "
-     "interval is multiplied by it."),
+     "Root-mean-square of 5-fold cross-validated standardised errors (folds grouped by Round, "
+     "Repeats kept together), at least 1; every 95 % interval is multiplied by it."),
     ("predicted score · model mean", "posterior mean", "The model's single best guess."),
     ("predicted best", "maximiser of the posterior mean over the feasible region",
      "The allowed formulation the model scores highest; at a Highest or Lowest it sits on an "
      "active bound."),
     ("expected improvement", "acquisition value (qLogNEI by default; qLogEI; qUCB)",
-     "Average gain of one new formulation over the model's best tested formulation (qLogEI: "
-     "over the best measured score), counting no gain as zero."),
+     "Average gain of one new formulation, counting no gain as zero: under qLogNEI, over the "
+     "highest latent value among the tested formulations in each posterior draw (no single "
+     "incumbent; shown as the exp of a log value, so approximate); under qLogEI, over the best "
+     "measured score."),
     ("model sd · how unsure the model is · Uncertainty", "latent posterior standard deviation",
      "The model's own uncertainty about its mean, without observation noise or calibration; "
      "narrower than the 95 % interval."),
@@ -6786,12 +6854,13 @@ GLOSSARY_ROUND_MEANING_SETTINGS = ("the trials run together; in BO texts a “ba
 _GLOSSARY_SETTINGS_FORM = {
     "Best so far": (
         "Best so far", "best observed value",
-        "The highest measured Overall score among trials with all results in. Not the "
-        "acquisition's incumbent under qLogNEI, which is the model's best tested trial."),
+        "The highest measured Overall score among trials with all results in. Not what "
+        "qLogNEI compares with: it has no single incumbent, but takes the highest latent value "
+        "among the tested trials in each posterior draw."),
     "Repeat · pair · df": (
         "Repeat · pair · df", "replicate · replicate pair · degrees of freedom",
-        "The same values run again; a Repeat and its original are a pair; df = results − trials "
-        "run more than once."),
+        "The same values run again; a Repeat and its original are a pair; df = (results of "
+        "trials run more than once) − (number of such trials)."),
     "Where you have tested": (
         "Where you have tested", "marginal coverage of each input (model-free)",
         "Each recorded trial as a tick at its value, one process setting at a time; "
@@ -6809,8 +6878,10 @@ _GLOSSARY_SETTINGS_FORM = {
         "active bound."),
     "expected improvement": (
         "expected improvement", "acquisition value (qLogNEI by default; qLogEI; qUCB)",
-        "Average gain of one new trial over the model's best tested trial (qLogEI: over the "
-        "best measured score), counting no gain as zero."),
+        "Average gain of one new trial, counting no gain as zero: under qLogNEI, over the "
+        "highest latent value among the tested trials in each posterior draw (no single "
+        "incumbent; shown as the exp of a log value, so approximate); under qLogEI, over the "
+        "best measured score."),
     "tested near · untested amounts": (
         "tested near · untested values",
         "inside or outside an L∞ neighbourhood of the design points",

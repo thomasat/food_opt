@@ -1441,7 +1441,8 @@ def threshold_text(yard, assumed=True):
     if yard.from_repeats:
         return wording.beat_by(f"{yard.value:.1f}")
     return wording.beat_by(None, assumed=assumed and getattr(yard, "assumed", False),
-                           pairs=yard.pairs, left_out=getattr(yard, "left_out", 0))
+                           pairs=yard.pairs, left_out=getattr(yard, "left_out", 0),
+                           df=getattr(yard, "df", 0) or None)
 
 
 def skill_value(value):
@@ -2008,11 +2009,13 @@ def stand_text(answer, yard=None):
     if answer.state == "yes":
         return wording.stand_yes(rise, wording.beat_by(
             sd, assumed=assumed, pairs=yard.pairs if assumed else 0,
-            left_out=getattr(yard, "left_out", 0) if assumed else 0))
+            left_out=getattr(yard, "left_out", 0) if assumed else 0,
+            df=getattr(yard, "df", 0) or None if assumed else None))
     line = wording.stand_barely(rise, sd)
     if assumed:
         line = line.replace(wording.beat_by(), wording.beat_by(
-            None, assumed=True, pairs=yard.pairs, left_out=getattr(yard, "left_out", 0)))
+            None, assumed=True, pairs=yard.pairs, left_out=getattr(yard, "left_out", 0),
+            df=getattr(yard, "df", 0) or None))
     return line
 
 
@@ -4463,6 +4466,8 @@ def _status_table(opt, computed):
     columns = [_say(opt, c) for c in wording.STATUS_TABLE_COLUMNS]
     frame = pd.DataFrame([[_say(opt, c) for c in row] for row in rows], columns=columns)
     st.table(frame.set_index(columns[0]))
+    # Fix round B (statistician I8): which row wins when several hold.
+    st.caption(_say(opt, wording.STATUS_TABLE_ORDER))
 
 
 def _glossary(opt):
