@@ -8779,3 +8779,71 @@ def story_path_help(settings_only=False):
             "were not tried. Bars that shorten show the search settling. BO term: the design "
             "points by iteration, per input dimension.")
 STORY_VALUE = "Value"
+
+
+# --- review story 2 ---
+# Review story 2 (prototype, 2026-10-02; owner: "Should the plots be more
+# central and higher up?" — yes): the three cards become one status strip
+# above the charts — Progress · Predictions · Next, each a small label, its
+# bold word and one short line, the one primary button at its right end —
+# and Next becomes the closing section, "What next?", after What have we
+# tried?. Status lines at most 10 words, captions 8, labels 5; the detail
+# stays in each item's "?". The cards are gone, so the few tooltips that
+# named "the Next card" or "the Predictions card" are re-said here (later
+# assignments win; the earlier ones stay for the history).
+Q5_TITLE = "What next?"
+
+
+def score_of(text, ceiling):
+    """'96.4 of 100' when the score is on 0–100 (owner: "Flat" at 96.4 then
+    reads as converged, not stuck); the number alone on any other scale."""
+    try:
+        on_100 = ceiling is not None and abs(float(ceiling) - 100.0) < 1e-6
+    except (TypeError, ValueError):
+        on_100 = False
+    return f"{text} of 100" if on_100 else str(text)
+
+
+def strip_progress(start_text, best_text):
+    """The strip's Progress line: '88.4 → 96.4 of 100'; 'Best 96.0 of 100'."""
+    return f"Best {best_text}" if start_text is None else f"{start_text} → {best_text}"
+
+
+def strip_short(text):
+    """A card line cut for the strip: 'Overall score: 13 / 15 in range' ->
+    '13 / 15 in range' (the label already says Predictions)."""
+    return text.removeprefix(f"{OVERALL_SCORE_COLUMN}: ")
+
+
+def strip_jump_help(question):
+    """A strip item's click: 'Scrolls to: Are we improving?'."""
+    return f"Scrolls to: {question}"
+
+
+# The cards are gone: what named them now names the strip or What next?.
+SEE_CHART_HELP = "Scrolls to the section that answers it."
+EV_METHOD = "Kernel, priors and every check: How the app knows, top right."
+REVIEW_STATUS_HELP = (f"The {TAB_INSIGHTS} status line in brief. Predictions: can you trust "
+                      "them? Progress: is Best so far still rising?")
+GAIN_REASON_NOT_YET = "Predictions do not read Reliable yet"
+GAIN_REASON_OFF = ("Predictions read Off: the Overall score misses its 95 % range more often "
+                   "than expected")
+
+
+def tip_hero_hidden(reason):
+    """The hidden line's "?": why, and that suggestions are still made."""
+    return (f"Expected gain is not drawn: {reason}. Suggestions are still made the same "
+            f"way; {Q5_TITLE} says what would bring the gain back.")
+
+
+def tip_gain_greyed(reason):
+    """The greyed gain's "?": why, and that suggestions are still made."""
+    return (f"Expected gain is drawn in grey: {reason}. Suggestions are made the same way "
+            f"regardless; {Q5_TITLE} says what would make the gain count again.")
+
+
+def story_trust_so_far(inside, total, needed):
+    """Not yet, too few: '7 of 7 landed in range; needs 10' (review story
+    2: it read '…; 10 needed to judge', 12 words with its bold word, over
+    the 10 a status line may take)."""
+    return f"{inside} of {total} landed in range; needs {needed}"

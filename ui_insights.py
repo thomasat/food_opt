@@ -841,16 +841,18 @@ def render(opt):
     Drawn at once, before anything is fitted (review I15, R-I8): the
     header, the cards' places, the buttons and links, the headings, and the
     model-free charts (Q2, Q4). The rest fills as its facts are ready. Only
-    while the tab is open (app.py): nothing here is worked out before."""
+    while the tab is open (app.py): nothing here is worked out before.
+
+    Review story 2: the cards are one status strip under the header line
+    (the method link at its right), the charts right under it, and the
+    Next card's content the closing section, What next?."""
     # A formulation moved to Not scored counts for nothing here (review M-3).
     if len(opt.Y_history) == sum(map(opt.is_set_aside, range(len(opt.Y_history)))):
         st.caption(_say(opt, wording.INSIGHTS_NONE))
         _foot(opt)
         return
     n = opt.complete_count()
-    # Review cards (prototype): one short header line; the full one in its "?".
-    st.caption(_say(opt, cards_header_text(opt)),
-               help=_say(opt, f"{wording.REVIEW_ABOUT}\n\n{header_detail(opt)}"))
+    _header_line(opt)
     if insights_jobs.stopped():
         st.caption(_say(opt, wording.INSIGHTS_IN_PROCESS))
     _land()
@@ -870,13 +872,14 @@ def render(opt):
     if computed.get("failed"):
         places.bar.empty()
         facts = insights.status_facts(opt, ())
-        with places.card["predictions"].container():
+        with places.item["predictions"].container(gap=None):
+            st.caption(_say(opt, _CARD_LABELS["predictions"]))
             st.error(_say(opt, wording.INSIGHTS_FAILED))
         for which in ("progress", "next"):
-            with places.card[which].container(gap="xxsmall"):
-                _card_body(opt, facts, which)
+            _strip_item(opt, places, facts, which)
+        _next_body(opt, places, facts)
         _answer(opt, places.q["progress"], facts, "progress")
-        for which in ("predictions", "next"):
+        for which in ("predictions", "drives"):
             with places.q[which].body:
                 st.caption(_say(opt, wording.CHART_FAILED))
         _how(opt, None)
@@ -892,7 +895,7 @@ def render(opt):
                              withheld=claims_withheld_reason(opt, score, checks))
     _finish(opt, places, facts)
     _trust_section(opt, places.q["predictions"], computed, facts)
-    _drives_section(opt, places.q["next"], computed, facts)
+    _drives_section(opt, places.q["drives"], computed, facts)
     _how(opt, computed)
     save(opt)
 
@@ -913,58 +916,158 @@ class _Slot:
 # Q2 keep the keys the links from Results and Make a round land on; Q4 the
 # Explored link's.
 DRIVES_SECTION = "insights_drives"
+NEXT_SECTION = "insights_next"      # review story 2: What next?, the closing section
 SECTION_KEYS = {"predictions": TRUST_SECTION, "progress": STAND_SECTION,
-                "next": DRIVES_SECTION, "tried": EXPLORED_PLACE}
+                "drives": DRIVES_SECTION, "tried": EXPLORED_PLACE, "next": NEXT_SECTION}
 _QUESTIONS = {"predictions": wording.Q1_TITLE, "progress": wording.Q2_TITLE,
-              "next": wording.Q3_TITLE, "tried": wording.Q4_TITLE}
+              "drives": wording.Q3_TITLE, "tried": wording.Q4_TITLE, "next": wording.Q5_TITLE}
+STRIP_KEY = "insights_strip"
 SEE_CHART_KEY = "insights_see_chart"
 Q_HEIGHT = 300          # Q1 and Q2's chart height, side by side (Streamlit fits legend and
                         # axis titles inside it)
 
 
+STRIP_STYLE = """<style>
+.st-key-insights_strip { padding: 0.45rem 1rem !important; }
+.st-key-insights_strip button[kind="tertiary"] { min-height: 1.6rem; padding: 0; text-align: left;
+  justify-content: flex-start; }
+.st-key-insights_strip button[kind="tertiary"] p { text-align: left; font-size: 0.94rem; }
+[data-testid="stLayoutWrapper"]:has(> .st-key-insights_strip_progress),
+[data-testid="stLayoutWrapper"]:has(> .st-key-insights_strip_predictions),
+[data-testid="stLayoutWrapper"]:has(> .st-key-insights_strip_next) {
+  flex: 1 1 auto !important; min-width: 0; }
+</style>"""
+
+
+def _header_line(opt):
+    """The header line — 'Review after Round 10 · 30 formulations', its
+    full text in the "?" — with "How the app knows" at its right end
+    (review story 2: a small link, off the way of the charts)."""
+    with st.container(horizontal=True, horizontal_alignment="distribute",
+                      vertical_alignment="center", gap="small"):
+        st.caption(_say(opt, cards_header_text(opt)), width="content",
+                   help=_say(opt, f"{wording.REVIEW_ABOUT}\n\n{header_detail(opt)}"))
+        method_link(opt)
+
+
 def _places(opt, gate=False):
-    """The three cards side by side — each a small label, its place (big
-    word, lines, the Progress sparkline) and its "See chart ↓" link; the
-    Next card also holds the primary button, its Set up secondary and the
-    one link — then the method link, the progress bar's place and the four
-    questions (the model-free charts drawn at once)."""
+    """Review story 2 (owner: "Should the plots be more central and higher
+    up?"): one status strip — Progress · Predictions · Next, each a small
+    label with its "?", then its bold word and one short line, a click
+    landing on its section; the one primary button at the strip's right
+    end — then the progress bar's place and the five sections, the
+    model-free charts drawn at once, What next? last (its word, lines, the
+    Set up secondary and the one link)."""
     p = _Places()
-    p.card = {}
-    for which, col in zip(_STATUS_ORDER, st.columns(3)):
-        # Review four polish: each card sized to its content (one height for
-        # the three left the Predictions card half empty beside a tall Next
-        # card); its "See chart ↓" on the label's row, so the three links
-        # line up.
-        with col, st.container(border=True, key=f"{CARD_KEY}_{which}", gap="xsmall"):
-            with st.container(horizontal=True, horizontal_alignment="distribute",
-                              vertical_alignment="center", gap="small"):
-                st.caption(_say(opt, _CARD_LABELS[which]), width="content")
-                see_chart_link(opt, which)
-            p.card[which] = st.empty()
-            with p.card[which].container(gap="xxsmall"):
-                _card_body(opt, None, which)
-            if which == "next":
-                _foot(opt)
-                p.change = st.empty()
-                p.link = st.empty()
-                with p.link.container():
-                    p.why = _why_link(opt)
-    method_link(opt)
+    p.item = {}
+    st.html(STRIP_STYLE)       # review story 2: a compact strip (60–80 px)
+    with st.container(border=True, key=STRIP_KEY, horizontal=True, vertical_alignment="center",
+                      gap="small"):
+        for which in _STATUS_ORDER:
+            # Each item its own width plus an equal share of the room left
+            # (STRIP_STYLE: flex 1 1 auto), so a line like "No new best
+            # 87.8 → 90.5 of 100" keeps to one row at 1280 px.
+            with st.container(key=f"{STRIP_KEY}_{which}", gap=None, width="content"):
+                p.item[which] = st.empty()
+                with p.item[which].container(gap=None):
+                    _strip_item(opt, None, None, which)
+        with st.container(key=f"{STRIP_KEY}_go", width="content"):
+            _foot(opt)
     p.bar = st.empty()
     p.q = {}
-    # Review story: the questions in the order a food scientist asks —
-    # progress first (the payoff), then trust (the profiler leans on the
-    # model), then drivers, then what was tried. Each full width.
+    # Review story: progress first (the payoff), then trust (the profiler
+    # leans on the model), then drivers, then what was tried; review story
+    # 2: then What next?, so the story ends on the action.
     for which in SECTION_ORDER:
         p.q[which] = _section(opt, which)
+    with p.q["next"].answer.container(gap="xsmall"):
+        _next_body(opt, None, None)
+    with p.q["next"].body:
+        with st.container(horizontal=True, vertical_alignment="center", gap="small"):
+            with st.container(width="content"):
+                p.change = st.empty()
+            with st.container(width="content"):
+                p.link = st.empty()
+            with p.link.container():
+                p.why = _why_link(opt)
     # The model-free charts, at once (they need no fit).
     _progress_body(opt, p.q["progress"])
     _tried_section(opt, p.q["tried"])
     if gate:
-        for which in ("predictions", "next"):
+        for which in ("predictions", "drives"):
             with p.q[which].body:
                 st.caption(_say(opt, wording.Q_WAIT))
     return p
+
+
+def strip_line(opt, facts, which, card):
+    """(line, warn) for a strip item: the first warning line when the card
+    has one (warnings are never folded), else its short line — Progress
+    'start → best of 100', Predictions its count without 'Overall score:',
+    Next nothing (its word is the line; What next? holds the rest)."""
+    for text, warn in card.lines:
+        if warn and not (which == "next" and card.tone == "off"):
+            return wording.strip_short(text), True
+    if which == "progress":
+        f = facts.best
+        if f is None:
+            return (card.lines[0][0] if card.lines else ""), False
+        nums = story_numbers(opt)
+        best = wording.score_of(one_decimal(f.score), opt.utility_ceiling())
+        start = one_decimal(nums[0]) if nums is not None and nums[0] != nums[2] else None
+        return _say(opt, wording.strip_progress(start, best)), False
+    if which == "predictions":
+        return (wording.strip_short(card.lines[0][0]) if card.lines else ""), False
+    return "", False
+
+
+def strip_label(card, line, warn):
+    """A strip item's button: '**Flat** 88.4 → 96.4 of 100'; a red word or
+    line ':red[**Check panel first**]'."""
+    word = f":red[**{card.word}**]" if card.tone == "off" else f"**{card.word}**"
+    if line:
+        word += " " + (f":red[**{line}**]" if warn else line)
+    return word
+
+
+def _strip_item(opt, places, facts, which):
+    """One strip item, in its place: the label with the card's "?" (the
+    plain sentence, the Evidence line and the rule), then its word and
+    line as one tertiary button landing on its section (the "See chart ↓"
+    mechanism); a placeholder while its facts are worked out. The button
+    is drawn once per run, with its facts (its key would repeat)."""
+    card = card_for(opt, facts, which)
+    slot = places.item[which].container(gap=None) if places is not None else None
+    with slot if slot is not None else st.container(gap=None):
+        label = _say(opt, _CARD_LABELS[which])
+        if card is None:
+            st.caption(label)
+            st.caption(_say(opt, _PLACEHOLDERS[which]))
+            return
+        st.caption(label, help=card.help)
+        line, warn = strip_line(opt, facts, which, card)
+        question = _say(opt, _QUESTIONS[which])
+        st.button(strip_label(card, line, warn), type="tertiary", key=f"{SEE_CHART_KEY}_{which}",
+                  help=_say(opt, wording.strip_jump_help(question)),
+                  disabled=confirmation_open(), on_click=ask_tab,
+                  args=(wording.TAB_INSIGHTS, SECTION_KEYS[which]))
+
+
+def _next_body(opt, places, facts):
+    """What next?'s word and lines (today's Next card): the big word with
+    its "?", each line, warnings in red. The Set up secondary and the one
+    link sit under it (places.change, places.link); the primary stays in
+    the strip only."""
+    card = card_for(opt, facts, "next")
+    slot = places.q["next"].answer.container(gap="xsmall") if places is not None else None
+    with slot if slot is not None else st.container(gap="xsmall"):
+        if card is None:
+            st.caption(_say(opt, _PLACEHOLDERS["next"]))
+            return
+        word = f":red[{card.word}]" if card.tone == "off" else card.word
+        st.subheader(word, anchor=False, help=card.help)
+        for text, warn in card.lines:
+            st.markdown(f":red[**{text}**]" if warn else text)
 
 
 def _section(opt, which):
@@ -975,13 +1078,6 @@ def _section(opt, which):
         answer = st.empty()
         body = st.container(gap="small")
     return _Slot(answer, body)
-
-
-def see_chart_link(opt, which):
-    """Review four: a card's "See chart ↓", landing on its question."""
-    st.button(_say(opt, wording.SEE_CHART), type="tertiary", key=f"{SEE_CHART_KEY}_{which}",
-              help=_say(opt, wording.SEE_CHART_HELP), disabled=confirmation_open(),
-              on_click=ask_tab, args=(wording.TAB_INSIGHTS, SECTION_KEYS[which]))
 
 
 def _answer(opt, slot, facts, which, text=None, help=None):
@@ -998,8 +1094,12 @@ def _answer(opt, slot, facts, which, text=None, help=None):
     line = wording.answer_line(plain, text)
     if card.tone == "off":
         line = f":red[{line}]"
-    with slot.answer.container():
+    with slot.answer.container(gap="xsmall"):
         st.markdown(line, help=help if help is not None else card.help)
+        # Review story 2: the card's further lines (a Repeat request, a
+        # lacking measurement), warnings in red, under the answer.
+        for extra, warn in card.lines[1:]:
+            st.markdown(f":red[**{extra}**]" if warn else extra)
 
 
 def _land():
@@ -1019,8 +1119,8 @@ def _gate(opt):
         facts = insights.status_facts(opt, ())
     places = _places(opt, gate=True)
     for which in _STATUS_ORDER:
-        with places.card[which].container(gap="xxsmall"):
-            _card_body(opt, facts, which)
+        _strip_item(opt, places, facts, which)
+    _next_body(opt, places, facts)
     _answer(opt, places.q["progress"], facts, "progress")
     _how(opt, None)
 
@@ -1030,8 +1130,8 @@ def _finish(opt, places, facts):
     not drawn, and Q2's answer: everything that waits for the predicted
     best and the expected improvement."""
     for which in _STATUS_ORDER:
-        with places.card[which].container(gap="xxsmall"):
-            _card_body(opt, facts, which)
+        _strip_item(opt, places, facts, which)
+    _next_body(opt, places, facts)
     change = None
     if facts.next is not None:
         checks = checks_for(opt, "trust")
@@ -1074,7 +1174,7 @@ def _fill_in(opt, places):
     places.bar.progress(fraction, text=_say(opt, wording.insights_progress(done, total)))
     # The poller reruns the page when this count moves (C1; 01 F2).
     st.session_state[PROGRESS_SEEN_KEY] = (insights.data_key(opt), done)
-    for which in ("predictions", "next"):
+    for which in ("predictions", "drives"):
         with places.q[which].body:
             st.caption(_say(opt, wording.CHECKING_PREDICTIONS))
     checks = None if waiting(opt, "trust") else _partial_checks(opt, "trust")
@@ -1132,7 +1232,7 @@ _PLACEHOLDERS = {"predictions": wording.CHECKING_PREDICTIONS,
                  "progress": wording.CHECKING_PROGRESS, "next": wording.PREPARING_NEXT_STEP}
 # Review story: Progress first (the payoff), then Predictions; Next last.
 _STATUS_ORDER = ("progress", "predictions", "next")
-SECTION_ORDER = ("progress", "predictions", "next", "tried")
+SECTION_ORDER = ("progress", "predictions", "drives", "tried", "next")
 
 
 def _wide_clause_names(names):
@@ -4023,12 +4123,14 @@ def progress_card(opt, facts):
         tail = wording.card_best_who(f.formulation, tie)
     # Review story: the line goes from the start (the first scored Round's
     # best) to the best, one decimal each, as the improving chart names them.
+    # Review story 2: "of 100" on a 0–100 score, so Flat at 96.4 reads as
+    # near the ceiling, not stuck.
     nums = story_numbers(opt)
+    best = wording.score_of(one_decimal(f.score), opt.utility_ceiling())
     if nums is not None and nums[0] != nums[2]:
-        lines.append((wording.card_progress(one_decimal(nums[0]), one_decimal(f.score), tail),
-                      False))
+        lines.append((wording.card_progress(one_decimal(nums[0]), best, tail), False))
     else:
-        lines.append((wording.card_progress(None, one_decimal(f.score), tail), False))
+        lines.append((wording.card_progress(None, best, tail), False))
     if facts.progress not in ("rising", "within_noise", "flat", "no_new_best") \
             and not one_round(opt):
         without = scored_without(opt, f.round)
@@ -4134,30 +4236,6 @@ def review_status(opt):
     text = wording.review_status_line(pred.word, prog.word,
                                       nxt.word if nxt.tone == "off" else None)
     return _say(opt, text), warn
-
-
-def _card_body(opt, facts, which):
-    """One card's place: the big word (with the "?"), its lines, warnings
-    in their own colour, and the sparkline."""
-    card = card_for(opt, facts, which)
-    if card is None:
-        st.caption(_say(opt, _PLACEHOLDERS[which]))
-        return
-    word = f":red[{card.word}]" if card.tone == "off" else card.word
-    st.subheader(word, anchor=False, help=card.help)
-    for text, warn in card.lines:
-        st.markdown(f":red[**{text}**]" if warn else text)
-    if which != "progress":
-        return              # demo build: the Progress card keeps the one sparkline
-    try:
-        chart = spark_chart(opt, facts, which)
-    except Exception:       # a sparkline failing must not take the card down
-        chart = None
-    if chart is not None:
-        show_chart(chart)
-    else:
-        # Review plots: a withheld trend says why, never an empty space.
-        st.caption(_say(opt, wording.PLOT_SPARK_WAIT))
 
 
 def predictions_spark_frame(opt, checks):
@@ -4897,7 +4975,7 @@ def _progress_body(opt, slot):
     best named; and Closer to target, one row per measurement. Drawn at
     once; the answer line is drawn with the cards."""
     with slot.body:
-        left, right = st.columns(2, gap="medium")
+        left, right = st.columns(IMPROVING_SPLIT, gap="medium")
         with left:
             try:
                 chart = improving_chart(opt)
@@ -5024,7 +5102,11 @@ def _tried_section(opt, slot):
 #  best_index's, the forecasts are the Round-ahead checks.
 # ------------------------------------------------------------------ #
 
-STORY_Q_HEIGHT = 290         # the improving and forecast charts' plot height
+STORY_Q_HEIGHT = 290         # the forecast chart's plot height (less 30)
+# Review story 2: the improving pair fits the first screen at 1280×800,
+# under the strip; Closer to target is drawn as tall, so the two end level.
+IMPROVING_HEIGHT = 250
+IMPROVING_SPLIT = (1.1, 1)   # the best-so-far chart a little wider; Closer to target keeps its labels
 PATH_SHOW_LINES_KEY = "insights_path_lines"
 PATH_COLUMNS = 4             # search path panels per row
 _PATH_PANEL_W = 150
@@ -5138,7 +5220,7 @@ def improving_chart(opt):
         return None
     nums = story_numbers(opt)
     lo, hi = min(values), max(values)
-    top_room = 0.22 * max(hi - lo, 4.0)
+    top_room = 0.34 * max(hi - lo, 4.0)    # review story 2: room for the Best label at 230 px
     y_scale = alt.Scale(domain=[lo - 0.04 * max(hi - lo, 4.0), hi + top_room], nice=False,
                         zero=False)
     y_title = zoomed(wording.PLOT_MEASURED_SCORE, lo, hi, float(opt.utility_ceiling()))
@@ -5210,7 +5292,7 @@ def improving_chart(opt):
     rounds = _round_layer(opt, formulation, list(frame[formulation]), x_scale)
     body = alt.layer(*layers)
     chart = alt.layer(rounds, body).resolve_axis(x="independent") if rounds else body
-    return chart.properties(height=STORY_Q_HEIGHT)
+    return chart.properties(height=IMPROVING_HEIGHT)
 
 
 def target_rows(opt):
@@ -5339,7 +5421,7 @@ def target_chart(opt):
         if (tdf["who"] == "start").any():
             layers += _halo_text(tdf[tdf["who"] == "start"], x, y, "text:N", muted(),
                                  fontSize=10, dy=10, baseline="top")
-    return alt.layer(*layers).properties(height=max(150, 54 * n))
+    return alt.layer(*layers).properties(height=max(IMPROVING_HEIGHT - 70, 45 * n))
 
 
 def _esc(text):
