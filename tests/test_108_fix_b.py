@@ -352,7 +352,7 @@ def test_i1_no_single_incumbent_under_qlognei():
     assert "approximate" in method
     best = next(r for r in W.GLOSSARY_ROWS if r[0] == "Best so far")
     assert "no single incumbent" in best[2]
-    ei = next(r for r in W.GLOSSARY_ROWS if r[0] == "expected improvement")
+    ei = next(r for r in W.GLOSSARY_ROWS if r[0] == "expected gain")   # charts proto: one name
     assert "no single incumbent" in ei[2] and "approximate" in ei[2]
     assert "approximate" in W.EXPECTED_IMPROVEMENT_HELP
 

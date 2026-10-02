@@ -462,8 +462,11 @@ def test_insights_failure_shows_one_line_and_is_not_retried(insights_scored, mon
     at = _open_insights(_app())
     assert not at.exception
     md, caps = _tab_text(at)
-    assert caps.count(wording.INSIGHTS_FAILED) == 1
-    assert any("Best so far:" in m for m in md)       # "Where do you stand?" still shows
+    # Review cards: the failure is a visible error in the Predictions card;
+    # the Progress card keeps Best so far.
+    errors = [e.value for e in at.tabs[3].error]
+    assert (caps + errors).count(wording.INSIGHTS_FAILED) == 1
+    assert any(m.startswith("Best ") for m in md)
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
     at.run()
     assert not at.exception and calls == [1]

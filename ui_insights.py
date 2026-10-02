@@ -4046,7 +4046,7 @@ def explored_link(opt, step):
     # Lands on the fold's keyed place (ftue fix C), so the opened fold's
     # strips are in view, not under the fold line.
     link(_say(opt, wording.explored_link(not opt.has_ingredients())), wording.TAB_INSIGHTS,
-         section=EXPLORED_PLACE, fold=EXPLORED_KEY, key=EXPLORED_LINK_KEY)
+         section=EXPLORED_PLACE, fold=TRIED_KEY, key=EXPLORED_LINK_KEY)
     return True
 
 
@@ -4074,7 +4074,7 @@ def explored_fold(opt, computed):
     being calculated (and at the gate)."""
     # In a keyed place, the Explored link's landing (ftue fix C).
     # Review cards: inside More detail; the links land on What you've tried.
-    with st.expander(_say(opt, wording.FOLD_EXPLORED), key=EXPLORED_MORE_KEY,
+    with st.expander(_say(opt, wording.FOLD_EXPLORED), key=EXPLORED_KEY,
                      on_change="rerun") as fold:
         if not fold.open:
             return
@@ -5483,7 +5483,7 @@ def _glossary(opt):
 
 CARD_KEY = "insights_card"
 MORE_DETAIL_KEY = "insights_more_detail"
-EXPLORED_MORE_KEY = "insights_explored_more"
+TRIED_KEY = "insights_tried"
 _CARD_LABELS = {"predictions": wording.CARD_PREDICTIONS, "progress": wording.CARD_PROGRESS,
                 "next": wording.CARD_NEXT}
 SPARK_HEIGHT = 60
@@ -5761,10 +5761,11 @@ def _hero_body(opt, computed):
 
 def tried_fold(opt):
     """What you've tried (review cards): the gap lines and the parallel
-    coordinates, model-free; keyed EXPLORED_KEY in EXPLORED_PLACE, so the
-    Explored link lands on it; drawn only while open."""
+    coordinates, model-free; keyed TRIED_KEY in EXPLORED_PLACE, where the
+    Explored link lands, opening it; drawn only while open. (EXPLORED_KEY
+    stays Explored and unexplored's, now inside More detail.)"""
     with st.container(key=EXPLORED_PLACE), \
-            st.expander(_say(opt, wording.FOLD_TRIED), key=EXPLORED_KEY,
+            st.expander(_say(opt, wording.FOLD_TRIED), key=TRIED_KEY,
                         on_change="rerun") as fold:
         if not fold.open:
             return
