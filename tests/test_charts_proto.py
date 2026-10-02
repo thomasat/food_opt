@@ -4,6 +4,7 @@ classic figure along one row through Best so far), the triangle, the map.
 Data and spec checks; the fold's order and privacy are in
 test_107_w3_explored."""
 import ast
+import re
 import inspect
 import pathlib
 
@@ -78,8 +79,9 @@ def test_each_axis_spans_lowest_to_highest(name):
     df, ends, labels = U.tried_frame(opt, axes, lines)
     for k, a in enumerate(axes):
         here = ends[ends["axis"] == labels[k]]
-        low = here[here["where"] == "low"]["text"].item()
-        high = here[here["where"] == "high"]["text"].item()
+        # Review plots: an end where most lines sit says how many.
+        low = re.sub(r" \(\d+ of \d+\)$", "", here[here["where"] == "low"]["text"].item())
+        high = re.sub(r" \(\d+ of \d+\)$", "", here[here["where"] == "high"]["text"].item())
         assert low.startswith(U._num(a.low).split(".")[0]) and high.startswith(
             U._num(a.high).split(".")[0])
         if a.unit:
@@ -211,7 +213,8 @@ def test_the_gain_is_bo_views_evaluate_along_the_path(monkeypatch):
     rows = [r for r in _rows(spec, gain_line) if r.get("mark") == "curve"]
     assert [r["x"] for r in rows] == pytest.approx(path.amounts)
     assert [r["gain"] for r in rows] == pytest.approx(want.value.tolist())
-    assert gain_line["encoding"]["y"]["title"] == wording.CHOOSES_GAIN
+    # Review plots: two lines, "zoomed" added when under a point.
+    assert " ".join(gain_line["encoding"]["y"]["title"]).startswith("Expected gain (points")
     top = spec["vconcat"][0]
     band = next(l for l in top["layer"] if _mark(l)["type"] == "area")
     for r, m, s in zip(rows, want.mean.tolist(), want.sd.tolist()):
@@ -261,9 +264,9 @@ def test_markers_and_tested_dots(monkeypatch):
     assert no == U.suggested_numbers(opt)[0] and at is not None
     spec = U.chooses_chart(opt, data).to_dict()
     rules = [m for m in _all_marks(spec) if _mark(m)["type"] == "rule"
-             and _mark(m).get("color") in (U.outline_colour(), U.mark("reference")[0])]
+             and _mark(m).get("color") in (U.outline_colour(), U.mark("bar_latest")[0])]
     xs = {_mark(m)["color"]: _rows(spec, m)[0]["x"] for m in rules}
-    assert xs[U.mark("reference")[0]] == pytest.approx(best[name])
+    assert xs[U.mark("bar_latest")[0]] == pytest.approx(best[name])
     assert xs[U.outline_colour()] == pytest.approx(at)
 
 
@@ -345,8 +348,14 @@ def test_the_map_s_suggestions_are_orange(monkeypatch):
     values = bo_views.map_values(opt, U.layer_model(opt, computed["fitted"]))
     picks = [{"mean": m, "sd": s, "no": str(n)} for n, m, s in values.picks]
     spec = U.explore_map_chart(values.pool_mean, values.pool_sd, [], picks, None, opt).to_dict()
-    diamond = next(l for l in spec["layer"] if _mark(l).get("shape") == "diamond")
-    assert _mark(diamond)["color"] == U.outline_colour()
+    # Review plots: the marks' kinds are encoded, with one legend.
+    shape = next(l["encoding"]["shape"]["scale"] for l in spec["layer"]
+                 if "shape" in l.get("encoding", {}))
+    fill = next(l["encoding"]["fill"]["scale"] for l in spec["layer"]
+                if "fill" in l.get("encoding", {}))
+    k = shape["range"].index("diamond")
+    assert shape["domain"][k] == wording.PLOT_SUGGESTION
+    assert fill["range"][k] == U.outline_colour()
 
 
 def test_trade_offs_holds_the_two_measurement_chart_alone():
@@ -454,8 +463,8 @@ def test_the_line_chart_reads_best_so_far_to_suggestion_1(monkeypatch):
     assert "Textured pea protein" in rows[0]["amount"] and "Water" in rows[0]["amount"]
     rules = {_mark(m)["color"]: _rows(spec, m)[0]["x"] for m in _all_marks(spec)
              if _mark(m)["type"] == "rule" and "x" in _rows(spec, m)[0]
-             and _mark(m).get("color") in (U.outline_colour(), U.mark("reference")[0])}
-    assert rules[U.mark("reference")[0]] == 0.0 and rules[U.outline_colour()] == 1.0
+             and _mark(m).get("color") in (U.outline_colour(), U.mark("bar_latest")[0])}
+    assert rules[U.mark("bar_latest")[0]] == 0.0 and rules[U.outline_colour()] == 1.0
     texts = [r["label"] for m in _all_marks(spec) if _mark(m)["type"] == "text"
              for r in _rows(spec, m) if "label" in r]
     assert wording.CHOOSES_SUGGESTION_ONE in texts and wording.TRIED_BEST in texts
@@ -525,7 +534,7 @@ def test_one_name_for_the_gain_on_screen(monkeypatch):
     data = U.chooses_data(opt, fitted, None, mode=U.CHOOSES_LINE)
     spec = U.chooses_chart(opt, data).to_dict()
     gain_line = next(l for l in spec["vconcat"][1]["layer"] if _mark(l)["type"] == "line")
-    assert gain_line["encoding"]["y"]["title"] == "Expected gain (points)"
+    assert " ".join(gain_line["encoding"]["y"]["title"]).startswith("Expected gain (points")
     assert gain_line["encoding"]["tooltip"][1]["title"] == wording.GAIN_TOOLTIP_TITLE
 
 
@@ -538,6 +547,8 @@ def test_the_band_says_it_is_narrower_than_try_one(monkeypatch):
     band = next(l for l in spec["vconcat"][0]["layer"] if _mark(l)["type"] == "area")
     assert band["encoding"]["fill"]["field"] == "band"
     rows = _rows(spec, band)
-    assert {r["band"] for r in rows} == {wording.CHOOSES_BAND_LEGEND}
+    # Review plots: the legend says what the band is; its tooltip, that it
+    # is narrower than Try one's.
+    assert {r["band"] for r in rows} == {wording.PLOT_BAND}
     assert {r["band_tip"] for r in rows} == {wording.TIP_CHOOSES_BAND}
     assert band["encoding"]["tooltip"][0]["field"] == "band_tip"

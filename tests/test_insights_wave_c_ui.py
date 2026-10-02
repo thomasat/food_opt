@@ -138,7 +138,7 @@ def test_can_you_have_both_opens_on_the_two_largest_shares(insights_scored):
     [box] = more.multiselect
     assert box.label == wording.PAIR_PICK
     assert box.value == ["Firmness", "Juiciness"]          # Share 1.5 before 1.0
-    assert wording.PAIR_CAPTION in [c.value for c in more.caption]    # both have targets
+    assert wording.PAIR_CAPTION in [t for c in more.caption for t in (c.value, c.proto.help)]    # both have targets
     [spec] = _charts(more)
     titles = [layer["encoding"]["x"].get("title") for layer in spec["layer"]
               if "x" in layer.get("encoding", {})]
@@ -151,7 +151,7 @@ def test_one_measurement_picked_asks_for_two(insights_scored):
     _rerun_on(at)
     assert not at.exception
     more = _more(at)
-    assert wording.PICK_TWO in [c.value for c in more.caption]
+    assert wording.PICK_TWO in [t for c in more.caption for t in (c.value, c.proto.help)]
     assert _charts(more) == []
 
 
@@ -216,7 +216,7 @@ def test_a_deleted_measurement_drops_out_of_the_pick(insights_scored):
     assert not at.exception
     more = _more(at)
     assert more.multiselect[0].value == ["Firmness"]
-    assert wording.PICK_TWO in [c.value for c in more.caption]
+    assert wording.PICK_TWO in [t for c in more.caption for t in (c.value, c.proto.help)]
 
 
 def test_a_failed_chart_is_one_line_and_the_tab_stands(insights_scored, monkeypatch):
@@ -279,8 +279,8 @@ def test_pair_chart_colours_by_score_and_draws_waiting_rows_hollow(tmp_path, mon
     [dots] = _layers(spec, "circle")
     colour = dots["encoding"]["color"]
     assert colour["field"] == "score"
-    assert colour["scale"]["domain"] == [0, opt.utility_ceiling()]
-    assert colour["scale"]["scheme"] == {"name": "blues", "extent": [0.55, 1]}  # M-10: 3:1 on white
+    # Review plots: the measured score's ramp, as What you've tried.
+    assert colour["scale"]["range"] == ui_insights.score_colours()
     hollow = [l for l in _layers(spec, "point") if l["mark"].get("filled") is False
               and l["mark"].get("color") == ui_insights.mark("neutral")[0]  # D1 token (integration)
               and l["mark"].get("size") == 60]
@@ -322,7 +322,7 @@ def test_no_formulation_has_both_values_says_so(insights_scored):
     _rerun_on(at)
     assert not at.exception
     more = _more(at)
-    assert wording.PAIR_NONE in [c.value for c in more.caption]
+    assert wording.PAIR_NONE in [t for c in more.caption for t in (c.value, c.proto.help)]
     assert _charts(more) == []
 
 
@@ -385,7 +385,7 @@ def test_the_triangle_heading_picks_and_caption(mixture_scored):
     assert three.options == ["Pea protein", "Oil", "Starch", "Water"]
     assert len(three.value) == 3
     best_no = mixture_scored.best_formulation_no()
-    assert wording.mixture_caption(best_no) in [c.value for c in more.caption]
+    assert wording.mixture_caption(best_no) in [t for c in more.caption for t in (c.value, c.proto.help)]
     [tri] = _triangles(more)
     assert max(tri["width"], tri["height"]) == ui_insights._MIX_SIZE
 
@@ -423,7 +423,7 @@ def test_two_picked_asks_for_three(mixture_scored):
     _rerun_on(at)
     assert not at.exception
     more = _more(at)
-    assert wording.PICK_THREE in [c.value for c in more.caption]
+    assert wording.PICK_THREE in [t for c in more.caption for t in (c.value, c.proto.help)]
     assert _triangles(more) == []
 
 
@@ -431,7 +431,7 @@ def test_the_triangle_starts_from_section_2s_choice(mixture_scored):
     at = _open_insights(_app())
     at.tabs[3].selectbox(key=ui_insights.START_KEY).set_value(4)
     _rerun_on(at)
-    assert wording.mixture_caption(4) in [c.value for c in _more(at).caption]
+    assert wording.mixture_caption(4) in [t for c in _more(at).caption for t in (c.value, c.proto.help)]
 
 
 def _full_slices(monkeypatch):
@@ -473,8 +473,8 @@ def test_a_failed_triangle_is_one_line_and_not_retried(mixture_scored, monkeypat
     at = _open_insights(_app())
     assert not at.exception
     more = _more(at)
-    assert wording.panel_failed(wording.OVERALL_SCORE_COLUMN) in [c.value for c in more.caption]
-    assert wording.pair_caption(["Firmness"]) in [c.value for c in more.caption]  # the others still draw
+    assert wording.panel_failed(wording.OVERALL_SCORE_COLUMN) in [t for c in more.caption for t in (c.value, c.proto.help)]
+    assert wording.pair_caption(["Firmness"]) in [t for c in more.caption for t in (c.value, c.proto.help)]  # the others still draw
     _rerun_on(at)
     assert calls == [1]
 
@@ -493,7 +493,7 @@ def test_no_room_is_one_line(mixture_scored, monkeypatch):
     at = _open_insights(_app())
     more = _more(at)
     best_no = mixture_scored.best_formulation_no()
-    assert wording.mixture_no_room(best_no) in [c.value for c in more.caption]
+    assert wording.mixture_no_room(best_no) in [t for c in more.caption for t in (c.value, c.proto.help)]
     assert _triangles(more) == []
 
 
@@ -521,7 +521,7 @@ def test_calculation_and_fill_lines_under_the_caption(mixture_scored):
          if b.label == wording.MIXTURE_PICK).set_value(["Pea protein", "Oil", "Starch"])
     _rerun_on(at)
     assert not at.exception
-    caps = [c.value for c in _more(at).caption]
+    caps = [t for c in _more(at).caption for t in (c.value, c.proto.help) if t]
     i = caps.index(wording.mixture_caption(opt.best_formulation_no()))
     assert caps[i + 1:i + 3] == [wording.path_follows("Hydration"), wording.mixture_fills("Water")]
 
@@ -908,7 +908,7 @@ def test_more_charts_reads_trial_on_a_process_only_project(ferment_scored):
     assert not [t for t in said if "ngredient" in t], [t for t in said if "ngredient" in t]
     md = [m.value for m in more.markdown]
     assert md == [f"##### {wording.Q_PAIR}"]
-    caps = [c.value for c in more.caption]
+    caps = [t for c in more.caption for t in (c.value, c.proto.help) if t]
     assert ("Measured values, one dot per trial; the line marks Acidity's target, and the "
             "other axis title gives the better direction.") in caps
     [pair] = _charts(more)
@@ -919,7 +919,7 @@ def test_more_charts_reads_trial_on_a_process_only_project(ferment_scored):
 def test_no_trial_has_both_values_reads_trial(ferment_scored, monkeypatch):
     monkeypatch.setattr(insights, "pair_points", lambda opt, a, b: [])
     at = _open_insights(_app())
-    assert "No trial has a value for both yet." in [c.value for c in _more(at).caption]
+    assert "No trial has a value for both yet." in [t for c in _more(at).caption for t in (c.value, c.proto.help)]
 
 
 def test_the_triangle_lines_go_through_the_projects_own_words(mixture_scored, monkeypatch):

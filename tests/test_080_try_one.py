@@ -122,12 +122,13 @@ def test_compare_all_draws_the_tested_near_change(insights_scored, monkeypatch):
     _changes(monkeypatch, ("Methylcellulose", 1.4, 1.5), ("Pea protein", 0.3, 9.0))
     at = _open_insights(_app())
     compare = next(e for e in at.tabs[3].expander if e.label == wording.compare_all(False))
-    assert [c.value for c in compare.caption] == [wording.change_caption()]
+    assert [(c.value, c.proto.help) for c in compare.caption] == [
+        (wording.PLOT_CAPTION_CHANGE, wording.change_caption())]
 
 
 def test_the_path_has_two_captions(insights_scored):
     at = _open_insights(_app())
-    caps = [c.value for c in _fold(at).caption]
+    caps = [t for c in _fold(at).caption for t in (c.value, c.proto.help) if t]
     opt = FoodOptimizer("burger")
     name = at.tabs[3].selectbox(key=ui_insights.CHOICE_KEY).value
     best = opt.best_formulation_no()
@@ -157,7 +158,7 @@ def test_the_limits_held_in_place_are_named_under_the_line(insights_scored, monk
     at = _open_insights(_app())
     fold = _fold(at)
     assert _said(fold)[0] == wording.near_line("Pea protein", "1.4", "Best so far", only=True)
-    assert wording.held_line("Best so far", ["Methylcellulose"]) in [c.value for c in fold.caption]
+    assert wording.held_line("Best so far", ["Methylcellulose"]) in [t for c in fold.caption for t in (c.value, c.proto.help)]
     # One choice: nothing to compare.
     assert wording.compare_all(False) not in [e.label for e in at.tabs[3].expander]
 
@@ -212,9 +213,10 @@ def test_a_process_only_project_names_the_setting_and_its_values(warm_ferment, m
     compare = next(e for e in at.tabs[3].expander
                    if e.label == wording.for_project(warm_ferment, wording.compare_all(True, False)))
     assert compare.label == "Compare all process settings"
-    assert [c.value for c in compare.caption] == [
-        wording.for_project(warm_ferment, wording.change_caption(True))]
-    assert "untested values" in compare.caption[0].value
+    assert [(c.value, c.proto.help) for c in compare.caption] == [
+        (wording.PLOT_CAPTION_CHANGE,
+         wording.for_project(warm_ferment, wording.change_caption(True)))]
+    assert "untested values" in compare.caption[0].proto.help
 
 
 def test_a_process_only_project_with_every_setting_held(warm_ferment, monkeypatch):

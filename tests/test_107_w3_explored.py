@@ -518,7 +518,7 @@ def test_the_map_tooltip_and_tested_rings():
     spec = ui_insights.explore_map_chart(values.pool_mean, values.pool_sd, tested, [], 90.0,
                                          opt).to_dict()
     _assert_tooltips_clean(spec)
-    rings = next(l for l in spec["layer"] if _mark(l).get("filled") is False)
+    rings = next(l for l in spec["layer"] if "no" in str(l.get("encoding", {}).get("tooltip")))
     assert [r["no"] for r in _rows(spec, rings)] == values.tested
 
 

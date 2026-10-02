@@ -62,7 +62,8 @@ def test_compare_all_ranks_by_the_chosen_measurement(insights_scored, monkeypatc
     _rerun_on(at, wording.TAB_INSIGHTS)
     changes, (axis, d) = drawn[-1]
     assert axis == "Effect on predicted Firmness (N)" and d == 1
-    caps = [c.value for c in at.tabs[3].caption]
+    # Review plots: the full reading is the short caption's "?".
+    caps = [c.proto.help for c in at.tabs[3].caption]
     assert wording.change_caption(measure="Firmness") in caps
 
 

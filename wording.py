@@ -8052,3 +8052,113 @@ def review_status_warn(line):
 REVIEW_STATUS_CHECKING = f"Last {ROUND_CAP}: {CHECKING_PREDICTIONS}"
 REVIEW_STATUS_HELP = (f"The {TAB_INSIGHTS} cards in brief. Predictions: can you trust them? "
                       "Progress: is Best so far still rising?")
+
+
+# --- review plots ---
+# The plot review (2026-10-02, owner: "I want to make sure the plots are all
+# interpretable"): every chart carries its own title (a plain question or
+# statement, at most 6 words), a legend for each colour, shape and band, a
+# "how to read" caption of at most 8 words (the full reading in its "?"),
+# and a "BO term" line in its tooltip naming the exact quantity drawn.
+PLOT_SPARK_IN_RANGE = f"In range, by {ROUND_CAP}"
+PLOT_SPARK_BEST = f"Best so far, by {ROUND_CAP}"
+PLOT_SPARK_TARGET = "95 % aim"
+PLOT_SPARK_WAIT = f"Trend appears after 2 {ROUND_CAP}s."
+PLOT_TRIED = "Which amounts have you tried?"
+PLOT_TRIED_SETTINGS = "Which settings have you tried?"
+PLOT_PROGRESS = "Is the score still rising?"
+PLOT_GAIN = "Is there much left to gain?"
+PLOT_MVP = "Were the predictions right?"
+PLOT_CHOOSES = "Where does the app look next?"
+PLOT_TRIANGLE = "Which mix of three scores best?"
+PLOT_MAP = f"Which {FORMULATION}s are worth trying?"
+PLOT_CHANGE = "Which change matters most?"
+PLOT_PATH = "What if you change just one?"
+PLOT_PAIR = "Can you have both?"
+# Note added to a value axis drawn over a small part of its Range.
+PLOT_ZOOMED = "zoomed"
+# Axis titles, with units.
+PLOT_SCORE_AXIS = "Predicted score (of 100)"
+PLOT_GAIN_AXIS = "Expected gain (points)"
+PLOT_MEASURED_SCORE = "Overall score (of 100)"
+# Legend entries.
+PLOT_BAND = "Likely range of the mean, 95 %"
+PLOT_INTERVAL = "Likely range of a result, 95 %"
+PLOT_MEAN = "Predicted (model mean)"
+PLOT_UNTESTED = "Not tested near here"
+PLOT_TESTED = f"Tested {FORMULATION}"
+PLOT_TESTED_NEAR = "Tested near this line"
+PLOT_ALLOWED = f"Allowed {FORMULATION} (sample)"
+PLOT_SUGGESTION = f"This {ROUND_CAP}'s suggestion"
+PLOT_START = "Start"
+PLOT_TARGET = "Target"
+PLOT_SCORE_EACH = f"Each {FORMULATION}'s score"
+PLOT_INSIDE = "Inside its 95 % range"
+PLOT_OUTSIDE = "Outside its 95 % range"
+PLOT_LATEST = f"Latest {ROUND_CAP}"
+PLOT_EARLIER = f"Earlier {ROUND_CAP}s"
+PLOT_EXACT = "Measured = predicted"
+PLOT_NEAR = "Near tested amounts"
+PLOT_WHOLE = "Whole allowed stretch"
+# The tooltip's expert row title, and its lines.
+PLOT_BO = "BO term"
+PLOT_BO_MODEL_FREE = "model-free: the measured values"
+PLOT_BO_COVERAGE = ("share of Round-ahead values inside their 95 % posterior predictive "
+                    "intervals")
+PLOT_BO_BEST = "incumbent: highest measured Overall score so far"
+
+
+def plot_bo_curve(mean, sd, gain=None):
+    """The hero's and How the app chooses' expert line at one point."""
+    text = f"GP posterior mean {mean:.2f}, sd {sd:.2f} (latent, no noise)"
+    return text if gain is None else f"{text}; expected gain = qLogNEI value {gain:.3f}"
+
+
+def plot_bo_interval(mean, low, high):
+    return (f"posterior mean {mean:.2f}; 95 % posterior predictive interval "
+            f"{low:.2f} to {high:.2f}, calibrated")
+
+
+def plot_bo_map(mean, sd):
+    return f"GP posterior mean {mean:.2f}, latent sd {sd:.2f}"
+
+
+PLOT_BO_GAIN = "qLogNEI value of the Round's first suggestion (exp of the log value)"
+PLOT_BO_HIGHEST = "maximum of the GP posterior mean over the allowed region"
+PLOT_BO_CHANGE = "range of the GP posterior mean along a one-factor trace"
+PLOT_BO_TRIANGLE = "GP posterior mean on a simplex slice, other inputs fixed"
+PLOT_BO_ROUND_AHEAD = "rolling-origin posterior predictive mean and 95 % interval"
+# Captions under the charts: at most 8 words each.
+PLOT_CAPTION_PROGRESS = "Flat line: no higher score yet."
+PLOT_CAPTION_GAIN = "Bars near zero: little left to gain."
+PLOT_CAPTION_MVP = "Near the diagonal: predicted well."
+PLOT_CAPTION_CHANGE = "Longer bar: bigger predicted effect."
+PLOT_CAPTION_PATH = "Wider band: less certain."
+PLOT_CAPTION_MAP = "Up: less known. Right: better predicted."
+PLOT_CAPTION_PAIR = "Dots near both dashed lines hit both."
+PLOT_CAPTION_PAIR_NONE = "Axis titles say which way is better."
+
+
+def plot_caption_triangle(layer=None):
+    if layer == LAYER_SD:
+        return "Darker: the model is less sure."
+    if layer == LAYER_GAIN:
+        return "Darker: more expected gain."
+    return "Darker: higher predicted score."
+
+
+# Withheld, at most 10 words.
+PLOT_GAIN_WITHHELD = "Expected gain chart hidden: predictions not yet reliable."
+PLOT_TOO_FEW_LINES = f"Lines appear once a {FORMULATION} is recorded."
+
+
+def path_head_at_limit(name, end, amount_text):
+    """Try one's first caption when the start already sits at a limit (the
+    yogurt pilot: water at its 42 g Highest read "More Tap water")."""
+    other = "less" if end == "Highest" else "more"
+    return f"{name} is at its {end} ({amount_text}); the line shows {other}"
+
+
+def plot_at_end(amount_text, n, total):
+    """What you've tried: an axis end where most lines sit."""
+    return f"{amount_text} ({n} of {total})"

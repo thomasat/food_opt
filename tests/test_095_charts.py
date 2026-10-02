@@ -132,8 +132,10 @@ def test_the_uncertainty_layer_goes_through_the_first_suggestion():
               and "scheme" in l["encoding"]["color"].get("scale", {})
               and l["encoding"]["color"]["title"] != wording.OVERALL_SCORE_COLUMN]
     assert titles == [wording.LAYER_SD_LEGEND]
-    caps = [c.value for c in more.caption]
-    assert wording.layer_caption(wording.LAYER_SD, wording.start_suggested(first)) in caps
+    # Review plots: a short reading under the chart, the full one in its "?".
+    caps = {c.value: c.proto.help for c in more.caption}
+    assert caps[wording.plot_caption_triangle(wording.LAYER_SD)] == wording.layer_caption(
+        wording.LAYER_SD, wording.start_suggested(first))
     # The score layer's start is Best so far (T56 I6: was vacuous).
     assert ui_insights._start_number(opt) == int(opt.formulation_ids[opt.best_index()])
 
@@ -298,9 +300,11 @@ def test_the_fold_shows_the_expected_improvement_by_round():
     fold = _progress(at)
     specs = _specs(fold)
     assert len(specs) == 2                           # Best so far, then by Round
-    assert any(m.value.endswith(wording.GAIN_HEADING) or wording.GAIN_HEADING in m.value
-               for m in fold.markdown)
-    assert wording.GAIN_CHART_CAPTION in [c.value for c in fold.caption]
+    # Review plots: the chart carries its own title; the short caption's
+    # "?" holds the full reading.
+    assert specs[1]["title"]["text"] == wording.PLOT_GAIN
+    caps = {c.value: c.proto.help for c in fold.caption}
+    assert caps[wording.PLOT_CAPTION_GAIN] == wording.GAIN_CHART_CAPTION
     bars = [l for l in _all_layers(specs[1]) if l.get("mark", {}).get("type") == "bar"
             or l.get("mark") == "bar"]
     assert bars
@@ -318,7 +322,9 @@ def test_under_the_guard_the_fold_keeps_best_so_far_only(monkeypatch):
     fold = _progress(at)
     assert len(_specs(fold)) == 1
     assert not any(wording.GAIN_HEADING in m.value for m in fold.markdown)
-    assert wording.GAIN_CHART_CAPTION not in [c.value for c in fold.caption]
+    assert wording.PLOT_CAPTION_GAIN not in [c.value for c in fold.caption]
+    # Review plots: the withheld chart says why.
+    assert wording.PLOT_GAIN_WITHHELD in [c.value for c in fold.caption]
 
 
 def test_the_two_panels_share_one_round_axis():
