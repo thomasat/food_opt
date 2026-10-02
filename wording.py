@@ -4359,16 +4359,27 @@ def beat_by(sd_text=None, assumed=False, pairs=0, left_out=0, df=None):
 
 # The header (§2.1): scored formulations, the Round, the waiting ones. The
 # likely range is defined where it is first used, in the verdict.
-def insights_header_line(n, last_round, waiting=0, names_text=""):
-    """'Based on 24 scored formulations, up to Round 6. 1 is waiting for
-    Cook loss.'; with none scored yet, '3 formulations are waiting for Cook
-    loss.'"""
+# Fix round B (five-second re-test): the header names the waiting
+# formulations up to this many; more are counted.
+HEADER_NAMES_WAITING = 3
+
+
+def insights_header_line(n, last_round, waiting=0, names_text="", numbers=None):
+    """'Based on 24 scored formulations, up to Round 6. Formulation 25 is
+    waiting for Cook loss and is not used yet.'; with none scored yet,
+    'Formulations 1–3 are waiting for Cook loss.' `numbers`: the waiting
+    formulations' numbers, named when there are at most
+    HEADER_NAMES_WAITING of them (fix round B: "1 more is waiting" did not
+    say which); otherwise, or without them, counted."""
     verb = "is" if waiting == 1 else "are"
+    named = (formulations_span(numbers)
+             if numbers and len(numbers) == waiting <= HEADER_NAMES_WAITING else None)
     if n == 0 and waiting:
-        return (f"{waiting} {FORMULATION}{'s' if waiting != 1 else ''} {verb} "
-                f"{waiting_for(names_text)}.")
+        who = named or f"{waiting} {FORMULATION}{'s' if waiting != 1 else ''}"
+        return f"{who} {verb} {waiting_for(names_text)}."
     tail = "" if last_round is None else f", up to {ROUND_CAP} {last_round}"
-    wait = (f" {waiting} more {verb} {waiting_for(names_text)} and {verb} not used yet."
+    who = named or f"{waiting} more"
+    wait = (f" {who} {verb} {waiting_for(names_text)} and {verb} not used yet."
             if waiting else "")
     return (f"Based on {n} scored {FORMULATION}{'s' if n != 1 else ''} (all results in)"
             f"{tail}.{wait}")
@@ -4481,7 +4492,7 @@ def score_gap_line(inside, total, gap, beyond="", n=None, rounds=None):
     if not beyond:
         return f"{head} {signed(gap)} points (measured minus predicted)."
     return (f"{head} {signed(gap)} points (n = {total if n is None else n}). This exceeds "
-            f"{beyond} and 2 standard errors: Overall-score {bias_fact(size, gap < 0)}.")
+            f"{beyond} and 2 standard errors: Overall {bias_fact(size, gap < 0)}.")
 
 
 def repeat_disagrees(later, earlier, diff_text, lower=True, half_text=None):
@@ -4633,11 +4644,14 @@ def _in_rounds(rounds):
 
 
 def bias_fact(gap_text, below=True):
-    """'predictions have run about 4.3 points high': the Overall score's
-    steady bias as a fact, with no reading clause, the one form Next step
-    and Make a round's track line use, as Insights' steady_bias_line does
-    (polish round: it was said three ways)."""
-    return f"predictions have run about {points_text(gap_text)} {'high' if below else 'low'}"
+    """'scores have come in about 4.3 points below the predictions': the
+    Overall score's steady bias as a fact, with no reading clause, the one
+    form the Predictions line, Next step and Make a round's track line use,
+    as Insights' steady_bias_line does (polish round: it was said three
+    ways; fix round B, five-second re-test: "run high" was read as "high =
+    good", so the direction is said in terms of the scores)."""
+    side = "below" if below else "above"
+    return f"scores have come in about {points_text(gap_text)} {side} the predictions"
 
 
 def next_bias(gap_text, below=True, rounds=None):
@@ -4646,7 +4660,7 @@ def next_bias(gap_text, below=True, rounds=None):
     bias holds. `below`: results came in below prediction, so predictions
     ran high. `rounds`: every Round checked."""
     where = f" ({rounds_span(rounds)})" if rounds else ""
-    return f"Overall-score {bias_fact(gap_text, below)}{where}."
+    return f"Overall {bias_fact(gap_text, below)}{where}."
 
 
 def next_misses(rounds=None, bias_text=""):
@@ -5121,7 +5135,7 @@ def round_track_holding(inside, total, see_insights=False, rounds=None):
 def round_track_bias(inside, total, gap_text, below=True, see_insights=False, rounds=None):
     """The same line when the record holds but is a bias, as one fact
     (polish round: bias_fact, no reading clause)."""
-    line = f"{_track_head(inside, total, rounds)}; Overall-score {bias_fact(gap_text, below)}"
+    line = f"{_track_head(inside, total, rounds)}; Overall {bias_fact(gap_text, below)}"
     return f"{line}{_MEASURED_MORE if see_insights else ''}."
 
 
@@ -5131,7 +5145,7 @@ def round_track_rough(inside, total, gap_text=None, below=True, see_insights=Fal
     mean error when it is a bias, else the misses the 95 % rule allows."""
     line = _track_head(inside, total, rounds)
     if gap_text is not None:
-        line += f"; Overall-score {bias_fact(gap_text, below)}. More misses than expected"
+        line += f"; Overall {bias_fact(gap_text, below)}. More misses than expected"
         if see_insights:
             # Said once (final review M-4: "More misses than expected;
             # measured values: many more misses than expected").
@@ -5616,16 +5630,18 @@ def bias_item(name, size_text, unit="points"):
 
 
 def steady_bias_line(high=(), low=(), rounds=None):
-    """'Predictions have run high: Overall score by about 4.3 points,
-    Firmness by about 3.0 N (Rounds 3–7).' `high`, `low`: bias_item texts;
-    `rounds`: every Round checked."""
+    """'Results have come in below the predictions: Overall score by about
+    4.3 points, Firmness by about 3.0 N (Rounds 3–7).' `high`, `low`:
+    bias_item texts of the outputs whose predictions ran high (results
+    below) and low (results above); `rounds`: every Round checked. Fix
+    round B: the bias in terms of the results, as bias_fact says it."""
     parts = []
     if high:
-        parts.append("high: " + ", ".join(high))
+        parts.append("below the predictions: " + ", ".join(high))
     if low:
-        parts.append("low: " + ", ".join(low))
+        parts.append(("above them: " if high else "above the predictions: ") + ", ".join(low))
     where = f" ({rounds_span(rounds)})" if rounds else ""
-    return f"Predictions have run {'; '.join(parts)}{where}."
+    return f"Results have come in {'; '.join(parts)}{where}."
 
 
 # Method and details' two new columns (review B1, B2): the mean error over
@@ -5911,7 +5927,7 @@ PRED_OFF_REPEAT = ("A Repeat came out far from its original (see Next), so the c
 def pred_off_coverage(rounds, outside, total, allowed, bias_text=None):
     """Row 2, the unreliable verdict: 'In Rounds 3–5, 10 of 36 results fell
     outside the range the app predicted, where up to 4 are normal, and
-    predictions have run about 5.5 points high.' `bias_text`: bias_fact's
+    scores have come in about 5.5 points below the predictions.' `bias_text`: bias_fact's
     words when the Overall score has a steady bias."""
     line = (f"{_rounds_in(rounds)}, {outside} of {total} results fell outside the range the app "
             f"predicted, {_where_normal(allowed)}")
@@ -5960,27 +5976,39 @@ PRED_WIDE = pred_wide()
 
 
 def _score_bias(bias):
-    """" and have run about 4.3 points high": the Overall score's steady
-    bias joined to the Score predictions sentence (Line C). `bias`:
-    (gap_text, below)."""
+    """", and scores have come in about 4.3 points below the predictions":
+    the Overall score's steady bias joined to the Score predictions
+    sentence (Line C). `bias`: (gap_text, below)."""
     if not bias:
         return ""
-    gap_text, below = bias
-    return f" and have run about {points_text(gap_text)} {'high' if below else 'low'}"
+    return f", and {bias_fact(*bias)}"
 
 
-def pred_no_skill(bias=None, clauses=()):
-    """Row 7, skill at or below the cut: 'Score predictions do no better
-    than the average of earlier results and have run about 4.3 points high;
-    those for Firmness, Juiciness and Cook loss are still very uncertain.'"""
-    return _sentence("Score predictions do no better than the average of earlier results"
+def _against_average(skill_text=None):
+    """The baseline skill is measured against, said plainly (fix round B,
+    five-second re-test: "the average of earlier results" read as "our
+    scores beat the average"), with the skill and its meaning when known
+    (the deciding number had none on the first screen)."""
+    line = "simply using the average of earlier scores"
+    if skill_text:
+        line += f" (skill {skill_text}, where 0 matches that average and 1 is exact)"
+    return line
+
+
+def pred_no_skill(bias=None, clauses=(), skill_text=None):
+    """Row 7, skill at or below the cut (Line C): 'Score predictions do no
+    better than simply using the average of earlier scores (skill −0.47,
+    where 0 matches that average and 1 is exact), and scores have come in
+    about 4.3 points below the predictions; those for Firmness, Juiciness
+    and Cook loss are still very uncertain.'"""
+    return _sentence(f"Score predictions do no better than {_against_average(skill_text)}"
                      + _score_bias(bias), clauses)
 
 
-def pred_unclear(bias=None, clauses=()):
+def pred_unclear(bias=None, clauses=(), skill_text=None):
     """Row 8, skill between the cut and 0.20 (review B1: not "no better")."""
-    return _sentence("Score predictions are not yet clearly better than the average of earlier "
-                     "results" + _score_bias(bias), clauses)
+    return _sentence("Score predictions are not yet clearly better than "
+                     f"{_against_average(skill_text)}" + _score_bias(bias), clauses)
 
 
 def pred_reliable(rounds, inside, total, allowed, clauses=()):
@@ -5994,17 +6022,32 @@ def pred_reliable(rounds, inside, total, allowed, clauses=()):
 
 
 # The clauses rows 4–9 append, in this order (R-B1, R-I11).
-def clause_wide(names):
+def clause_wide(names, cause=False, most=None):
     """Some outputs' 95 % intervals wide, not all: names as said, the
-    Overall score as "the Overall score"."""
-    return f"; those for {_and_join(names)} are still very uncertain"
+    Overall score as "the Overall score". `cause` (fix round B, five-second
+    re-test: "still very uncertain" named no cause): their models' own
+    uncertainty was too small for how far results scatter (the
+    calibration factor, ui_insights.wide_cause), said with `most`, the
+    output it is clearly largest for."""
+    line = f"; those for {_and_join(names)} are still very uncertain"
+    if cause:
+        line += (f", because results vary more from one {FORMULATION} to the next than the app "
+                 "can explain")
+        if most:
+            line += f", most for {most}"
+    return line
+
+
+# Fix round B: said after the Predictions sentence when the wide clause
+# names its cause; conditional, as Next's Repeat row is.
+CHECK_SCATTER = "If the panel or method is new, check how consistently it measures."
 
 
 CLAUSE_OVER_WIDE = "; the predicted range was wider than it needed to be"
 
 
 def clause_bias(gap_text, below=True):
-    """'; predictions have run about 4.3 points high' (bias_fact): the
+    """'; scores have come in about 4.3 points below the predictions' (bias_fact): the
     Overall score's steady bias only; other outputs' stay in the figures."""
     return f"; {bias_fact(gap_text, below)}"
 
@@ -6025,10 +6068,52 @@ def vary_threshold(sd_text=None):
     return "the 1 point results are assumed to vary until 3 Repeats measure it"
 
 
-def _best_is(score_text, ceiling, no, rnd=None):
-    """'Best so far is 90.09 of 100 (Formulation 11, Round 3)'."""
+def _tied_with(near_no, after_round=True):
+    """'; tied with Formulation 18' (after a Round) or ', tied with
+    Formulation 20': a runner-up within the noise threshold (fix round B,
+    walkthrough ruling: Progress names ties)."""
+    if near_no is None:
+        return ""
+    return f"{'; ' if after_round else ', '}tied with {FORMULATION_CAP} {near_no}"
+
+
+def _best_is(score_text, ceiling, no, rnd=None, near_no=None):
+    """'Best so far is 90.09 of 100 (Formulation 11, Round 3; tied with
+    Formulation 10)'."""
     where = f"{FORMULATION_CAP} {no}" + (f", {ROUND_CAP} {rnd}" if rnd is not None else "")
+    where += _tied_with(near_no, rnd is not None)
     return f"Best so far is {_out_of(score_text, ceiling)} ({where})"
+
+
+# Fix round B (walkthrough ruling): No new best or Flat, with neither the
+# predicted gain nor the expected improvement beyond the noise threshold.
+LITTLE_MORE = "The app expects little more inside your current limits"
+_LIMIT_ITEM = "your limit "
+
+
+def binding_plain(kind, name, text=None, values=False):
+    """One limit the best prediction sits at, plainly: 'the most Pea',
+    'the least Beet juice powder', 'the highest Proof time' (a process
+    setting), 'your limit Fat: at most 20 g'."""
+    if kind == "limit":
+        return f"{_LIMIT_ITEM}{text or name}"
+    if values:
+        return f"the {'highest' if kind == 'highest' else 'lowest'} {name}"
+    return f"the {'most' if kind == 'highest' else 'least'} {name}"
+
+
+def _little_more(little):
+    """' The app expects little more inside your current limits; the best
+    it predicts sits at the most Pea allowed.' `little`: binding_plain
+    items (empty: nothing binds); None: not said."""
+    if little is None:
+        return ""
+    if not little:
+        return f" {LITTLE_MORE}."
+    bounds = [b for b in little if not b.startswith(_LIMIT_ITEM)]
+    limits = [b for b in little if b.startswith(_LIMIT_ITEM)]
+    where = [f"{_and_join(bounds)} allowed"] if bounds else []
+    return f" {LITTLE_MORE}; the best it predicts sits at {_and_join(where + limits)}."
 
 
 def progress_tied(best_no, other_no, score_text, ceiling):
@@ -6047,32 +6132,48 @@ def progress_one_round(values=False, cold=True):
 
 
 def progress_too_early(score_text, ceiling, no, rnd=None, one_round=False, values=False,
-                       cold=True, tie_no=None):
+                       cold=True, tie_no=None, near_no=None, without=None):
     """Too early (improvement() None: one Round, or no earlier candidate).
     Snack bar: 'One Round so far, laid out to cover your allowed amounts.
-    Formulations 1 and 3 are tied for best at 96.00 of 100.' Upgrade:
-    'Best so far is 90.50 of 100 (Formulation 6, Round 3); no earlier scored
-    formulation to compare it with.'"""
+    Formulations 1 and 3 are tied for best at 96.00 of 100.' Upgrade (fix
+    round B, five-second re-test: "no earlier scored formulation" beside
+    "7 scored" read as a contradiction): 'Best so far is 90.50 of 100
+    (Formulation 6, Round 3). Rounds 1–2 were scored without Cook loss, so
+    they are not compared with it.' `without`: (the Rounds of the earlier
+    scored formulations, the measurements they lack), when every earlier
+    one is left out of Best so far for a missing measurement."""
     if tie_no is not None:
         best = progress_tied(no, tie_no, score_text, ceiling)
     elif one_round:
-        best = f"{_best_is(score_text, ceiling, no, rnd)}."
+        best = f"{_best_is(score_text, ceiling, no, rnd, near_no)}."
+    elif without:
+        rounds, names = without
+        one = len(rounds) == 1
+        best = (f"{_best_is(score_text, ceiling, no, rnd, near_no)}. {rounds_span(rounds)} "
+                f"{'was' if one else 'were'} scored without {names}, so "
+                f"{'it is' if one else 'they are'} not compared with it.")
     else:
-        best = (f"{_best_is(score_text, ceiling, no, rnd)}; no earlier scored {FORMULATION} to "
-                "compare it with.")
+        best = (f"{_best_is(score_text, ceiling, no, rnd, near_no)}; no earlier scored "
+                f"{FORMULATION} to compare it with.")
     if one_round:
         return f"{progress_one_round(values, cold)} {best}"
     return best
 
 
-def progress_no_new_best(last_round, score_text, ceiling, no, rnd, tie_no=None):
-    """No new best (one Round since): 'Round 5 did not beat Best so far,
-    90.45 of 100 (Formulation 15, Round 4).'"""
+def progress_no_new_best(last_round, score_text, ceiling, no, rnd, tie_no=None, near_no=None,
+                         little=None):
+    """No new best (one Round since), Line A: 'Round 5 did not beat Best so
+    far, 90.45 of 100 (Formulation 15, Round 4; tied with Formulation 18).
+    The app expects little more inside your current limits; the best it
+    predicts sits at the most Textured pea protein and the least Beet juice
+    powder allowed.' `near_no`: a runner-up within the noise threshold;
+    `little`: _little_more's items, None when not said."""
     if tie_no is not None:
         return (f"{ROUND_CAP} {last_round} did not beat Best so far: "
-                f"{progress_tied(no, tie_no, score_text, ceiling)}")
+                f"{progress_tied(no, tie_no, score_text, ceiling)}{_little_more(little)}")
+    where = f"{FORMULATION_CAP} {no}, {ROUND_CAP} {rnd}{_tied_with(near_no)}"
     return (f"{ROUND_CAP} {last_round} did not beat Best so far, "
-            f"{_out_of(score_text, ceiling)} ({FORMULATION_CAP} {no}, {ROUND_CAP} {rnd}).")
+            f"{_out_of(score_text, ceiling)} ({where}).{_little_more(little)}")
 
 
 def progress_luck(repeat_text, of_no=None):
@@ -6082,35 +6183,40 @@ def progress_luck(repeat_text, of_no=None):
     return f", probably helped by luck: a Repeat of {who} is predicted near {repeat_text}"
 
 
-def progress_flat(k, score_text, ceiling, no, rnd, luck_text=None, tie_no=None):
+def progress_flat(k, score_text, ceiling, no, rnd, luck_text=None, tie_no=None, near_no=None,
+                  little=None):
     """Flat: 'No higher score in 7 Rounds. Best so far is 92.50 of 100
-    (Formulation 24, Round 5), probably helped by luck: a Repeat of it is
-    predicted near 90.' `luck_text`: the predicted Repeat, rounded."""
+    (Formulation 24, Round 5; tied with Formulation 3), probably helped by
+    luck: a Repeat of it is predicted near 90.' `luck_text`: the predicted
+    Repeat, rounded; `near_no`, `little`: as progress_no_new_best."""
     head = f"No higher score in {k} {ROUND_CAP}s."
     if tie_no is not None:
         best = progress_tied(no, tie_no, score_text, ceiling)[:-1]
         luck = progress_luck(luck_text, no) if luck_text is not None else ""
     else:
-        best = _best_is(score_text, ceiling, no, rnd)
+        best = _best_is(score_text, ceiling, no, rnd, near_no)
         luck = progress_luck(luck_text) if luck_text is not None else ""
-    return f"{head} {best}{luck}."
+    return f"{head} {best}{luck}.{_little_more(little)}"
 
 
-def _raised(rnd, rise_text, score_text, ceiling, no):
+def _raised(rnd, rise_text, score_text, ceiling, no, near_no=None):
     return (f"{ROUND_CAP} {rnd} raised Best so far by {points_text(rise_text)}, to "
-            f"{_out_of(score_text, ceiling)} ({FORMULATION_CAP} {no})")
+            f"{_out_of(score_text, ceiling)} ({FORMULATION_CAP} {no}"
+            f"{_tied_with(near_no, after_round=False)})")
 
 
-def progress_rising(rnd, rise_text, score_text, ceiling, no, sd_text=None):
+def progress_rising(rnd, rise_text, score_text, ceiling, no, sd_text=None, near_no=None):
     """Rising: 'Round 5 raised Best so far by 2.5 points, to 89.84 of 100
-    (Formulation 18), more than the 1 point results are assumed to vary
-    until 3 Repeats measure it.'"""
-    return f"{_raised(rnd, rise_text, score_text, ceiling, no)}, more than {vary_threshold(sd_text)}."
+    (Formulation 18, tied with Formulation 20), more than the 1 point
+    results are assumed to vary until 3 Repeats measure it.'"""
+    raised = _raised(rnd, rise_text, score_text, ceiling, no, near_no)
+    return f"{raised}, more than {vary_threshold(sd_text)}."
 
 
-def progress_within_noise(rnd, rise_text, score_text, ceiling, no, sd_text=None):
+def progress_within_noise(rnd, rise_text, score_text, ceiling, no, sd_text=None, near_no=None):
     """Within noise: the same, "less than"."""
-    return f"{_raised(rnd, rise_text, score_text, ceiling, no)}, less than {vary_threshold(sd_text)}."
+    raised = _raised(rnd, rise_text, score_text, ceiling, no, near_no)
+    return f"{raised}, less than {vary_threshold(sd_text)}."
 
 
 def tie_runner_up(no, score_text, threshold_text):
@@ -6145,17 +6251,23 @@ def next_plain_repeat_ask(no, open_round=False, after_results=False, values=Fals
     return f"{lead} a Repeat of {FORMULATION_CAP} {no}{gloss} to measure how much {what} vary."
 
 
-def next_plain_repeat(later, earlier, diff_text, lower=True, half_text=None, values=False):
-    """Row repeat (Line B): 'Formulation 21, a Repeat of Formulation 11,
-    scored 10.5 points lower, more than two makes of one formulation should
-    differ (up to 7.4). If something changed (panel, supplier, equipment),
-    check it before relying on the next suggestions.' The one "check" on
-    the first screen (R-I2)."""
+def next_plain_repeat(later, earlier, diff_text, lower=True, half_text=None, values=False,
+                      round_no=None):
+    """Row repeat (Line B; fix round B, walkthrough ruling: the check
+    first, then its evidence, and no "since Round 4", which the app cannot
+    see): 'Check what changed before you make Round 6. Formulation 21, a
+    Repeat of Formulation 11, scored 10.5 points lower, more than two makes
+    of one formulation should differ (up to 7.4 points). Look at the panel,
+    suppliers and equipment.' `round_no`: the open Round, else the next
+    one. The one "check" advice on the first screen (R-I2)."""
     makes = "runs" if values else "makes"
-    limit = f" (up to {half_text})" if half_text is not None else ""
-    return (f"{FORMULATION_CAP} {later}, a Repeat of {FORMULATION_CAP} {earlier}, scored "
-            f"{points_text(diff_text)} {'lower' if lower else 'higher'}, more than two {makes} "
-            f"of one {FORMULATION} should differ{limit}. {CHECK_IF_CHANGED}")
+    make = "run" if values else "make"
+    which = f"{ROUND_CAP} {round_no}" if round_no is not None else f"the next {ROUND_CAP}"
+    limit = f" (up to {points_text(half_text)})" if half_text is not None else ""
+    return (f"Check what changed before you {make} {which}. {FORMULATION_CAP} {later}, a Repeat "
+            f"of {FORMULATION_CAP} {earlier}, scored {points_text(diff_text)} "
+            f"{'lower' if lower else 'higher'}, more than two {makes} of one {FORMULATION} should "
+            f"differ{limit}. Look at the panel, suppliers and equipment.")
 
 
 def next_plain_misses(no=None, left=0):
@@ -6706,7 +6818,7 @@ def status_rule_rows(cut_text="−0.20", settings_only=False):
          "more from 10 checks."),
         (p, "Clause: still very uncertain",
          "Some outputs, not all, have a median 95 % half-width over 25 % of their Range."),
-        (p, "Clause: predictions have run high or low",
+        (p, "Clause: scores have come in below or above the predictions",
          "The Overall score's mean error is beyond the noise threshold and 2 standard errors "
          f"(from 4 {ROUND_CAP}s checked, each {ROUND_CAP}'s mean error counts as one value)."),
         (p, f"Clause: does not yet read what each {one} does",

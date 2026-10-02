@@ -163,7 +163,7 @@ def test_exact_texts_from_the_spec():
         "Overall score, Rounds 2–7: 30 of 32 inside their 95 % interval; mean error −4.3 "
         "points (measured minus predicted).")
     assert w.next_bias("4.1", rounds=[3, 4, 5, 6, 7]) == (
-        "Overall-score predictions have run about 4.1 points high (Rounds 3–7).")
+        "Overall scores have come in about 4.1 points below the predictions (Rounds 3–7).")
     assert w.next_misses([5, 6, 7]) == (
         "Measured values in Rounds 5–7 fell outside their 95 % interval more often than 95 % "
         "intervals allow: the intervals are too narrow here, so new predictions carry more "
@@ -180,7 +180,8 @@ def test_exact_texts_from_the_spec():
     # beats … by".
     assert w.gain_line("2.66", None, w.beat_by()) == (
         "Expected improvement, next Round: 2.66 points (model, one formulation): the model's "
-        "average gain of one new formulation over the model's best tested formulation, "
+        "average gain of one new formulation over the highest the model draws for the tested "
+        "formulations (approximate), "
         "counting no gain as zero; under the 1-point noise threshold.")
     assert w.stand_best("90.65", 15, 4) == (
         "Best so far: Overall score 90.65, Formulation 15 (Round 4).")
@@ -239,10 +240,10 @@ def test_singular_and_plural_forms():
     # Polish round 8: the bias as one fact, no reading clause.
     assert w.score_gap_line(6, 12, -5.2, w.beat_by("1.3")).endswith(
         "This exceeds the noise threshold (Repeat SD 1.3 points) and 2 standard errors: "
-        "Overall-score predictions have run about 5.2 points high.")
+        "Overall scores have come in about 5.2 points below the predictions.")
     assert w.score_gap_line(6, 12, 2.0, w.beat_by()).endswith(
-        "This exceeds the 1-point noise threshold and 2 standard errors: Overall-score "
-        "predictions have run about 2.0 points low.")
+        "This exceeds the 1-point noise threshold and 2 standard errors: Overall scores "
+        "have come in about 2.0 points above the predictions.")
     assert w.insights_header_line(0, None, 1, "Aroma") == "1 formulation is waiting for Aroma."
     assert w.insights_header_line(1, 1) == (
         "Based on 1 scored formulation (all results in), up to Round 1.")

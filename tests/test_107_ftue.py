@@ -16,7 +16,11 @@ import pytest
 import wording as W
 
 STATISTIC_NAMES = tuple(re.compile(p) for p in (
-    r"95\s*%", r"\bintervals?\b", r"\bskill\b", r"noise threshold", r"\bS[Dd]\b", r"\bsd\b",
+    r"95\s*%", r"\bintervals?\b",
+    # Fix round B (five-second re-test, Line C Q5): the skill may stand with
+    # its number and its meaning, never alone.
+    r"\bskill\b(?! [−-]?\d+\.\d+, where 0 matches that average and 1 is exact\))",
+    r"noise threshold", r"\bS[Dd]\b", r"\bsd\b",
     r"\bdf\b", r"\bn = ", r"(?i)mean error", r"(?i)\bbias\b", r"(?i)round-ahead", r"(?i)\bmedian\b",
     r"(?i)half-width", r"(?i)standardi[sz]ed", r"(?i)calibrat", r"(?i)posterior",
     r"(?i)predictive", r"(?i)expected improvement", r"(?i)\bverdict\b", r"(?i)active bounds?",
@@ -38,7 +42,11 @@ def statistic_names_in(text):
 # its sentence, Progress word, its sentence, Next sentence). Line C's Next
 # says "the suggestions are a guided search" where the table says "treat
 # the suggestions as": the style guide retires "treat … as" (t0-report §
-# "Where the texts differ from the review").
+# "Where the texts differ from the review"). Fix round B (ledger: early
+# five-second re-test, early walkthrough): Line A's "little more" clause and
+# tie, Line C's skill number and the cause of its uncertainty, the bias said
+# as scores coming in below the predictions, Line B's check first, the
+# Upgrade check's reason, and every tie within the noise threshold named.
 FIRST_SCREENS = {
     "Snack bar": (
         "not_yet", W.pred_gate(3),
@@ -46,24 +54,29 @@ FIRST_SCREENS = {
         W.next_plain_tail()),
     "Line A": (
         "reliable", W.pred_reliable([3, 4, 5], 32, 35, 3),
-        "no_new_best", W.progress_no_new_best(5, "90.45", 100, 15, 4),
+        "no_new_best", W.progress_no_new_best(
+            5, "90.45", 100, 15, 4, near_no=18,
+            little=(W.binding_plain("highest", "Textured pea protein"),
+                    W.binding_plain("lowest", "Beet juice powder"))),
         W.next_plain_see(6, 4, repeat_no=15)),
     "Line B": (
         "off", W.pred_off_coverage([3, 4, 5], 10, 36, 4, W.bias_fact("5.5")),
-        "flat", W.progress_flat(2, "90.09", 100, 11, 3),
-        W.next_plain_repeat(21, 11, "10.5", half_text="7.4")),
+        "flat", W.progress_flat(2, "90.09", 100, 11, 3, near_no=10),
+        W.next_plain_repeat(21, 11, "10.5", half_text="7.4", round_no=6)),
     "Line C": (
         "not_yet", W.pred_no_skill(("4.3", True),
-                                   [W.clause_wide(["Firmness", "Juiciness", "Cook loss"])]),
-        "rising", W.progress_rising(5, "2.5", "89.84", 100, 18),
+                                   [W.clause_wide(["Firmness", "Juiciness", "Cook loss"],
+                                                  cause=True, most="Cook loss")],
+                                   skill_text="−0.47") + " " + W.CHECK_SCATTER,
+        "rising", W.progress_rising(5, "2.5", "89.84", 100, 18, near_no=20),
         W.next_plain_no_skill(6, 4)),
     "Upgrade check": (
         "not_yet", W.pred_too_few(2),
-        "too_early", W.progress_too_early("90.50", 100, 6, 3),
+        "too_early", W.progress_too_early("90.50", 100, 6, 3, without=([1, 2], "Cook loss")),
         W.next_plain_tail()),
     "Timing check": (
         "reliable", W.pred_reliable([10, 11, 12], 58, 60, 5),
-        "flat", W.progress_flat(7, "92.50", 100, 24, 5, luck_text="90"),
+        "flat", W.progress_flat(7, "92.50", 100, 24, 5, luck_text="90", near_no=3),
         W.next_plain_explore("1.1", repeat_no=24)),
 }
 
@@ -108,13 +121,21 @@ def test_no_level0_sentence_names_a_statistic(name, text):
     assert statistic_names_in(text) == [], (name, text)
 
 
+# Fix round B: the sentences the ledger ruled in run past two lines —
+# Line C's Predictions (its skill with its meaning, the cause and the
+# check: about four lines) and Line A's Progress (the tie and the "little
+# more" clause: three). The button stays above the fold
+# (tests/browser/test_107_first_screen.py).
+LONGER = {("Line C", "pred"): 460, ("Line A", "prog"): 280}
+
+
 @pytest.mark.parametrize("name", sorted(FIRST_SCREENS))
 def test_each_status_sentence_fits_two_body_lines(name):
     """R-I8: each status sentence at most 2 body lines, about 220
-    characters at the 980 px main block."""
+    characters at the 980 px main block, but for LONGER."""
     _, pred, _, prog, nxt = FIRST_SCREENS[name]
-    for text in (pred, prog):
-        assert len(text) <= 220, (name, text)
+    for which, text in (("pred", pred), ("prog", prog)):
+        assert len(text) <= LONGER.get((name, which), 220), (name, text)
     # Next carries the one action; the review's own Line B and Timing check
     # sentences run to three lines, which its fold estimate allows.
     assert len(nxt) <= 330, (name, nxt)

@@ -177,7 +177,8 @@ def test_exact_texts_from_the_audit():
     assert f"{insights.MAD_OF_NORMAL:.3f}" in W.HOW_REPEATS_COMPARED
     assert W.HOW_WIDENED == (
         "Calibration factor: the root-mean-square of standardised errors (measured − "
-        "predicted, ÷ predictive SD) in 5-fold cross-validation of the current model, floored "
+        "predicted, ÷ predictive SD) in 5-fold cross-validation of the current model, the folds "
+        "grouped by Round (a formulation and its Repeats in one fold), floored "
         "at 1. Every 95 % interval is multiplied by it. ×1.0: not widened; ×2.5: errors 2.5 "
         "times the model's own SD.")
     assert f"{insights.FOLDS}-fold" in W.HOW_WIDENED
@@ -196,8 +197,8 @@ def test_exact_texts_from_the_audit():
     assert W.round_track_holding(11, 12, True, rounds=[3, 4, 5]).endswith(
         "; measured values: many more misses than expected.")
     assert W.round_track_rough(9, 12, "2.0", rounds=[3, 4, 5]).endswith(
-        "; Overall-score predictions have run about 2.0 points high. More misses than "
-        "expected.")
+        "; Overall scores have come in about 2.0 points below the predictions. More misses "
+        "than expected.")
     # T0 review I-4: |r|, across the formulations with all results in.
     assert W.moved_together("Pea", "Soy", "0.86") == (
         "Pea and Soy are correlated across the formulations with all results in (|r| = 0.86), "
@@ -214,7 +215,7 @@ def test_exact_texts_from_the_audit():
     assert W.score_gap_line(10, 10, -1.2, W.beat_by()) == (
         "Overall score, same Rounds: 10 of 10 inside their 95 % interval; mean error −1.2 "
         "points (n = 10). This exceeds the 1-point noise threshold and 2 standard errors: "
-        "Overall-score predictions have run about 1.2 points high.")    # polish round 8
+        "Overall scores have come in about 1.2 points below the predictions.")    # polish round 8
     assert W.repeat_disagrees(21, 11, "10.5", half_text="7.4") == (
         "Formulation 21, a Repeat of Formulation 11, scored 10.5 points lower. The 95 % "
         "interval for the difference of two results is ±7.4 points. If something changed "
@@ -256,9 +257,11 @@ def test_the_new_lines_from_the_rulings():
     # 0.8.0 e2e fixes D4 (review M10): the cut stated plainly, no table.
     assert W.how_skill("−0.20").endswith(
         "At or below −0.20: no better than the average; below 0.20: not clearly better; "
-        "0.20 or more: better. The cut is −0.20: a correct model reads “no better than the "
-        "average” in under 7 % of cases at n = 10, and below 0.20 in about 15 %. Ingredient "
-        "effects are reported only from 10 values and skill 0.20.")
+        "0.20 or more: better. The cut is −0.20. In 24 simulated projects whose model's errors "
+        "matched its own stated uncertainty (true skill 0.20 or more), the skill read “no "
+        "better than the average” in under 7 % of windows of 10 checks (n = 10), and below "
+        "0.20 in about 15 %; near a true skill of 0.20 it reads below 0.20 about half the "
+        "time. Ingredient effects are reported only from 10 values and skill 0.20.")
     assert W.guard_line([W.GUARD_FLOOR]) == (
         "The model is fitting noise in these results (the model's correlation length is at its "
         "lower limit), so ingredient effects are not reported.")
@@ -271,14 +274,16 @@ def test_the_new_lines_from_the_rulings():
     # 0.8.0 e2e fixes A5 (review I6): what the statistic is.
     assert W.gain_line("0.12", 6, W.beat_by()) == (
         "Expected improvement, Round 6: 0.12 points (model, one formulation): the model's "
-        "average gain of one new formulation over the model's best tested formulation, "
+        "average gain of one new formulation over the highest the model draws for the tested "
+        "formulations (approximate), "
         "counting no gain as zero; under the 1-point noise threshold.")
     # Fix round 1 (ledger ruling C1): above the threshold with no predicted gain.
     # Final review M-2: precise, the number once, and not the same sentence twice.
     progress = W.gain_line("1.08", 13, W.beat_by(), above=True, predicted_none=True)
     assert progress == (
         "Expected improvement, Round 13: 1.08 points (model, one formulation): the model's "
-        "average gain of one new formulation over the model's best tested formulation, "
+        "average gain of one new formulation over the highest the model draws for the tested "
+        "formulations (approximate), "
         "counting no gain as zero; above the 1-point noise threshold. It comes from the "
         "model's uncertainty, not from a higher predicted score.")
     assert progress.count("1.08") == 1
@@ -335,5 +340,5 @@ def test_the_t0_review_minors():
     assert "more often than 95 % intervals allow:" in W.next_misses([3, 4, 5])
     assert W.details_window([2, 3, 4, 5], 1, [5]).endswith("Verdict: the last Round (Round 5).")
     assert "±7.4 points." in W.repeat_disagrees(21, 11, "10.5", half_text="7.4")
-    assert "3 Repeat pairs and it is at least 0.05" in W.HOW_NOISE_THRESHOLD
+    assert "3 degrees of freedom and is at least 0.05" in W.HOW_NOISE_THRESHOLD
     assert "average Overall score of the formulations" in W.how_skill()

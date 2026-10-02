@@ -208,21 +208,29 @@ _EXACT = {
     "Line A": (
         "In Rounds 3–5, 32 of 35 results landed inside the range the app predicted (up to 3 "
         "misses are normal), and score predictions beat the average of earlier results.",
-        "Round 5 did not beat Best so far, 90.45 of 100 (Formulation 15, Round 4).",
+        "Round 5 did not beat Best so far, 90.45 of 100 (Formulation 15, Round 4; tied with "
+        "Formulation 18). The app expects little more inside your current limits; the best it "
+        "predicts sits at the most Textured pea protein and the least Beet juice powder allowed.",
         "Record the 4 formulations still open in Round 6. In the next Round, include a Repeat of "
         "Formulation 15 (the same amounts again) to measure how much results vary."),
     "Line B": (
         "In Rounds 3–5, 10 of 36 results fell outside the range the app predicted, where up to 4 "
-        "are normal, and predictions have run about 5.5 points high.",
-        "No higher score in 2 Rounds. Best so far is 90.09 of 100 (Formulation 11, Round 3).",
-        "Formulation 21, a Repeat of Formulation 11, scored 10.5 points lower, more than two "
-        "makes of one formulation should differ (up to 7.4). If something changed (panel, "
-        "supplier, equipment), check it before relying on the next suggestions."),
+        "are normal, and scores have come in about 5.5 points below the predictions.",
+        "No higher score in 2 Rounds. Best so far is 90.09 of 100 (Formulation 11, Round 3; tied "
+        "with Formulation 10).",
+        "Check what changed before you make Round 6. Formulation 21, a Repeat of Formulation 11, "
+        "scored 10.5 points lower, more than two makes of one formulation should differ (up to "
+        "7.4 points). Look at the panel, suppliers and equipment."),
     "Line C": (
-        "Score predictions do no better than the average of earlier results and have run about "
-        "4.3 points high; those for Firmness, Juiciness and Cook loss are still very uncertain.",
-        "Round 5 raised Best so far by 2.5 points, to 89.84 of 100 (Formulation 18), more than "
-        "the 1 point results are assumed to vary until 3 Repeats measure it.",
+        "Score predictions do no better than simply using the average of earlier scores (skill "
+        "−0.47, where 0 matches that average and 1 is exact), and scores have come in about 4.3 "
+        "points below the predictions; those for Firmness, Juiciness and Cook loss are still very "
+        "uncertain, because results vary more from one formulation to the next than the app can "
+        "explain, most for Cook loss. If the panel or method is new, check how consistently it "
+        "measures.",
+        "Round 5 raised Best so far by 2.5 points, to 89.84 of 100 (Formulation 18, tied with "
+        "Formulation 20), more than the 1 point results are assumed to vary until 3 Repeats "
+        "measure it.",
         # The review: "…treat the suggestions as a guided search…" (style
         # guide rule 7 retires "treat … as"; t0-report).
         "Record the 4 formulations still open in Round 6, then make the next Round. Until "
@@ -230,14 +238,14 @@ _EXACT = {
     "Upgrade check": (
         "The app has checked its predictions against 2 formulations and needs 10 before it can "
         "say how far to trust them.",
-        "Best so far is 90.50 of 100 (Formulation 6, Round 3); no earlier scored formulation to "
-        "compare it with.",
+        "Best so far is 90.50 of 100 (Formulation 6, Round 3). Rounds 1–2 were scored without "
+        "Cook loss, so they are not compared with it.",
         "Make the next Round."),
     "Timing check": (
         "In Rounds 10–12, 58 of 60 results landed inside the range the app predicted (up to 5 "
         "misses are normal), and score predictions beat the average of earlier results.",
-        "No higher score in 7 Rounds. Best so far is 92.50 of 100 (Formulation 24, Round 5), "
-        "probably helped by luck: a Repeat of it is predicted near 90.",
+        "No higher score in 7 Rounds. Best so far is 92.50 of 100 (Formulation 24, Round 5; tied "
+        "with Formulation 3), probably helped by luck: a Repeat of it is predicted near 90.",
         "Make the next Round. The app still expects about 1.1 points of gain on average from "
         "amounts it has not tried, more than results are assumed to vary. Include a Repeat of "
         "Formulation 24 to measure how much they vary."),
@@ -268,8 +276,8 @@ def test_the_templates_for_unreached_states():
         "(5 of 35, where up to 3 are normal).")
     assert W.PRED_WIDE == ("The app's predictions are still very uncertain, so results "
                            "landing inside them prove little yet.")
-    assert W.pred_unclear() == ("Score predictions are not yet clearly better than the "
-                                "average of earlier results.")
+    assert W.pred_unclear() == ("Score predictions are not yet clearly better than simply "
+                                "using the average of earlier scores.")
     assert W.PRED_OFF_REPEAT == (
         "A Repeat came out far from its original (see Next), so the conditions the predictions "
         "learned from may have changed.")
@@ -278,8 +286,9 @@ def test_the_templates_for_unreached_states():
     assert W.pred_reliable([3], 11, 12, 1, [W.clause_wide(["Cook loss"]),
                                             W.clause_bias("1.2", False),
                                             W.clause_guard()]).endswith(
-        "earlier results; those for Cook loss are still very uncertain; predictions have run "
-        "about 1.2 points low; the app does not yet read what each ingredient does.")
+        "earlier results; those for Cook loss are still very uncertain; scores have come in "
+        "about 1.2 points above the predictions; the app does not yet read what each ingredient "
+        "does.")
     assert "(up to 1 miss is normal)" in W.pred_reliable([3], 11, 12, 1)
     assert W.progress_within_noise(5, "0.4", "89.84", 100, 18) == (
         "Round 5 raised Best so far by 0.4 points, to 89.84 of 100 (Formulation 18), less than "
@@ -470,7 +479,8 @@ def test_the_glossary_maps_each_plain_word_to_its_bo_term(settings):
     assert "Not judged yet" in rows[0][2]
     # I12: the corrected facts.
     meanings = {row[0]: row[2] for row in rows}
-    assert "Not the acquisition's incumbent under qLogNEI" in meanings["Best so far"]
+    # Fix round B (statistician I1): qLogNEI has no single incumbent.
+    assert "no single incumbent" in meanings["Best so far"]
     assert "not the Gaussian process's fitted noise" in meanings["noise threshold"]
     assert terms["score predictions beat the average · skill"].endswith("(Q²-type, not R²)")
     assert "not the acquisition's exploitation–exploration split" in meanings[

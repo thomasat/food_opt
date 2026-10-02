@@ -287,12 +287,13 @@ def test_the_rough_track_line_says_more_misses_once():
     line = wording.round_track_rough(13, 16, "5.5", see_insights=True, rounds=[2, 3, 4, 5])
     # The bias as one fact (polish round 8).
     assert line == ("Overall score, Rounds 2–5: 13 of 16 inside their 95 % interval; "
-                    "Overall-score predictions have run about 5.5 points high. More misses "
-                    "than expected; many more in the measured values.")
+                    "Overall scores have come in about 5.5 points below the predictions. More "
+                    "misses than expected; many more in the measured values.")
     assert line.lower().count("misses than expected") == 1
     # Without the measurements' verdict, as before.
     assert wording.round_track_rough(13, 16, "5.5", rounds=[2, 3, 4, 5]).endswith(
-        "predictions have run about 5.5 points high. More misses than expected.")
+        "scores have come in about 5.5 points below the predictions. More misses than "
+        "expected.")
 
 
 def test_line_b_track_line(tmp_path, monkeypatch):
@@ -779,8 +780,8 @@ def test_the_steady_bias_reads_as_one_fact_on_both_screens(tmp_path, monkeypatch
     track = ui_insights.track_text(insights.round_track(opt, checks))
     insights_line = ui_insights.steady_bias_text(opt, checks)
     fact = wording.bias_fact(gap)
-    assert fact == f"predictions have run about {gap} points high"
-    assert f"; Overall-score {fact}" in track, track
+    assert fact == f"scores have come in about {gap} points below the predictions"
+    assert f"; Overall {fact}" in track, track
     assert f"Overall score by about {gap} points" in insights_line
     for line in (track, insights_line):
         assert "read about" not in line and "so new predictions" not in line, line

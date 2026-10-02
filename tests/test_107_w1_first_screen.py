@@ -37,15 +37,18 @@ _SHORT = {D.SNACK: "Snack bar", D.LINE_A: "Line A", D.LINE_B: "Line B", D.LINE_C
 # The process-only study (T0's fixture): Not yet (skill −0.03, n = 16),
 # Rising, and Next's rising row with the Repeat sentence, in Trial forms.
 _PROCESS_ONLY = (
-    "not_yet", wording.pred_unclear(),
+    "not_yet", wording.pred_unclear(skill_text="−0.03"),
     "rising", wording.progress_rising(5, "1.9", "87.92", 100, 21),
     wording.next_plain_rising(6, 4, repeat_no=21, values=True))
 
 # R-I8: at most 130 words above the fold (header + 3 lines + button +
-# link), pinned per project as they stand.
+# link), pinned per project as they stand. Fix round B: Lines A and C carry
+# the ledger's ruled sentences past it (OVER_BUDGET); the Timing check, the
+# longest before, stays at or under it.
 _BUDGET = 130
-_WORDS = {D.SNACK: 65, D.LINE_A: 118, D.LINE_B: 113, D.LINE_C: 119, D.UPGRADE: 79,
-          D.TIMING: 126, D.PROCESS_ONLY: 109}
+_WORDS = {D.SNACK: 65, D.LINE_A: 149, D.LINE_B: 122, D.LINE_C: 171, D.UPGRADE: 85,
+          D.TIMING: 130, D.PROCESS_ONLY: 122}
+_OVER_BUDGET = {D.LINE_A, D.LINE_C}
 
 
 def _install(name):
@@ -188,7 +191,7 @@ def test_next_names_its_status_word_only_for_predictions_and_progress(screens):
 @pytest.mark.parametrize("name", D.ALL)
 def test_the_word_budget(screens, name):
     words = sum(_words(t) for _, t in first_screen(screens[name]))
-    assert words <= _BUDGET
+    assert words <= _BUDGET or name in _OVER_BUDGET
     assert words == _WORDS[name]
 
 
@@ -202,8 +205,11 @@ def test_no_statistic_name_in_a_status_sentence(screens, name):
 def test_each_status_sentence_is_at_most_two_body_lines(screens, name):
     """R-I8: about 220 characters at the 980 px main block; Next may run to
     three (the review's own Line B and Timing check sentences do)."""
+    from tests.test_107_ftue import LONGER
     p, g, n = (_sentence(line) for line in _status(screens[name]))
-    assert len(p) <= 220 and len(g) <= 220 and len(n) <= 330
+    short = _SHORT.get(name)
+    assert len(p) <= LONGER.get((short, "pred"), 220)
+    assert len(g) <= LONGER.get((short, "prog"), 220) and len(n) <= 330
 
 
 # ------------------------------------------------------------------ #
