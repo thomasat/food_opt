@@ -660,7 +660,15 @@ def _walk(node, out):
     return out
 
 
-def test_the_fold_sits_under_the_button_and_above_the_folds_below():
+def _no_repeat_link(monkeypatch):
+    """The Timing check's Next asks for a Repeat, and the Repeat link
+    outranks this one (R-I4 priority 2 over 3; ftue fix C): left out here,
+    so the Explored link is the one drawn."""
+    monkeypatch.setattr(ui_insights, "_repeat_link", lambda opt, facts: False)
+
+
+def test_the_fold_sits_under_the_button_and_above_the_folds_below(monkeypatch):
+    _no_repeat_link(monkeypatch)
     at = _insights(D.TIMING)
     order = _walk(at.tabs[3], [])
     labels = [x for _, x in order]
@@ -685,7 +693,8 @@ def test_at_the_gate_the_fold_is_under_the_foot():
     assert GAP_LINES[D.SNACK] in [m.value for m in explored.markdown]
 
 
-def test_the_link_lands_on_the_fold_open():
+def test_the_link_lands_on_the_fold_open(monkeypatch):
+    _no_repeat_link(monkeypatch)
     at = _insights(D.TIMING)
     next(b for b in at.tabs[3].button if b.key == ui_insights.EXPLORED_LINK_KEY).click()
     at.run()

@@ -45,7 +45,9 @@ _PROCESS_ONLY = (
 # link), pinned per project as they stand.
 _BUDGET = 130
 _WORDS = {D.SNACK: 65, D.LINE_A: 118, D.LINE_B: 113, D.LINE_C: 119, D.UPGRADE: 79,
-          D.TIMING: 126, D.PROCESS_ONLY: 109}
+          # Timing: 125 since ftue fix C (its link is "Make a Repeat of
+          # Formulation 24", one word shorter than the Explored link).
+          D.TIMING: 125, D.PROCESS_ONLY: 109}
 
 
 def _install(name):
@@ -248,17 +250,20 @@ def _links(at):
     (D.SNACK, []), (D.UPGRADE, []),
     (D.LINE_A, [wording.why_link(6)]), (D.LINE_B, [wording.why_link(6)]),
     (D.LINE_C, [wording.why_link(6)]), (D.PROCESS_ONLY, [wording.why_link(6)]),
-    # No Round open, the explore row: priority 3.
-    (D.TIMING, [wording.explored_link()]),
+    # No Round open, the explore row asking for a Repeat: the Repeat link,
+    # priority 2, over the Explored link, priority 3 (ftue fix C).
+    (D.TIMING, [wording.repeat_link(24)]),
 ])
 def test_the_one_link(screens, name, link):
     assert _links(screens[name]) == link
 
 
-def test_no_repeat_link_is_drawn(screens):
-    """R-I3's default (binding e2e B2): the Repeat is a sentence."""
-    for name in D.ALL:
-        assert not any(t.startswith("Make a Repeat") for _, t in first_screen(screens[name]))
+def test_the_repeat_link_only_where_next_asks_with_no_why_link(screens):
+    """R-I3, ruled in by the early walkthrough (ftue fix C): drawn on the
+    Timing check alone (Line A asks too, but its Why link outranks it)."""
+    drawn = [name for name in D.ALL
+             if any(t.startswith("Make a Repeat") for _, t in first_screen(screens[name]))]
+    assert drawn == [D.TIMING]
 
 
 def test_the_why_link_lands_on_make_a_rounds_why_fold():
