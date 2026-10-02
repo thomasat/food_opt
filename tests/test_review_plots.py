@@ -41,20 +41,11 @@ def _specs(opt, computed):
     facts = types.SimpleNamespace(checks=checks)
     out["spark_predictions"] = U.spark_chart(opt, facts, "predictions")
     out["spark_progress"] = U.spark_chart(opt, facts, "progress")
-    hero = U.chooses_data(opt, fitted, None, mode=U.CHOOSES_LINE)
-    out["hero"] = U.chooses_chart(opt, hero, heights=U.HERO_HEIGHTS, compact=True)
-    out["chooses"] = U.chooses_chart(opt, hero)
+    # Review four: the hero, the gain bars, Try one's path, Compare all,
+    # the pair chart and the triangle are gone; Q3's profiler stands in.
     out["tried"] = U.tried_chart(opt, insights.tried_axes(opt), insights.tried_lines(opt))
     out["progress"] = U.progress_chart(opt)
-    out["gain"] = U.gain_chart(opt, bo_views.round_history(opt))
     out["mvp"] = U.measured_vs_predicted_chart(opt, checks)
-    name = insights.path_choices(opt)[0]
-    path = insights.build_path(opt, name, insights.start_recipe(opt, opt.best_index()))
-    out["path"] = U.path_chart(opt, path, insights.path_predictions(opt, fitted, path))
-    found = insights.tested_near_changes(opt, fitted, insights.start_recipe(opt, opt.best_index()))
-    out["change"] = U.change_chart(found.moved)
-    a, b = [o['name'] for o in opt.objectives][:2]
-    out["pair"] = U.pair_chart(opt, a, b, insights.pair_points(opt, a, b))
     values = bo_views.map_values(opt, U.suggestion_model(opt, fitted))
     picks = [{"mean": m, "sd": s, "no": str(n)} for n, m, s in values.picks]
     tested = [{"mean": float(m), "sd": float(s), "no": n}
@@ -62,11 +53,10 @@ def _specs(opt, computed):
                                  values.tested)]
     out["map"] = U.explore_map_chart(values.pool_mean, values.pool_sd, tested, picks,
                                      U.repeat_of_best(opt, fitted), opt)
-    start = U._start_number(opt)
-    names = U._three_default(opt, fitted, insights.mixture_choices(opt), start)
-    mix = insights.mixture_slice(opt, names, U.anchor_recipe(opt, start))
-    preds = insights.mixture_predictions(opt, fitted, mix)
-    out["triangle"] = U.mixture_chart(opt, mix, preds, start)
+    label, number, recipe, is_pick = U.profile_refs(opt)[-1]
+    profile = U.profile_data(opt, fitted, recipe, label, number, is_pick,
+                             U.chooses_reason(opt, fitted))
+    out["profile"] = U.profile_chart(opt, profile)
     missing = [k for k, v in out.items() if v is None]
     assert not missing, missing
     return {k: v.to_dict() for k, v in out.items()}
@@ -97,8 +87,7 @@ def _words(text):
     return len([w for w in re.sub(r"[^\w%' ]", " ", text).split() if w])
 
 
-TITLED = ["spark_predictions", "spark_progress", "tried", "progress", "gain", "mvp", "path",
-          "change", "pair", "map", "triangle"]
+TITLED = ["spark_predictions", "spark_progress", "tried", "progress", "mvp", "map", "profile"]
 
 
 @pytest.mark.parametrize("name", TITLED)
@@ -108,20 +97,17 @@ def test_each_chart_has_a_short_title(specs, name):
     assert _words(title) <= 6, title
 
 
-def test_the_hero_is_titled_by_its_heading():
-    assert _words(wording.hero_title(6, True)) <= 6
-    assert _words(wording.hero_title(None, False)) <= 6
-
-
 # Charts whose axes are drawn by design without titles: the sparklines
 # (Round labels only), the parallel coordinates (each axis named on top),
 # the triangle (corner labels), the change bars' names, the path's
 # facets (panel titles).
-_NO_Y_TITLE = {"spark_predictions", "spark_progress", "tried", "triangle", "change", "path"}
-_NO_X_TITLE = {"spark_predictions", "spark_progress", "tried", "triangle", "hero"}
+# The profiler titles each row on its axis object (Axis(title=...)).
+_NO_Y_TITLE = {"spark_predictions", "spark_progress", "tried", "profile"}
+# The profiler names each column above its top row (a facet header).
+_NO_X_TITLE = {"spark_predictions", "spark_progress", "tried", "profile"}
 
 
-@pytest.mark.parametrize("name", sorted(set(TITLED) | {"hero", "chooses"}))
+@pytest.mark.parametrize("name", sorted(TITLED))
 def test_axes_are_titled(specs, name):
     """Each drawn x and y axis has a title in at least one layer (a rule or
     label layer sharing the axis takes the title Vega-Lite merges in)."""
@@ -136,7 +122,7 @@ def test_axes_are_titled(specs, name):
         assert any(e.get("title") for e in encs), (name, ch)
 
 
-@pytest.mark.parametrize("name", sorted(set(TITLED) | {"hero", "chooses"}))
+@pytest.mark.parametrize("name", sorted(TITLED))
 def test_every_encoded_colour_has_a_legend(specs, name):
     """A field on a colour channel is explained by a legend somewhere in the
     chart (a layer may repeat it with legend None, as the Best so far line's
@@ -155,7 +141,7 @@ def test_every_encoded_colour_has_a_legend(specs, name):
     assert used <= shown, (name, used - shown)
 
 
-@pytest.mark.parametrize("name", sorted(set(TITLED) | {"hero", "chooses"}))
+@pytest.mark.parametrize("name", sorted(TITLED))
 def test_marks_have_tooltips_with_a_bo_term(specs, name):
     tips = []
     for unit in _units(specs[name]):
@@ -193,17 +179,18 @@ def test_one_colour_per_meaning_across_charts(specs):
     orange = U.outline_colour().lower()
     blue = U.model_blue().lower()
     # Best so far: ink, wherever it is drawn.
-    for name in ("hero", "tried", "progress", "pair", "map", "gain"):
+    # (Review four: the hero, pair, gain, path and triangle charts are gone.)
+    for name in ("tried", "progress", "map"):
         assert ink in _colours(specs[name]), name
-    # This Round's suggestions: orange.
-    for name in ("hero", "tried", "map"):
+    # This Round's suggestions: orange (the profiler through Suggestion 1).
+    for name in ("tried", "map", "profile"):
         assert orange in _colours(specs[name]), name
     # The model: blue.
-    for name in ("hero", "path", "change", "gain"):
+    for name in ("profile",):
         assert blue in _colours(specs[name]), name
     # An Overall score: the one ramp, never Vega's blues (the model's).
     ramp = [c.lower() for c in U.score_colours()]
-    for name in ("tried", "pair", "triangle"):
+    for name in ("tried",):
         assert set(ramp) <= _colours(specs[name]), name
         assert '"blues"' not in str(specs[name]).replace("'", '"'), name
     # No default palette: every colour channel with a field has its range.
@@ -216,23 +203,18 @@ def test_one_colour_per_meaning_across_charts(specs):
 
 
 def test_the_band_says_what_it_is(specs):
-    assert wording.PLOT_BAND in str(specs["hero"])
     assert "95 %" in wording.PLOT_BAND and "95 %" in wording.PLOT_INTERVAL
-    assert wording.PLOT_INTERVAL in str(specs["path"])
+    assert wording.PLOT_INTERVAL in str(specs["profile"])
 
 
 def test_a_zoomed_score_axis_says_so(specs):
-    """Line A's hero spans about 4 points of 100: its axis says zoomed."""
-    titles = [u["encoding"]["y"].get("title") for u in _units(specs["hero"])
+    """Line A's scores span under a quarter of 100: Q2's axis says zoomed
+    (review four: the hero this pinned is gone)."""
+    titles = [u["encoding"]["y"].get("title") for u in _units(specs["progress"])
               if "y" in u.get("encoding", {})]
-    assert any(isinstance(t, list) and wording.PLOT_ZOOMED in t[-1] for t in titles), titles
+    assert any(isinstance(t, str) and wording.PLOT_ZOOMED in t for t in titles), titles
     assert U.zoomed("Score (of 100)", 0, 100, 100) == "Score (of 100)"
     assert U.zoomed("Score (of 100)", 88, 91, 100) == f"Score (of 100, {wording.PLOT_ZOOMED})"
-
-
-def test_the_hero_band_is_cut_at_the_ceiling(specs):
-    rows = [r for d in specs["hero"]["datasets"].values() for r in d if r.get("mark") == "curve"]
-    assert rows and all(0 <= r["low"] <= r["high"] <= 100 for r in rows)
 
 
 def test_short_captions_and_withheld_reasons():
@@ -267,19 +249,6 @@ def test_sparklines_name_their_rounds_and_the_95_aim(specs):
     ys = [u["encoding"]["y"]["scale"]["domain"] for u in _units(s)
           if u.get("encoding", {}).get("y", {}).get("field") == "inrange"]
     assert ys and all(d == [0.0, 1.0] for d in ys)
-
-
-def test_try_one_says_when_the_start_is_at_a_limit(line_a):
-    opt, _ = line_a
-    name = insights.path_choices(opt)[0]
-    lo, hi = insights._var(opt, name)['bounds']
-    path = types.SimpleNamespace(name=name, start_amount=float(hi), unit="g", mode="fill",
-                                 fill_name="Water")
-    assert U.path_at_limit(opt, path) == "Highest"
-    assert U._path_head(opt, path).startswith(f"{name} is at its Highest")
-    path.start_amount = (lo + hi) / 2
-    assert U.path_at_limit(opt, path) is None
-    assert U._path_head(opt, path).startswith("More ")
 
 
 def test_tried_end_label_counts_a_bundle_at_a_limit(line_a):

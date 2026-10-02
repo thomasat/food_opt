@@ -17,7 +17,6 @@ import pytest
 import bo_views
 import ui_insights
 import wording
-from food_bo import FoodOptimizer
 from tests import demo_projects as D
 from tests.test_food_bo import _BANNED
 from tests.test_review_cards import _install, _leaves, _open
@@ -44,24 +43,6 @@ def test_limit_fact_is_short_and_agrees_with_the_chart_heading():
         assert not any(p.search(fact) for p in _BANNED)
 
 
-def test_limit_facts_name_only_choices_at_a_limit(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    _install(D.LINE_A)
-    opt = FoodOptimizer(D.LINE_A)
-    opt.load()
-    names = ui_insights.insights.path_choices(opt)
-    lo, hi = (float(b) for b in ui_insights.insights._var(opt, names[0])["bounds"])
-    mid = (lo + hi) / 2
-    recipe = {n: mid for n in names}
-    assert ui_insights._limit_facts(opt, recipe, names[:1]) == ""
-    recipe[names[0]] = hi
-    assert ui_insights._limit_facts(opt, recipe, names[:1]) == (
-        f" {names[0]}: already at its Highest.")
-    recipe[names[0]] = lo
-    assert ui_insights._limit_facts(opt, recipe, names[:1]).endswith("at its Lowest.")
-    assert ui_insights._limit_facts(opt, None, names[:1]) == ""
-
-
 def test_removed_charts_are_gone():
     for name in ("strips_chart", "_chooses", "_explored_map", "_gain_chart_body"):
         assert not hasattr(ui_insights, name), name
@@ -80,8 +61,15 @@ def line_a(tmp_path_factory):
 
 
 def _charts_by_card(at):
+    """Charts per card (review four: only the cards' row; Q1 and Q2 sit in
+    a second row of columns)."""
+    from tests.test_review_cards import _card_row
+    row = _card_row(at.tabs[3])
+
+    class _Wrap:
+        children = {0: row}
     out = {}
-    for el, folds, col in _leaves(at.tabs[3]):
+    for el, folds, col in _leaves(_Wrap):
         if col is not None and not folds and "chart" in el.type:
             out[col] = out.get(col, 0) + 1
     return out

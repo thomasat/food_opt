@@ -8420,3 +8420,127 @@ def profiler_bo(mean, low, high):
 
 def profiler_bo_gain(gain):
     return f"qLogNEI acquisition value {gain:.3f} along a one-factor slice"
+
+
+# --- review four ---
+# Review four (owner, 2026-10-02: "clean up the Review tab to cleanly (and
+# visually) answer these 4 questions"): under the three cards, four
+# question sections, always open, each a small heading, one answer line of
+# at most 10 words opening with its card's bold status word, one chart and
+# its caption of at most 8 words; the evidence in the answer line's "?".
+Q1_TITLE = "Can we trust the predictions?"
+Q2_TITLE = "Are we improving?"
+Q3_TITLE = "What drives each result?"
+Q4_TITLE = "What have we tried?"
+SEE_CHART = "See chart ↓"
+SEE_CHART_HELP = "Scrolls to the chart that answers this card's question."
+Q_WAIT = f"Appears after 5 scored {FORMULATION}s."
+Q3_CAPTION_PICK = "Suggestion 1 sits where expected gain peaks."
+PROFILER_REF_HELP = ("Draw every line through Suggestion 1 (the open Round's first suggestion) "
+                     "or through Best so far.")
+
+
+def answer_line(word, text):
+    """A section's answer: '**Rising.** Best 98.33 · up 3.3 points.'"""
+    text = text.strip()
+    if text and text[-1] not in ".!?":
+        text += "."
+    return f"**{word}.** {text}" if text else f"**{word}.**"
+
+
+def q3_answer(name):
+    """Q3's answer after the Next card's word: what moves the score most."""
+    return f"{name} moves the score most"
+
+
+Q3_FLAT = "No single change stands out"
+
+
+def q4_word(n):
+    """Q4's status word: '30 tested'."""
+    return f"{n} tested"
+
+
+def q4_gap(stretch):
+    """'Tap water below 31 g untested'."""
+    return f"{stretch} untested"
+
+
+Q4_NO_GAP = "No large untested stretch"
+
+
+def gap_span(name, low_text, high_text):
+    """'Salt 0.6–1.0 g': an interior gap, compact."""
+    return f"{name} {low_text}–{high_text}"
+
+# Ruling 1 (owner, 2026-10-02): the Predictions word reads the Overall
+# score's Round-ahead record (the suggestions are made from its model); the
+# measurements' misses are a secondary, non-red line.
+CARD_MEASURES_MISS = "Measurements miss more than expected"
+
+
+def card_score_missed(outside, total):
+    """'Overall score: 4 / 16 missed' (Off, More misses than expected)."""
+    return f"{OVERALL_SCORE_COLUMN}: {outside} / {total} missed"
+
+
+def on_score(sentence):
+    """A Predictions sentence's counts are the Overall score's: 'results'
+    becomes 'Overall scores' the first time it is said."""
+    return sentence.replace(" results ", f" {OVERALL_SCORE_COLUMN}s ", 1)
+
+
+def measures_sentence(inside, total, allowed, miss=False):
+    """The full sentence's second part: the measurements' own record."""
+    if miss:
+        return (f" Measurements miss more than expected: {inside} of {total} inside their "
+                f"range, up to {allowed} misses normal.")
+    return f" Measurements: {inside} of {total} inside their range."
+
+
+def ev_predictions(inside, total, skill_text=None, n=None, m_inside=None, m_total=None):
+    """'Overall score 10/12 in range, skill 0.69 (n = 12); measurements 27/36'."""
+    out = f"{OVERALL_SCORE_COLUMN} {inside}/{total} in range"
+    if skill_text is not None:
+        out += f", skill {skill_text} (n = {n})"
+    if m_total:
+        out += f"; measurements {m_inside}/{m_total}"
+    return out
+
+
+# Ruling 2: Expected gain is never hidden. Where the old rules withheld it,
+# it is drawn in grey with one line saying why; suggestions are made the
+# same way regardless. At most 10 words each; the full reason in its "?".
+GAIN_GREYED = {
+    "noise": "Expected gain greyed: may be noise. See Next.",
+    # Ruling 1 reads Predictions on the Overall score; the old gain rule
+    # reads the measurements' verdict, so the line names the measurements.
+    "verdict": "Expected gain greyed while measurements miss. See Next.",
+    "skill": "Expected gain greyed until predictions beat averaging.",
+}
+
+
+def tip_gain_greyed(reason):
+    """The greyed gain's "?": why, and that suggestions are still made."""
+    return (f"Expected gain is drawn in grey: {reason}. Suggestions are made the same way "
+            "regardless; the Next card says what would make the gain count again.")
+
+
+def why_gain_greyed(reason):
+    """Make a round's Why these line when the gain is greyed."""
+    return f"Expected gain greyed: {_WHY_GAIN_SHORT.get(reason, _WHY_GAIN_SHORT['noise'])}."
+
+
+def ev_profiler(n, ref, ref_no, acquisition="qlognei"):
+    """Q3's evidence: the models, the slice and the acquisition."""
+    name = _ACQ_SHORT.get(acquisition, acquisition)
+    return (f"n = {n} {FORMULATION}s with all results; one Gaussian process per result "
+            f"(posterior mean, 95 % predictive interval); one-factor slices through {ref} "
+            f"({FORMULATION_CAP} {ref_no}); Expected gain is the suggestion model's {name} "
+            "value along each slice")
+
+
+def ev_tried(n):
+    """Q4's evidence: model-free."""
+    return (f"model-free: {n} {FORMULATION}s with all results; untested = no {FORMULATION} "
+            "within 15 % of a row's span")

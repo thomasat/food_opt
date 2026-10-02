@@ -146,10 +146,27 @@ def _text(el):
     return ""
 
 
+def _card_row(node):
+    """The first block whose children are columns: the cards' row (review
+    four: Q1 and Q2 sit in a second row of columns below it)."""
+    kids = list(getattr(node, "children", {}).values())
+    if any(k.type == "column" for k in kids):
+        return node
+    for k in kids:
+        found = _card_row(k) if getattr(k, "children", None) else None
+        if found is not None:
+            return found
+    return None
+
+
 def cards(at):
     """[(label, word, [lines], help)] per card, in column order."""
     out = {}
-    for el, folds, col in _leaves(at.tabs[3]):
+    row = _card_row(at.tabs[3])
+
+    class _Wrap:
+        children = {0: row} if row is not None else {}
+    for el, folds, col in _leaves(_Wrap):
         if col is None or folds:
             continue
         card = out.setdefault(col, {"label": None, "word": None, "lines": [], "help": None,

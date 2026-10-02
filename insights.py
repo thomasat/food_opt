@@ -1382,6 +1382,17 @@ class StatusFacts:
     # Review diagnosis: where the misses fell, under Off (coverage) or More
     # misses than expected with no disagreeing Repeat; None otherwise.
     diagnosis: MissDiagnosis | None = None
+    # Review four, ruling 1 (owner, 2026-10-02): the verdict word is the
+    # Overall score's (verdict, above, is score_verdict_state's); the
+    # measurements' own verdict (verdict_state) is kept here, for the
+    # card's secondary line and the tooltip, which report both.
+    measure_verdict: str | None = None
+
+    @property
+    def measures_miss(self):
+        """The measurements miss more than expected (their own verdict
+        caution or unreliable): a secondary, non-red line on the card."""
+        return self.measure_verdict in ("unreliable", "caution")
 
     @property
     def predictions(self):
@@ -1426,6 +1437,53 @@ _NOISE_TRIGGERS = ("floor", "noise")
 _PROGRESS_WORD = {"yes": "rising", "barely": "within_noise", "not_lately": "flat"}
 
 
+# --- review four (ruling 1, display and status only, 2026-10-02) ---
+# The suggestions are made from the Overall-score model, so the Predictions
+# word reads the Overall score's own Round-ahead record: its coverage over
+# every Round checked (Headline.score, fully measured formulations) and its
+# skill. The measurements' coverage (verdict_state) stays a fact beside it.
+def score_verdict_state(opt, h, checks):
+    """The Overall score's verdict: "none" (no Round checked), "early"
+    (fewer than SKILL_MIN Overall-score checks), "unreliable" or "caution"
+    (the binomial tail of its misses under 0.01 or 0.10, as the
+    measurements' verdict), "wide" (its own 95 % ranges wide in the
+    verdict's Rounds), else "within"."""
+    record = getattr(h, "score", None)
+    if h.state == "none" and record is None:
+        return "none"
+    if record is None or record.total < SKILL_MIN:
+        return "early"
+    tail = binomial_tail(record.total - record.inside, record.total)
+    if tail < 0.01:
+        return "unreliable"
+    if tail < 0.10:
+        return "caution"
+    if SCORE in (h.wide or []):
+        return "wide"
+    return "within"
+
+
+def score_prediction_row(scored, verdict, fact, checked):
+    """prediction_row's rows on the Overall score's verdict: the disagreeing
+    Repeat is no longer a Predictions row (it is the Next card's, in red:
+    ruling 1); the rest as before, worst first."""
+    if scored < MIN_ROWS:
+        return "gate"
+    if verdict == "unreliable":
+        return "off_coverage"
+    if verdict == "caution":
+        return "caution"
+    if verdict in ("none", "early") or (fact is None and checked < SKILL_MIN):
+        return "too_few"
+    if verdict == "wide":
+        return "wide"
+    if fact is not None and fact.state == "no_skill":
+        return "no_skill"
+    if fact is None or fact.state == "unclear":
+        return "unclear"
+    return "reliable"
+
+
 def status_facts(opt, checks, standing=None, gain=None):
     """W1 (review R-B1): the facts of the three status lines, worst rule
     first, from headline, verdict_state, skill, disagreeing_repeat,
@@ -1450,19 +1508,22 @@ def status_facts(opt, checks, standing=None, gain=None):
     checks = list(checks or ())
     scored = opt.complete_count()
     h = headline(opt, checks)
-    verdict = verdict_state(opt, h, checks)
+    # Review four, ruling 1: the word on the Overall score's record; the
+    # measurements' verdict kept beside it (measure_verdict).
+    measure_verdict = verdict_state(opt, h, checks)
+    verdict = score_verdict_state(opt, h, checks)
     flagged = disagreeing_repeat(opt, checks) if checks else None
     fact = skill(opt, checks) if checks else None
     checked = sum(1 for c in checks if c.name == SCORE and c.fully_measured)
     yard = noise_yardstick(opt, checks)
     bias = score_steady_bias(opt, checks, flagged) if checks else None
-    row = prediction_row(scored, verdict, flagged, fact, checked)
+    row = score_prediction_row(scored, verdict, fact, checked)
     clauses, guard = [], None
     if row in _CLAUSED:
         wide = list(h.wide or [])
         if wide and row != "wide":
             clauses.append(("wide", wide))
-        if verdict == "over_wide":
+        if measure_verdict == "over_wide":
             clauses.append(("over_wide",))
         if bias is not None:
             clauses.append(("bias", bias))
@@ -1488,12 +1549,14 @@ def status_facts(opt, checks, standing=None, gain=None):
                 and getattr(standing, "luck", False)
                 and getattr(standing.best, "repeat", None) is not None)
     step = None if row == "gate" else next_step(opt, checks, standing, gain)
+    # Where the measurements' misses fell (the tooltip's), whenever they
+    # miss more than expected and no Repeat disagrees.
     diagnosis = (miss_diagnosis(opt, checks, h)
-                 if row in ("off_coverage", "caution") and flagged is None else None)
+                 if measure_verdict in ("unreliable", "caution") and flagged is None else None)
     return StatusFacts(scored, row, clauses, h, verdict, fact, flagged, bias, guard, yard,
                        progress, answer, best, tie, luck, step, checked,
                        float(standing.best.repeat.mean) if luck else None,
-                       diagnosis=diagnosis)
+                       diagnosis=diagnosis, measure_verdict=measure_verdict)
 
 
 def tie_partner(opt, best):

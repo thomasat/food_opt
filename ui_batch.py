@@ -1292,6 +1292,11 @@ def why_columns(opt, value_col, help_text):
     }
 
 
+# Ruling 2 (review four): a greyed Expected gain's text colour, readable
+# but quieter on either theme.
+GREYED_GAIN = "#8a9099"
+
+
 def why_chart(opt, why, ref=None):
     """The explore-exploit map (01 #2, 02 §4.3): every sampled allowed
     formulation as a grey dot, predicted Overall score (the suggestion
@@ -1345,27 +1350,32 @@ def _why_fold(opt, preds):
         st.caption(say(wording.WHY_ROLE_KEY_SHORT),       # review polish: at most 8 words
                    help=say(f"{wording.role_help()} {ui_insights.bo_term(wording.TIP_ROLES)}"))
         ref = _best_repeat(opt, score)
+        # Review four, ruling 2: Expected gain is never hidden. Where the
+        # rule Progress uses would withhold it, its column is drawn in grey
+        # with one line saying why; the suggestions are made the same way.
         if checks is None:
-            # Not known yet: shown as withheld until it is (item 8).
-            hide = True
+            # Not known yet: greyed until it is (item 8).
+            grey = True
             st.caption(say(wording.WHY_GAIN_CHECKING_SHORT),
                        help=say(wording.why_gain_said(wording.WHY_CHECKING)))
         else:
-            # Withheld by the rule Progress uses for its expected
-            # improvement, and said with the same reason (T47 review
-            # minor 5; fix round 1), under the fold's own column name.
             reason = ui_insights.withheld(opt, score, checks)
-            hide = reason is not None
-            if hide:
-                st.caption(say(wording.why_gain_short(reason)), help=say(wording.why_gain_said(
-                    why_withheld_line(opt, score, checks, reason))))
-        frame, value_col = why_frame(opt, why, preds, hide=hide)
+            grey = reason is not None
+            if grey:
+                st.caption(say(wording.why_gain_greyed(reason)), help=say(" ".join([
+                    wording.why_gain_said(why_withheld_line(opt, score, checks, reason)),
+                    wording.tip_gain_greyed(wording._WHY_GAIN_SHORT.get(
+                        reason, wording._WHY_GAIN_SHORT["noise"]))])))
+        frame, value_col = why_frame(opt, why, preds)
         help_text = (wording.OPTIMISTIC_SCORE_HELP if why.kind == "qucb"
                      else wording.tip_expected_gain(why.kind))
-        st.dataframe(frame, hide_index=True, height=table_height(len(frame)),
+        shown = frame
+        if grey and value_col in frame.columns:
+            shown = frame.style.map(lambda _: f"color: {GREYED_GAIN}", subset=[value_col])
+        st.dataframe(shown, hide_index=True, height=table_height(len(frame)),
                      column_config=why_columns(opt, value_col, help_text))
         pending = [r.formulation for r in why.rows if r.pending]
-        if pending and not hide:
+        if pending:
             st.caption(say(wording.why_picked_after(pending)),
                        help=say(wording.TIP_PICKED_AFTER))
         best_no = opt.best_formulation_no()

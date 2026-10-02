@@ -1,0 +1,407 @@
+"""Review four (prototype, 2026-10-02; owner: "clean up the Review tab to
+cleanly (and visually) answer these 4 questions"). Under the header and
+the three cards, four question sections, always open, in this order: Q1
+"Can we trust the predictions?" beside Q2 "Are we improving?", then Q3
+"What drives each result?" and Q4 "What have we tried?". Each is a small
+heading, one answer line opening with its card's bold word, ONE chart and
+its caption. Each card links to its question ("See chart ↓"). The hero,
+"Can you have both?", the triangle and their folds are gone.
+
+Ruling 1: the Predictions word reads the Overall score's Round-ahead record
+(coverage + skill); the measurements' misses are a secondary, non-red line.
+Ruling 2: Expected gain is never hidden: greyed, with its reason."""
+import json
+import os
+import re
+import shutil
+
+import pytest
+from streamlit.testing.v1 import AppTest
+
+import bo_views
+import insights
+import insights_jobs
+import ui_insights as U
+import wording
+from tests import demo_projects as D
+from tests.test_app_ui import APP_PATH
+from tests.test_food_bo import _BANNED
+from tests.test_review_cards import _leaves, _text, cards, screens  # noqa: F401 (fixture)
+from tests.test_review_diag import ALL10, PILOT, R5, R6, needs_pilot
+
+QUESTIONS = [wording.Q1_TITLE, wording.Q2_TITLE, wording.Q3_TITLE, wording.Q4_TITLE]
+CHART = ("arrow_vega_lite_chart", "vega_lite_chart")
+
+
+def _words(text):
+    plain = re.sub(r":\w+\[(.*?)\]", r"\1", text).replace("**", "")
+    return len([w for w in plain.split() if re.search(r"\w", w)])
+
+
+def sections(at):
+    """{question: [(type, text)]} in screen order, from each heading to the
+    next (the last one to Method and definitions)."""
+    out, cur = {}, None
+    for el, folds, _ in _leaves(at.tabs[3]):
+        text = _text(el)
+        if el.type == "markdown" and text.startswith("#### "):
+            cur = text[5:]
+            out[cur] = []
+            continue
+        if el.type == "expander":
+            cur = None
+        if cur is not None and (text or el.type in CHART):
+            out[cur].append((el.type, text))
+    return out
+
+
+# ------------------------------------------------------------------ #
+
+@pytest.mark.parametrize("name", D.ALL)
+def test_four_questions_in_order_one_chart_each(screens, name):  # noqa: F811
+    at = screens[name]
+    got = sections(at)
+    assert list(got) == [wording.for_project(D.load(name), q) for q in QUESTIONS]
+    gate = name == D.SNACK
+    for q, items in got.items():
+        charts = sum(t in CHART for t, _ in items)
+        if gate and q in (wording.Q1_TITLE, wording.Q3_TITLE):
+            # Before 5 scored: one line, no chart.
+            assert charts == 0 and ("caption", wording.Q_WAIT) in items, (q, items)
+        else:
+            assert charts == 1, (q, items)
+
+
+@pytest.mark.parametrize("name", D.ALL)
+def test_answer_lines_open_with_the_cards_word(screens, name):  # noqa: F811
+    at = screens[name]
+    p, g, n = cards(at)
+    got = sections(at)
+    plain = lambda w: re.sub(r":\w+\[(.*?)\]", r"\1", w)   # noqa: E731
+    firsts = {q: next((t for k, t in items if k == "markdown"), None)
+              for q, items in got.items()}
+    q1, q2, q3, q4 = (firsts[k] for k in got)
+    if name != D.SNACK:
+        assert re.sub(r":red\[(.*)\]", r"\1", q1).startswith(f"**{plain(p['word'])}.**")
+        assert re.sub(r":red\[(.*)\]", r"\1", q3).startswith(f"**{plain(n['word'])}.**")
+    assert q2.startswith(f"**{plain(g['word'])}.**")
+    assert re.match(r"\*\*\d+ tested\.\*\* ", q4), q4
+    for line in (q1, q2, q3, q4):
+        if line:
+            assert _words(line) <= 10, line
+
+
+@pytest.mark.parametrize("name", D.ALL)
+def test_captions_and_labels_within_the_limits(screens, name):  # noqa: F811
+    for q, items in sections(screens[name]).items():
+        assert _words(q) <= 5
+        for kind, text in items:
+            if kind == "caption" and text != wording.Q_WAIT:
+                assert _words(text) <= 10, text       # captions 8, a greyed reason 10
+            if kind == "button":
+                assert _words(text) <= 5, text
+
+
+@pytest.mark.parametrize("name", D.ALL)
+def test_each_card_links_to_its_question(screens, name):  # noqa: F811
+    at = screens[name]
+    for c in cards(at):
+        assert ("tertiary", wording.SEE_CHART) in c["buttons"], c
+    keys = {b.key for b in at.tabs[3].button}
+    for which in ("predictions", "progress", "next"):
+        assert f"{U.SEE_CHART_KEY}_{which}" in keys
+    # Predictions -> Q1, Progress -> Q2, Next -> Q3, each landing on the
+    # keyed place its section is drawn in (the links from Results and
+    # Make a round land on the first two).
+    assert U.SECTION_KEYS == {"predictions": U.TRUST_SECTION, "progress": U.STAND_SECTION,
+                              "next": U.DRIVES_SECTION, "tried": U.EXPLORED_PLACE}
+    assert U._QUESTIONS["predictions"] == wording.Q1_TITLE
+    assert U._QUESTIONS["next"] == wording.Q3_TITLE
+
+
+def test_a_card_link_lands_on_its_question(screens):  # noqa: F811
+    at = screens[D.LINE_A]
+    landed = {}
+    real = U.ask_tab
+
+    def spy(label, section="top", fold=None, state=None):
+        landed["section"] = section
+        return real(label, section, fold, state)
+    for which, key in (("progress", U.STAND_SECTION), ("next", U.DRIVES_SECTION)):
+        [b] = [b for b in at.tabs[3].button if b.key == f"{U.SEE_CHART_KEY}_{which}"]
+        U.ask_tab = spy
+        try:
+            b.click().run()
+        finally:
+            U.ask_tab = real
+        assert not at.exception
+        # The callback is bound with its section (on_click args).
+        assert at.session_state["main_tab"] == wording.TAB_INSIGHTS
+    src = U.see_chart_link.__code__.co_names
+    assert "SECTION_KEYS" in src and "ask_tab" in src
+
+
+@pytest.mark.parametrize("name", D.ALL)
+def test_one_method_link_and_one_fold(screens, name):  # noqa: F811
+    at = screens[name]
+    folds = [el.label for el, f, _ in _leaves(at.tabs[3]) if el.type == "expander" and not f]
+    assert folds == [wording.FOLD_METHOD]
+    links = [b for b in at.tabs[3].button if b.label == wording.METHOD_LINK]
+    assert len(links) == 1 and links[0].proto.type == "tertiary"
+
+
+@pytest.mark.parametrize("name", D.ALL)
+def test_one_primary_on_the_screen(screens, name):  # noqa: F811
+    at = screens[name]
+    primaries = [el for el, _, _ in _leaves(at.tabs[3])
+                 if el.type == "button" and el.proto.type == "primary"]
+    assert len(primaries) == 1
+
+
+REMOVED_TEXT = (wording.PLOT_PAIR, wording.PLOT_TRIANGLE, wording.PLOT_CHOOSES,
+                "How the app chose", "Where the app looks next", wording.PAIR_FOLD,
+                wording.FOLD_EXPLORED, wording.FOLD_MORE, wording.FOLD_TRIED,
+                wording.PLOT_MAP)
+
+
+@pytest.mark.parametrize("name", D.ALL)
+def test_the_removed_charts_are_gone(screens, name):  # noqa: F811
+    at = screens[name]
+    for el, _, _ in _leaves(at.tabs[3]):
+        text = _text(el) or ""
+        spec = el.proto.spec if el.type in CHART else ""
+        for gone in REMOVED_TEXT:
+            assert gone not in text and gone not in spec, (gone, text[:80])
+    for fn in ("chooses_chart", "chooses_data", "pair_chart", "mixture_chart", "_hero",
+               "_triangle", "_more_charts", "explored_fold", "tried_fold", "path_chart",
+               "change_chart", "gain_chart"):
+        assert not hasattr(U, fn), fn
+    # The map stays on Make a round's Why these.
+    assert hasattr(U, "explore_map_chart")
+
+
+# ------------------------------------------------------------------ #
+#  Ruling 1: the verdict on the Overall score
+# ------------------------------------------------------------------ #
+
+# (row, measurements' verdict) per demo project, from its own checks.
+VERDICT = {
+    D.SNACK: ("gate", "none"),
+    D.LINE_A: ("reliable", "within"),        # score 13/15, skill 0.36
+    D.LINE_B: ("caution", "unreliable"),     # score 13/16 (tail 0.04); measurements 28/36
+    D.LINE_C: ("no_skill", "within"),        # score 14/16, skill -0.47
+    D.UPGRADE: ("too_few", "early"),
+    D.TIMING: ("reliable", "within"),        # score 54/55
+    D.PROCESS_ONLY: ("off_coverage", "within"),   # score 12/16 (tail 0.007)
+}
+
+
+@pytest.mark.parametrize("name", D.ALL)
+def test_the_word_reads_the_overall_score(name):
+    opt = D.load(name)
+    checks = insights.check_rounds(opt) if opt.complete_count() >= insights.MIN_ROWS else []
+    f = insights.status_facts(opt, checks)
+    assert (f.prediction_row, f.measure_verdict) == VERDICT[name]
+    assert f.measures_miss == (f.measure_verdict in ("unreliable", "caution"))
+
+
+def test_score_verdict_rule():
+    h = insights.Headline("verdict", [3], 30, 36, "unreliable",
+                          insights.ScoreRecord(14, 15, 0.0, 1.0, [2, 3]), [])
+    assert insights.score_verdict_state(None, h, []) == "within"
+    h.score = insights.ScoreRecord(9, 9, 0.0, 1.0, [2, 3])
+    assert insights.score_verdict_state(None, h, []) == "early"    # under SKILL_MIN checks
+    h.score = insights.ScoreRecord(12, 16, 0.0, 1.0, [2, 3])
+    assert insights.score_verdict_state(None, h, []) == "unreliable"
+    h.score = insights.ScoreRecord(13, 16, 0.0, 1.0, [2, 3])
+    assert insights.score_verdict_state(None, h, []) == "caution"
+    # A disagreeing Repeat is no Predictions row any more: the Next card's.
+    assert insights.score_prediction_row(20, "within", None, 0) == "too_few"
+    assert "off_repeat" not in {insights.score_prediction_row(20, v, None, 12)
+                                for v in ("unreliable", "caution", "within", "wide")}
+
+
+CARDS = {
+    D.LINE_A: ("Reliable", ["Overall score: 13 / 15 in range"]),
+    D.LINE_B: ("Not yet", [":red[**Overall score: 3 / 16 missed**]",
+                           "Measurements miss more than expected"]),
+    D.PROCESS_ONLY: (":red[Off]", [":red[**Overall score: 4 / 16 missed**]"]),
+    D.TIMING: ("Reliable", ["Overall score: 54 / 55 in range"]),
+}
+
+
+@pytest.mark.parametrize("name", list(CARDS))
+def test_the_predictions_card(screens, name):  # noqa: F811
+    p, _, n = cards(screens[name])
+    word, first = CARDS[name]
+    assert p["word"] == word
+    assert p["lines"][:len(first)] == first
+    assert not any(line.startswith(":red[") and "Measurements" in line for line in p["lines"])
+    ev = p["help"].split("\n\n")[1]
+    assert ev.startswith("Evidence: Overall score ") and "; measurements " in ev
+
+
+def test_a_disagreeing_repeat_stays_red_on_next(screens):  # noqa: F811
+    p, _, n = cards(screens[D.LINE_B])
+    assert n["word"] == ":red[Check panel first]"
+    assert ":red[**Before Round 6**]" in n["lines"]
+    assert all("Repeat came out" not in line for line in p["lines"])
+
+
+def test_evidence_reports_both():
+    assert wording.ev_predictions(10, 12, "0.69", 12, 27, 36) == (
+        "Overall score 10/12 in range, skill 0.69 (n = 12); measurements 27/36")
+
+
+# ------------------------------------------------------------------ #
+#  Ruling 2: Expected gain greyed, never hidden
+# ------------------------------------------------------------------ #
+
+@pytest.fixture(scope="class")
+def line_a(tmp_path_factory):
+    mp = pytest.MonkeyPatch()
+    mp.chdir(tmp_path_factory.mktemp("review-four"))
+    mp.setattr(insights_jobs, "_JOBS", {})
+    mp.setattr(insights_jobs, "_INFLIGHT", {})
+    mp.setattr(U.st, "session_state", {})
+    with bo_views.fresh():
+        opt = D.load(D.LINE_A)
+        computed = U._computed(opt, quiet=True)
+        mp.setattr(U, "checks_for", lambda o, stage: computed["checks"])
+        yield opt, computed
+    mp.undo()
+
+
+def _gain_rows(spec):
+    return [r for r in spec["vconcat"]
+            if wording.PROFILER_GAIN_ROW in json.dumps(r["spec"]["layer"][0].get("encoding", {}))
+            or wording.PROFILER_GAIN_ROW in json.dumps(r)]
+
+
+@pytest.mark.usefixtures("line_a")
+class TestGain:
+    """One Line A fit for the class (its session_state patch is undone
+    before the AppTest tests below)."""
+
+    @pytest.mark.parametrize("reason", [wording.CHOOSES_REASON_NOISE,
+                                        wording.GAIN_REASON_VERDICT])
+    def test_gain_is_greyed_not_hidden(self, line_a, reason):
+        _greyed(line_a, reason)
+
+    def test_profiler_defaults_to_suggestion_one(self, line_a):
+        _defaults(line_a)
+
+
+def _greyed(line_a, reason):
+    opt, computed = line_a
+    fitted = computed["fitted"]
+    refs = U.profile_refs(opt)
+    label, number, recipe, is_pick = refs[-1]
+    prof = U.profile_data(opt, fitted, recipe, label, number, is_pick, reason)
+    assert prof.greyed and prof.gain_drawn
+    assert all(c.gain is not None for c in prof.columns)
+    spec = U.profile_chart(opt, prof).to_dict()
+    text = json.dumps(spec)
+    assert wording.PROFILER_GAIN_ROW in text
+    grey, _ = U.mark("neutral")
+    gain_row = spec["vconcat"][-1]
+    lines = [lay["mark"] for lay in gain_row["spec"]["layer"]
+             if isinstance(lay["mark"], dict) and lay["mark"]["type"] in ("line", "area")]
+    # The gain's line and area in grey, the line dashed: drawn, not claimed.
+    assert lines and all(m["color"] == grey for m in lines), lines
+    assert any(m.get("strokeDash") for m in lines if m["type"] == "line")
+    assert U.gain_greyable(reason)
+
+
+def test_no_gain_to_grey_for_a_cold_round_or_ucb():
+    assert not U.gain_greyable(wording.CHOOSES_REASON_COLD)
+    assert not U.gain_greyable(wording.CHOOSES_REASON_UCB)
+    assert not U.gain_greyable(None)
+
+
+def test_the_greyed_lines_say_why_and_that_suggestions_are_the_same():
+    for text in wording.GAIN_GREYED.values():
+        assert _words(text) <= 10 and "greyed" in text
+    assert "Suggestions are made the same way regardless" in wording.tip_gain_greyed("x")
+    assert wording.why_gain_greyed("verdict").startswith("Expected gain greyed")
+
+
+def test_make_a_round_greys_the_gain_column():
+    import inspect
+    import ui_batch
+    src = inspect.getsource(ui_batch._why_fold)
+    assert "hide=hide" not in src and "GREYED_GAIN" in src
+    assert "why_gain_greyed" in src
+
+
+def _defaults(line_a):
+    opt, _ = line_a
+    refs = U.profile_refs(opt)
+    assert refs[-1][0] == wording.PROFILER_REF_PICK and refs[-1][3]
+    import inspect
+    assert "default=labels[-1]" in inspect.getsource(U._profiler)
+    assert _words(wording.Q3_CAPTION_PICK) <= 8
+
+
+# ------------------------------------------------------------------ #
+#  The yogurt pilot (skipped without it)
+# ------------------------------------------------------------------ #
+
+@pytest.fixture(scope="module")
+def pilot(tmp_path_factory):
+    here = os.getcwd()
+    work = tmp_path_factory.mktemp("review-four-pilot")
+    for n in (R5, R6, ALL10):
+        shutil.copy(PILOT / f"{n}.pkl", work)
+    os.chdir(work)
+    try:
+        with bo_views.fresh():
+            yield work
+    finally:
+        os.chdir(here)
+
+
+def _open(name):
+    at = AppTest.from_file(APP_PATH, default_timeout=900)
+    at.session_state["_loaded_project"] = name
+    at.run()
+    at.session_state["main_tab"] = wording.TAB_INSIGHTS
+    at.run()
+    assert not at.exception, [e.message for e in at.exception]
+    return at
+
+
+@needs_pilot
+def test_pilot_cards_on_the_overall_score(pilot):
+    p = cards(_open(R5))[0]
+    # 9 Overall-score checks: under SKILL_MIN, so Not yet; the measurements'
+    # misses a plain line, and the neutral Repeat request.
+    assert p["word"] == "Not yet"
+    assert wording.CARD_MEASURES_MISS in p["lines"]
+    assert not any(line.startswith(":red[") for line in p["lines"])
+    at = _open(ALL10)
+    assert cards(at)[0]["word"] == "Reliable"
+    assert list(sections(at)) == QUESTIONS
+
+
+def test_new_strings_pass_the_vocabulary_guard():
+    texts = [*QUESTIONS, wording.SEE_CHART, wording.SEE_CHART_HELP, wording.Q_WAIT,
+             wording.Q3_CAPTION_PICK, wording.PROFILER_REF_HELP,
+             wording.answer_line("Rising", "Best 98.33"), wording.q3_answer("Salt"),
+             wording.Q3_FLAT, wording.q4_word(30), wording.q4_gap("Salt below 1 g"),
+             wording.Q4_NO_GAP, wording.gap_span("Salt", "0.6", "1.0 g"),
+             wording.CARD_MEASURES_MISS, wording.card_score_missed(3, 16),
+             wording.on_score("In Round 3, 9 of 10 results landed."),
+             wording.measures_sentence(27, 36, 4, True), wording.measures_sentence(27, 36, 4),
+             wording.ev_predictions(10, 12, "0.69", 12, 27, 36), *wording.GAIN_GREYED.values(),
+             wording.tip_gain_greyed("x"), wording.why_gain_greyed("skill"),
+             wording.ev_profiler(20, "Suggestion 1", 21), wording.ev_tried(20)]
+    for text in texts:
+        assert not any(p.search(text) for p in _BANNED), text
+        assert "spread" not in text.lower(), text
+    # "Expected gain" is the gain's one name.
+    for text in (*wording.GAIN_GREYED.values(), wording.Q3_CAPTION_PICK):
+        assert "Expected gain" in text or "expected gain" in text
+    # Process-only studies say Trial.
+    opt = D.load(D.PROCESS_ONLY)
+    assert "trials" in wording.for_project(opt, wording.Q_WAIT)
