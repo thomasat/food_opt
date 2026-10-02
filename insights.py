@@ -3214,3 +3214,88 @@ def most_changed(opt, start, recipes):
         if best_key is None or key > best_key:
             best, best_key = n, key
     return best
+
+
+# Charts proto follow-up: the straight line in the full space from Best so
+# far (t = 0) to a suggestion (t = 1), every row moving together.
+LINE_FROM, LINE_TO, LINE_POINTS = -0.25, 1.5, 71
+
+
+def _line_recipe(opt, start, end, t):
+    """The make-up a share `t` of the way from `start` to `end`: each
+    varying continuous row in proportion, a choice row the start's until
+    halfway, the end's after; the formula rows (the Fill to total row
+    among them) written in again."""
+    r = dict(start)
+    for v in opt.varying_variables():
+        n = v['name']
+        if v.get('type') != 'continuous':
+            r[n] = start.get(n) if t < 0.5 else end.get(n, start.get(n))
+            continue
+        a, b = float(start.get(n, 0.0) or 0.0), float(end.get(n, 0.0) or 0.0)
+        r[n] = a + t * (b - a)
+    return opt.fill_formulas(r)
+
+
+def _line_moving(opt):
+    return [v['name'] for v in opt.varying_variables() if v.get('type') == 'continuous']
+
+
+def _line_breaks(opt, start, end, t):
+    """The first limit the line breaks at `t` (its own Lowest–Highest per
+    row, the total, every limit, a formula row below zero), or None."""
+    return _limits_broken(opt, _line_recipe(opt, start, end, t), _line_moving(opt), start)
+
+
+def line_path(opt, start, end, lo=LINE_FROM, hi=LINE_TO, points=LINE_POINTS):
+    """Path-like (amounts = t, recipes) along the straight line from
+    `start` (t = 0) to `end` (t = 1) over [lo, hi], clipped where it leaves
+    the allowed region as build_path clips one row's path (bisected edge,
+    the limit it breaks named in low_end/high_end). Both ends in the
+    region keep 0..1 whole: the region is convex."""
+    grid = sorted({lo + (hi - lo) * k / (points - 1) for k in range(points)} | {0.0, 1.0})
+    base = dict(name="line", unit="", mode="line", fill_name=opt.balance_row_name(),
+                start_amount=0.0, skipped=[], outside=False, fixed=[], follows=[])
+    why = _line_breaks(opt, start, end, 0.0)
+    if why is not None:
+        return Path(amounts=[], recipes=[], low_end=PathEnd(0.0, None),
+                    high_end=PathEnd(0.0, None), start_breaks=why, **base)
+    ends = {}
+    for side, seq in (("low", [t for t in reversed(grid) if t <= 0.0]),
+                      ("high", [t for t in grid if t >= 0.0])):
+        last = 0.0
+        ends[side] = PathEnd(seq[-1], None)
+        for t in seq:
+            reason = _line_breaks(opt, start, end, t)
+            if reason is None:
+                last = t
+                continue
+            ok, bad = last, t
+            for _ in range(40):
+                mid = (ok + bad) / 2
+                if _line_breaks(opt, start, end, mid) is None:
+                    ok = mid
+                else:
+                    bad = mid
+            ends[side] = PathEnd(ok, _line_breaks(opt, start, end, bad))
+            break
+    keep = sorted({t for t in grid if ends["low"].amount <= t <= ends["high"].amount}
+                  | {ends["low"].amount, ends["high"].amount})
+    return Path(amounts=keep, recipes=[_line_recipe(opt, start, end, t) for t in keep],
+                low_end=ends["low"], high_end=ends["high"], start_breaks=None, **base)
+
+
+def tested_near_line(opt, path):
+    """tested_near_path for a line_path: [(index, t of the nearest point
+    of the line, Overall score)] for each fully measured formulation
+    within CLOSE_TO_THE_BEST of it."""
+    out = []
+    for i in range(len(opt.Y_history)):
+        if not opt.fully_measured(i):
+            continue
+        rec = start_recipe(opt, i)
+        ds = [distance(opt, r, rec) for r in path.recipes]
+        near = [(d, t) for d, t in zip(ds, path.amounts) if d is not None]
+        if near and min(near)[0] <= CLOSE_TO_THE_BEST + _EPS:
+            out.append((i, min(near)[1], float(opt.Y_history[i])))
+    return out

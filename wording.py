@@ -4679,15 +4679,15 @@ def next_close_to_top(change_text="", settings_only=False):
 
 def next_explore(no=None, n=0):
     """Next step "explore" (fix round 1, ledger ruling C1): no predicted
-    gain beyond the noise threshold, an expected improvement above it.
+    gain beyond the noise threshold, an expected gain above it.
     Said once, not as Progress says it (final review M-2); the number is
     Progress's."""
     why = ("the model's uncertainty, not a higher predicted score, puts their expected "
-           "improvement above the noise threshold.")
+           "gain above the noise threshold.")
     if n:
         return f"{record_open_round(no, n)}: {why}"
     return (f"Make the next {ROUND_CAP}: the model's uncertainty, not a higher predicted score, "
-            "puts its expected improvement above the noise threshold.")
+            "puts its expected gain above the noise threshold.")
 
 
 NEXT_RISING = f"Best so far is rising. Make the next {ROUND_CAP}."
@@ -5197,7 +5197,7 @@ def next_no_skill(value_text, n, no=None, left=0, rounds=None):
     predictions are no better than the average of earlier results."""
     head = (f"{OVERALL_SCORE_COLUMN} predictions are no better than the average of earlier "
             f"results ({_skill_basis(value_text, n, rounds)}): the predicted best and the "
-            "suggestions' expected improvement are not informative yet.")
+            "suggestions' expected gain are not informative yet.")
     tail = (f"{record_open_round(no, left)}, then make the next {ROUND_CAP}." if left
             else f"Make the next {ROUND_CAP}.")
     return f"{head} {tail}"
@@ -5260,24 +5260,24 @@ def why_guard_line(reasons=(), skill_only=False, verdict=False, gate_reason=None
     """The Why fold when the model's gains are withheld (review I4; T47
     review minor 5): what it withholds, and the same reason Progress gives.
     Roles are model-free from the 0.8.0 e2e fixes (review I3) and always
-    shown, so only the expected improvement is withheld. `gate_reason`:
+    shown, so only the expected gain is withheld. `gate_reason`:
     the A3 gate's reason in Progress's own words (gain_reason_too_few,
     gain_reason_unclear or GAIN_REASON_SKILL; integration, T0′)."""
     if verdict:
-        return ("Expected improvement is not shown: the measurements miss their 95 % "
+        return ("Expected gain is not shown: the measurements miss their 95 % "
                 "intervals more often than expected.")
     if gate_reason:
-        return f"Expected improvement is not shown: {gate_reason}."
+        return f"Expected gain is not shown: {gate_reason}."
     if skill_only:
-        return ("Expected improvement is not shown until Round-ahead predictions are "
+        return ("Expected gain is not shown until Round-ahead predictions are "
                 "clearly better than the average of earlier results.")
-    return ("Expected improvement is not shown: the model is fitting noise in these "
+    return ("Expected gain is not shown: the model is fitting noise in these "
             f"results ({'; '.join(reasons)}).")
 
 
 # The Why fold opened before the checks its withhold rule reads are in
 # (answer-key refresh item 8): nothing is shown that might be withdrawn.
-WHY_CHECKING = "Expected improvement is not shown until the Prediction check is calculated."
+WHY_CHECKING = "Expected gain is not shown until the Prediction check is calculated."
 
 
 PATH_GUARD = "The curve's bends are not reliable: the model is fitting noise in these results."
@@ -5286,7 +5286,7 @@ PATH_GUARD_SKILL = f"The curve's bends are not read as effects {A3_UNTIL}."
 
 # §3.1 (review I5, I9, I12, M4, M5, M9, M15): Why these suggestions.
 WHY_THESE = "Why these suggestions"
-EXPECTED_IMPROVEMENT = "Expected improvement (model, one formulation)"
+EXPECTED_IMPROVEMENT = "Expected gain (model, one formulation)"
 OPTIMISTIC_SCORE = "Optimistic score (mean + 0.45 × sd)"
 MODEL_SD = "Model sd (points)"
 NEAREST_TESTED = "Nearest tested"
@@ -5401,14 +5401,14 @@ WHY_TESTED = "Tested"
 WHY_SUGGESTED = "This Round's suggestion"
 WHY_RECOMPUTED = ("Recomputed from today's records: this Round's generation record is missing "
                   "or no longer matches its rows.")
-# Last-fix review R-1: with the expected improvement withheld, the line is
+# Last-fix review R-1: with the expected gain withheld, the line is
 # about what the fold still shows from the recomputed model.
 WHY_RECOMPUTED_WITHHELD = ("Model sd and the map are recomputed from today's records: this "
                            "Round's generation record is missing or no longer matches its rows.")
 
 
 HOW_EXPECTED_IMPROVEMENT = (
-    "Expected improvement (model, one formulation): the suggestion model's average gain of one "
+    "Expected gain (model, one formulation): the suggestion model's average gain of one "
     f"{FORMULATION}'s score, without Repeat noise, over the model's best tested {FORMULATION} "
     "(qLogNEI, the default) or Best so far's measured score (qLogEI), counting no gain as "
     f"zero. It is not the gain of a whole {ROUND_CAP} and not a gain in a measured "
@@ -5416,8 +5416,8 @@ HOW_EXPECTED_IMPROVEMENT = (
     "the 95 % interval.")
 
 
-# §3.2 (review I5, I10, M8, M11): Expected improvement by Round.
-GAIN_HEADING = "Expected improvement by Round"
+# §3.2 (review I5, I10, M8, M11): Expected gain by Round.
+GAIN_HEADING = "Expected gain by Round"
 
 
 def gain_line(value_text, round_no, threshold_text, above=False, recomputed=False,
@@ -5436,7 +5436,7 @@ def gain_line(value_text, round_no, threshold_text, above=False, recomputed=Fals
            else f"the model's best tested {FORMULATION}")
     # 0.8.0 e2e fixes A5 (review I6): what the statistic is, never "the best
     # single new formulation beats … by", which an average with zeros is not.
-    line = (f"Expected improvement, {which}: {value_text} points (model, one {FORMULATION}): "
+    line = (f"Expected gain, {which}: {value_text} points (model, one {FORMULATION}): "
             f"the model's average gain of one new {FORMULATION} over {ref}, counting no gain "
             f"as zero; {how} {threshold_text}.")
     if above and predicted_none:
@@ -5454,40 +5454,40 @@ def _gain_which(round_no):
 def gain_line_tiny(round_no, threshold_text, recomputed=False):
     """The Progress line when the figure rounds to 0.00 (T56 m3): said as
     under 0.01 points, with no plain reading of a machine zero."""
-    line = (f"Expected improvement, {_gain_which(round_no)}: under 0.01 points (model, one "
+    line = (f"Expected gain, {_gain_which(round_no)}: under 0.01 points (model, one "
             f"{FORMULATION}), under {threshold_text}.")
     if recomputed:
         line += " Recomputed from today's records."
     return line
 
 
-GAIN_UCB = ("Expected improvement: your model settings choose suggestions by an upper "
-            "confidence bound, which gives no expected improvement.")
+GAIN_UCB = ("Expected gain: your model settings choose suggestions by an upper "
+            "confidence bound, which gives no expected gain.")
 
 
 def gain_cold(round_no, values=False):
     what = 'values' if values else 'amounts'
     if round_no is None:
         return (f"The next {ROUND_CAP} will be chosen to cover the allowed {what}: no expected "
-                "improvement yet.")
-    return f"{ROUND_CAP} {round_no} was chosen to cover the allowed {what}: no expected improvement yet."
+                "gain yet.")
+    return f"{ROUND_CAP} {round_no} was chosen to cover the allowed {what}: no expected gain yet."
 
 
 def gain_unreliable(reason):
     """The §3.2 number is withheld (review I4): `reason` names why."""
-    return f"Expected improvement is not reported: {reason}."
+    return f"Expected gain is not reported: {reason}."
 
 
 GAIN_REASON_VERDICT = "the measurements miss their 95 % intervals more often than expected"
 GAIN_REASON_SKILL = "Round-ahead predictions are no better than the average of earlier results"
 GAIN_REASON_GUARD = "the model is fitting noise in these results"
-GAIN_AXIS = "Expected improvement (points)"
+GAIN_AXIS = "Expected gain (points)"
 GAIN_BEST_MEASURED = "Best so far (measured)"
 GAIN_HIGHEST_PREDICTED = "Highest predicted (model mean)"
 GAIN_EXACT = "As when the Round was made"
 GAIN_RECOMPUTED = "Recomputed with today's measurements, targets and Share of score"
 GAIN_STATUS = "How"
-GAIN_CHART_CAPTION = ("Bars: the expected improvement each Round's first suggestion was chosen "
+GAIN_CHART_CAPTION = ("Bars: the expected gain each Round's first suggestion was chosen "
                       "for (model, one formulation). No bar: that Round had no model yet, or "
                       "had only your own or past formulations.")
 
@@ -5497,15 +5497,15 @@ LAYER_PICK = "Show"
 LAYER_SCORE = "Predicted score"
 LAYER_SD = "Uncertainty"
 # 0.8.0 e2e fixes A5 (review I6): the layer and its legend say one name.
-LAYER_GAIN = "Expected improvement"
+LAYER_GAIN = "Expected gain"
 # The option's label before the rename: a session that still carries it is
 # read as LAYER_GAIN (ui_insights' layer pick maps it).
-LAYER_GAIN_FORMER = "Expected gain"
+LAYER_GAIN_FORMER = "Expected improvement"   # charts proto: one name, Expected gain
 # The triangle's colour under Predicted score is the model mean, not an
 # interval (02 M8, 03 M5; review I13).
 LAYER_SCORE_LEGEND = f"Predicted {OVERALL_SCORE_COLUMN} (model mean)"
 LAYER_SD_LEGEND = "Model sd (points; narrower than the 95 % interval)"
-LAYER_GAIN_LEGEND = "Expected improvement (points)"
+LAYER_GAIN_LEGEND = "Expected gain (points)"
 OVERLAY_NAME = "Predicted above Best so far"
 
 
@@ -5517,7 +5517,7 @@ def overlay_caption(ref_text):
 
 
 def start_suggested(no, edited=False):
-    """Start from, for the Uncertainty and Expected improvement layers only (review
+    """Start from, for the Uncertainty and Expected gain layers only (review
     I8). Not "not made": _BANNED keeps that for a bowl made and never
     measured. An edited suggestion says so (T56 m8)."""
     return f"{FORMULATION_CAP} {no} ({'edited' if edited else 'suggested'}, still to make)"
@@ -5526,7 +5526,7 @@ def start_suggested(no, edited=False):
 def layer_caption(layer, anchor_text):
     """What a layer colours, and the slice's anchor (review I8)."""
     what = (LAYER_SD_LEGEND[0].lower() + LAYER_SD_LEGEND[1:] if layer == LAYER_SD
-            else "expected improvement of one new formulation (model, points)")
+            else "expected gain of one new formulation (model, points)")
     return (f"Colour: {what}, as the three amounts vary at a fixed sum; all other amounts as "
             f"in {anchor_text}.")
 
@@ -5534,7 +5534,7 @@ def layer_caption(layer, anchor_text):
 def path_layer_caption(layer, anchor_text):
     what = ("model sd, narrower than the 95 % interval"
             if layer == LAYER_SD
-            else "expected improvement of one new formulation (model, points)")
+            else "expected gain of one new formulation (model, points)")
     return f"Line: {what}, from {anchor_text}."
 
 
@@ -5770,10 +5770,10 @@ def open_round_lost(round_no, n, typed=0):
 YES_MOVE_TO_NOT_SCORED = f"Yes, move to {NOT_SCORED}"
 
 
-# C1 (review I11): Progress's expected improvement fills in after the
+# C1 (review I11): Progress's expected gain fills in after the
 # first answers, never holding them up.
 def gain_pending(round_no=None):
-    return f"Expected improvement, {_gain_which(round_no)}: calculating…"
+    return f"Expected gain, {_gain_which(round_no)}: calculating…"
 
 
 # C2 (review M5): the indicator once the workers have broken 3 times in 10
@@ -6205,7 +6205,7 @@ def next_plain_rising(no=None, left=0, repeat_no=None, values=False):
 # --- §2, R-I8, M3: the folds, named by what they hold ----------------
 FOLD_PREDICTION_FIGURES = "Prediction figures — 95 % intervals, mean error, skill"
 FOLD_PROGRESS_FIGURES_NAME = "Progress figures"
-FOLD_PROGRESS_FIGURES = (f"{FOLD_PROGRESS_FIGURES_NAME} — expected improvement, Repeats, noise "
+FOLD_PROGRESS_FIGURES = (f"{FOLD_PROGRESS_FIGURES_NAME} — expected gain, Repeats, noise "
                          "threshold")
 FOLD_NEXT_REASONING = "Next-step reasoning"
 FOLD_MEASURED_CHART = "Measured against predicted (chart)"
@@ -6239,7 +6239,7 @@ BASIS_PREDICTIONS = (
 BASIS_PROGRESS = (
     f"Basis: Best so far is the highest measured Overall score among {FORMULATION}s with all "
     "results in; a rise counts from the noise threshold up, the pooled Repeat SD from 3 pairs, "
-    "else 1 point; expected improvement is the suggestion model's acquisition value.")
+    "else 1 point; expected gain is the suggestion model's acquisition value.")
 BASIS_NEXT = ("Basis: the Next-step rules are tried in the order listed under Method and "
               "definitions, and the first that holds is shown; its full sentence follows.")
 
@@ -6319,7 +6319,7 @@ TIP_PREDICTED_BEST = (
     "the posterior mean over the feasible region, its interval widened by the Round-ahead "
     "record.")
 TIP_EXPECTED_IMPROVEMENT = (
-    f"Expected improvement: what one new {FORMULATION} is expected to add over the model's best, "
+    f"Expected gain: what one new {FORMULATION} is expected to add over the model's best, "
     "on average, counting no gain as zero; an estimate, not a promise. BO term: the acquisition "
     "value, qLogNEI by default (qLogEI: over the best measured score; qUCB gives an optimistic "
     "score instead), conditional on the model.")
@@ -6429,7 +6429,7 @@ def tip_wide(names):
 
 def tip_guard(reasons):
     """`reasons`: GUARD_FLOOR and or GUARD_NOISE."""
-    return (f"Noise guard: {'; '.join(reasons)}. Effects and expected improvement are not "
+    return (f"Noise guard: {'; '.join(reasons)}. Effects and expected gain are not "
             "reported; the status itself is unchanged.")
 
 
@@ -6458,9 +6458,9 @@ def tip_next_best(score_text, ceiling, no, rnd=None):
 
 
 def tip_next_gain(gain_text, threshold_text):
-    """Next's explore row: the expected improvement Progress shows against
+    """Next's explore row: the expected gain Progress shows against
     the noise threshold. `gain_text` to 1 decimal."""
-    return (f"Expected improvement: {points_text(gain_text)}, above the noise threshold "
+    return (f"Expected gain: {points_text(gain_text)}, above the noise threshold "
             f"({threshold_text}).")
 
 
@@ -6668,9 +6668,9 @@ def status_rule_rows(cut_text="−0.20", settings_only=False):
          "it."),
         (n, "Explore",
          "Effects reported and not More misses than expected; no predicted gain beyond the "
-         "noise threshold; Progress Flat or Within noise; expected improvement above the noise "
+         "noise threshold; Progress Flat or Within noise; expected gain above the noise "
          "threshold."),
-        (n, "Close", "The same, with the expected improvement at or under the noise threshold."),
+        (n, "Close", "The same, with the expected gain at or under the noise threshold."),
         (n, "Rising", "Progress Rising."),
         (n, "See", "Any other case."),
     ]
@@ -6739,7 +6739,8 @@ GLOSSARY_ROWS = (
     ("predicted best", "maximiser of the posterior mean over the feasible region",
      "The allowed formulation the model scores highest; at a Highest or Lowest it sits on an "
      "active bound."),
-    ("expected improvement", "acquisition value (qLogNEI by default; qLogEI; qUCB)",
+    ("expected gain", "expected improvement (acquisition value; qLogNEI by default; qLogEI; "
+     "qUCB)",
      "Average gain of one new formulation over the model's best tested formulation (qLogEI: "
      "over the best measured score), counting no gain as zero."),
     ("model sd · how unsure the model is · Uncertainty", "latent posterior standard deviation",
@@ -6807,8 +6808,9 @@ _GLOSSARY_SETTINGS_FORM = {
         "predicted best", "maximiser of the posterior mean over the feasible region",
         "The allowed trial the model scores highest; at a Highest or Lowest it sits on an "
         "active bound."),
-    "expected improvement": (
-        "expected improvement", "acquisition value (qLogNEI by default; qLogEI; qUCB)",
+    "expected gain": (
+        "expected gain", "expected improvement (acquisition value; qLogNEI by default; "
+        "qLogEI; qUCB)",
         "Average gain of one new trial over the model's best tested trial (qLogEI: over the "
         "best measured score), counting no gain as zero."),
     "tested near · untested amounts": (
@@ -7094,7 +7096,8 @@ def why_compared_with(best_no):
 def why_gain_said(line):
     """A withheld line (WHY_CHECKING, why_guard_line) in the fold's own
     column name: the gain, not the BO term."""
-    return line.replace("Expected improvement is not shown", "Expected gain is not shown", 1)
+    # Charts proto: the withheld lines say "Expected gain" themselves now.
+    return line
 
 
 def repeat_after_generate(no):
@@ -7152,18 +7155,24 @@ CHOOSES_SUGGESTION = "First suggestion"
 CHOOSES_COLD = f"Appears after 5 scored {FORMULATION}s."
 
 
-def tip_chooses(best_no, settings_only=False):
+def tip_chooses(best_no, settings_only=False, line=False, end=None):
     """The caption's "?": the owner's own reading, and what the line is."""
     what = "process setting" if settings_only else "ingredient or process setting"
+    if line:
+        along = (f"The line runs straight from Best so far ({FORMULATION_CAP} {best_no}) to "
+                 f"{end}, every row moving together, and a little past each end where your "
+                 "limits allow. ")
+    else:
+        along = (f"The line moves one {what} from its Lowest to its Highest, starting from "
+                 f"Best so far ({FORMULATION_CAP} {best_no}); the other rows stay at Best so "
+                 "far's amounts. ")
     return ("The app suggests where the expected gain (bottom) is highest — either a high "
-            "prediction or high uncertainty (top). "
-            f"The line moves one {what} from its Lowest to its Highest, starting from Best so "
-            f"far ({FORMULATION_CAP} {best_no}); the other rows stay at Best so far's amounts. "
-            "Top: the suggestion model's predicted Overall score with its 95 % interval, grey "
+            "prediction or high uncertainty (top). " + along +
+            "Top: the suggestion model's predicted Overall score with its own 95 % band, grey "
             f"where nothing was tested near, and the {FORMULATION}s tested near the line. "
             "Bottom: the expected gain over Best so far at each point, in points. BO term: "
-            "posterior mean and 95 % credible band (top), acquisition function (bottom), along "
-            "a one-dimensional slice through the incumbent.")
+            "posterior mean and 95 % credible band (top); expected gain, the "
+            "acquisition value (bottom).")
 
 
 CHOOSES_WITHHELD = "Expected gain not shown."
@@ -7194,3 +7203,34 @@ def basis_charts(values=False, total=True):
     """The fold's first line with the four charts (was basis_explored)."""
     at = "at the values run" if values else "at the Formulation total" if total else "as made"
     return f"Lines: {at}. Others: the suggestion model."
+
+
+# Charts proto follow-up: the straight line from Best so far to Suggestion 1
+# (else the predicted best), one name for the gain, the band's width said.
+CHOOSES_MODE = "Draw along"
+CHOOSES_SUGGESTION_ONE = "Suggestion 1"
+CHOOSES_PREDICTED_BEST = "Predicted best"
+CHOOSES_AMOUNTS_HERE = "Amounts here"
+
+
+def chooses_mode_option(line, has_pick=True, settings_only=False):
+    """The Draw along box's two entries."""
+    if line:
+        end = CHOOSES_SUGGESTION_ONE if has_pick else CHOOSES_PREDICTED_BEST
+        return f"Best so far → {end}"
+    return "Along one process setting" if settings_only else "Along one ingredient"
+
+
+def chooses_line_axis(end):
+    """The straight line's x axis: 'From Best so far → Suggestion 1'."""
+    return f"From Best so far → {end}"
+
+
+CHOOSES_BAND_LEGEND = "Model's own band: narrower than Try one"
+TIP_CHOOSES_BAND = (
+    "The band is the suggestion model's own 95 % uncertainty about its mean: no Repeat noise "
+    "and no widening from the Prediction check. It is therefore narrower than the 95 % "
+    "interval under Try one, which is for a new measured result. BO term: latent posterior "
+    "95 % credible band.")
+# One name for the gain on screen (Expected gain); the BO term in tooltips.
+GAIN_TOOLTIP_TITLE = "Expected gain (points) — expected improvement (acquisition value)"

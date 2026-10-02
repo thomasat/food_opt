@@ -2944,7 +2944,8 @@ def mixture_chart(opt, mix, preds, number, start_pred=None, layer=None, values=N
                                layer, wording.LAYER_SCORE_LEGEND))
     # A tooltip under Predicted score reads "78 (70–85)", with its interval:
     # it keeps the column's name; the legend names the colour alone.
-    tip_title = (predicted if layer in (wording.LAYER_SD, wording.LAYER_GAIN)
+    tip_title = (wording.GAIN_TOOLTIP_TITLE if layer == wording.LAYER_GAIN
+                 else predicted if layer == wording.LAYER_SD
                  else _say(opt, wording.PREDICTED_SCORE_COLUMN))
     allowed = df[df["state"] != kinds[2]]["score"]
     lo, hi = (float(allowed.min()), float(allowed.max())) if len(allowed) else (0.0, 1.0)
@@ -4015,9 +4016,31 @@ class Chooses:
     far and this Round's first suggestion sit, and why the gain is
     withheld (None when it is drawn)."""
 
-    def __init__(self, path, values, tested, best_no, pick, reason):
+    def __init__(self, path, values, tested, best_no, pick, reason, line=False,
+                 end_label=None, end_is_pick=False):
         self.path, self.values, self.tested = path, values, tested
         self.best_no, self.pick, self.reason = best_no, pick, reason
+        # The straight-line form (charts proto follow-up): x is t, 0 at Best
+        # so far, 1 at `end_label` (Suggestion 1, else Predicted best).
+        self.line, self.end_label, self.end_is_pick = line, end_label, end_is_pick
+
+
+CHOOSES_MODE_KEY = "insights_chooses_mode"
+CHOOSES_LINE, CHOOSES_ONE = "line", "one"
+
+
+def chooses_end(opt, fitted):
+    """(label, make-up at the total, is a suggestion) of the line's far
+    end: the open Round's first suggestion still to make; with no Round
+    open, the predicted best (the Best so far section's own, cached once
+    per setup). None when there is neither."""
+    first = _first_pick(opt)
+    if first is not None:
+        return wording.CHOOSES_SUGGESTION_ONE, first[1], True
+    best = _predicted_best(opt, fitted, checks_for(opt, "trust") or (), spinner=False)
+    if isinstance(best, insights.PredictedBest) and best.recipe:
+        return wording.CHOOSES_PREDICTED_BEST, insights.at_total(opt, best.recipe), False
+    return None
 
 
 def suggestion_model(opt, fitted):
@@ -4082,26 +4105,58 @@ def chooses_default(opt):
     return got or choices[0]
 
 
-def chooses_data(opt, fitted, name, model=None):
-    """Chooses for row `name`, or None when the path or the model cannot
-    be had. `model`: the suggestion model (suggestion_model's when None)."""
+def chooses_data(opt, fitted, name, model=None, mode=CHOOSES_ONE):
+    """Chooses along row `name` through Best so far (mode CHOOSES_ONE), or
+    along the straight line from Best so far to chooses_end (CHOOSES_LINE,
+    `name` unused); None when the path or the model cannot be had.
+    `model`: the suggestion model (suggestion_model's when None)."""
     best = opt.best_index()
     if best is None:
         return None
     start = insights.start_recipe(opt, best)
-    path = insights.build_path(opt, name, start)
+    end = None
+    if mode == CHOOSES_LINE:
+        end = chooses_end(opt, fitted)
+        if end is None:
+            return None
+        path = insights.line_path(opt, start, end[1])
+    else:
+        path = insights.build_path(opt, name, start)
     if path.start_breaks or not path.recipes:
         return None
     model = suggestion_model(opt, fitted) if model is None else model
     if model is None:
         return None
     values = bo_views.evaluate(opt, model, bo_views.points(opt, path.recipes))
-    pick = None
     first = _first_pick(opt)
-    if first is not None:
-        pick = (first[0], insights.near_path(opt, path, first[1]))
-    return Chooses(path, values, insights.tested_near_path(opt, path),
-                   int(opt.formulation_ids[best]), pick, chooses_reason(opt, fitted))
+    reason = chooses_reason(opt, fitted)
+    best_no = int(opt.formulation_ids[best])
+    if end is not None:
+        pick = (first[0], 1.0) if end[2] else None
+        return Chooses(path, values, insights.tested_near_line(opt, path), best_no, pick,
+                       reason, line=True, end_label=end[0], end_is_pick=end[2])
+    pick = None if first is None else (first[0], insights.near_path(opt, path, first[1]))
+    return Chooses(path, values, insights.tested_near_path(opt, path), best_no, pick, reason)
+
+
+def _recipe_text(opt, recipe):
+    """A make-up as the tooltip lists it: each varying row and the Fill to
+    total row, in Set up order."""
+    names = [a.name for a in insights.tried_axes(opt)]
+    fill = opt.balance_row_name()
+    if fill:
+        names.append(fill)
+    out = []
+    for n in names:
+        v = recipe.get(n)
+        if isinstance(v, str):
+            out.append(f"{n} {v}")
+        elif v is not None:
+            unit = opt.unit_of(n)
+            setting = n != fill and insights.is_setting(opt, n)
+            out.append(f"{n} " + (fmt_setting(float(v), unit) if setting
+                                  else join_unit(_num(float(v)), unit)))
+    return "; ".join(out)
 
 
 def chooses_chart(opt, data):
@@ -4118,15 +4173,25 @@ def chooses_chart(opt, data):
         return None
     mean, sd = v.mean.tolist(), v.sd.tolist()
     gain = v.value.tolist()
-    x_title = f"{path.name} ({path.unit})" if path.unit else path.name
+    if data.line:
+        x_title = _say(opt, wording.chooses_line_axis(data.end_label))
+        end = _say(opt, data.end_label)
+        axis = alt.Axis(values=[0, 1], labelExpr=(
+            f"datum.value == 0 ? {_say(opt, wording.TRIED_BEST)!r} : {end!r}"))
+        along = _say(opt, wording.CHOOSES_AMOUNTS_HERE)
+    else:
+        x_title = f"{path.name} ({path.unit})" if path.unit else path.name
+        axis = alt.Axis()
+        along = path.name
     xs = alt.Scale(domain=[min(path.amounts), max(path.amounts)], zero=False, nice=False)
-    x = alt.X("x:Q", title=x_title, scale=xs)
+    x = alt.X("x:Q", title=x_title, scale=xs, axis=axis)
     d = decimals(opt, insights.SCORE)
     rows = [{"mark": "curve", "x": t, "mean": m, "low": m - insights.Z95 * s,
-             "high": m + insights.Z95 * s, "gain": g, "amount": _amount(t, path.unit),
+             "high": m + insights.Z95 * s, "gain": g,
+             "amount": _recipe_text(opt, r) if data.line else _amount(t, path.unit),
              "pred": f"{m:.{d}f} ({range_text(m - insights.Z95 * s, m + insights.Z95 * s, lambda q: f'{q:.{d}f}')})",
              "gain_text": f"{g:.2f}"}
-            for t, m, s, g in zip(path.amounts, mean, sd, gain)]
+            for t, m, s, g, r in zip(path.amounts, mean, sd, gain, path.recipes)]
     near = insights.tested_near(opt, path)
     rows += [{"mark": "grey", "x": lo, "x2": hi} for lo, hi in insights.untested_runs(path, near)]
     df = pd.DataFrame(rows)
@@ -4134,8 +4199,12 @@ def chooses_chart(opt, data):
     dots = pd.DataFrame([{"x": a, "score": round(s, 2), "no": ids[i]}
                          for i, a, s in data.tested], columns=["x", "score", "no"])
     marks = [{"x": path.start_amount, "label": _say(opt, wording.TRIED_BEST), "role": "best"}]
-    if data.pick is not None and data.pick[1] is not None:
-        marks.append({"x": data.pick[1], "label": _say(opt, wording.CHOOSES_SUGGESTION),
+    if data.line and not data.end_is_pick:
+        # The predicted best: not a suggestion, so ink, not orange.
+        marks.append({"x": 1.0, "label": _say(opt, data.end_label), "role": "end"})
+    elif data.pick is not None and data.pick[1] is not None:
+        marks.append({"x": data.pick[1], "label": _say(opt, data.end_label if data.line
+                                                       else wording.CHOOSES_SUGGESTION),
                       "role": "pick"})
     marks = pd.DataFrame(marks)
     ref_c, ref_o = mark("reference")
@@ -4145,7 +4214,7 @@ def chooses_chart(opt, data):
     word = _say(opt, wording.FORMULATION_CAP)
     curve = _only("curve")
     predicted = _say(opt, wording.CHOOSES_PREDICTED)
-    tip = [alt.Tooltip("amount:N", title=path.name),
+    tip = [alt.Tooltip("amount:N", title=along),
            alt.Tooltip("pred:N", title=f"{predicted} ({wording.CHOOSES_BAND})")]
     lo_all = min([r["low"] for r in rows if r["mark"] == "curve"]
                  + (list(dots["score"]) if len(dots) else []))
@@ -4157,7 +4226,8 @@ def chooses_chart(opt, data):
     def rules(height_title=True):
         out = []
         for kind, colour, dash, opacity in (("best", ref_c, [4, 3], ref_o),
-                                            ("pick", outline_colour(), [1, 0], 1.0)):
+                                            ("pick", outline_colour(), [1, 0], 1.0),
+                                            ("end", ink, [1, 0], 1.0)):
             sel = marks[marks["role"] == kind]
             if not len(sel):
                 continue
@@ -4177,8 +4247,16 @@ def chooses_chart(opt, data):
     scored_dom = ([float(dots["score"].min()), float(dots["score"].max())] if len(dots) > 1
                   else [0.0, float(opt.utility_ceiling())])
     top_layers += [
-        alt.Chart(df).mark_area(color=band_c, opacity=band_o, tooltip=False)
-        .encode(x=x, y=alt.Y("low:Q", scale=ys, title=predicted), y2="high:Q")
+        # The band is the suggestion model's own uncertainty (no Repeat
+        # noise, no widening): narrower than Try one's 95 % interval. Its
+        # legend says so in a few words; its tooltip, in full.
+        alt.Chart(df.assign(band=_say(opt, wording.CHOOSES_BAND_LEGEND),
+                            band_tip=_say(opt, wording.TIP_CHOOSES_BAND)))
+        .mark_area(opacity=band_o)
+        .encode(x=x, y=alt.Y("low:Q", scale=ys, title=predicted), y2="high:Q",
+                fill=alt.Fill("band:N", scale=alt.Scale(range=[band_c]),
+                              legend=alt.Legend(title=None, orient="top", labelLimit=0)),
+                tooltip=[alt.Tooltip("band_tip:N", title=_say(opt, wording.CHOOSES_BAND_LEGEND))])
         .transform_filter(curve),
         alt.Chart(df).mark_line(color=ink, strokeWidth=2)
         .encode(x=x, y=alt.Y("mean:Q", scale=ys, title=predicted), tooltip=tip)
@@ -4194,7 +4272,8 @@ def chooses_chart(opt, data):
                                     title=_say(opt, wording.CHOOSES_TESTED),
                                     legend=alt.Legend(orient="right", gradientLength=90)),
                     tooltip=[alt.Tooltip("no:Q", title=word, format="d"),
-                             alt.Tooltip("x:Q", title=path.name, format=".2f"),
+                             alt.Tooltip("x:Q", title=("t" if data.line else path.name),
+                                         format=".2f"),
                              alt.Tooltip("score:Q", title=_say(opt, wording.OVERALL_SCORE_COLUMN),
                                          format=".2f")]))
     top = alt.layer(*top_layers).properties(height=220)
@@ -4206,8 +4285,8 @@ def chooses_chart(opt, data):
         .encode(x=x, y=alt.Y("gain:Q", title=gain_title)).transform_filter(curve),
         alt.Chart(df).mark_line(color=blue, strokeWidth=2)
         .encode(x=x, y=alt.Y("gain:Q", title=gain_title),
-                tooltip=[alt.Tooltip("amount:N", title=path.name),
-                         alt.Tooltip("gain_text:N", title=gain_title)])
+                tooltip=[alt.Tooltip("amount:N", title=along),
+                         alt.Tooltip("gain_text:N", title=wording.GAIN_TOOLTIP_TITLE)])
         .transform_filter(curve),
         *rules(height_title=False),
     ).properties(height=130)
@@ -4233,26 +4312,39 @@ def _chooses(opt, computed):
         st.caption(_say(opt, wording.change_none(settings_only=not opt.has_ingredients())))
         return
     fitted = computed["fitted"]
-    _keep_if_offered(CHOOSES_KEY, choices)
-    if CHOOSES_KEY not in st.session_state:
-        st.session_state[CHOOSES_KEY] = chooses_default(opt)
-    name = st.selectbox(_say(opt, wording.INGREDIENT_OR_SETTING), choices, key=CHOOSES_KEY)
+    # Charts proto follow-up: the straight line from Best so far to this
+    # Round's first suggestion (else the predicted best) first; one row at
+    # a time second.
+    has_pick = _first_pick(opt) is not None
+    modes = [CHOOSES_LINE, CHOOSES_ONE]
+    _keep_if_offered(CHOOSES_MODE_KEY, modes)
+    mode = st.selectbox(_say(opt, wording.CHOOSES_MODE), modes, key=CHOOSES_MODE_KEY,
+                        format_func=lambda m: _say(opt, wording.chooses_mode_option(
+                            m == CHOOSES_LINE, has_pick, not opt.has_ingredients())))
+    name = None
+    if mode == CHOOSES_ONE:
+        _keep_if_offered(CHOOSES_KEY, choices)
+        if CHOOSES_KEY not in st.session_state:
+            st.session_state[CHOOSES_KEY] = chooses_default(opt)
+        name = st.selectbox(_say(opt, wording.INGREDIENT_OR_SETTING), choices, key=CHOOSES_KEY)
+    what = name or _say(opt, wording.CHOOSES_MODE)
     try:
         with st.spinner(_say(opt, wording.INSIGHTS_WORKING)):
-            data = chooses_data(opt, fitted, name)
+            data = chooses_data(opt, fitted, name, mode=mode)
     except Exception:
         data = None
     if data is None:
-        st.caption(_say(opt, wording.panel_failed(name)))
+        st.caption(_say(opt, wording.panel_failed(what)))
         return
     chart = chooses_chart(opt, data)
     if chart is None:
-        st.caption(_say(opt, wording.panel_failed(name)))
+        st.caption(_say(opt, wording.panel_failed(what)))
         return
     show_chart(chart)
     st.caption(_say(opt, wording.CHOOSES_CAPTION),
                help=_say(opt, wording.tip_chooses(data.best_no,
-                                                  settings_only=not opt.has_ingredients())))
+                                                  settings_only=not opt.has_ingredients(),
+                                                  line=data.line, end=data.end_label)))
     if data.reason is not None:
         st.caption(_say(opt, wording.CHOOSES_WITHHELD),
                    help=_say(opt, wording.tip_chooses_withheld(data.reason)))

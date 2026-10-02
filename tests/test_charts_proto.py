@@ -376,3 +376,168 @@ def test_the_new_lines_stay_short():
                  wording.INGREDIENT_OR_SETTING):
         assert len(text.split()) <= 5, text
     assert wording.CHOOSES_CAPTION == "Suggestions go where expected gain peaks."
+
+
+# ------------------------------------------------------------------ #
+#  Follow-up: the straight line Best so far → Suggestion 1, one name for
+#  the gain, the band's width said
+# ------------------------------------------------------------------ #
+
+def _line(name, monkeypatch):
+    opt, computed = _computed(name, monkeypatch)
+    data = U.chooses_data(opt, computed["fitted"], None, mode=U.CHOOSES_LINE)
+    return opt, computed, data
+
+
+def test_the_line_runs_from_best_so_far_to_suggestion_1(monkeypatch):
+    opt, computed, data = _line(D.LINE_A, monkeypatch)
+    path = data.path
+    best = insights.start_recipe(opt, opt.best_index())
+    first = U.suggested_numbers(opt)[0]
+    pick = U.anchor_recipe(opt, first)
+    assert data.line and data.end_is_pick and data.end_label == wording.CHOOSES_SUGGESTION_ONE
+    assert data.pick == (first, 1.0)
+    moving = [v['name'] for v in opt.varying_variables() if v.get('type') == 'continuous']
+    at = {round(t, 9): r for t, r in zip(path.amounts, path.recipes)}
+    for n in moving:
+        assert at[0.0][n] == pytest.approx(best[n]) and at[1.0][n] == pytest.approx(pick[n])
+    # Every row moves together, in proportion.
+    for t, r in zip(path.amounts, path.recipes):
+        for n in moving:
+            assert r[n] == pytest.approx(best[n] + t * (pick[n] - best[n]))
+    # Clipped to the allowed region: every point keeps the limits and the
+    # total, the Fill to total row written in again.
+    fill = opt.balance_row_name()
+    ingredients = [v['name'] for v in opt.variables if v.get('type') == 'continuous'
+                   and v.get('category', 'ingredient') == 'ingredient'
+                   and (v['name'] == fill or not opt.has_formula(v))]
+    total = sum(float(best[n]) for n in ingredients)
+    assert total == pytest.approx(float(opt.formulation_total), rel=1e-6)
+    for r in path.recipes:
+        assert insights._limits_broken(opt, r, moving, best) is None
+        assert sum(float(r[n]) for n in ingredients) == pytest.approx(total, rel=1e-6)
+    assert path.recipes[-1][fill] == pytest.approx(opt.fill_formulas(path.recipes[-1])[fill])
+    # Line A: Best so far's Mixing time is at its Lowest, so the line stops
+    # at t = 0 on that side, and runs on to 1.5 on the other.
+    assert path.amounts[0] == pytest.approx(0.0, abs=1e-4)
+    assert path.low_end.reason == wording.path_past_lowest("Mixing time after fat")
+    assert path.amounts[-1] == pytest.approx(insights.LINE_TO)
+
+
+def test_the_line_extends_both_ways_where_allowed(monkeypatch):
+    opt, computed, data = _line(D.LINE_C, monkeypatch)
+    assert data.path.amounts[0] == pytest.approx(insights.LINE_FROM)
+    assert data.path.amounts[-1] == pytest.approx(insights.LINE_TO)
+
+
+def test_the_gain_peaks_at_suggestion_1_on_line_a(monkeypatch):
+    opt, computed, data = _line(D.LINE_A, monkeypatch)
+    model = U.layer_model(opt, computed["fitted"])
+    want = bo_views.evaluate(opt, model, bo_views.points(opt, data.path.recipes))
+    assert torch.allclose(data.values.value, want.value)
+    t, g = data.path.amounts, data.values.value.tolist()
+    peak = t[max(range(len(g)), key=g.__getitem__)]
+    assert abs(peak - 1.0) <= 0.1
+    at = dict(zip([round(x, 9) for x in t], g))
+    assert at[1.0] > 100 * max(at[0.0], 1e-6) or at[0.0] < 1e-3
+
+
+def test_the_line_chart_reads_best_so_far_to_suggestion_1(monkeypatch):
+    opt, computed, data = _line(D.LINE_A, monkeypatch)
+    spec = U.chooses_chart(opt, data).to_dict()
+    top, bottom = spec["vconcat"]
+    line = next(l for l in top["layer"] if _mark(l)["type"] == "line")
+    assert line["encoding"]["x"]["title"] == "From Best so far → Suggestion 1"
+    assert line["encoding"]["x"]["axis"]["values"] == [0, 1]
+    assert [t["title"] for t in line["encoding"]["tooltip"]][0] == wording.CHOOSES_AMOUNTS_HERE
+    rows = [r for r in _rows(spec, line) if r.get("mark") == "curve"]
+    assert "Textured pea protein" in rows[0]["amount"] and "Water" in rows[0]["amount"]
+    rules = {_mark(m)["color"]: _rows(spec, m)[0]["x"] for m in _all_marks(spec)
+             if _mark(m)["type"] == "rule" and "x" in _rows(spec, m)[0]
+             and _mark(m).get("color") in (U.outline_colour(), U.mark("reference")[0])}
+    assert rules[U.mark("reference")[0]] == 0.0 and rules[U.outline_colour()] == 1.0
+    texts = [r["label"] for m in _all_marks(spec) if _mark(m)["type"] == "text"
+             for r in _rows(spec, m) if "label" in r]
+    assert wording.CHOOSES_SUGGESTION_ONE in texts and wording.TRIED_BEST in texts
+
+
+def test_with_no_round_open_the_line_ends_at_the_predicted_best(monkeypatch):
+    opt, computed, data = _line(D.TIMING, monkeypatch)
+    assert not opt.pending_batch
+    assert data.end_label == wording.CHOOSES_PREDICTED_BEST and not data.end_is_pick
+    best = insights.predicted_best(opt, computed["fitted"], computed["checks"])
+    end = insights.at_total(opt, best.recipe)
+    at1 = next(r for t, r in zip(data.path.amounts, data.path.recipes) if abs(t - 1) < 1e-9)
+    for v in opt.varying_variables():
+        if v.get('type') == 'continuous':
+            assert at1[v['name']] == pytest.approx(end[v['name']])
+    spec = U.chooses_chart(opt, data).to_dict()
+    assert not [m for m in _all_marks(spec) if _mark(m).get("color") == U.outline_colour()]
+    line = next(l for l in spec["vconcat"][0]["layer"] if _mark(l)["type"] == "line")
+    assert line["encoding"]["x"]["title"] == "From Best so far → Predicted best"
+
+
+def test_the_selector_opens_on_the_line_and_keeps_one_ingredient(monkeypatch):
+    opt, computed = _computed(D.LINE_A, monkeypatch)
+    boxes = []
+
+    def box(label, options, key, format_func=str, **k):
+        boxes.append((label, [format_func(o) for o in options]))
+        return options[0]
+    monkeypatch.setattr(U.st, "selectbox", box)
+    monkeypatch.setattr(U.st, "caption", lambda *a, **k: None)
+    monkeypatch.setattr(U.st, "markdown", lambda *a, **k: None)
+    drawn = []
+    monkeypatch.setattr(U, "show_chart", lambda c, **k: drawn.append(c.to_dict()))
+    U._chooses(opt, computed)
+    assert boxes == [(wording.CHOOSES_MODE, ["Best so far → Suggestion 1",
+                                             "Along one ingredient"])]
+    top = drawn[0]["vconcat"][0]
+    line = next(l for l in top["layer"] if _mark(l)["type"] == "line")
+    assert line["encoding"]["x"]["title"] == "From Best so far → Suggestion 1"
+
+
+def test_one_name_for_the_gain_on_screen(monkeypatch):
+    from tests.test_food_bo import _prose_constants
+    root = pathlib.Path(U.__file__).parent
+    assert wording.LAYER_GAIN == "Expected gain"
+    assert wording.LAYER_GAIN_LEGEND == wording.CHOOSES_GAIN == "Expected gain (points)"
+    for text in _prose_constants(root / "wording.py"):
+        # LAYER_GAIN_FORMER: an old session's radio value, read, never shown.
+        if "xpected improvement" in text and text != wording.LAYER_GAIN_FORMER:
+            # Only as the BO term, in a tooltip or Method and definitions.
+            assert ("BO term" in text or "qLog" in text or "acquisition value" in text), text
+    assert "expected improvement (acquisition value)" in wording.GAIN_TOOLTIP_TITLE
+    opt, computed = _computed(D.LINE_A, monkeypatch)
+    fitted = computed["fitted"]
+    names = insights.mixture_choices(opt)[:3]
+    mix = insights.mixture_slice(opt, names, insights.start_recipe(opt, opt.best_index()))
+    preds = insights.mixture_predictions(opt, fitted, mix)
+    gain = U.layer_values(opt, fitted, [p.recipe for p in mix.points if p.recipe is not None],
+                          wording.LAYER_GAIN)
+    it = iter(gain)
+    values = [next(it) if p.recipe is not None else None for p in mix.points]
+    spec = U.mixture_chart(opt, mix, preds, 15, None, wording.LAYER_GAIN, values).to_dict()
+    grid = next(m for m in _all_marks(spec)
+                if m.get("encoding", {}).get("color", {}).get("field") == "score")
+    assert grid["encoding"]["color"]["title"] == "Expected gain (points)"
+    assert wording.GAIN_TOOLTIP_TITLE in [t["title"] for t in grid["encoding"]["tooltip"]]
+    data = U.chooses_data(opt, fitted, None, mode=U.CHOOSES_LINE)
+    spec = U.chooses_chart(opt, data).to_dict()
+    gain_line = next(l for l in spec["vconcat"][1]["layer"] if _mark(l)["type"] == "line")
+    assert gain_line["encoding"]["y"]["title"] == "Expected gain (points)"
+    assert gain_line["encoding"]["tooltip"][1]["title"] == wording.GAIN_TOOLTIP_TITLE
+
+
+def test_the_band_says_it_is_narrower_than_try_one(monkeypatch):
+    assert len(wording.CHOOSES_BAND_LEGEND.split()) <= 8
+    assert "narrower" in wording.CHOOSES_BAND_LEGEND and "Try one" in wording.CHOOSES_BAND_LEGEND
+    assert "narrower" in wording.TIP_CHOOSES_BAND and "Repeat noise" in wording.TIP_CHOOSES_BAND
+    opt, computed, data = _line(D.LINE_A, monkeypatch)
+    spec = U.chooses_chart(opt, data).to_dict()
+    band = next(l for l in spec["vconcat"][0]["layer"] if _mark(l)["type"] == "area")
+    assert band["encoding"]["fill"]["field"] == "band"
+    rows = _rows(spec, band)
+    assert {r["band"] for r in rows} == {wording.CHOOSES_BAND_LEGEND}
+    assert {r["band_tip"] for r in rows} == {wording.TIP_CHOOSES_BAND}
+    assert band["encoding"]["tooltip"][0]["field"] == "band_tip"
