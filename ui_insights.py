@@ -952,11 +952,10 @@ def _places(opt, gate=False):
     method_link(opt)
     p.bar = st.empty()
     p.q = {}
-    left, right = st.columns(2, gap="large")
-    for which, where in (("predictions", left), ("progress", right)):
-        with where:
-            p.q[which] = _section(opt, which)
-    for which in ("next", "tried"):
+    # Review story: the questions in the order a food scientist asks —
+    # progress first (the payoff), then trust (the profiler leans on the
+    # model), then drivers, then what was tried. Each full width.
+    for which in SECTION_ORDER:
         p.q[which] = _section(opt, which)
     # The model-free charts, at once (they need no fit).
     _progress_body(opt, p.q["progress"])
@@ -1131,7 +1130,9 @@ def _setup_button(change):
 
 _PLACEHOLDERS = {"predictions": wording.CHECKING_PREDICTIONS,
                  "progress": wording.CHECKING_PROGRESS, "next": wording.PREPARING_NEXT_STEP}
-_STATUS_ORDER = ("predictions", "progress", "next")
+# Review story: Progress first (the payoff), then Predictions; Next last.
+_STATUS_ORDER = ("progress", "predictions", "next")
+SECTION_ORDER = ("progress", "predictions", "next", "tried")
 
 
 def _wide_clause_names(names):
@@ -3065,12 +3066,18 @@ def tried_frame(opt, axes, lines):
     labels = [_wrap(_axis_label(a)) for a in axes] + [score_label]
     rows = []
     nexts = _next_best(lines)
+    # Review story, honesty guard: the team's own formulations in the open
+    # Round are not the app's suggestions (drawn as waiting, grey dashed).
+    generated = set(suggested_numbers(opt))
     for order, line in enumerate(lines):
         amounts = "; ".join(
             f"{a.name} {line.values[a.name]}" if a.options is not None
             else f"{a.name} {_axis_end(opt, a, line.values[a.name])}" for a in axes)
+        role = _line_kind(line, nexts)
+        if line.state == "suggested" and line.formulation not in generated:
+            role = wording.TRIED_WAITING
         common = {"no": line.formulation, "round": _round_label(line.round),
-                  "role": _line_kind(line, nexts), "best": line.best,
+                  "role": role, "best": line.best,
                   "score": None if line.score is None else round(line.score, 2),
                   "score_text": _line_score_text(opt, line), "amounts": amounts,
                   "order": order}
@@ -3959,7 +3966,13 @@ def predictions_card(opt, facts):
     if row == "gate":
         lines.append((wording.card_gate(facts.scored, insights.MIN_ROWS), False))
     elif row == "too_few":
-        lines.append((wording.card_checked(facts.checked, insights.SKILL_MIN), False))
+        # Review story: the record so far, then how many it needs (it read
+        # "9 / 10 formulations checked", which hid that all 9 landed).
+        # Only when every check counts towards the 10 (a score recorded
+        # without a measurement does not): else the count it needs.
+        lines.append((wording.card_checked_so_far(inside, total, insights.SKILL_MIN)
+                      if total and total == facts.checked
+                      else wording.card_checked(facts.checked, insights.SKILL_MIN), False))
     elif row == "wide":
         lines.append((wording.CARD_WIDE, False))
     elif row == "no_skill":
@@ -3997,7 +4010,6 @@ def progress_card(opt, facts):
     word = None if facts.progress is None else wording.PROGRESS_WORDS[facts.progress]
     if f is None:
         return Card(word or "—", [(wording.NO_COMPLETE_FORMULATION, False)])
-    score = f"{f.score:.2f}"
     tie = None if facts.tie is None else int(opt.formulation_ids[facts.tie])
     a = facts.improvement
     lines = []
@@ -4009,7 +4021,14 @@ def progress_card(opt, facts):
         tail = wording.card_flat(a.rounds)
     else:
         tail = wording.card_best_who(f.formulation, tie)
-    lines.append((wording.card_best(score, tail), False))
+    # Review story: the line goes from the start (the first scored Round's
+    # best) to the best, one decimal each, as the improving chart names them.
+    nums = story_numbers(opt)
+    if nums is not None and nums[0] != nums[2]:
+        lines.append((wording.card_progress(one_decimal(nums[0]), one_decimal(f.score), tail),
+                      False))
+    else:
+        lines.append((wording.card_progress(None, one_decimal(f.score), tail), False))
     if facts.progress not in ("rising", "within_noise", "flat", "no_new_best") \
             and not one_round(opt):
         without = scored_without(opt, f.round)
@@ -4278,7 +4297,7 @@ def method_link(opt):
 # ------------------------------------------------------------------ #
 
 PROFILE_POINTS = 25         # per column, plus the reference's own amount and the path's ends
-PROFILE_COLUMNS = 6         # shown at once at 1280 x 800; the rest under "+N more"
+PROFILE_COLUMNS = 4         # review story: the 4 that move the score most; the rest under "+N more"
 PROFILE_ROWS = 4            # measurement rows shown at once
 PROFILE_CACHE = "_insights_profile"
 PROFILE_CHART_CACHE = "_insights_profile_chart"
@@ -4286,6 +4305,12 @@ PROFILE_REF_KEY = "insights_profile_ref"
 PROFILE_MORE_KEY = "insights_profile_more"
 PROFILE_MORE_ROWS_KEY = "insights_profile_more_rows"
 _PANEL_W = 104
+
+
+def panel_width(n):
+    """Review story: wider panels when fewer columns are drawn (4 by
+    default), so the profiler keeps about the same overall width."""
+    return max(_PANEL_W, min(160, 640 // max(1, n)))
 _PANEL_H = {"score": 84, "measure": 60, "gain": 60}     # review four: compact rows
 
 
@@ -4653,12 +4678,13 @@ def profile_chart(opt, profile, columns=None, rows=None, gain=True):
                        .transform_filter(_only("stop"))]
         # Each column named once, above the top row (a header under the
         # bottom row's tick labels overlapped them in Streamlit's renderer).
-        header = (alt.Header(labelOrient="top", labelFontSize=10, labelLimit=_PANEL_W + 8,
+        header = (alt.Header(labelOrient="top", labelFontSize=10, labelLimit=panel_width(len(cols)) + 8,
                              labelExpr="split(datum.label, '\\n')", labelPadding=4,
                              labelBaseline="bottom")
                   if r == 0 else alt.Header(labels=False))
         out_rows.append(
-            alt.layer(*layers, data=df).properties(width=_PANEL_W, height=_PANEL_H[kind])
+            alt.layer(*layers, data=df).properties(width=panel_width(len(cols)),
+                                                  height=_PANEL_H[kind])
             .facet(column=alt.Column("col:N", sort=order, title=None, header=header),
                    spacing=14, bounds="flush")   # review four: tick labels clear
             .resolve_scale(x="independent"))
@@ -4834,66 +4860,98 @@ def _evidence_help(opt, facts, which):
 
 
 def _trust_section(opt, slot, computed, facts):
-    """Q1, "Can we trust the predictions?": the Overall score's Round-ahead
-    record, measured against predicted, its 95 % ranges (the verdict's
-    basis since ruling 1); the measurements' record in the "?"."""
-    _answer(opt, slot, facts, "predictions")
+    """"Can we trust the predictions?" (review story): forecast against
+    actual over time — each checked formulation's Round-ahead 95 % range
+    for its Overall score, and the score measured; the answer counts how
+    many landed in range. The scatter's numbers stay in the "?"."""
     checks = [c for c in computed["checks"] or () if c.name == insights.SCORE]
+    inside, total, above, below = trust_counts(checks)
+    text, help_ = None, None
+    if total and facts is not None and facts.prediction_row in ("reliable", "too_few"):
+        if facts.prediction_row == "reliable":
+            text = wording.story_trust_answer(inside, total)
+        elif total == facts.checked:
+            text = wording.story_trust_so_far(inside, total, insights.SKILL_MIN)
+        card = card_for(opt, facts, "predictions")
+        help_ = "\n\n".join(t for t in (
+            wording.story_trust_help(inside, total, wording.story_misses(above, below)),
+            card.help if card is not None else None) if t)
+    _answer(opt, slot, facts, "predictions", text=text, help=help_)
     with slot.body:
         try:
-            chart = measured_vs_predicted_chart(opt, checks, height=Q_HEIGHT) if checks else None
+            chart = forecast_chart(opt, checks) if checks else None
         except Exception:   # one chart failing must not take the tab down
             chart = None
         if chart is None:
             st.caption(_say(opt, wording.Q_WAIT if not checks else wording.CHART_FAILED))
             return
         show_chart(chart)
-        st.caption(_say(opt, wording.PLOT_CAPTION_MVP), help=_say(opt, wording.MVP_CAPTION))
+        st.caption(_say(opt, wording.STORY_TRUST_CAPTION),
+                   help=_say(opt, wording.story_trust_help(
+                       inside, total, wording.story_misses(above, below))))
 
 
 def _progress_body(opt, slot):
-    """Q2, "Are we improving?": each score and Best so far by Formulation
-    (model-free, drawn at once); its answer line is drawn with the cards."""
+    """"Are we improving?" (review story): two model-free charts side by
+    side — the best so far with each Round's average, the start and the
+    best named; and Closer to target, one row per measurement. Drawn at
+    once; the answer line is drawn with the cards."""
     with slot.body:
-        try:
-            chart = progress_chart(opt)
-        except Exception:
-            chart = None
-        if chart is None:
-            st.caption(_say(opt, wording.CHART_FAILED))
-            return
-        show_chart(_untitled(chart).properties(height=Q_HEIGHT))
-        pool = set(opt.best_candidates())
-        rings = any(opt.fully_measured(i) and i not in pool for i in range(len(opt.Y_history)))
-        st.caption(_say(opt, wording.PLOT_CAPTION_PROGRESS),
-                   help=_say(opt, wording.progress_caption_2(rings)))
+        left, right = st.columns(2, gap="medium")
+        with left:
+            try:
+                chart = improving_chart(opt)
+            except Exception:
+                chart = None
+            if chart is None:
+                st.caption(_say(opt, wording.CHART_FAILED))
+            else:
+                show_chart(chart)
+                avgs = round_averages(opt)
+                first, last = (avgs[0], avgs[-1]) if avgs else (None, None)
+                st.caption(_say(opt, wording.STORY_IMPROVING_CAPTION),
+                           help=_say(opt, wording.story_improving_help(
+                               one_decimal(first[3]) if first else None,
+                               one_decimal(last[3]) if last else None,
+                               first[0] if first else None, last[0] if last else None)))
+        with right:
+            try:
+                chart = target_chart(opt)
+            except Exception:
+                chart = None
+            if chart is not None:
+                st.markdown(f"**{_say(opt, wording.STORY_TARGET_TITLE)}**")
+                show_chart(chart)
+                s, b = story_start(opt), opt.best_index()
+                st.caption(_say(opt, wording.STORY_TARGET_CAPTION),
+                           help=_say(opt, wording.story_target_help(
+                               int(opt.formulation_ids[s[0]]), int(opt.formulation_ids[b]),
+                               s[1])))
 
 
 def _drives_section(opt, slot, computed, facts):
-    """Q3, "What drives each result?": the profiler (Overall score, each
+    """"What drives each result?": the profiler (Overall score, each
     measurement, Expected gain), through Suggestion 1 when there is one;
-    the answer names the row that moves the score most."""
+    the answer a finding (review story): the row that moves the predicted
+    score most, and where the reference sits on it."""
     with slot.body:
         try:
             got = _profiler(opt, computed)
         except Exception:
             st.caption(_say(opt, wording.CHART_FAILED))
             got = None
-    top = None
-    if got is not None:
-        profile, shown, guard = got
-        if not guard.fires and profile.columns:
-            lead = max(profile.columns, key=lambda c: (c.near_effect, c.effect))
-            top = lead.name if lead.effect > 0 else None
-    text = wording.q3_answer(top) if top else wording.Q3_FLAT
+    profile, guard = (got[0], got[2]) if got is not None else (None, None)
+    line = driver_finding(opt, profile, guard)
     ev = None
     if got is not None:
         cfg = getattr(opt, "bo_config", None) or {}
         ev = wording.evidence([wording.ev_profiler(opt.complete_count(), profile.ref_label,
                                                    profile.ref_no,
                                                    cfg.get("acquisition", "qlognei"))])
-    _answer(opt, slot, facts, "next", text=text,
-            help=_say(opt, ev) if ev else _evidence_help(opt, facts, "next"))
+        ev = f"{wording.story_driver_help(profile.ref_label)}\n\n{ev}"
+    with slot.answer.container():
+        st.markdown(_say(opt, line),
+                    help=_say(opt, ev) if ev else _evidence_help(opt, facts, "next"))
 
 
 def tried_answer(opt, strips):
@@ -4932,14 +4990,576 @@ def _tried_section(opt, slot):
             st.markdown(_say(opt, answer),
                         help=_say(opt, "\n\n".join([*lines, ev, tooltip_for(opt, "gaps")])))
     with slot.body:
+        settings_only = not opt.has_ingredients()
+        # Review story: the search path by default; the parallel
+        # coordinates on a small toggle, for seeing combinations.
+        as_lines = st.toggle(_say(opt, wording.STORY_SHOW_LINES), key=PATH_SHOW_LINES_KEY,
+                             help=_say(opt, wording.STORY_SHOW_LINES_HELP),
+                             disabled=confirmation_open())
+        axes, lines = insights.tried_axes(opt), insights.tried_lines(opt)
         try:
-            chart = tried_chart(opt, insights.tried_axes(opt), insights.tried_lines(opt))
+            chart = (tried_chart(opt, axes, lines) if as_lines
+                     else search_path_chart(opt, axes, lines))
         except Exception:
             chart = None
         if chart is None:
             st.caption(_say(opt, wording.TRIED_NOTHING))
             return
-        show_chart(_untitled(chart))
-        settings_only = not opt.has_ingredients()
-        st.caption(_say(opt, wording.tried_caption_roles()),
-                   help=_say(opt, wording.tip_tried_roles(settings_only)))
+        if as_lines:
+            show_chart(_untitled(chart))
+            st.caption(_say(opt, wording.tried_caption_roles()),
+                       help=_say(opt, wording.tip_tried_roles(settings_only)))
+        else:
+            show_chart(chart, width="content")
+            st.caption(_say(opt, wording.STORY_PATH_CAPTION),
+                       help=_say(opt, wording.story_path_help(settings_only)))
+
+
+# ------------------------------------------------------------------ #
+#  Review story (prototype, 2026-10-02): the Review read in the order a
+#  food scientist asks — Are we improving? Can we trust the predictions?
+#  What drives each result? What have we tried? Builders only here (no
+#  Streamlit); the sections above draw them. Every number is read from the
+#  project: the start is the first scored Round's best, Best so far is
+#  best_index's, the forecasts are the Round-ahead checks.
+# ------------------------------------------------------------------ #
+
+STORY_Q_HEIGHT = 290         # the improving and forecast charts' plot height
+PATH_SHOW_LINES_KEY = "insights_path_lines"
+PATH_COLUMNS = 4             # search path panels per row
+_PATH_PANEL_W = 150
+_PATH_ROW_H = 16             # px per Round in a search path panel
+
+
+def story_start(opt):
+    """(position, Round) of the first scored Round's best formulation —
+    the start the Review measures progress from — or None with no Round
+    scored. Only Best-so-far candidates compete, as for Best so far."""
+    pool = opt.best_candidates()
+    rounds = [opt.batch_history[i] if i < len(opt.batch_history) else None for i in pool]
+    named = [r for r in rounds if r is not None]
+    if not named:
+        return None
+    first = min(named)
+    mine = [i for i, r in zip(pool, rounds) if r == first]
+    best = max(mine, key=lambda i: opt.Y_history[i])
+    return best, first
+
+
+def story_numbers(opt):
+    """(start score, start Round, best score, best Round, best number) or
+    None: the Progress card's and the improving chart's two named points."""
+    s = story_start(opt)
+    b = opt.best_index()
+    if s is None or b is None:
+        return None
+    i, r0 = s
+    rb = opt.batch_history[b] if b < len(opt.batch_history) else None
+    return (float(opt.Y_history[i]), r0, float(opt.Y_history[b]), rb,
+            int(opt.formulation_ids[b]))
+
+
+def one_decimal(x):
+    return f"{float(x):.1f}"
+
+
+def round_averages(opt):
+    """[(Round, first number, last number, mean Overall score, n)] per
+    Round, over its formulations with all results (Best-so-far
+    candidates), in Round order."""
+    pool = set(opt.best_candidates())
+    groups = {}
+    for i, r in enumerate(opt.batch_history[:len(opt.Y_history)]):
+        if r is None or i not in pool:
+            continue
+        no = int(opt.formulation_ids[i])
+        g = groups.setdefault(int(r), [no, no, []])
+        g[0], g[1] = min(g[0], no), max(g[1], no)
+        g[2].append(float(opt.Y_history[i]))
+    return [(r, a, b, sum(v) / len(v), len(v)) for r, (a, b, v) in sorted(groups.items())]
+
+
+def _x_domain(opt):
+    numbers = [int(n) for n in opt.formulation_ids]
+    return [min(numbers) - 0.7, max(numbers) + 0.7] if numbers else [0, 1]
+
+
+def _round_layer(opt, frame_x, numbers, scale):
+    """Light rules between Rounds and 'R3' labels along the top, on the
+    Formulation field (one scale), or None with under two Rounds."""
+    marks = round_marks(opt, numbers)
+    if not marks:
+        return None
+    rules, labels = marks
+    light, _ = _TRIED_GREYS[theme()]
+    mids = [m for m, _ in labels]
+    expr = " : ".join(f"abs(datum.value - {m}) < 0.01 ? '{t}'" for m, t in labels) + " : ''"
+    top = alt.X(f"{frame_x}:Q", title=None, scale=scale,
+                axis=alt.Axis(orient="top", values=mids, labelExpr=expr, ticks=False,
+                              domain=False, grid=False, labelFontSize=9, labelPadding=2,
+                              labelColor=muted()))
+    return (alt.Chart(pd.DataFrame({frame_x: rules}))
+            .mark_rule(color=light, strokeWidth=1, tooltip=False).encode(x=top))
+
+
+def _halo_text(data, x, y, text, color, **kw):
+    """A text mark with a page-coloured halo under it, so a label over a
+    line or a dot still reads."""
+    page = "#0e1117" if theme() == "dark" else "#ffffff"
+    under = alt.Chart(data).mark_text(color=page, stroke=page, strokeWidth=4, tooltip=False,
+                                      **kw).encode(x=x, y=y, text=text)
+    over = alt.Chart(data).mark_text(color=color, tooltip=False, **kw).encode(
+        x=x, y=y, text=text)
+    return [under, over]
+
+
+def improving_chart(opt):
+    """Are we improving? (a): each formulation's measured Overall score
+    (grey dots), Best so far (an ink step), each Round's average (a short
+    mid-grey bar under its Formulations) and the start and the best named
+    on the chart. Model-free. x: Formulations in the order made, the
+    Rounds marked along the top — the same axis as the forecast chart."""
+    frame = progress_frame(opt).reset_index()
+    if frame.empty:
+        return None
+    formulation = frame.columns[0]
+    score, best = wording.OVERALL_SCORE_COLUMN, wording.BEST_SO_FAR_COLUMN
+    pool = set(opt.best_candidates())
+    frame["full"] = [i in pool for i in range(len(frame))]
+    each, best_name = _say(opt, wording.STORY_EACH), _say(opt, wording.BEST_SO_FAR_COLUMN)
+    avg_name = _say(opt, wording.STORY_ROUND_AVERAGE)
+    frame["series"], frame["best_series"] = each, best_name
+    frame["round"] = [_round_label(r) for r in
+                      (list(opt.batch_history) + [None] * len(frame))[:len(frame)]]
+    frame["bo"] = wording.PLOT_BO_MODEL_FREE
+    avgs = round_averages(opt)
+    values = [v for v in list(frame[score]) + list(frame[best]) if v is not None and v == v]
+    if not values:
+        return None
+    nums = story_numbers(opt)
+    lo, hi = min(values), max(values)
+    top_room = 0.22 * max(hi - lo, 4.0)
+    y_scale = alt.Scale(domain=[lo - 0.04 * max(hi - lo, 4.0), hi + top_room], nice=False,
+                        zero=False)
+    y_title = zoomed(wording.PLOT_MEASURED_SCORE, lo, hi, float(opt.utility_ceiling()))
+    x_scale = alt.Scale(domain=_x_domain(opt), nice=False)
+    x = alt.X(f"{formulation}:Q", title=_say(opt, wording.Q2_X_TITLE), scale=x_scale,
+              axis=alt.Axis(format="d", values=formulation_ticks(frame[formulation]),
+                            grid=False))
+    grey, _ = mark("neutral")
+    ink, _ = mark("bar_latest")
+    light, mid = _TRIED_GREYS[theme()]
+    # The legend names the two lines; the grey dots are each formulation
+    # (their tooltip and the caption's "?" say so).
+    kinds = alt.Scale(domain=[best_name, avg_name], range=[ink, mid])
+    legend = alt.Legend(title=None, orient="top", labelLimit=0, symbolType="stroke",
+                        symbolStrokeWidth=3)
+    no_tip = alt.Tooltip(f"{formulation}:Q", title=_say(opt, wording.FORMULATION_CAP),
+                         format="d")
+    y = alt.Y(f"{score}:Q", title=y_title, scale=y_scale)
+    layers = []
+    if avgs:
+        adf = pd.DataFrame([{"x0": a - 0.4, "x1": b + 0.4, "avg": m, "what": avg_name,
+                             "round": wording.round_tick(r), "n": n,
+                             "text": one_decimal(m)} for r, a, b, m, n in avgs])
+        layers.append(alt.Chart(adf).mark_rule(strokeWidth=3).encode(
+            x=alt.X("x0:Q", scale=x_scale), x2="x1:Q",
+            y=alt.Y("avg:Q", scale=y_scale, title=y_title),
+            color=alt.Color("what:N", scale=kinds, legend=legend),
+            tooltip=[alt.Tooltip("round:N", title=_say(opt, wording.ROUND_CAP)),
+                     alt.Tooltip("text:N", title=avg_name)]))
+    layers.append(alt.Chart(frame).mark_point(size=30, strokeWidth=1.3, opacity=0.9,
+                                              color=grey).encode(
+        x=x, y=y,
+        fill=alt.condition(alt.FieldEqualPredicate(field="full", equal=True),
+                           alt.value(grey), alt.value("transparent")),
+        tooltip=[no_tip, alt.Tooltip("round:N", title=_say(opt, wording.ROUND_CAP)),
+                 alt.Tooltip(f"{score}:Q", title=score, format=".1f"), bo_tip()])
+        .transform_filter(alt.FieldValidPredicate(field=score, valid=True)))
+    layers.append(alt.Chart(frame).mark_line(strokeWidth=2.5, interpolate="step-after").encode(
+        x=x, y=alt.Y(f"{best}:Q", scale=y_scale, title=y_title),
+        color=alt.Color("best_series:N", scale=kinds, legend=legend),
+        tooltip=[no_tip, alt.Tooltip(f"{best}:Q", title=best, format=".1f")]))
+    if nums is not None:
+        s, r0, b, rb, bno = nums
+        sno = int(opt.formulation_ids[story_start(opt)[0]])
+        lo_x, hi_x = _x_domain(opt)
+        span = hi_x - lo_x
+        pts = []
+        if (sno, s) != (bno, b):
+            pts.append({"x": sno, "y": s, "text": wording.story_point(
+                wording.STORY_START, one_decimal(s), r0), "who": "start"})
+        if rb is not None:
+            pts.append({"x": bno, "y": b, "text": wording.story_point(
+                wording.STORY_BEST, one_decimal(b), rb), "who": "best"})
+        for p in pts:
+            share = (p["x"] - lo_x) / span if span else 0.5
+            align = "left" if share < 0.3 else "right" if share > 0.7 else "center"
+            dx = {"left": -4, "right": 4, "center": 0}[align]
+            pdf = pd.DataFrame([p])
+            ring_c = ink if p["who"] == "best" else grey
+            layers.append(alt.Chart(pdf).mark_point(size=150, strokeWidth=1.8, color=ring_c,
+                                                    filled=False, tooltip=False)
+                          .encode(x=alt.X("x:Q", scale=x_scale),
+                                  y=alt.Y("y:Q", scale=y_scale, title=y_title)))
+            layers += _halo_text(pdf, alt.X("x:Q", scale=x_scale),
+                                 alt.Y("y:Q", scale=y_scale, title=y_title), "text:N",
+                                 ink if p["who"] == "best" else muted(), fontSize=11,
+                                 fontWeight="bold" if p["who"] == "best" else "normal",
+                                 align=align, dx=dx, dy=-15, baseline="bottom")
+    rounds = _round_layer(opt, formulation, list(frame[formulation]), x_scale)
+    body = alt.layer(*layers)
+    chart = alt.layer(rounds, body).resolve_axis(x="independent") if rounds else body
+    return chart.properties(height=STORY_Q_HEIGHT)
+
+
+def target_rows(opt):
+    """Closer to target: one row per measurement (largest Share of score
+    first) — name, goal, target, Range, the start's value and Best so
+    far's — or [] with no start or no best."""
+    s = story_start(opt)
+    b = opt.best_index()
+    if s is None or b is None:
+        return []
+    start, best = opt._results_at(s[0]), opt._results_at(b)
+    out = []
+    for obj in opt.measurements_by_importance():
+        lo, hi = float(obj.get('min_val', 0.0)), float(obj.get('max_val', 10.0))
+        v0, v1 = start.get(obj['name']), best.get(obj['name'])
+        out.append({"name": obj['name'], "goal": obj.get('goal', 'max'),
+                    "target": (float(obj['target']) if obj.get('goal') == 'target'
+                               and obj.get('target') is not None else None),
+                    "low": lo, "high": hi,
+                    "start": None if v0 is None else float(v0),
+                    "best": None if v1 is None else float(v1),
+                    "unit": str(obj.get('unit') or "")})
+    return out
+
+
+def _share(row, v):
+    span = row["high"] - row["low"]
+    return 0.5 if span <= 0 else (float(v) - row["low"]) / span
+
+
+def target_chart(opt):
+    """Are we improving? (b), "Closer to target": one row per measurement
+    on its own Range (drawn 0 to 1 across, its ends written): the first
+    Round's best (hollow grey), Best so far (ink) joined by a grey line, the
+    target as a dashed tick, or an arrow at the better end for a 'higher' or
+    'lower' measurement. Model-free. None with nothing to draw."""
+    rows = target_rows(opt)
+    if not rows:
+        return None
+    s, b = story_start(opt), opt.best_index()
+    start_name = _say(opt, wording.story_target_start(s[1]))
+    best_name = _say(opt, wording.STORY_TARGET_BEST)
+    grey, _ = mark("neutral")
+    ink, _ = mark("bar_latest")
+    ref, _ = mark("reference")
+    light, _ = _TRIED_GREYS[theme()]
+    labels = [wording.story_target_row(r["name"], r["goal"], r["target"]) for r in rows]
+    track, points, joins, ends, arrows, texts, targets = [], [], [], [], [], [], []
+    for k, r in enumerate(rows):
+        track.append({"k": k, "t0": 0.0, "t1": 1.0})
+        d = 0 if (r["high"] - r["low"]) >= 10 else 1
+        fmt = lambda v: f"{v:g}" if float(v).is_integer() else f"{v:.{max(1, d)}f}"   # noqa: E731
+        ends += [{"k": k, "t": 0.0, "text": fmt(r["low"]), "align": "right"},
+                 {"k": k, "t": 1.0, "text": fmt(r["high"]), "align": "left"}]
+        tip = f"{r['name']}: " + " → ".join(
+            fmt(v) for v in (r["start"], r["best"]) if v is not None)
+        if r["target"] is not None:
+            # The dashed tick only: its row's label names the target.
+            targets.append({"t": _share(r, r["target"]), "y0": k - 0.34, "y1": k + 0.34})
+        elif r["goal"] in ("max", "min"):
+            arrows.append({"k": k, "t": 1.0 if r["goal"] == "max" else 0.0,
+                           "shape": "triangle-right" if r["goal"] == "max" else "triangle-left"})
+        if r["start"] is not None and r["best"] is not None:
+            joins.append({"k": k, "t0": _share(r, r["start"]), "t1": _share(r, r["best"])})
+        for v, kind in ((r["start"], start_name), (r["best"], best_name)):
+            if v is not None:
+                points.append({"k": k, "t": _share(r, v), "what": kind, "value": fmt(v),
+                               "tip": tip})
+        if r["best"] is not None:
+            texts.append({"k": k, "t": _share(r, r["best"]), "text": fmt(r["best"]),
+                          "who": "best"})
+        # The start's value under its dot, the best's above: both always
+        # written, so a start that already sat on the target says so.
+        if r["start"] is not None and (r["best"] is None
+                                       or abs(_share(r, r["start"]) - _share(r, r["best"]))
+                                       > 0.005):
+            texts.append({"k": k, "t": _share(r, r["start"]), "text": fmt(r["start"]),
+                          "who": "start"})
+    n = len(rows)
+    y_scale = alt.Scale(domain=[-0.7, n - 0.3], reverse=True, nice=False, zero=False)
+    expr = " : ".join(f"datum.value == {k} ? '{_esc(l)}'" for k, l in enumerate(labels)) + " : ''"
+    y_axis = alt.Axis(values=list(range(n)), labelExpr=expr, title=None, ticks=False,
+                      domain=False, grid=False, labelFontSize=11, labelLimit=180, labelPadding=26)
+    y = alt.Y("k:Q", scale=y_scale, axis=y_axis)
+    x_scale = alt.Scale(domain=[-0.02, 1.02], nice=False)
+    x = alt.X("t:Q", scale=x_scale, axis=None)
+    kinds = [start_name, best_name]
+    colour = alt.Scale(domain=kinds, range=[grey, ink])
+    fill = alt.Scale(domain=kinds, range=["transparent", ink])
+    legend = alt.Legend(title=None, orient="bottom", labelLimit=0, symbolStrokeWidth=2)
+    layers = [
+        alt.Chart(pd.DataFrame(track)).mark_rule(color=light, strokeWidth=4, tooltip=False)
+        .encode(x=alt.X("t0:Q", scale=x_scale, axis=None), x2="t1:Q", y=y),
+        alt.Chart(pd.DataFrame(ends)).mark_text(fontSize=9, color=muted(), tooltip=False,
+                                                dx=-5, align="right", baseline="middle")
+        .encode(x=x, y=y, text="text:N").transform_filter("datum.align == 'right'"),
+        alt.Chart(pd.DataFrame(ends)).mark_text(fontSize=9, color=muted(), tooltip=False,
+                                                dx=5, align="left", baseline="middle")
+        .encode(x=x, y=y, text="text:N").transform_filter("datum.align == 'left'"),
+    ]
+    if joins:
+        layers.append(alt.Chart(pd.DataFrame(joins)).mark_rule(color=grey, strokeWidth=1.5,
+                                                               tooltip=False)
+                      .encode(x=alt.X("t0:Q", scale=x_scale, axis=None), x2="t1:Q", y=y))
+    if targets:
+        # Taller than the dots, so a target hit exactly still shows above
+        # and below the ink dot.
+        layers.append(alt.Chart(pd.DataFrame(targets)).mark_rule(
+            color=ref, strokeWidth=1.6, strokeDash=[3, 2], tooltip=False)
+            .encode(x=x, y=alt.Y("y0:Q", scale=y_scale, axis=y_axis), y2="y1:Q"))
+    if arrows:
+        layers.append(alt.Chart(pd.DataFrame(arrows)).mark_point(
+            filled=True, size=70, color=ref, tooltip=False)
+            .encode(x=x, y=y, shape=alt.Shape("shape:N", scale=None)))
+    pdf = pd.DataFrame(points)
+    tips = [alt.Tooltip("what:N", title=" "), alt.Tooltip("value:N", title=wording.STORY_VALUE),
+            alt.Tooltip("tip:N", title=_say(opt, wording.STORY_TARGET_TITLE))]
+    layers.append(alt.Chart(pdf).mark_point(size=110, strokeWidth=2, opacity=1)
+                  .encode(x=x, y=y, color=alt.Color("what:N", scale=colour, legend=legend),
+                          fill=alt.Fill("what:N", scale=fill, legend=legend),
+                          tooltip=tips))
+    if texts:
+        tdf = pd.DataFrame(texts)
+        layers += _halo_text(tdf[tdf["who"] == "best"], x, y, "text:N", ink, fontSize=10,
+                             fontWeight="bold", dy=-11, baseline="bottom")
+        if (tdf["who"] == "start").any():
+            layers += _halo_text(tdf[tdf["who"] == "start"], x, y, "text:N", muted(),
+                                 fontSize=10, dy=10, baseline="top")
+    return alt.layer(*layers).properties(height=max(150, 54 * n))
+
+
+def _esc(text):
+    return str(text).replace("\\", "\\\\").replace("'", "\\'")
+
+
+def forecast_chart(opt, checks):
+    """Can we trust the predictions? — forecast against actual, over time:
+    for each checked formulation, the 95 % range the model predicted for
+    its Overall score before it was made (a light blue bar, from the
+    earlier Rounds only) and the score measured (a dot: filled ink inside,
+    hollow ink outside). x: Formulations in the order made, as the
+    improving chart. None without a check."""
+    mine = [c for c in checks or () if c.name == insights.SCORE]
+    if not mine:
+        return None
+    formulation = _say(opt, wording.FORMULATION_CAP)
+    inside_name = _say(opt, wording.STORY_LANDED_IN)
+    outside_name = _say(opt, wording.STORY_LANDED_OUT)
+    band_name = wording.STORY_FORECAST
+    blue = model_blue()
+    band_c, _ = _BAND_FILL[theme()]
+    ink, _ = mark("bar_latest")
+    df = pd.DataFrame([{
+        formulation: int(c.formulation), "round": wording.round_tick(c.round),
+        "predicted": round(c.predicted, 1), "low": round(c.low, 1), "high": round(c.high, 1),
+        "measured": round(c.measured, 1),
+        "state": inside_name if c.inside else outside_name, "band": band_name,
+        "bo": wording.PLOT_BO_ROUND_AHEAD} for c in mine])
+    vals = [v for c in mine for v in (c.low, c.high, c.measured)]
+    lo, hi = min(vals), max(vals)
+    pad = 0.05 * max(hi - lo, 4.0)
+    y_scale = alt.Scale(domain=[lo - pad, hi + pad], nice=False, zero=False)
+    x_scale = alt.Scale(domain=_x_domain(opt), nice=False)
+    numbers = [int(n) for n in opt.formulation_ids]
+    x = alt.X(f"{formulation}:Q", title=_say(opt, wording.Q2_X_TITLE), scale=x_scale,
+              axis=alt.Axis(format="d", values=formulation_ticks(numbers), grid=False))
+    y_title = zoomed(wording.PLOT_MEASURED_SCORE, lo, hi, float(opt.utility_ceiling()))
+    y = alt.Y("measured:Q", title=y_title, scale=y_scale)
+    tip = [alt.Tooltip(f"{formulation}:Q", title=formulation, format="d"),
+           alt.Tooltip("round:N", title=_say(opt, wording.ROUND_CAP)),
+           alt.Tooltip("predicted:Q", title=wording.TRACK_PREDICTED, format=".1f"),
+           alt.Tooltip("low:Q", title=wording.TRACK_LOW, format=".1f"),
+           alt.Tooltip("high:Q", title=wording.TRACK_HIGH, format=".1f"),
+           alt.Tooltip("measured:Q", title=wording.TRACK_MEASURED, format=".1f"), bo_tip()]
+    legend = alt.Legend(title=None, orient="top", labelLimit=0)
+    bars = alt.Chart(df).mark_rule(strokeWidth=7, opacity=0.45, strokeCap="round").encode(
+        x=x, y=alt.Y("low:Q", scale=y_scale, title=y_title), y2="high:Q",
+        color=alt.Color("band:N", scale=alt.Scale(domain=[band_name], range=[blue]),
+                        legend=legend), tooltip=tip)
+    fills = alt.Scale(domain=[inside_name, outside_name], range=[ink, "transparent"])
+    dots = alt.Chart(df).mark_point(size=46, strokeWidth=1.6, color=ink, opacity=1).encode(
+        x=x, y=y, fill=alt.Fill("state:N", scale=fills, legend=legend), tooltip=tip)
+    # The predicted value itself: a short blue tick across its bar.
+    ticks = alt.Chart(df).mark_tick(color=blue, thickness=2, size=11, opacity=1, orient="horizontal").encode(
+        x=x, y=alt.Y("predicted:Q", scale=y_scale, title=y_title), tooltip=tip)
+    layers = [bars, ticks, dots]
+    first_checked = min(int(c.formulation) for c in mine)
+    before = [n for n in numbers if n < first_checked]
+    if len(before) >= 3:
+        note = pd.DataFrame([{"x": (min(before) + max(before)) / 2, "y": (lo + hi) / 2,
+                              "text": wording.STORY_NO_FORECAST}])
+        layers.append(alt.Chart(note).mark_text(fontSize=10, color=muted(), tooltip=False)
+                      .encode(x=alt.X("x:Q", scale=x_scale), y=alt.Y("y:Q", scale=y_scale),
+                              text="text:N"))
+    rounds = _round_layer(opt, formulation, numbers, x_scale)
+    body = alt.layer(*layers)
+    chart = alt.layer(rounds, body).resolve_axis(x="independent") if rounds else body
+    return chart.properties(height=STORY_Q_HEIGHT - 30)
+
+
+def trust_counts(checks):
+    """(inside, total, above, below) of the Overall score's Round-ahead
+    checks: misses above and below their range counted apart."""
+    mine = [c for c in checks or () if c.name == insights.SCORE]
+    inside = sum(bool(c.inside) for c in mine)
+    above = sum(1 for c in mine if not c.inside and c.measured > c.high)
+    below = sum(1 for c in mine if not c.inside and c.measured < c.low)
+    return inside, len(mine), above, below
+
+
+def driver_finding(opt, profile, guard):
+    """Q3's answer, a finding: '**Methylcellulose matters most.** Best so
+    far uses its Highest.' — the column that moves the predicted Overall score
+    most near tested formulations (the profiler's own ranking), and where
+    the reference sits; '**No single change clearly leads.**' under the
+    noise guard or with no effect."""
+    if profile is None or guard is None or guard.fires or not profile.columns:
+        return wording.answer_line(wording.STORY_NO_DRIVER, "")
+    lead = profile.columns[0]
+    if lead.effect <= 0:
+        return wording.answer_line(wording.STORY_NO_DRIVER, "")
+    rest = ""
+    if lead.end:
+        rest = wording.story_driver_end(profile.ref_label, lead.end)
+    elif len(profile.columns) > 1 and profile.columns[1].effect > 0:
+        rest = wording.story_driver_then(profile.columns[1].name)
+    return wording.answer_line(wording.story_driver(lead.name), rest)
+
+
+def path_frame(opt, axes, lines):
+    """The search path's long frame: one row per formulation per axis —
+    its amount, its Round's row, its role — for every tested, waiting and
+    Not scored formulation and the open Round's suggestions."""
+    rows = []
+    # Honesty guard: only the rows the app generated are suggestions; the
+    # team's own formulations in the open Round (a note, no generated
+    # make-up) wait for results like any other.
+    generated = set(suggested_numbers(opt))
+    for line in lines:
+        r = line.round if line.round is not None else (
+            opt.pending_batch_no if line.state == "suggested" else None)
+        if r is None:
+            continue
+        suggested = line.state == "suggested" and line.formulation in generated
+        role = (wording.TRIED_SUGGESTED if suggested
+                else wording.TRIED_WAITING if line.state != "tested"
+                else wording.TRIED_BEST if line.best else wording.STORY_PATH_TESTED)
+        for a in axes:
+            v = line.values.get(a.name)
+            if v is None:
+                continue
+            rows.append({"axis": a.name, "no": line.formulation, "round": int(r),
+                         "rlabel": wording.round_tick(r), "value": v if a.options is not None
+                         else float(v), "role": role,
+                         "score": "" if line.score is None else f"{line.score:.1f}",
+                         "text": (str(v) if a.options is not None
+                                  else _axis_end(opt, a, float(v)))})
+    return pd.DataFrame(rows, columns=["axis", "no", "round", "rlabel", "value", "role",
+                                       "score", "text"])
+
+
+def search_path_chart(opt, axes, lines):
+    """What have we tried? — the search path: one small panel per
+    ingredient or process setting; across, its allowed amounts (Lowest to
+    Highest); down, the Rounds, the first at the top. One grey dot per
+    formulation, a light bar from each Round's lowest to highest amount,
+    Best so far ringed in ink, this Round's suggestions orange in their
+    Round's row. Empty stretches were not tried; bars that shorten show the
+    search settling. None without an axis or a formulation."""
+    if not axes or not lines:
+        return None
+    df = path_frame(opt, axes, lines)
+    if df.empty:
+        return None
+    rounds = sorted(set(df["round"]))
+    labels = [wording.round_tick(r) for r in rounds]
+    grey, _ = mark("neutral")
+    ink, _ = mark("bar_latest")
+    light, mid = _TRIED_GREYS[theme()]
+    orange = outline_colour()
+    order = [wording.STORY_PATH_TESTED, wording.TRIED_BEST, wording.TRIED_SUGGESTED,
+             wording.TRIED_WAITING]
+    kinds = [k for k in order if k in set(df["role"])]
+    look = {wording.STORY_PATH_TESTED: mid, wording.TRIED_BEST: ink,
+            wording.TRIED_SUGGESTED: orange, wording.TRIED_WAITING: grey}
+    colour = alt.Scale(domain=kinds, range=[look[k] for k in kinds])
+    legend = alt.Legend(title=None, orient="bottom", labelLimit=0)
+    word = _say(opt, wording.FORMULATION_CAP)
+    height = max(70, _PATH_ROW_H * len(rounds))
+    y_scale = alt.Scale(domain=labels, paddingInner=0.2, paddingOuter=0.3)
+    panels = []
+    for k, a in enumerate(axes):
+        mine = df[df["axis"] == a.name]
+        first = k % PATH_COLUMNS == 0
+        y = alt.Y("rlabel:O", scale=y_scale, sort=labels,
+                  title=_say(opt, wording.ROUND_CAP) if first else None,
+                  axis=alt.Axis(labels=first, ticks=False, domain=False, grid=False,
+                                labelFontSize=9, labelColor=muted(), titleFontSize=10)
+                  if first else None)
+        if a.options is not None:
+            x_scale = alt.Scale(domain=list(a.options))
+            x_axis = alt.Axis(labelAngle=0, labelFontSize=9, labelLimit=60, ticks=False,
+                              domain=False)
+            x = alt.X("value:N", scale=x_scale, title=None, axis=x_axis)
+        else:
+            d = _shared_decimals([a.low, a.high])
+            x_scale = alt.Scale(domain=[a.low, a.high], nice=False, zero=False)
+            x_axis = alt.Axis(values=[a.low, a.high], grid=False, ticks=False, domain=False,
+                              labelFontSize=9, labelColor=muted(),
+                              labelExpr=_ends_expr(opt, a, d), labelFlush=True)
+            x = alt.X("value:Q", scale=x_scale, title=None, axis=x_axis)
+        tip = [alt.Tooltip("no:Q", title=word, format="d"),
+               alt.Tooltip("rlabel:N", title=_say(opt, wording.ROUND_CAP)),
+               alt.Tooltip("text:N", title=a.name),
+               alt.Tooltip("score:N", title=_say(opt, wording.OVERALL_SCORE_COLUMN))]
+        base = alt.Chart(mine)
+        layers = []
+        if a.options is None:
+            layers.append(
+                base.transform_filter(f"datum.role != '{_esc(wording.TRIED_SUGGESTED)}'")
+                .transform_aggregate(lo="min(value)", hi="max(value)", groupby=["rlabel"])
+                .mark_rule(color=light, strokeWidth=5, strokeCap="round", tooltip=False)
+                .encode(x=alt.X("lo:Q", scale=x_scale, title=None, axis=x_axis), x2="hi:Q",
+                        y=y))
+        layers.append(base.mark_point(size=26, filled=True, opacity=0.95).encode(
+            x=x, y=y, color=alt.Color("role:N", scale=colour, legend=legend), tooltip=tip)
+            .transform_filter(f"datum.role != '{_esc(wording.TRIED_BEST)}' && "
+                              f"datum.role != '{_esc(wording.TRIED_WAITING)}'"))
+        # Waiting for results (or Not scored): a hollow grey ring.
+        layers.append(base.mark_point(size=30, filled=False, strokeWidth=1.4).encode(
+            x=x, y=y, color=alt.Color("role:N", scale=colour, legend=legend), tooltip=tip)
+            .transform_filter(f"datum.role == '{_esc(wording.TRIED_WAITING)}'"))
+        layers.append(base.mark_point(size=110, strokeWidth=2, filled=False, color=ink)
+                      .encode(x=x, y=y, tooltip=tip)
+                      .transform_filter(f"datum.role == '{_esc(wording.TRIED_BEST)}'"))
+        layers.append(base.mark_point(size=26, filled=True).encode(
+            x=x, y=y, color=alt.Color("role:N", scale=colour, legend=legend), tooltip=tip)
+            .transform_filter(f"datum.role == '{_esc(wording.TRIED_BEST)}'"))
+        title = alt.TitleParams(_axis_label(a), fontSize=10, fontWeight="normal",
+                                anchor="start", color=None, limit=_PATH_PANEL_W + 20)
+        panels.append(alt.layer(*layers).properties(width=_PATH_PANEL_W, height=height,
+                                                     title=title))
+    return (alt.concat(*panels, columns=PATH_COLUMNS, spacing=18)
+            .resolve_scale(color="shared", x="independent")
+            .configure_view(strokeWidth=0))
+
+
+def _ends_expr(opt, a, d):
+    """The x axis' two labels: Lowest and Highest with the unit."""
+    lo, hi = _axis_end(opt, a, a.low, d), _axis_end(opt, a, a.high, d)
+    return (f"abs(datum.value - {a.low}) < 1e-9 ? '{_esc(lo)}' : "
+            f"abs(datum.value - {a.high}) < 1e-9 ? '{_esc(hi)}' : ''")

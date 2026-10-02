@@ -8613,3 +8613,169 @@ def profiler_more_placeholder(kind):
     return {"ingredients": "Add an ingredient", "settings": "Add a setting",
             "both": "Add a column", "rows": "Add a measurement"}[kind]
 
+
+
+# --- review story ---
+# Review story (prototype, 2026-10-02): the Review read as a story, in the
+# order a food scientist asks — Are we improving? Can we trust the
+# predictions? What drives each result? What have we tried? Every number is
+# read from the project; nothing compares with another method or counts
+# Rounds saved. Status lines at most 10 words, captions 8, labels 5.
+
+def card_progress(start_text, best_text, tail=None):
+    """The Progress card's line, start to best: '87.8 → 90.5 · same for 2
+    Rounds' (the sparkline under it is titled Best so far, and the card
+    line keeps to 6 words); 'Best 96.0 · …' when there is nothing to go
+    from."""
+    head = f"Best {best_text}" if start_text is None else f"{start_text} → {best_text}"
+    return head + (f" · {tail}" if tail else "")
+
+
+def card_checked_so_far(inside, total, needed):
+    """Not yet, too few checked: '7 / 7 in range · needs 10' (it read
+    '7 / 10 formulations checked', which hid that all 7 landed)."""
+    return f"{inside} / {total} in range · needs {needed}"
+
+
+# Are we improving? — (a) the best so far, each Round's average, the start
+# and the best named; (b) closer to target, one row per measurement.
+STORY_START = "Start"
+STORY_BEST = "Best"
+
+
+def story_point(label, score_text, round_no):
+    """'Start: 87.8 (Round 1)'; 'Best: 90.5 (Round 4)'."""
+    return f"{label}: {score_text} ({ROUND_CAP} {round_no})"
+
+
+STORY_ROUND_AVERAGE = f"{ROUND_CAP} average"
+STORY_EACH = f"Each {FORMULATION}"
+STORY_IMPROVING_CAPTION = "Grey dots: each measured score."
+
+
+def story_improving_help(first_avg, last_avg, first_round, last_round):
+    """Chart (a)'s "?": how to read it, and the Round averages."""
+    avg = ""
+    if first_avg is not None and last_avg is not None and first_round != last_round:
+        avg = (f" {ROUND_CAP} average: {first_avg} ({ROUND_CAP} {first_round}) → {last_avg} "
+               f"({ROUND_CAP} {last_round}).")
+    return (f"Grey dots: each {FORMULATION}'s measured {OVERALL_SCORE_COLUMN}. Ink step: "
+            f"{BEST_SO_FAR_COLUMN}. Short grey bars: each {ROUND_CAP}'s average, so one lucky "
+            f"{FORMULATION} does not read as progress.{avg} Model-free: measured values only.")
+
+
+def story_target_start(round_no):
+    """Chart (b)'s hollow dot: 'Round 1's best'."""
+    return f"{ROUND_CAP} {round_no}'s best"
+
+
+STORY_TARGET_BEST = BEST_SO_FAR_COLUMN
+STORY_TARGET = "Target"
+STORY_HIGHER = "Higher is better →"
+STORY_LOWER = "← Lower is better"
+STORY_TARGET_TITLE = "Closer to target"
+STORY_TARGET_CAPTION = "Hollow: start. Ink: best so far."
+
+
+def story_target_row(name, obj_goal, target=None):
+    """A row's label: 'Firmness · target 6'; 'Cook loss · lower'."""
+    if obj_goal == "target" and target is not None:
+        return f"{name} · target {float(target):g}"
+    return f"{name} · {'lower' if obj_goal == 'min' else 'higher'}"
+
+
+def story_target_help(start_no, best_no, start_round):
+    """Chart (b)'s "?": what each mark is."""
+    return (f"One row per measurement, across its own Range. Hollow grey: {FORMULATION_CAP} "
+            f"{start_no}, the best of {ROUND_CAP} {start_round}. Ink: {BEST_SO_FAR_COLUMN}, "
+            f"{FORMULATION_CAP} {best_no}. Dashed tick: the target; an arrow where higher or "
+            "lower is better. Model-free: measured values only.")
+
+
+# Can we trust the predictions? — forecast against actual, over time.
+STORY_FORECAST = "Predicted 95 % range"
+STORY_LANDED_IN = "Landed in range"
+STORY_LANDED_OUT = "Landed outside"
+STORY_NO_FORECAST = "No forecast yet"
+STORY_TRUST_CAPTION = "Blue: predicted before tasting. Dot: measured."
+
+
+def story_trust_answer(inside, total):
+    """'13 of 15 landed in their predicted range'."""
+    return f"{inside} of {total} landed in their predicted range"
+
+
+def story_trust_so_far(inside, total, needed):
+    """Not yet, too few: '7 of 7 landed in range; 10 needed'."""
+    return f"{inside} of {total} landed in range; {needed} needed"
+
+
+def story_misses(above, below):
+    """The misses' side, for the "?": 'Both misses scored higher than predicted.'"""
+    n = above + below
+    if n == 0:
+        return ""
+    if below == 0:
+        who = "Both misses" if n == 2 else ("The miss" if n == 1 else f"All {n} misses")
+        return f"{who} scored higher than predicted."
+    if above == 0:
+        who = "Both misses" if n == 2 else ("The miss" if n == 1 else f"All {n} misses")
+        return f"{who} scored lower than predicted."
+    return f"{above} scored higher than predicted, {below} lower."
+
+
+def story_trust_help(inside, total, misses_text=""):
+    """The forecast chart's "?": how to read it, then the BO term."""
+    return (f"Each light blue bar is the 95 % range the model predicted for a {FORMULATION}'s "
+            f"{OVERALL_SCORE_COLUMN} before it was made, from the earlier {ROUND_CAP}s only; the "
+            "blue tick, the predicted value. The "
+            f"dot is what was measured: filled inside the range, hollow outside. {inside} of "
+            f"{total} landed inside. {misses_text} About 1 in 20 is expected outside. "
+            "BO term: Round-ahead (rolling-origin) posterior predictive coverage.").replace(
+                "  ", " ")
+
+
+# What drives each result? — a finding, from the profiler.
+def story_driver(name):
+    """'Methylcellulose matters most'."""
+    return f"{name} matters most"
+
+
+def story_driver_end(ref_label, end):
+    """'Best so far uses its Highest'."""
+    return f"{ref_label} uses its {end}"
+
+
+def story_driver_then(name):
+    """'Then Textured soy protein'."""
+    return f"Then {name}"
+
+
+STORY_NO_DRIVER = "No single change clearly leads"
+
+
+def story_driver_help(ref_label):
+    """The finding's "?": what "matters most" means."""
+    return (f"The largest predicted change in {OVERALL_SCORE_COLUMN} when one row moves alone "
+            f"across the amounts tested near {ref_label}, the others as they are. A model reading, "
+            "not a measured result.")
+
+
+# What have we tried? — the search path.
+STORY_PATH_CAPTION = f"One dot per {FORMULATION}; gaps are untested."
+STORY_SHOW_LINES = "Show as lines"
+STORY_SHOW_LINES_HELP = (f"Draw each {FORMULATION} as one line across every row, to see "
+                         "combinations.")
+STORY_PATH_TESTED = f"Tested {FORMULATION}"
+
+
+def story_path_help(settings_only=False):
+    """The search path's "?": how to read a panel."""
+    what = "process setting" if settings_only else "ingredient or process setting"
+    return (f"One small chart per {what}: across, its allowed amounts from Lowest to Highest; down, "
+            f"the {ROUND_CAP}s, the first at the top. Each dot is one {FORMULATION}; the grey "
+            f"bar joins a {ROUND_CAP}'s lowest and highest amounts. Ink ring: "
+            f"{BEST_SO_FAR_COLUMN}. Orange: this {ROUND_CAP}'s suggestions. Empty stretches "
+            "were not tried. Bars that shorten show the search settling. BO term: the design "
+            "points by iteration, per input dimension.")
+STORY_VALUE = "Value"
