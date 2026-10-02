@@ -245,7 +245,7 @@ def test_short_captions_and_withheld_reasons():
                  wording.tried_caption()):
         assert _words(text) <= 8, text
     for text in (wording.PLOT_SPARK_WAIT, wording.PLOT_GAIN_WITHHELD,
-                 *wording.HERO_WITHHELD.values()):
+                 *wording.HERO_WITHHELD.values(), *wording.HERO_HIDDEN.values()):
         assert _words(text) <= 10, text
 
 

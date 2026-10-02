@@ -475,7 +475,15 @@ def _next_step_line(opt, linked=False):
     checks = ui_insights.checks_for(opt, "trust")
     rounds = insights.headline(opt, checks).rounds if checks else None
     text, _ = ui_insights.next_step_text(opt, step, rounds)
-    st.caption(wording.for_project(opt, wording.first_sentence(text)))
+    short = wording.first_sentence(text)
+    if step.kind == "misses":
+        # Review polish: the misses row's sentence ran past 30 words; on
+        # screen at most 10, the full sentence in its "?".
+        best = opt.best_index()
+        short = wording.next_misses_short(None if best is None
+                                          else int(opt.formulation_ids[best]))
+    st.caption(wording.for_project(opt, short),
+               help=wording.for_project(opt, text) if short != text else None)
     if linked or st.session_state.get(INSIGHTS_OPENED_KEY) == insights.data_key(opt):
         return                      # linked: the status line's is the one link
     higher = step.kind in ("close", "untested")
@@ -1334,7 +1342,7 @@ def _why_fold(opt, preds):
             return
         # The first line: the three role words read once (early walkthrough
         # ruling; the Role column's tooltip keeps the exact rule).
-        st.caption(say(wording.WHY_ROLE_KEY),
+        st.caption(say(wording.WHY_ROLE_KEY_SHORT),       # review polish: at most 8 words
                    help=say(f"{wording.role_help()} {ui_insights.bo_term(wording.TIP_ROLES)}"))
         ref = _best_repeat(opt, score)
         if checks is None:

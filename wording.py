@@ -7685,7 +7685,10 @@ def round_track_short(rounds, inside, total, rough=False, gap_text=None, below=T
     (ui_insights.track_text) opens its tooltip."""
     parts = []
     if inside is not None:
-        where = f", {rounds_span(rounds)}" if rounds else ""
+        # Review polish: with a warning after it, the Rounds go to the "?"
+        # (track_text names them), so the line stays near 10 words.
+        warned = rough or gap_text is not None or see_insights
+        where = f", {rounds_span(rounds)}" if rounds and not warned else ""
         parts.append(f"{OVERALL_SCORE_COLUMN}{where}: {inside} of {total} in range.")
         if rough:
             parts.append("More misses than normal.")
@@ -7693,7 +7696,7 @@ def round_track_short(rounds, inside, total, rough=False, gap_text=None, below=T
             parts.append(f"Scores {points_text(gap_text)} {'below' if below else 'above'} "
                          "predictions.")
         if see_insights:
-            parts.append("Measurements miss far more often.")
+            parts.append(TRACK_VALUES_MISS)
     if no_skill:
         parts.append(f"{OVERALL_SCORE_COLUMN} predictions no better than averaging.")
     return " ".join(parts)
@@ -8179,3 +8182,161 @@ def path_head_at_limit(name, end, amount_text):
 def plot_at_end(amount_text, n, total):
     """What you've tried: an axis end where most lines sit."""
     return f"{amount_text} ({n} of {total})"
+
+
+# --- review polish ---
+# Review polish (2026-10-02, demo prep for food scientists and BO /
+# statistics readers): the header says what the Review is about; an Off
+# card names which numbers missed and which held; each card's "?" opens
+# with its plain sentence, then one compact evidence line (n, method,
+# rule); a hidden expected gain reads as a choice with its next step; the
+# method is one click from the Review. Wording and layout only: no rule
+# and no suggestion changes.
+def review_header(n, last_round=None, open_no=None, waiting=0, numbers=None, not_scored=0):
+    """'Review after Round 5 · 20 formulations · Round 6 open · Formulation
+    19 waiting'; the scored count is the header's one count."""
+    lead = f"Review after {ROUND_CAP} {last_round}" if last_round is not None else "Review"
+    parts = [lead, f"{n} {FORMULATION}{'s' if n != 1 else ''}"]
+    if open_no is not None:
+        parts.append(f"{ROUND_CAP} {open_no} open")
+    if waiting:
+        named = (formulations_span(numbers)
+                 if numbers and len(numbers) == waiting <= HEADER_NAMES_WAITING else None)
+        parts.append(f"{named or waiting} waiting")
+    if not_scored:
+        parts.append(f"{not_scored} {NOT_SCORED}")
+    return " · ".join(parts)
+
+
+REVIEW_ABOUT = ("Three questions after each Round: can you trust the predictions, is the best "
+                "still rising, and what to make next.")
+
+
+# The Off card: the measurements that missed, named, beside the Overall
+# score the suggestions use. Same counts as before, scoped.
+def card_values_missed(outside, total, allowed):
+    """'Measurements: 9 / 36 missed (4 normal)'."""
+    return f"Measurements: {outside} / {total} missed ({allowed or 'none'} normal)"
+
+
+# The "?" of each card: the plain sentence, then this line, then the exact rule.
+def evidence(parts):
+    """'Evidence: n = 36 values, Rounds 4–6 · …'."""
+    return "Evidence: " + " · ".join(p.rstrip(".") for p in parts if p) + "."
+
+
+def ev_values(total, rounds):
+    return f"n = {total} measured values, {rounds_span(rounds)}"
+
+
+EV_ROUND_AHEAD = ("each predicted from earlier Rounds only (Round-ahead 95 % posterior "
+                  "predictive coverage)")
+
+
+def ev_misses(misses, allowed):
+    return f"{misses} outside, up to {allowed} expected (binomial, 5 % each)"
+
+
+def ev_score(inside, total, skill_text=None, n=None, rounds=None):
+    """'Overall score, Rounds 3–6: 10 of 12 in range, skill 0.69 against the
+    running mean (n = 12)': its own Rounds, as More detail names them."""
+    where = f", {rounds_span(rounds)}" if rounds else ""
+    out = f"{OVERALL_SCORE_COLUMN}{where}: {inside} of {total} in range"
+    if skill_text is not None:
+        out += f", skill {skill_text} against the running mean (n = {n})"
+    return out
+
+
+def ev_checks(k, needed):
+    return f"{k} of {needed} Overall-score checks needed so far"
+
+
+def ev_scored(n, needed):
+    return f"{n} of {needed} {FORMULATION}s scored; checks start at {needed}"
+
+
+EV_MODEL_FREE = f"model-free: measured {OVERALL_SCORE_COLUMN}s only"
+
+
+def ev_rise(rise_text, need_text):
+    return f"rise {rise_text} against {need_text} needed"
+
+
+def ev_noise(sd_text, assumed, df=0):
+    """'noise SD 1 point, assumed (0 Repeat df)'; measured, '(4 Repeat df)'."""
+    how = "assumed" if assumed else "from Repeats"
+    return f"noise SD {points_text(sd_text)}, {how} ({df} Repeat df)"
+
+
+def ev_flat(k):
+    return f"no higher score in {k} {ROUND_CAP}{'s' if k != 1 else ''}"
+
+
+def ev_rule(name):
+    """'rule: Misses (first Next-step rule that holds)'."""
+    return f"rule: {name} (first Next-step rule that holds)"
+
+
+_ACQ_SHORT = {"qlognei": "qLogNEI", "qlogei": "qLogEI", "qucb": "qUCB"}
+
+
+def ev_suggestions(acquisition="qlognei"):
+    """'suggestions: Gaussian process on the Overall score, qLogNEI'."""
+    name = _ACQ_SHORT.get(acquisition, acquisition)
+    return f"suggestions: Gaussian process on the {OVERALL_SCORE_COLUMN}, {name}"
+
+
+EV_METHOD = "Kernel, priors and every check: How the app knows, under the chart."
+
+# The one-click way to the method (the Method and definitions fold).
+METHOD_LINK = "How the app knows"
+METHOD_LINK_HELP = ("Opens Method and definitions: the Gaussian-process model read from this "
+                    "project, the acquisition (qLogNEI by default), the Round-ahead checks, "
+                    "the noise threshold and the known limits.")
+
+# The hero: what the x axis is, and a hidden gain as a choice with a next step.
+def hero_axis(values=False):
+    """The hero's x axis: every row moved together in a straight line."""
+    return f"Every {'setting' if values else 'amount'} moved in a straight line"
+
+
+HERO_HIDDEN_ICON = ":material/visibility_off:"
+# At most 10 words each; the full reason in its "?".
+HERO_HIDDEN = {
+    "noise": "Expected gain hidden: may be noise. See Next.",
+    "ucb": "Expected gain not drawn: your settings use an upper bound.",
+    "cold": f"Expected gain not drawn: {ROUND_CAP} laid out, not modelled.",
+    "verdict": "Expected gain hidden while predictions miss. See Next.",
+    "skill": "Expected gain hidden until predictions beat averaging. See Next.",
+}
+
+
+TIP_HERO_TOP = ("The line runs straight from Best so far, every row moving together. Line: the "
+                "suggestion model's predicted Overall score; band: its own 95 % range; grey: "
+                f"nothing tested near; rings: {FORMULATION}s tested near the line. BO term: "
+                "posterior mean and 95 % credible band.")
+
+
+def tip_hero_hidden(reason):
+    """The hidden line's "?": why, and that suggestions are still made."""
+    return (f"Expected gain is not drawn: {reason}. Suggestions are still made the same "
+            "way; the Next card says what would bring the gain back.")
+
+
+# Make a round: the three lines the review cards left over the limit.
+WHY_ROLE_KEY_SHORT = (f"{SUGGESTION_CLOSE.capitalize()}: near. "
+                      f"{SUGGESTION_DIFFERENT.capitalize()}: far. "
+                      f"{SUGGESTION_BALANCED.capitalize()}: between.")
+
+
+def next_misses_short(repeat_no=None):
+    """Make a round's misses line above Generate, at most 10 words."""
+    if repeat_no is None:
+        return "Predictions miss more than expected: add a Repeat."
+    return f"Predictions miss more than expected: repeat {FORMULATION_CAP} {repeat_no}."
+
+
+TRACK_VALUES_MISS = "Measurements miss more."
+
+
+SETUP_BUTTON_SHORT = "Change on Set up"

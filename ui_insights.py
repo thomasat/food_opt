@@ -993,7 +993,8 @@ def render(opt):
     # scored, so it counts towards neither MIN_ROWS nor "So far: N".
     n = opt.complete_count()
     # Review cards (prototype): one short header line; the full one in its "?".
-    st.caption(_say(opt, cards_header_text(opt)), help=_say(opt, header_detail(opt)))
+    st.caption(_say(opt, cards_header_text(opt)),
+               help=_say(opt, f"{wording.REVIEW_ABOUT}\n\n{header_detail(opt)}"))
     if insights_jobs.stopped():
         # C2 (review M5): the workers broke too often; everything is now
         # worked out here, behind each screen's own indicator.
@@ -1082,7 +1083,9 @@ def _places(opt, gate=False):
     p = _Places()
     p.card = {}
     for which, col in zip(_STATUS_ORDER, st.columns(3)):
-        with col, st.container(border=True, key=f"{CARD_KEY}_{which}", gap="xsmall"):
+        # Review polish: the three cards one height (the row's tallest).
+        with col, st.container(border=True, key=f"{CARD_KEY}_{which}", gap="xsmall",
+                               height="stretch"):
             st.caption(_say(opt, _CARD_LABELS[which]))
             p.card[which] = st.empty()
             with p.card[which].container(gap="xxsmall"):
@@ -1096,7 +1099,10 @@ def _places(opt, gate=False):
     p.bar = st.empty()
     p.hero = st.empty()
     tried_fold(opt)
-    p.more = st.expander(_say(opt, wording.FOLD_MORE), key=MORE_DETAIL_KEY)
+    # Review polish: a widget (on_change), so the method link can open it
+    # while the tab is on screen (a plain keyed fold keeps the page's state).
+    p.more = st.expander(_say(opt, wording.FOLD_MORE), key=MORE_DETAIL_KEY,
+                         on_change="rerun")
     with p.more:
         # Keyed, so a link from another tab can land on them (04 §5).
         p.trust = st.container(key=TRUST_SECTION)
@@ -1127,8 +1133,10 @@ def _land():
     (ui_helpers.SCROLL_KEY, drained by app.py after the tab is drawn), so
     a fold the reader closed stays closed."""
     where = st.session_state.get(SCROLL_KEY)
-    if where in (TRUST_SECTION, STAND_SECTION):
+    if where in (TRUST_SECTION, STAND_SECTION, HOW_PLACE):
         st.session_state[MORE_DETAIL_KEY] = True     # review cards: they sit in More detail
+    if where == HOW_PLACE:
+        st.session_state[HOW_KEY] = True             # review polish: the method link
     if where == TRUST_SECTION and st.session_state.get(EACH_KEY):
         st.session_state[PREDICTION_FIGURES_KEY] = True
     elif where == STAND_SECTION:
@@ -1266,8 +1274,10 @@ def _setup_button(change):
     the ingredient grid, which names the row or limit and its value (0.8.0
     e2e fixes A7, review I8; 01 O3: it landed at the top with nothing
     pointing at the row)."""
-    if change and st.button(change, key="insights_change_setup",
-                            disabled=confirmation_open()):
+    # Review polish: the Next card already names the change; the button,
+    # at most 5 words, keeps the full label in its "?".
+    if change and st.button(wording.SETUP_BUTTON_SHORT, key="insights_change_setup",
+                            help=change, disabled=confirmation_open()):
         st.session_state[SETUP_CALLOUT_KEY] = change
         go_to_tab(TAB_SETUP, section=SETUP_CALLOUT_SLOT)
 
@@ -1629,11 +1639,64 @@ def _full_sentence(line):
 
 
 def status_help(opt, facts, which):
-    """The line's tooltip: its full sentence, then W2's exact rule."""
+    """The line's tooltip: its full sentence, then (review polish) one
+    compact evidence line — n, method, rule — then W2's exact rule."""
     full = status_full_texts(opt, facts).get(which)
     tip = tooltip_for(opt, which, facts)
-    parts = [p for p in (full and _full_sentence(full), tip) if p]
+    try:
+        ev = _say(opt, evidence_line(opt, facts, which))
+    except Exception:       # the evidence line must never take a card down
+        ev = None
+    parts = [p for p in (full and _full_sentence(full), ev, tip) if p]
     return "\n\n".join(parts) or None
+
+
+def evidence_line(opt, facts, which):
+    """Review polish: the "?"'s second paragraph, the evidence in one line
+    — how many, by what method, judged by which rule — read off the same
+    facts the card's words come from (so every number agrees with the card
+    and More detail); None when there is nothing yet."""
+    if which == "predictions":
+        h, row = facts.headline, facts.prediction_row
+        if row == "gate":
+            return wording.evidence([wording.ev_scored(facts.scored, insights.MIN_ROWS)])
+        parts = []
+        if h is not None and h.total:
+            parts += [wording.ev_values(h.total, h.rounds), wording.EV_ROUND_AHEAD,
+                      wording.ev_misses(h.total - h.inside, insights.allowed_misses(h.total))]
+        score = getattr(h, "score", None) if h is not None else None
+        sk = facts.skill
+        if score is not None and score.total:
+            parts.append(wording.ev_score(score.inside, score.total,
+                                          None if sk is None else skill_value(sk.value),
+                                          None if sk is None else sk.n,
+                                          rounds=getattr(score, "rounds", None)))
+        elif row == "too_few":
+            parts.append(wording.ev_checks(facts.checked, insights.SKILL_MIN))
+        parts.append(wording.EV_METHOD)
+        return wording.evidence(parts)
+    if which == "progress":
+        if facts.best is None:
+            return None
+        parts = [wording.EV_MODEL_FREE]
+        a, y = facts.improvement, facts.yardstick
+        if facts.progress in ("rising", "within_noise") and a is not None \
+                and a.rise is not None and a.threshold is not None:
+            parts.append(wording.ev_rise(f"{a.rise:.1f}", f"{a.threshold:.1f}"))
+        elif facts.progress == "flat" and a is not None:
+            parts.append(wording.ev_flat(a.rounds))
+        if y is not None and y.value is not None:
+            parts.append(wording.ev_noise(f"{y.value:g}", y.assumed, y.df))
+        return wording.evidence(parts)
+    step = facts.next
+    if step is None:
+        return None
+    cfg = getattr(opt, "bo_config", None) or {}
+    # The row's name as the rule table and the rule paragraph name it.
+    name = insights.status_label(opt, ("next", step.kind))
+    return wording.evidence([wording.ev_rule(name),
+                             wording.ev_suggestions(cfg.get("acquisition", "qlognei")),
+                             wording.EV_METHOD])
 
 
 def _status_line(opt, facts, which):
@@ -4496,7 +4559,7 @@ def _recipe_text(opt, recipe):
     return "; ".join(out)
 
 
-def chooses_chart(opt, data, heights=(220, 130), compact=False):
+def chooses_chart(opt, data, heights=(220, 130), compact=False, split=False):
     """How the app chooses: the classic figure along one row through Best
     so far. Top: the suggestion model's mean (its posterior mean) with its
     95 % band, grey where nothing was tested near, the formulations tested
@@ -4504,7 +4567,9 @@ def chooses_chart(opt, data, heights=(220, 130), compact=False):
     expected gain along the same line (the acquisition the suggestions are
     chosen by), unless withheld (data.reason). A dashed rule at Best so
     far; an orange one at this Round's first suggestion when it is near
-    the line."""
+    the line. `split` (review polish, the hero): the two panels as two
+    charts, (top, bottom), each as wide as the page (a vconcat is drawn at
+    a fixed width), their y axes given one width so the plots line up."""
     path, v = data.path, data.values
     if not path.amounts:
         return None
@@ -4513,7 +4578,9 @@ def chooses_chart(opt, data, heights=(220, 130), compact=False):
     if data.line:
         x_title = _say(opt, wording.chooses_line_axis(data.end_label))
         end = _say(opt, data.end_label)
-        axis = alt.Axis(values=[0, 1], labelExpr=(
+        # Review polish: the end labels flush with the plot's ends, so no
+        # label hangs past the plot (the hero's two panels then line up).
+        axis = alt.Axis(values=[0, 1], labelFlush=True, labelExpr=(
             f"datum.value == 0 ? {_say(opt, wording.TRIED_BEST)!r} : {end!r}"))
         along = _say(opt, wording.CHOOSES_AMOUNTS_HERE)
     else:
@@ -4521,7 +4588,10 @@ def chooses_chart(opt, data, heights=(220, 130), compact=False):
         axis = alt.Axis()
         along = path.name
     xs = alt.Scale(domain=[min(path.amounts), max(path.amounts)], zero=False, nice=False)
-    x = alt.X("x:Q", title=None if compact and data.line else x_title, scale=xs, axis=axis)
+    if compact and data.line:
+        # Review polish: the hero's x axis says what moves along it.
+        x_title = _say(opt, wording.hero_axis(not opt.has_ingredients()))
+    x = alt.X("x:Q", title=x_title, scale=xs, axis=axis)
     # Review cards' hero (`compact`): the top panel shares the bottom's x
     # axis, drawn once under the bottom; short y titles.
     x_top = (alt.X("x:Q", title=None, scale=xs,
@@ -4582,7 +4652,9 @@ def chooses_chart(opt, data, heights=(220, 130), compact=False):
         out = []
         for kind, colour, dash, opacity in (("best", ink, [4, 3], 1.0),
                                             ("pick", outline_colour(), [1, 0], 1.0),
-                                            ("end", ink, [1, 0], 1.0)):
+                                            # Review polish: the predicted
+                                            # best is the model's: blue.
+                                            ("end", blue, [1, 0], 1.0)):
             sel = marks[marks["role"] == kind]
             if not len(sel):
                 continue
@@ -4590,7 +4662,11 @@ def chooses_chart(opt, data, heights=(220, 130), compact=False):
             out.append(base.mark_rule(color=colour, opacity=opacity, strokeDash=dash,
                                       strokeWidth=2, tooltip=False).encode(x=xr))
             if height_title:
-                out.append(base.mark_text(color=muted(), align="left", dx=4, baseline="top",
+                # Review polish: Best so far's label to the right of its
+                # rule, the others' to the left, inside the plot.
+                left = kind == "best"
+                out.append(base.mark_text(color=muted(), align="left" if left else "right",
+                                          dx=4 if left else -4, baseline="top",
                                           fontSize=10, tooltip=False)
                            .encode(x=xr,
                                    y=alt.value(4 if kind == "best" else 18), text="label:N"))
@@ -4641,7 +4717,7 @@ def chooses_chart(opt, data, heights=(220, 130), compact=False):
                                          format=".2f"), bo_tip()]))
     top = alt.layer(*top_layers).properties(height=heights[0])
     if data.reason is not None:
-        return top
+        return _hero_part(top) if split else top
     # Review plots: in points, from 0; never stretched over a gain too small
     # to matter (at least 0.05 points tall), and "zoomed" under 1 point.
     top_gain = max(max(gain) if gain else 0.0, 0.05)
@@ -4658,7 +4734,22 @@ def chooses_chart(opt, data, heights=(220, 130), compact=False):
         .transform_filter(curve),
         *rules(height_title=False),
     ).properties(height=heights[1])
+    if split:
+        return _hero_part(top), _hero_part(bottom)
     return alt.vconcat(top, bottom, spacing=8).resolve_scale(x="shared", color="independent")
+
+
+# Review polish: the hero's two charts' y axes (ticks and labels) one width.
+_HERO_Y_EXTENT = 36
+
+
+def _hero_part(chart):
+    """One of the hero's charts as drawn alone: as wide as the page, its
+    plot as tall as asked. Streamlit's theme fits a chart's whole height
+    (legend and axes too) into its height, which squeezed the hidden-gain
+    hero to a 10 px strip; "fit-x" fits the width only."""
+    return (chart.properties(autosize=alt.AutoSizeParams(type="fit-x", contains="padding"))
+            .configure_axisY(minExtent=_HERO_Y_EXTENT, maxExtent=_HERO_Y_EXTENT))
 
 
 def _triangle(opt, computed):
@@ -4909,8 +5000,9 @@ def _how(opt, computed):
     known limits; How each status is decided; the plain paragraphs, the
     details table with its window named and the lines that read it; the
     glossary last. Everything a tooltip says is here too (M12)."""
-    with st.expander(_say(opt, wording.FOLD_METHOD), key=HOW_KEY,
-                     on_change="rerun") as fold:
+    with st.container(key=HOW_PLACE), \
+            st.expander(_say(opt, wording.FOLD_METHOD), key=HOW_KEY,
+                        on_change="rerun") as fold:
         # Keyed and worked out only while open (T56 I5; binding I15).
         if not fold.open:
             return
@@ -5540,17 +5632,20 @@ MORE_DETAIL_KEY = "insights_more_detail"
 TRIED_KEY = "insights_tried"
 _CARD_LABELS = {"predictions": wording.CARD_PREDICTIONS, "progress": wording.CARD_PROGRESS,
                 "next": wording.CARD_NEXT}
-SPARK_HEIGHT = 60
+SPARK_HEIGHT = 40          # review polish: the plot alone (fit-x), title and labels added
 HERO_HEIGHTS = (130, 80)      # review plots: room for a two-line axis title
 
 
 def cards_header_text(opt):
-    """'Based on 24 formulations · Round 6 open · Formulation 25 waiting ·
-    1 Not scored'."""
+    """'Review after Round 5 · 20 formulations · Round 6 open · Formulation
+    19 waiting · 1 Not scored' (review polish: the header says what the tab
+    is, and after which Round; the scored count as before)."""
     waiting = opt.awaited_rows()
     not_scored = sum(map(opt.is_set_aside, range(len(opt.Y_history))))
-    return wording.cards_header(
-        opt.complete_count(), opt.pending_batch_no if opt.pending_batch else None,
+    order = insights.scored_rounds(opt)
+    return wording.review_header(
+        opt.complete_count(), order[-1][0] if order else None,
+        opt.pending_batch_no if opt.pending_batch else None,
         len(waiting), numbers=[int(opt.formulation_ids[i]) for i in waiting],
         not_scored=not_scored)
 
@@ -5585,8 +5680,11 @@ def predictions_card(opt, facts):
     elif row == "unclear":
         lines.append((wording.CARD_UNCLEAR, False))
     elif row in ("off_coverage", "caution"):
-        lines.append((wording.card_out_of_range(h.total - h.inside, h.total,
-                                                insights.allowed_misses(h.total)), True))
+        # Review polish: the line says which numbers missed (the
+        # measurements), so the Overall score line under it reads as the
+        # part that held, not as a contradiction.
+        lines.append((wording.card_values_missed(h.total - h.inside, h.total,
+                                                 insights.allowed_misses(h.total)), True))
     else:
         lines.append((wording.card_in_range(h.inside, h.total), False))
     if check is not None:
@@ -5602,14 +5700,22 @@ def predictions_card(opt, facts):
     off = facts.predictions == "off"
     d = getattr(facts, "diagnosis", None)
     if off and facts.disagreement is not None:
-        # Only a disagreeing Repeat points at the bench (spec rule).
-        lines.append((wording.card_check_before(_check_round(opt)), True))
+        # Only a disagreeing Repeat points at the bench (spec rule). Review
+        # polish, one action, one card: not said twice when the Next card
+        # is already "Check panel first".
+        if facts.next is None or facts.next.kind != "repeat":
+            lines.append((wording.card_check_before(_check_round(opt)), True))
     elif off and d is not None:
         # Review diagnosis: where the misses fell, then the score the
         # suggestions use when it is as expected; no check advice.
-        lines.append((wording.card_diag(d.kind, d.side), False))
+        # Review polish: the score the suggestions use first, the part that
+        # held; the diagnosis after it, only when it says where the misses
+        # fell ("not explained yet" stays in the "?": a non-finding on the
+        # card read as a second failure).
         if d.score_ok:
             lines.append((wording.card_score_in_range(d.score.inside, d.score.total), False))
+        if d.kind != "unexplained":
+            lines.append((wording.card_diag(d.kind, d.side), False))
     return Card(word, lines, "off" if off else None)
 
 
@@ -5682,7 +5788,10 @@ def next_card(opt, facts):
         lines = [(wording.card_close_line(
             _close_change(step.binding),
             settings_only=not insights.has_ingredient_choice(opt)), False)]
-    if ask is not None and kind in _ASK_REPEAT:
+    if ask is not None and kind in _ASK_REPEAT and (left or _why_link_offered(opt)):
+        # Review polish, one action said once: with no Round open the
+        # Repeat link under the buttons ("Repeat Formulation 21") is the
+        # request, so the card does not say it again above them.
         lines.append((wording.card_repeat_ask(ask, opt.next_batch_no() if left else None),
                       False))
     return Card(word, lines, tone)
@@ -5839,8 +5948,11 @@ def spark_chart(opt, facts, which):
                       alt.Chart(aim).mark_text(color=ref, align="left", baseline="bottom", dy=-2,
                                                fontSize=9, tooltip=False)
                       .encode(y=y, x=alt.value(0), text="label:N")]
+    # Review polish: fit the width only, so the title is not squeezed into
+    # the line (the theme fit the title and labels into the 60 px).
     return (alt.layer(*layers).properties(
                 height=SPARK_HEIGHT,
+                autosize=alt.AutoSizeParams(type="fit-x", contains="padding"),
                 title=alt.TitleParams(heading, anchor="start", fontSize=11, fontWeight="normal",
                                       color=muted(), offset=4))
             .configure_view(strokeWidth=0))
@@ -5859,11 +5971,30 @@ def hero_reason_key(reason):
     return "skill"
 
 
+HOW_PLACE = "insights_how_place"
+METHOD_LINK_KEY = "insights_method_link"
+
+
 def _hero(opt, place, computed):
-    """The hero chart, then the Why link under it when offered."""
+    """The hero chart, then, on one row, the Why link when offered and
+    (review polish) the method link: Method and definitions, one click."""
     with place.container():
         _hero_body(opt, computed)
-        _why_link(opt)
+        with st.container(horizontal=True, gap="medium"):
+            _why_link(opt)
+            method_link(opt)
+
+
+def method_link(opt):
+    """Review polish: "How the app knows" opens More detail and Method and
+    definitions and lands on it — the model read from this project, the
+    acquisition, the checks and the known limits, one click from the
+    Review."""
+    st.button(_say(opt, wording.METHOD_LINK), type="tertiary", key=METHOD_LINK_KEY,
+              help=_say(opt, wording.METHOD_LINK_HELP), icon=":material/science:",
+              disabled=confirmation_open(), on_click=ask_tab,
+              args=(wording.TAB_INSIGHTS, HOW_PLACE, None,
+                    {MORE_DETAIL_KEY: True, HOW_KEY: True}))
 
 
 def _hero_body(opt, computed):
@@ -5887,20 +6018,27 @@ def _hero_body(opt, computed):
     try:
         data = chooses_data(opt, computed["fitted"], None, mode=CHOOSES_LINE)
         chart = None if data is None else chooses_chart(opt, data, heights=HERO_HEIGHTS,
-                                                         compact=True)
+                                                         compact=True, split=True)
     except Exception:
         data = chart = None
     if chart is None:
         st.caption(_say(opt, wording.CHART_FAILED))
         return
-    show_chart(chart)
-    st.caption(_say(opt, wording.HERO_CAPTION),
-               help=_say(opt, wording.tip_chooses(data.best_no,
-                                                  settings_only=not opt.has_ingredients(),
-                                                  line=True, end=data.end_label)))
-    if data.reason is not None:
-        st.caption(_say(opt, wording.HERO_WITHHELD[hero_reason_key(data.reason)]),
-                   help=_say(opt, wording.tip_chooses_withheld(data.reason)))
+    with st.container(gap=None):        # the two panels read as one figure
+        for part in (chart if isinstance(chart, tuple) else (chart,)):
+            show_chart(part)
+    how = _say(opt, wording.tip_chooses(data.best_no, settings_only=not opt.has_ingredients(),
+                                        line=True, end=data.end_label))
+    if data.reason is None:
+        st.caption(_say(opt, wording.HERO_CAPTION), help=how)
+    else:
+        # Review polish: a hidden gain is one deliberate line — an icon,
+        # what is hidden, where the next step is — not a caption about a
+        # panel that is not there.
+        st.caption(f"{wording.HERO_HIDDEN_ICON} "
+                   f"{_say(opt, wording.HERO_HIDDEN[hero_reason_key(data.reason)])}",
+                   help=_say(opt, f"{wording.tip_hero_hidden(data.reason)}\n\n"
+                                  f"{wording.TIP_HERO_TOP}"))
 
 
 def tried_fold(opt):

@@ -56,12 +56,12 @@ class _Settings:
 
 def test_the_role_key_is_the_rulings_line():
     # Concision round (2026-10-01).
-    assert wording.WHY_ROLE_KEY == ("Refines the best: near your best. "
-                                    "Explores: far from all made. "
-                                    "Balanced: between.")
+    # Review polish (2026-10-02): the screen's key at most 8 words; the
+    # rule in its "?" (role_help). WHY_ROLE_KEY stays for the wording round.
+    assert wording.WHY_ROLE_KEY_SHORT == "Refines the best: near. Explores: far. Balanced: between."
     # One vocabulary with the Role column and the Compared with cell.
     for word in (wording.ROLE_REFINES, wording.ROLE_EXPLORES, wording.ROLE_BALANCED):
-        assert f"{word.capitalize()}: " in wording.WHY_ROLE_KEY
+        assert f"{word.capitalize()}: " in wording.WHY_ROLE_KEY_SHORT
 
 
 def test_the_why_folds_plain_labels():
@@ -336,7 +336,7 @@ def test_the_why_fold_lands_in_its_place_open_with_the_role_key_first(why_open):
     [fold] = [c for c in place.children.values() if getattr(c, "type", "") == "expander"]
     assert fold.label == wording.WHY_THESE
     first = list(fold.children.values())[0]
-    assert first.type == "caption" and first.value == wording.WHY_ROLE_KEY
+    assert first.type == "caption" and first.value == wording.WHY_ROLE_KEY_SHORT   # review polish
     # The landing: app.py scrolls to the place once, after the tabs.
     assert any(f".st-key-{ui_helpers.WHY_PLACE}" in body for body in _scripts(at))
 

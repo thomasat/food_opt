@@ -210,7 +210,8 @@ def demos(tmp_path_factory):
 
 def test_line_b_still_checks_the_panel(demos):
     p, _, n = cards(demos[D.LINE_B])
-    assert ":red[**Check panel before Round 6**]" in p["lines"]
+    # Review polish, one action, one card: the Next card carries the check.
+    assert ":red[**Check panel before Round 6**]" not in p["lines"]
     assert n["word"] == ":red[Check panel first]"
     assert "Look at the panel, suppliers and equipment." in n["help"]
     assert not any(line in p["lines"] for line in wording.CARD_DIAG.values())
@@ -312,8 +313,14 @@ def _check_off_without_repeat(at, name):
     assert not [t for t in texts if BENCH.search(t)], name
     p, _, n = cards(at)
     assert p["word"] == ":red[Off]"
-    assert p["lines"][1] in (*wording.CARD_DIAG.values(), "Results mostly above predictions",
-                             "Results mostly below predictions")
+    # Review polish: the measurements named, then the Overall score that held
+    # (the suggestions' score), then where the misses fell unless that is
+    # "not explained yet", which stays in the "?".
+    assert p["lines"][0].startswith(":red[**Measurements: ")
+    assert p["lines"][1].startswith("Overall score: ")
+    assert all(line != wording.CARD_DIAG["unexplained"] for line in p["lines"])
+    assert all(line in (*wording.CARD_DIAG.values(), "Results mostly above predictions",
+                        "Results mostly below predictions") for line in p["lines"][2:])
     assert any(line.startswith("Repeat Formulation ") and line.endswith("to check noise")
                for line in n["lines"])
     for line in p["lines"] + n["lines"]:

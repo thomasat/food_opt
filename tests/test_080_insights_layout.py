@@ -147,7 +147,9 @@ def test_the_set_up_button_goes_to_set_up(insights_scored, monkeypatch):
     at = _open_insights(_app())
     assert not at.exception
     button = next(b for b in at.tabs[3].button if b.key == "insights_change_setup")
-    assert button.label == "Change Pea protein's Highest on Set up"
+    # Review polish: the label at most 5 words; the change it names, in its "?".
+    assert button.label == wording.SETUP_BUTTON_SHORT
+    assert button.proto.help == "Change Pea protein's Highest on Set up"
     assert button.proto.type == "secondary"
     button.click()
     at.session_state["main_tab"] = wording.TAB_INSIGHTS

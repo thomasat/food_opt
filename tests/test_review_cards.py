@@ -27,30 +27,33 @@ from tests import demo_projects as D
 from tests.test_app_ui import APP_PATH
 
 # (header, [(label, big word, [lines])], hero title, hero lines)
+# Review polish (2026-10-02): the header says "Review after Round N"; an Off
+# card names the measurements that missed; "Check panel" is said once (the
+# Next card's); a hidden gain is one line with its icon; with no Round open
+# the Repeat request is the Next card's link, not a line too.
+_HIDDEN = wording.HERO_HIDDEN_ICON + " "
 EXPECTED = {
     D.SNACK: (
-        "Based on 3 formulations",
+        "Review after Round 1 · 3 formulations",
         [("Predictions", "Not yet", ["3 / 5 formulations scored"]),
          ("Progress", "Too early", ["Best 96.00 · Formulations 1 and 3"]),
          ("Next", "Make Round 2", ["No Round open"])],
         "Where the app looks next", ["Appears after 5 scored formulations."]),
     D.LINE_A: (
-        "Based on 20 formulations · Round 6 open · Formulation 19 waiting",
+        "Review after Round 5 · 20 formulations · Round 6 open · Formulation 19 waiting",
         [("Predictions", "Reliable", ["33 / 35 in range"]),
          ("Progress", "No new best", ["Best 90.45 · Formulation 15"]),
          ("Next", "Record Round 6", ["4 formulations open", "Round 7: Repeat Formulation 15"])],
         "How the app chose Round 6", ["Suggestions go where expected gain peaks."]),
     D.LINE_B: (
-        "Based on 21 formulations · Round 6 open",
-        [("Predictions", ":red[Off]", [":red[**8 / 36 outside range (4 normal)**]",
-                                       ":red[**Check panel before Round 6**]"]),
+        "Review after Round 5 · 21 formulations · Round 6 open",
+        [("Predictions", ":red[Off]", [":red[**Measurements: 8 / 36 missed (4 normal)**]"]),
          ("Progress", "Flat", ["Best 90.09 · same for 2 Rounds"]),
          ("Next", ":red[Check panel first]", [":red[**Before Round 6**]",
                                               ":red[**Formulation 11's Repeat: 10.5 lower**]"])],
-        "How the app chose Round 6", ["Suggestions go where expected gain peaks.",
-                                      "Expected gain hidden: predictions miss too often."]),
+        "How the app chose Round 6", [_HIDDEN + wording.HERO_HIDDEN["verdict"]]),
     D.LINE_C: (
-        "Based on 21 formulations · Round 6 open",
+        "Review after Round 5 · 21 formulations · Round 6 open",
         # Review diagnosis ruling 2 (2026-10-02): the CV-widening rule no
         # longer says "Check your panel's consistency" without Repeat
         # evidence (Line C's one Repeat pair has 1 df); it asks for a Repeat.
@@ -58,32 +61,29 @@ EXPECTED = {
                                      "Repeat Formulation 18 to check noise"]),
          ("Progress", "Within noise", ["Best 89.84 · +2.5 (needs 3.2)"]),
          ("Next", "Record Round 6", ["4 formulations open", "Guided search, not a forecast"])],
-        "How the app chose Round 6", ["Suggestions go where expected gain peaks.",
-                                      "Expected gain hidden: the model may be reading noise."]),
+        "How the app chose Round 6", [_HIDDEN + wording.HERO_HIDDEN["noise"]]),
     D.UPGRADE: (
-        "Based on 7 formulations · Formulation 8 waiting",
+        "Review after Round 3 · 7 formulations · Formulation 8 waiting",
         [("Predictions", "Not yet", ["2 / 10 formulations checked"]),
          ("Progress", "Too early", ["Best 90.50 · Formulation 6",
                                     ":red[**Rounds 1–2 lack Cook loss**]"]),
          ("Next", "Make Round 4", ["No Round open"])],
-        "Where the app looks next", ["Suggestions go where expected gain peaks.",
-                                     "Expected gain hidden: predictions not yet reliable."]),
+        "Where the app looks next", [_HIDDEN + wording.HERO_HIDDEN["skill"]]),
     D.TIMING: (
-        "Based on 60 formulations",
+        "Review after Round 12 · 60 formulations",
         [("Predictions", "Reliable", ["58 / 60 in range"]),
          ("Progress", "Flat", ["Best 92.50 · same for 7 Rounds"]),
-         ("Next", "Make Round 13", ["No Round open", "With a Repeat of Formulation 24"])],
+         ("Next", "Make Round 13", ["No Round open"])],
         "Where the app looks next", ["Suggestions go where expected gain peaks."]),
     D.PROCESS_ONLY: (
-        "Based on 21 trials · Round 6 open",
+        "Review after Round 5 · 21 trials · Round 6 open",
         # Review diagnosis ruling 2 asks Line C's Repeat; here the Next card
         # already asks for Trial 21, so Predictions does not (one action,
         # one card: demo build).
         [("Predictions", "Not yet", ["Not clearly better than averaging"]),
          ("Progress", "Within noise", ["Best 87.92 · +1.9 (needs 3.2)"]),
          ("Next", "Record Round 6", ["4 trials open", "Round 7: Repeat Trial 21"])],
-        "How the app chose Round 6", ["Suggestions go where expected gain peaks.",
-                                      "Expected gain hidden: predictions not yet reliable."]),
+        "How the app chose Round 6", [_HIDDEN + wording.HERO_HIDDEN["skill"]]),
 }
 
 
@@ -211,9 +211,12 @@ def test_word_limits(screens, name):
         for line in c["lines"]:
             assert _words(line) <= 6, line
     _, _, _, hero = EXPECTED[name]
-    assert _words(hero[0]) <= 8
-    for line in hero[1:]:
-        assert _words(line) <= 10
+    for line in hero:
+        if line.startswith(_HIDDEN):
+            # Review polish: a hidden gain's one line is the withheld reason.
+            assert _words(line[len(_HIDDEN):]) <= 10, line
+        else:
+            assert _words(line) <= 8, line
 
 
 @pytest.mark.parametrize("name", D.ALL)
@@ -247,16 +250,19 @@ def test_warnings_are_never_folded(screens, name):
 
 
 def test_off_says_check_before_the_round(screens):
-    p = cards(screens[D.LINE_B])[0]
+    # Review polish, one action, one card: the Next card says it.
+    p, _, n = cards(screens[D.LINE_B])
     assert p["word"] == ":red[Off]"
-    assert ":red[**Check panel before Round 6**]" in p["lines"]
+    assert ":red[**Check panel before Round 6**]" not in p["lines"]
+    assert n["word"] == ":red[Check panel first]" and ":red[**Before Round 6**]" in n["lines"]
 
 
 def test_waiting_and_the_repeat_request_stay_visible(screens):
     assert "Formulation 19 waiting" in outside(screens[D.LINE_A])[0][1]
     assert "Round 7: Repeat Formulation 15" in cards(screens[D.LINE_A])[2]["lines"]
     timing = cards(screens[D.TIMING])[2]
-    assert "With a Repeat of Formulation 24" in timing["lines"]
+    # Review polish: with no Round open the link is the request, said once.
+    assert "With a Repeat of Formulation 24" not in timing["lines"]
     assert ("tertiary", "Repeat Formulation 24") in timing["buttons"]
 
 
