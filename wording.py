@@ -8899,3 +8899,233 @@ def moved_help(first, second, r, n, others=()):
 METHOD_GAIN = ("Expected gain: expected improvement in the Overall score (qLogNEI), in points: "
                "how much a formulation is expected to add above the model's estimate of the best "
                "tested formulation. Not information gain.")
+
+
+# --- review learned ---
+# Review learned (prototype, 2026-10-02; owner: the Review "doesn't inspire
+# confidence in the tool"): lead with honest, checkable evidence of what
+# the model learned. Each measurement's within-Round order, forecast before
+# tasting, against chance; its verdict word; the effects that held across
+# the last three refits; "Called it?" for the latest Round; the open
+# Round's forecast on Make a round; and What next?'s preview of the next
+# suggestions.
+LEARNED_TITLE = "What has the model learned?"
+LEARNED_STRIP_LABEL = "Model"
+LEARNED_WORDS = {"predictable": "Predictable", "partly": "Partly", "not_yet": "Not yet"}
+LEARNED_REASONS = {"flat": "barely varies", "few": "too few pairs",
+                   "chance": "no better than chance"}
+LEARNED_COL_RESULT = "Result"
+LEARNED_COL_VERDICT = "Verdict"
+LEARNED_COL_PAIRS = "Ordered right before tasting"
+LEARNED_COL_TOP = "Picked the top one"
+LEARNED_COL_EFFECTS = "Learned effects"
+LEARNED_CHART_X = "Pairs ordered right (%)"
+LEARNED_CHANCE = "Chance"
+LEARNED_CAPTION = "Dot: share right. Bar: 95 % interval."
+LEARNED_EFFECTS_CAPTION = "Effects named only when steady 3 Rounds."
+LEARNED_NONE_YET = "Nothing to check yet: needs a scored Round."
+LEARNED_FORECAST_TITLE = "Forecast before tasting"
+LEARNED_FORECAST_NONE = "No measurement predictable yet."
+LEARNED_PREVIEW_TITLE = "Next suggestions"
+LEARNED_PREVIEW_SPINNER = "Previewing the next suggestions…"
+LEARNED_PREVIEW_CAPTION = "Generate on Make a round makes these."
+LEARNED_PREVIEW_FAILED = "Preview not available. Generate on Make a round."
+NOT_PREDICTABLE_YET = "Not predictable yet"
+
+
+def learned_strip(predictable, partly):
+    """The strip's Model item, (word, line) at most 6 words: ('Predicts',
+    'Consistency, Tangy'); ('Partly', 'Consistency'); ('Not yet', '')."""
+    names = predictable or partly
+    if not names:
+        return "Not yet", "predictable"
+    shown = ", ".join(names[:2]) + (f" +{len(names) - 2}" if len(names) > 2 else "")
+    return ("Predicts" if predictable else "Partly"), shown
+
+
+def learned_answer(predictable, partly, not_yet):
+    """The section's answer: '**Predicts Consistency, Tangy.** Not yet:
+    Creaminess.'"""
+    if predictable:
+        head = f"Predicts {', '.join(predictable)}"
+    elif partly:
+        head = f"Partly predicts {', '.join(partly)}"
+    else:
+        head = "Not predictable yet"
+    rest = []
+    if predictable and partly:
+        rest.append(f"Partly: {', '.join(partly)}")
+    if not_yet and (predictable or partly):
+        rest.append(f"Not yet: {', '.join(not_yet)}")
+    return f"**{head}.**" + (" " + ". ".join(rest) + "." if rest else "")
+
+
+def learned_verdict(word, reason=""):
+    """'Predictable'; 'Not yet (barely varies)'."""
+    return f"{word} ({reason})" if reason else word
+
+
+def learned_pairs(right, pairs, chance):
+    """'16 of 18 pairs (chance 9)'."""
+    if not pairs:
+        return "no pairs yet"
+    c = f"{chance:g}" if float(chance).is_integer() else f"{chance:.1f}"
+    return f"{right} of {pairs} pairs (chance {c})"
+
+
+def learned_top(right, rounds, chance):
+    """'7 of 8 Rounds (chance 2.7)'."""
+    if not rounds:
+        return "—"
+    return f"{right} of {rounds} Rounds (chance {chance:.1f})"
+
+
+def learned_effects(raised, lowered):
+    """'Raised by Tapioca starch, Xanthan gum. Lowered by Salt.'; '—'."""
+    parts = []
+    if raised:
+        parts.append(f"Raised by {', '.join(raised)}")
+    if lowered:
+        parts.append(f"Lowered by {', '.join(lowered)}")
+    return ". ".join(parts) + "." if parts else "—"
+
+
+def learned_effect_tip(var, name, lo, hi, mean, low, high):
+    """One effect's numbers, for the "?"."""
+    sign = lambda v: f"{v:+.2f}".replace("-", "−")
+    return (f"{var} from {lo} to {hi} (its tested stretch): {name} {sign(mean)} "
+            f"(95 % interval {sign(low)} to {sign(high)}).")
+
+
+def learned_headline(var, name, up):
+    """The profiler's finding from a stable effect: 'Tapioca starch raises
+    Consistency'."""
+    return f"{var} {'raises' if up else 'lowers'} {name}"
+
+
+def learned_not_predictable(names):
+    """'Not predictable yet: Creaminess, Thickness uniformity.'"""
+    return f"{NOT_PREDICTABLE_YET}: {', '.join(names)}."
+
+
+def learned_help(pairs_rule, skill_line):
+    """The section answer's "?": the rule, then the Overall score's expert
+    line."""
+    return "\n\n".join(t for t in (pairs_rule, skill_line) if t)
+
+
+LEARNED_RULE = ("Each Round's formulations are forecast before tasting, from the formulations "
+                "scored before that Round. Within each Round, every pair whose measured values "
+                "differ counts as ordered right when the forecast put them in the same order; "
+                "a pair measured equal is not counted. Guessing gets half right. Predictable: "
+                "right clearly more often than chance (one-sided binomial test, p < 0.05, at "
+                "least 5 pairs). Partly: right in more than half, p < 0.20. Not yet: otherwise, "
+                "or when more than half of its pairs measured equal (it barely varies).")
+LEARNED_TOP_RULE = ("Picked the top one: the formulation forecast highest was measured highest "
+                    "(the Overall score: the Round's best), in Rounds where not all measured "
+                    "equal. Chance: the share a random pick would get.")
+
+
+def learned_skill_line(inside, total, vs_mean, vs_best, n):
+    """The Overall score's expert line: coverage and skill against both
+    baselines."""
+    if not total:
+        return ""
+    line = f"{OVERALL_SCORE_COLUMN}: {inside} of {total} inside the 95 % likely range."
+    if vs_mean is not None and vs_best is not None:
+        line += (f" Skill over {n} checks: {vs_mean:+.2f} against the average of earlier "
+                 f"scores, {vs_best:+.2f} against Best so far (1 − squared forecast error ÷ "
+                 f"squared error of the baseline; 0 is no better than the baseline).")
+    elif vs_mean is not None:
+        line += f" Skill against the average of earlier scores: {vs_mean:+.2f}."
+    else:
+        line += " Skill needs 10 checks."
+    return line.replace("−0.", "−0.").replace("-", "−")
+
+
+LEARNED_STABLE_RULE = ("An effect is named only when it is steady: moving that ingredient or setting "
+                       "from the 10th to the 90th percentile of its tested amounts, the other "
+                       "amounts as tested, changes the prediction with a 95 % posterior interval "
+                       "that excludes 0, and in the same direction under the models fitted "
+                       "through each of the last 3 Rounds.")
+
+
+def called_title(round_no):
+    """'Round 6: called it?'"""
+    return f"Round {round_no}: called it?"
+
+
+def called_pairs(name, right, counted, total):
+    """'Consistency: 2 of 2 pairs in the right order.'; all equal: 'Tangy:
+    all measured the same, nothing to order.'"""
+    if not counted:
+        return f"{name}: all measured the same, nothing to order." if total else f"{name}: —"
+    return f"{name}: {right} of {counted} pairs in the right order."
+
+
+def called_pair(high, low, right):
+    """'F18 > F16 ✓'; a measured tie: 'F16 = F17 (tie)'."""
+    if right is None:
+        return f"F{min(high, low)} = F{max(high, low)} (tie)"
+    return f"F{high} > F{low} {'✓' if right else '✗'}"
+
+
+def called_top(top, measured_top, right):
+    """'Forecast highest: F18 ✓'; 'Forecast highest: F17 ✗ (measured: F16)'."""
+    if right is None:
+        return ""
+    if right:
+        return f"Forecast highest: F{top} ✓"
+    return f"Forecast highest: F{top} ✗ (measured: {', '.join(f'F{n}' for n in measured_top)})"
+
+
+def called_range(inside, above, below):
+    """The Overall score's landing: '1 of 3 in range, 2 better than
+    forecast.' Above the range is better than forecast, not a miss."""
+    total = inside + above + below
+    parts = [f"{inside} of {total} in range"]
+    if above:
+        parts.append(f"{above} better than forecast")
+    if below:
+        parts.append(f"{below} below forecast")
+    return ", ".join(parts) + "."
+
+
+def forecast_line(name, cells, top):
+    """'Consistency: F16 13.5 (11.1–≥ 15) · F17 … Highest: F18.'"""
+    line = f"{name}: " + " · ".join(cells) + "."
+    return line + (f" Highest: F{top}." if top is not None else "")
+
+
+def forecast_help(n_rows, round_no):
+    """The forecast panel's "?"."""
+    return (f"Forecast from the {n_rows} {FORMULATION}s scored before Round {round_no}: the "
+            f"same forecast the Review checks once results are saved (Called it?). Only "
+            f"measurements the model has ordered right before (Predictable) are shown. A value "
+            f"at the top of its Range reads ≥ that top.")
+
+
+def preview_line(k, role, score_text, changes):
+    """'1 · refines the best · Overall score 96 (92–99+) · Salt −0.10 g'."""
+    parts = [f"{k}", role, f"{OVERALL_SCORE_COLUMN} {score_text}"]
+    if changes:
+        parts.append(changes)
+    return " · ".join(parts)
+
+
+def preview_help(n, best_no):
+    return (f"The {n} {FORMULATION}s Generate would make now, previewed on a copy of the project "
+            f"(nothing is saved). Changes are against Best so far ({FORMULATION_CAP} {best_no}). "
+            f"Predicted Overall score with its 95 % likely range; 99+ is the top of the Range.")
+
+
+METHOD_LEARNED_TITLE = "What the model learned: definitions"
+METHOD_FORECAST_CHART = "Overall score forecast against measured, Round by Round"
+
+
+def review_status_learned(model, progress, extra=None):
+    """Make a round's line with the Review's Model word: 'Review: Model
+    **Predicts** · Progress **Flat**'."""
+    line = (f"{REVIEW_STATUS_PREFIX}: {LEARNED_STRIP_LABEL} **{model}** · "
+            f"{CARD_PROGRESS} **{progress}**")
+    return line + (f" · **{extra}**" if extra else "")

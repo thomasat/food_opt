@@ -2178,6 +2178,9 @@ def render(opt, storage, tab_open=False):
     with print_slot:
         _downloads(opt, scale_to, sized, said_size)
     with record_slot:
+        if tab_open:
+            # Review learned: the forecast before tasting, above the grid.
+            ui_insights.forecast_panel(opt)
         _record_results(opt)
     with own_slot:
         _own_formulation(opt)

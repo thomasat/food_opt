@@ -13,6 +13,7 @@ import bo_views
 import insights
 import insights_cache
 import insights_jobs
+import learned
 import wording
 from food_bo import fmt_setting, join_unit, number_list
 from ui_helpers import (SCROLL_KEY, SETUP_CALLOUT_KEY, SETUP_CALLOUT_SLOT,
@@ -893,11 +894,16 @@ def render(opt):
     with insights.memo_in_use(memo(opt)):
         facts = screen_facts(opt, checks, standing, gain,
                              withheld=claims_withheld_reason(opt, score, checks))
+    # Review learned: worked out before the strip, which reads its verdicts.
+    learned_facts(opt, computed)
     _finish(opt, places, facts)
-    _trust_section(opt, places.q["predictions"], computed, facts)
+    _learned_section(opt, places.q["predictions"], computed, facts)
     _drives_section(opt, places.q["drives"], computed, facts)
     _how(opt, computed)
     save(opt)
+    # Review learned: the next suggestions, previewed last (a few seconds
+    # once per setup), under a spinner in What next?.
+    _next_preview(opt, places, computed)
 
 
 class _Places:
@@ -919,7 +925,7 @@ DRIVES_SECTION = "insights_drives"
 NEXT_SECTION = "insights_next"      # review story 2: What next?, the closing section
 SECTION_KEYS = {"predictions": TRUST_SECTION, "progress": STAND_SECTION,
                 "drives": DRIVES_SECTION, "tried": EXPLORED_PLACE, "next": NEXT_SECTION}
-_QUESTIONS = {"predictions": wording.Q1_TITLE, "progress": wording.Q2_TITLE,
+_QUESTIONS = {"predictions": wording.LEARNED_TITLE, "progress": wording.Q2_TITLE,
               "drives": wording.Q3_TITLE, "tried": wording.Q4_TITLE, "next": wording.Q5_TITLE}
 STRIP_KEY = "insights_strip"
 SEE_CHART_KEY = "insights_see_chart"
@@ -990,6 +996,7 @@ def _places(opt, gate=False):
                 p.link = st.empty()
             with p.link.container():
                 p.why = _why_link(opt)
+        p.preview = st.empty()
     # The model-free charts, at once (they need no fit).
     _progress_body(opt, p.q["progress"])
     _tried_section(opt, p.q["tried"])
@@ -1037,9 +1044,14 @@ def _strip_item(opt, places, facts, which):
     mechanism); a placeholder while its facts are worked out. The button
     is drawn once per run, with its facts (its key would repeat)."""
     card = card_for(opt, facts, which)
+    lf = learned_cached(opt) if which == "predictions" else None
+    if lf is not None and card is not None:
+        # Review learned: the Model item reads the section's verdicts.
+        card = learned_card(opt, lf, card)
     slot = places.item[which].container(gap=None) if places is not None else None
     with slot if slot is not None else st.container(gap=None):
-        label = _say(opt, _CARD_LABELS[which])
+        label = _say(opt, wording.LEARNED_STRIP_LABEL if lf is not None
+                     else _CARD_LABELS[which])
         if card is None:
             st.caption(label)
             st.caption(_say(opt, _PLACEHOLDERS[which]))
@@ -2082,9 +2094,10 @@ def range_text(low, high, fmt=None):
     return f"{fmt(low)}{sep}{fmt(high)}"
 
 
-def score_text(p):
-    """An Overall-score prediction: whole numbers, "78 (70–85)"."""
-    return f"{_whole(p.mean)} ({range_text(p.low, p.high, _whole)})"
+def score_text(p, top=100.0):
+    """An Overall-score prediction: whole numbers, "78 (70–85)"; never 100
+    (review learned): "≥ 99 (95–≥ 99)"."""
+    return capped_range(p, top, 0)
 
 
 def value_text(p, d=None):
@@ -2383,7 +2396,8 @@ def standing_text(opt, standing, yard, withheld=None):
     (claims_withheld_reason): the gain is not claimed, and the line says
     why (polish round)."""
     p = standing.best.score
-    mean, low, high = _whole(p.mean), _whole(p.low), _whole(p.high)
+    top = float(opt.utility_ceiling())
+    mean, low, high = capped(p.mean, top, 0), capped(p.low, top, 0), capped(p.high, top, 0)
     if withheld:
         return wording.stand_withheld(mean, low, high, withheld, standing.close_no,
                                       values=not opt.has_ingredients())
@@ -3397,6 +3411,7 @@ def _how(opt, computed):
         if not fold.open:
             return
         _model_and_method(opt, computed)
+        _how_learned(opt, computed)
         _status_table(opt, computed)
         _how_details(opt, computed)
         _glossary(opt)
@@ -4220,6 +4235,7 @@ def review_status(opt):
     (the line never fits a model: it is read from what Review has)."""
     if opt.complete_count() == 0:
         return None
+    checks = None
     with insights.memo_in_use(memo(opt)):
         if opt.complete_count() < insights.MIN_ROWS:
             facts = insights.status_facts(opt, ())      # Review's gate, model-free
@@ -4235,6 +4251,14 @@ def review_status(opt):
     warn = pred.tone == "off" or nxt.tone == "off"
     text = wording.review_status_line(pred.word, prog.word,
                                       nxt.word if nxt.tone == "off" else None)
+    if opt.complete_count() >= insights.MIN_ROWS and checks:
+        # Review learned: the Model word, as the Review's strip says it.
+        ords = learned.orderings(opt, checks)
+        pick = lambda v: [n for n, o in ords.items() if n != insights.SCORE and o.verdict == v]
+        word, _ = wording.learned_strip(pick(learned.PREDICTABLE), pick(learned.PARTLY))
+        text = wording.review_status_learned(word, prog.word,
+                                             nxt.word if nxt.tone == "off" else None)
+        warn = nxt.tone == "off"
     return _say(opt, text), warn
 
 
@@ -4906,6 +4930,16 @@ def _profiler(opt, computed):
     guard = _guard(opt, fitted)
     shown, extra_cols, rows_shown, extra_rows = profile_shown(
         profile, insights.path_choices(opt) if guard.fires else None)
+    # Review learned: rows only for the measurements the model predicts
+    # (Predictable or Partly); the rest named in one line, still addable.
+    hidden = []
+    lf = learned_cached(opt)
+    if lf is not None:
+        every = rows_shown + extra_rows
+        hidden = [n for n in every if n in lf.orderings
+                  and lf.orderings[n].verdict == learned.NOT_YET]
+        rows_shown = [n for n in every if n not in hidden][:PROFILE_ROWS]
+        extra_rows = [n for n in every if n not in rows_shown]
     chart_place = st.container()
     if extra_cols or extra_rows:
         left, right = st.columns(2)
@@ -4966,6 +5000,10 @@ def _profiler(opt, computed):
         note = moved_note(opt, shown)
         if note is not None:
             st.caption(_say(opt, note[0]), help=_say(opt, note[1]))
+        hidden = [n for n in hidden if n not in rows_shown]
+        if hidden:
+            st.caption(_say(opt, wording.learned_not_predictable(hidden)),
+                       help=_say(opt, wording.LEARNED_RULE))
     return profile, shown, guard
 
 
@@ -5005,6 +5043,428 @@ def _evidence_help(opt, facts, which):
     sentence and rule."""
     card = card_for(opt, facts, which)
     return None if card is None else card.help
+
+
+# ------------------------------------------------------------------ #
+#  Review learned (prototype, 2026-10-02; owner: the Review "doesn't
+#  inspire confidence in the tool"): "What has the model learned?" leads
+#  with checkable evidence — each result's within-Round order forecast
+#  before tasting, against chance; its verdict; the effects that held;
+#  "Called it?" for the latest Round. The rules are learned.py's.
+# ------------------------------------------------------------------ #
+
+LEARNED_KEY = "_insights_learned"
+PREVIEW_KEY = "_insights_preview"
+LEARNED_ROW_H = 30          # px per row of the ordering chart
+EFFECTS_SHOWN = 3           # effects named per row in the table
+
+
+class LearnedFacts:
+    """What the section, the strip, the profiler and Make a round read:
+    orderings {name: learned.Ordering}, effects {name: [learned.Effect]},
+    called (Round, [(name, learned.RoundCall)]), score_call (the Overall
+    score's RoundCall for that Round), landing (inside, above, below) and
+    the expert skill line."""
+
+    def __init__(self, orderings, effects, called, score_call, landing, skill_line):
+        self.orderings, self.effects = orderings, effects
+        self.called, self.score_call, self.landing = called, score_call, landing
+        self.skill_line = skill_line
+
+    def names_by(self, verdict):
+        return [n for n, o in self.orderings.items()
+                if n != insights.SCORE and o.verdict == verdict]
+
+
+def learned_label(opt, name):
+    return _say(opt, wording.OVERALL_SCORE_COLUMN) if name == insights.SCORE else name
+
+
+def learned_facts_from(opt, checks):
+    """LearnedFacts from the Round-ahead checks; the effects from the models
+    already fitted for them (memo)."""
+    orderings = learned.orderings(opt, checks)
+    with insights.memo_in_use(memo(opt)):
+        try:
+            effects = learned.effects(opt)
+        except Exception:
+            effects = {}
+    r, calls = learned.called_it(opt, checks)
+    score_call = None if r is None else learned.round_call(checks, insights.SCORE, r)
+    mine = [c for c in checks if c.name == insights.SCORE and c.round == r and c.fully_measured]
+    landing = (sum(c.inside for c in mine), sum(c.measured > c.high for c in mine),
+               sum(c.measured < c.low for c in mine))
+    inside, total = learned.coverage(checks)
+    fact = insights.skill(opt, checks)
+    best = learned.skill_vs_best(opt, checks)
+    skill_line = wording.learned_skill_line(
+        inside, total, None if fact is None else fact.value,
+        None if best is None else best[0], None if fact is None else fact.n)
+    return LearnedFacts(orderings, effects, (r, calls), score_call, landing, skill_line)
+
+
+def learned_facts(opt, computed):
+    """learned_facts_from, once per data_key (cached in the session)."""
+    key = insights.data_key(opt)
+    hit = st.session_state.get(LEARNED_KEY)
+    if hit and hit[0] == key:
+        return hit[1]
+    try:
+        value = learned_facts_from(opt, computed["checks"] or ())
+    except Exception:
+        value = None
+    st.session_state[LEARNED_KEY] = (key, value)
+    return value
+
+
+def learned_cached(opt):
+    """This data's LearnedFacts when already worked out, else None."""
+    hit = st.session_state.get(LEARNED_KEY)
+    return hit[1] if hit and hit[0] == insights.data_key(opt) else None
+
+
+def capped(value, top, d=1):
+    """A prediction, never at or past the top of its Range: '≥ 15', and on
+    the Overall score's 0–100 '≥ 99' (review learned, owner: no 100s)."""
+    text = f"{value:.{d}f}"
+    if float(text) >= top - 1e-9:
+        shown = top - 1 if abs(top - 100.0) < 1e-9 else top
+        return f"≥ {shown:g}"
+    return text
+
+
+def capped_range(p, top, d=1):
+    """'13.5 (11.1–≥ 15)'; ' to ' when a bound is negative."""
+    sep = " to " if p.low < 0 or p.high < 0 else "–"
+    return f"{capped(p.mean, top, d)} ({capped(p.low, top, d)}{sep}{capped(p.high, top, d)})"
+
+
+def stable_words(opt, lf, name):
+    """('Raised by …. Lowered by ….', its "?") for `name`'s stable effects."""
+    found = learned.stable(lf.effects, name)
+    # The EFFECTS_SHOWN largest; every one's numbers in Method and definitions.
+    up = [e.var for e in found[:EFFECTS_SHOWN] if e.up]
+    down = [e.var for e in found[:EFFECTS_SHOWN] if not e.up]
+    d = decimals(opt, name) if name != insights.SCORE else 1
+    tips = [wording.learned_effect_tip(e.var, learned_label(opt, name), _num(e.lo), _num(e.hi),
+                                       e.mean, e.low, e.high) for e in found]
+    return wording.learned_effects(up, down), " ".join(tips)
+
+
+def learned_frame(opt, lf):
+    """The table: one row per result, the Overall score first."""
+    rows = []
+    for name, o in lf.orderings.items():
+        word = wording.LEARNED_WORDS[o.verdict]
+        effects, _ = stable_words(opt, lf, name)
+        rows.append({
+            wording.LEARNED_COL_RESULT: learned_label(opt, name),
+            wording.LEARNED_COL_VERDICT: wording.learned_verdict(
+                word, wording.LEARNED_REASONS.get(o.reason, "") if o.verdict == learned.NOT_YET
+                else ""),
+            wording.LEARNED_COL_PAIRS: wording.learned_pairs(o.right, o.pairs, o.chance),
+            wording.LEARNED_COL_TOP: wording.learned_top(o.top_right, o.top_rounds,
+                                                         o.top_chance),
+            wording.LEARNED_COL_EFFECTS: effects,
+        })
+    return pd.DataFrame(rows)
+
+
+def wilson(right, n, z=insights.Z95):
+    """The 95 % Wilson interval of right / n, in percent."""
+    if not n:
+        return None, None
+    p = right / n
+    centre = (p + z * z / (2 * n)) / (1 + z * z / n)
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)
+    return 100 * max(0.0, centre - half), 100 * min(1.0, centre + half)
+
+
+_VERDICT_OPACITY = {learned.PREDICTABLE: 1.0, learned.PARTLY: 0.6, learned.NOT_YET: 0.35}
+
+
+def learned_chart(opt, lf):
+    """Dot-and-bar per result: the share of within-Round pairs ordered right
+    (dot) with its 95 % interval (bar) against the 50 % chance line, n at
+    the right. Predictable reads solid blue, Partly lighter, Not yet grey."""
+    rows = []
+    for name, o in lf.orderings.items():
+        if not o.pairs:
+            continue
+        lo, hi = wilson(o.right, o.pairs)
+        rows.append({"name": f"{learned_label(opt, name)} ({o.right}/{o.pairs})",
+                     "share": 100 * o.right / o.pairs,
+                     "lo": lo, "hi": hi, "verdict": wording.LEARNED_WORDS[o.verdict],
+                     "kind": o.verdict, "n": f"{o.right}/{o.pairs}",
+                     "op": _VERDICT_OPACITY[o.verdict]})
+    if not rows:
+        return None
+    frame = pd.DataFrame(rows)
+    order = list(frame["name"])
+    blue, grey = model_blue(), muted()
+    colour = alt.Color("verdict:N", scale=alt.Scale(
+        domain=[wording.LEARNED_WORDS[k] for k in (learned.PREDICTABLE, learned.PARTLY,
+                                                   learned.NOT_YET)],
+        range=[blue, blue, grey]), legend=None)
+    y = alt.Y("name:N", sort=order, title=None, axis=alt.Axis(labelLimit=180, ticks=False,
+                                                                 domain=False))
+    x = alt.X("share:Q", title=_say(opt, wording.LEARNED_CHART_X),
+              scale=alt.Scale(domain=[0, 100]), axis=alt.Axis(values=[0, 25, 50, 75, 100]))
+    tip = [alt.Tooltip("name:N", title=_say(opt, wording.LEARNED_COL_RESULT)),
+           alt.Tooltip("verdict:N", title=_say(opt, wording.LEARNED_COL_VERDICT)),
+           alt.Tooltip("n:N", title=_say(opt, wording.LEARNED_COL_PAIRS)),
+           alt.Tooltip("share:Q", format=".0f", title="%")]
+    base = alt.Chart(frame)
+    chance = alt.Chart(pd.DataFrame({"x": [50]})).mark_rule(
+        strokeDash=[4, 3], color=grey).encode(x="x:Q")
+    chance_text = alt.Chart(pd.DataFrame({"x": [50], "t": [_say(opt, wording.LEARNED_CHANCE)]})
+                            ).mark_text(dy=-6, dx=3, align="left", baseline="bottom",
+                                        color=grey, fontSize=11).encode(
+        x="x:Q", y=alt.value(0), text="t:N")
+    bars = base.mark_rule(strokeWidth=4, strokeCap="round").encode(
+        y=y, x="lo:Q", x2="hi:Q", color=colour, opacity=alt.Opacity("op:Q", legend=None),
+        tooltip=tip)
+    dots = base.mark_point(filled=True, size=110).encode(
+        y=y, x=x, color=colour, opacity=alt.value(1.0), tooltip=tip)
+    return (chance + chance_text + bars + dots).properties(
+        width=_LEARNED_W, height=alt.Step(LEARNED_ROW_H))
+
+
+_LEARNED_W = 420
+
+
+def _called_block(opt, lf):
+    """'Round 6: called it?': the latest Round's forecast order against the
+    measured one, per Predictable measurement (as judged before that
+    Round) and the Overall score, a ✓ or ✗ per pair; the Overall score's
+    landing, above its range read as better than forecast."""
+    r, calls = lf.called
+    if r is None:
+        return
+    items = ([(insights.SCORE, lf.score_call)] if lf.score_call is not None else []) + calls
+    if not items:
+        return
+    with st.container(border=True, key="insights_called", gap="xsmall"):
+        st.markdown(f"**{_say(opt, wording.called_title(r))}**",
+                    help=_say(opt, wording.LEARNED_RULE))
+        for name, call in items:
+            line = wording.called_pairs(learned_label(opt, name), call.right, call.counted,
+                                        len(call.pairs))
+            if name == insights.SCORE and sum(lf.landing):
+                line = line.rstrip(".") + "; " + wording.called_range(*lf.landing)
+            bits = [wording.called_pair(p.high, p.low, p.right) for p in call.pairs]
+            top = wording.called_top(call.top_predicted, call.top_measured, call.top_right)
+            if top:
+                bits.append(top)
+            st.markdown(_say(opt, line))
+            if bits:
+                st.caption(" · ".join(bits))
+
+
+def _learned_section(opt, slot, computed, facts):
+    """"What has the model learned?": its answer (the verdicts), Called it?
+    for the latest Round, the ordering chart and the table."""
+    lf = learned_facts(opt, computed)
+    if lf is None or not any(o.pairs or o.ties for o in lf.orderings.values()):
+        with slot.answer.container():
+            st.markdown(_say(opt, wording.LEARNED_NONE_YET))
+        return
+    predictable = lf.names_by(learned.PREDICTABLE)
+    partly = lf.names_by(learned.PARTLY)
+    not_yet = lf.names_by(learned.NOT_YET)
+    help_ = wording.learned_help(wording.LEARNED_RULE, lf.skill_line)
+    with slot.answer.container():
+        st.markdown(_say(opt, wording.learned_answer(predictable, partly, not_yet)),
+                    help=_say(opt, help_))
+    with slot.body:
+        _called_block(opt, lf)
+        try:
+            chart = learned_chart(opt, lf)
+        except Exception:
+            chart = None
+        if chart is not None:
+            show_chart(chart, width="content")
+            st.caption(_say(opt, wording.LEARNED_CAPTION), help=_say(opt, help_))
+        st.table(learned_frame(opt, lf).set_index(wording.LEARNED_COL_RESULT))
+        st.caption(_say(opt, wording.LEARNED_EFFECTS_CAPTION),
+                   help=_say(opt, f"{wording.LEARNED_STABLE_RULE}\n\n{wording.LEARNED_TOP_RULE}"))
+
+
+def learned_card(opt, lf, card):
+    """The strip's Model item from the section's verdicts; the old card's
+    warning lines (red) kept."""
+    word, line = wording.learned_strip(lf.names_by(learned.PREDICTABLE),
+                                       lf.names_by(learned.PARTLY))
+    warns = [(t, w) for t, w in (card.lines if card is not None else []) if w]
+    help_ = wording.learned_help(wording.learned_answer(
+        lf.names_by(learned.PREDICTABLE), lf.names_by(learned.PARTLY),
+        lf.names_by(learned.NOT_YET)).replace("**", ""), lf.skill_line)
+    return Card(_say(opt, word), warns + [(_say(opt, line), False)], None, _say(opt, help_))
+
+
+def learned_lead(opt, lf):
+    """The profiler's finding from a stable effect, or None: the largest
+    effect (as a share of its result's Range) on the Overall score or a
+    measurement that is Predictable or Partly."""
+    if lf is None:
+        return None
+    best = None
+    for name, o in lf.orderings.items():
+        if name != insights.SCORE and o.verdict == learned.NOT_YET:
+            continue
+        lo, hi = insights._range_of(opt, name)
+        for e in learned.stable(lf.effects, name):
+            size = abs(e.mean) / (hi - lo) if hi > lo else 0.0
+            if best is None or size > best[0]:
+                best = (size, e)
+    if best is None:
+        return None
+    e = best[1]
+    name = (f"the {_say(opt, wording.OVERALL_SCORE_COLUMN)}" if e.name == insights.SCORE
+            else e.name)
+    return wording.learned_headline(e.var, name, e.up)
+
+
+def _how_learned(opt, computed):
+    """Method and definitions: the ordering accuracy and verdict rules, the
+    stable-effect rule, the two skill baselines, and the Overall score's
+    forecast against measured chart that the section replaced."""
+    st.markdown(f"**{_say(opt, wording.METHOD_LEARNED_TITLE)}**")
+    lf = learned_cached(opt)
+    for text in (wording.LEARNED_RULE, wording.LEARNED_TOP_RULE, wording.LEARNED_STABLE_RULE,
+                 lf.skill_line if lf is not None else ""):
+        if text:
+            st.markdown(_say(opt, text))
+    if lf is not None:
+        for name in lf.orderings:
+            _, tips = stable_words(opt, lf, name)
+            if tips:
+                st.caption(_say(opt, tips))
+    checks = [c for c in ((computed or {}).get("checks") or ()) if c.name == insights.SCORE]
+    if checks:
+        try:
+            chart = forecast_chart(opt, checks)
+        except Exception:
+            chart = None
+        if chart is not None:
+            st.markdown(f"**{_say(opt, wording.METHOD_FORECAST_CHART)}**")
+            show_chart(chart)
+            st.caption(_say(opt, wording.STORY_TRUST_CAPTION))
+
+
+def round_forecast_lines(opt, checks, rows=None):
+    """(lines, help) for Make a round's "Forecast before tasting": one line
+    per measurement Predictable on the checks so far, from the models fitted
+    on the rows before the open Round; ([], None) with none."""
+    rows = open_rows(opt) if rows is None else rows
+    if not rows or not checks:
+        return [], None
+    ords = learned.orderings(opt, checks)
+    wanted = [n for n, o in ords.items() if n != insights.SCORE and o.verdict == learned.PREDICTABLE]
+    if not wanted:
+        return [], None
+    with insights.memo_in_use(memo(opt)):
+        preds = learned.forecast(opt, rows, wanted)
+    lines = []
+    for name in wanted:
+        _, top = insights._range_of(opt, name)
+        cells, means = [], {}
+        for no in sorted(preds):
+            p = preds[no].get(name)
+            if p is None:
+                continue
+            cells.append(f"F{no} {capped_range(p, top)}")
+            means[no] = p.raw_mean if p.raw_mean is not None else p.mean
+        if cells:
+            lines.append(wording.forecast_line(name, cells, learned.top_of(means)
+                                               if len(means) > 1 else None))
+    return lines, wording.forecast_help(learned.round_start(opt), opt.pending_batch_no)
+
+
+def forecast_panel(opt):
+    """Make a round, above the results grid: the forecast before tasting,
+    for Predictable measurements only (never fits for the verdict: it reads
+    the checks the Review has)."""
+    checks = cached_checks(opt)
+    if not checks:
+        return
+    try:
+        lines, help_ = round_forecast_lines(opt, checks)
+    except Exception:
+        return
+    with st.container(border=True, key="round_forecast", gap="xsmall"):
+        if not lines:
+            st.caption(_say(opt, wording.LEARNED_FORECAST_NONE))
+            return
+        st.markdown(f"**{_say(opt, wording.LEARNED_FORECAST_TITLE)}**", help=_say(opt, help_))
+        for line in lines:
+            st.markdown(_say(opt, line))
+
+
+def _preview_count(opt):
+    records = opt.generation_records()
+    try:
+        n = int(records[max(records)].get("n", 3)) if records else 3
+    except (TypeError, ValueError):
+        n = 3
+    return min(10, max(1, n))
+
+
+def preview_rows(opt, computed):
+    """The next suggestions as Generate would make them now: [(k, role,
+    score text, top-2 changes against Best so far)], cached per setup and
+    next Formulation number; None when the preview failed."""
+    n = _preview_count(opt)
+    key = (insights.setup_key(opt), opt.next_formulation_no, n)
+    hit = st.session_state.get(PREVIEW_KEY)
+    if hit and hit[0] == key:
+        return hit[1]
+    try:
+        recipes = learned.preview_next(opt, n)
+    except Exception:
+        recipes = None
+    out = None
+    if recipes:
+        score = (computed.get("fitted") or {}).get(insights.SCORE)
+        factor = insights.column_factor(opt, computed.get("checks") or ())
+        rows = [{"formulation": k, "recipe": r} for k, r in enumerate(recipes, 1)]
+        preds = {}
+        if score is not None and score.model is not None:
+            try:
+                preds = insights.round_predictions(opt, {insights.SCORE: score}, rows)
+            except Exception:
+                preds = {}
+        top = float(opt.utility_ceiling())
+        out = []
+        for row in rows:
+            p = preds.get(row["formulation"], {}).get(insights.SCORE)
+            text = "—" if p is None else capped_range(insights.widened(score, p, factor), top, 0)
+            out.append((row["formulation"], opt.suggestion_role(row["recipe"]), text,
+                        opt.vs_best_text(row["recipe"], n=2, max_changes=2)))
+    st.session_state[PREVIEW_KEY] = (key, out)
+    return out
+
+
+def _next_preview(opt, places, computed):
+    """What next?'s preview of the next suggestions (no Round open): drawn
+    last, under a spinner in its own place, once per setup."""
+    if opt.pending_batch or computed is None or computed.get("failed"):
+        return
+    ready, _ = readiness(opt)
+    if not ready or opt.complete_count() < insights.MIN_ROWS:
+        return
+    with places.preview.container():
+        with st.spinner(_say(opt, wording.LEARNED_PREVIEW_SPINNER)):
+            rows = preview_rows(opt, computed)
+        if not rows:
+            st.caption(_say(opt, wording.LEARNED_PREVIEW_FAILED))
+            return
+        best = opt.best_formulation_no()
+        st.markdown(f"**{_say(opt, wording.LEARNED_PREVIEW_TITLE)}**",
+                    help=_say(opt, wording.preview_help(len(rows), best)))
+        for k, role, text, changes in rows:
+            st.markdown(_say(opt, wording.preview_line(k, role, text, changes)))
+        st.caption(_say(opt, wording.LEARNED_PREVIEW_CAPTION))
 
 
 def _trust_section(opt, slot, computed, facts):
@@ -5090,6 +5550,10 @@ def _drives_section(opt, slot, computed, facts):
             got = None
     profile, guard = (got[0], got[2]) if got is not None else (None, None)
     line = driver_finding(opt, profile, guard)
+    lead = learned_lead(opt, learned_cached(opt))
+    if lead is not None:
+        # Review learned: a stable, confident effect leads the finding.
+        line = wording.answer_line(lead, "")
     ev = None
     if got is not None:
         cfg = getattr(opt, "bo_config", None) or {}
