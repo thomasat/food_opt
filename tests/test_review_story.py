@@ -473,7 +473,8 @@ def test_pilot_story(pilot):
     # The strip, by pattern only (no pilot numbers in the repository).
     # Review learned: the Model item (by pattern only: no pilot names).
     assert [i["word"] for i in items][:2] == ["Flat", "Predicts"]
-    assert re.fullmatch(r"\d+\.\d → \d+\.\d of 100", items[0]["line"]), items[0]
+    # Persona fixes: 'Flat · best 99.2 of 100' (the start stays on the chart).
+    assert re.fullmatch(r"· best \d+\.\d of 100", items[0]["line"]), items[0]
     assert re.fullmatch(r"[A-Z][\w ]+, [A-Z][\w ]+", items[1]["line"]), items[1]
     line = next(t for k, t in got[wording.LEARNED_TITLE] if k == "markdown")
     assert re.fullmatch(r"\*\*Predicts .+\.\*\* Not yet: .+\.", line), line

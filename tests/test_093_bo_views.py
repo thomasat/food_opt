@@ -233,7 +233,10 @@ def test_the_role_is_the_compared_with_cells_word():
         assert bo_views.role(opt, row) == opt.suggestion_role(row["recipe"])
         assert opt.compared_with_text(row["recipe"]).lower().startswith(
             bo_views.role(opt, row))
+    # Persona fixes: a row with a note says the note as its source.
     mine = dict(opt.pending_batch[0], note="Repeat of Formulation 15")
+    assert bo_views.role(opt, mine) == "Repeat of Formulation 15"
+    mine = dict(opt.pending_batch[0], note=wording.OWN_FORMULATION_NOTE)
     assert bo_views.role(opt, mine) == wording.OWN_FORMULATION_KIND
 
 

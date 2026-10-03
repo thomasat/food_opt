@@ -42,7 +42,7 @@ EXPECTED = {
     D.SNACK: (
         "Review after Round 1 · 3 formulations",
         [("Predictions", "Not yet", ["3 / 5 formulations scored"]),
-         ("Progress", "Too early", ["Best 96.0 of 100"]),
+         ("Progress", "Too early", ["· best 96.0 of 100"]),
          ("Next", "Make Round 2", ["No Round open"])],
         "Where the app looks next", ["Appears after 5 scored formulations."]),
     D.LINE_A: (
@@ -52,7 +52,7 @@ EXPECTED = {
         # Review learned: the strip's Model item reads the model's verdicts
         # (Firmness's within-Round order beat chance).
         [("Model", "Predicts", ["Firmness"]),
-         ("Progress", "No new best", ["87.8 → 90.5 of 100"]),
+         ("Progress", "No new best", ["· best 90.5 of 100"]),
          ("Next", "Record Round 6", ["4 formulations open", "Round 7: Repeat Formulation 15"])],
         "How the app chose Round 6", ["Suggestions go where expected gain peaks."]),
     D.LINE_B: (
@@ -66,7 +66,7 @@ EXPECTED = {
         # Review learned 2: the section repeats no old-card line; the red
         # miss line stays in the strip.
         [("Model", "Predicts", [":red[**3 / 16 missed**]"]),
-         ("Progress", "Flat", ["87.8 → 90.1 of 100"]),
+         ("Progress", "Flat", ["· best 90.1 of 100"]),
          ("Next", ":red[Check panel first]", [":red[**Before Round 6**]",
                                               ":red[**Formulation 11's Repeat: 10.5 lower**]"])],
         "How the app chose Round 6", [_HIDDEN + wording.HERO_HIDDEN["verdict"]]),
@@ -77,7 +77,7 @@ EXPECTED = {
         # evidence (Line C's one Repeat pair has 1 df); it asks for a Repeat.
         # Review learned 2: the Repeat request moved to What next?.
         [("Model", "Not yet", ["predictable"]),
-         ("Progress", "Within noise", ["87.3 → 89.8 of 100"]),
+         ("Progress", "Within noise", ["· best 89.8 (+2.5)"]),
          ("Next", "Record Round 6", ["4 formulations open", "Guided search, not a forecast",
                                      "Repeat Formulation 18 to check noise"])],
         "How the app chose Round 6", [_HIDDEN + wording.HERO_HIDDEN["noise"]]),
@@ -92,7 +92,7 @@ EXPECTED = {
     D.TIMING: (
         "Review after Round 12 · 60 formulations",
         [("Model", "Predicts", ["Firmness, Juiciness +2"]),   # review learned
-         ("Progress", "Flat", ["91.6 → 92.5 of 100"]),
+         ("Progress", "Flat", ["· best 92.5 of 100"]),
          ("Next", "Make Round 13", ["No Round open", f"**{wording.LEARNED_PREVIEW_TITLE}**"])],
         "Where the app looks next", ["Suggestions go where expected gain peaks."]),
     D.PROCESS_ONLY: (
@@ -104,7 +104,7 @@ EXPECTED = {
         # 0.007): Off, on the score the suggestions use.
         # Review learned: Model's word; the red miss line kept.
         [("Model", "Predicts", [":red[**4 / 16 missed**]"]),
-         ("Progress", "Within noise", ["85.1 → 87.9 of 100"]),
+         ("Progress", "Within noise", ["· best 87.9 (+1.9)"]),
          ("Next", "Record Round 6", ["4 trials open", "Round 7: Repeat Trial 21"])],
         "How the app chose Round 6", [_HIDDEN + wording.HERO_HIDDEN["skill"]]),
 }
@@ -350,11 +350,17 @@ def test_predictions_tooltip_says_the_coverage_and_skill_exactly(screens):
     # Review learned: the Model item's "?" is the section's sentence, then
     # the ordering rule, then the Overall score's coverage and skill
     # against both baselines.
-    assert plain.startswith("Predicts Firmness.")
+    # Persona fixes: a plain sentence first; the skill figures in plain
+    # words, the terms of art in a last "For experts:" line.
+    assert plain.startswith("The model put Firmness in the right order before tasting")
     assert "one-sided binomial test, p < 0.05, at least 5 pairs" in rule
-    assert "Overall score: 13 of 15 inside the 95 % predicted range." in rule
+    assert "Overall score: 13 of 15 landed in their predicted range" in plain
+    expert = rule.split("\n\n")[-1]
+    assert expert.startswith("For experts:")
+    assert "Overall score: 13 of 15 inside the 95 % predicted range." in expert
     assert re.search(r"Skill over 15 checks: \+0\.36 against the average of earlier scores, "
-                     r"[+−]\d\.\d\d against Best so far", rule), rule
+                     r"[+−]\d\.\d\d against Best so far", expert), expert
+    assert "Skill" not in rule.split("For experts:")[0]
 
 
 # Review diagnosis ruling 2: Line C and the process-only study have no

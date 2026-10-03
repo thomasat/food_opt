@@ -179,8 +179,9 @@ def _answer(items, record=(8, 8)):
 def test_called_it_leads_with_the_record_then_the_latest_call():
     got, line = _answer(_items((91, 84, 79), (9.2, 8.1, 6.8)))
     assert got.verdict == learned.CALLED and got.lead == "Firm" and got.top == 7
-    assert line == "**Firm: 8 of 8 calls right.** Round 3: F7 highest, as forecast."
-    assert _words(line) <= 12
+    # Persona fixes: the order, then the record so far; no "highest".
+    assert line == "**Round 3: order called right.** So far: Firm 8 of 8."
+    assert _words(line) <= 14
 
 
 def test_called_it_is_judged_on_order_not_range():
@@ -533,10 +534,14 @@ def test_called_it_sits_at_the_top_as_charts(scored):
     first_heading = next(i for i, t in enumerate(texts) if t.startswith("#### "))
     assert texts[first_heading] == f"#### {wording.Q2_TITLE}"
     called = [i for i, t in enumerate(texts)
-              if re.match(r"\*\*(Round 5: (partly|missed)|.+: \d+ of \d+ calls right)\.\*\*", t)]
+              if re.match(r"\*\*Round 5: (partly|missed|order called right|Overall order called "
+                          r"right)\.\*\*", t)]
     assert called and called[0] < first_heading
     line = texts[called[0]]
-    assert _words(line) <= 12, line
+    # Persona fixes: the coordinator's headline, the Overall score's order
+    # first ("F16, F17 above F18; scored about 4 better than forecast").
+    assert _words(line) <= 16, line
+    assert "calls right" not in line
     # Visual: a chart and the caption, before the first heading.
     between = leaves[called[0] + 1:first_heading]
     assert any("vega" in el.type or "chart" in el.type for el, _ in between)

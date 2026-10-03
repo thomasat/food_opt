@@ -428,7 +428,7 @@ def role(opt, row):
     by the cell's own rule (compared_with_text). Model-free: shown whatever
     the Prediction check says (it reverts 11152ff's withholding)."""
     if row.get('note'):
-        return wording.OWN_FORMULATION_KIND
+        return wording.own_source(row.get('note'))
     return opt.suggestion_role(row['recipe'])
 
 

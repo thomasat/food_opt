@@ -3455,7 +3455,7 @@ class FoodOptimizer:
         return wording.compared_with_column(self.best_formulation_no())
 
     def compared_with_text(self, recipe, scale_to=None, own=False, prefix="",
-                           max_changes=None):
+                           max_changes=None, note=None):
         """One cell of the batch table, and the same line on the sheet: what
         kind of formulation this is, and the amounts that carry it.
 
@@ -3478,8 +3478,10 @@ class FoodOptimizer:
 
         `max_changes` (screen only, like `prefix`): vs_best_text's."""
         if own:
+            # Persona fixes: a row with a note of its own says where it came
+            # from ('Pilot batch 6.1 · EGBO'), not "Your own formulation".
             return prefix + wording.compared_with_cell(
-                wording.OWN_FORMULATION_KIND,
+                wording.own_source(note),
                 self.vs_best_text(recipe, scale_to=scale_to, max_changes=max_changes))
         kind = self.suggestion_kind(recipe)
         changes = ("" if kind == wording.SUGGESTION_SPREAD
@@ -4027,7 +4029,7 @@ class FoodOptimizer:
                           else near_copies.get(row['formulation'], ""))
                 item[trying] = self.compared_with_text(
                     row['recipe'], scale_to=scale_to, own=own, prefix=prefix,
-                    max_changes=max_changes)
+                    max_changes=max_changes, note=row.get('note'))
             rows.append(item)
         columns = (["Formulation"]
                    + [self._amount_column(v['name'], mark=True)
@@ -4832,7 +4834,7 @@ class FoodOptimizer:
         own = bool(row.get('note'))
         column_head = self.compared_with_column()
         cell_text = self.compared_with_text(row['recipe'], scale_to=total,
-                                            own=own)
+                                            own=own, note=row.get('note'))
         # `Spread across the allowed amounts` is the round's search
         # strategy, stated once on the Round sheet; on a formulation page it
         # is a line the operator reads and then has to discard. What belongs

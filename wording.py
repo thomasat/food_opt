@@ -9080,8 +9080,9 @@ CALLED_RULE = (f"Forecast before tasting, from the {FORMULATION}s scored before 
 
 
 def called_record(name, right, pairs):
-    """The cumulative record: '**Consistency: 8 of 8 calls right.**'."""
-    return f"**{name}: {right} of {pairs} calls right.**"
+    """The cumulative record: '**Consistency: 8 of 8 pairs in the right
+    order.**' (persona fixes: never "calls right")."""
+    return f"**{name}: {right} of {pairs} pairs in the right order.**"
 
 
 def called_latest(round_no, top, short=False):
@@ -9101,11 +9102,10 @@ def called_answer(round_no, verdict, lead=None, record=None, top=None, right=(),
     Consistency right; Overall score, Tangy order off.'); missed
     ('**Round 10: missed.** Consistency, Tangy order off.')."""
     if verdict == "called" and lead is not None and record is not None:
-        line = called_record(lead, *record)
-        if top is None:
-            return line
-        full = f"{line} {called_latest(round_no, top)}"
-        return full if len(full.split()) <= 12 else f"{line} {called_latest(round_no, top, True)}"
+        # Persona fixes: never "calls right", never "highest" (a target's
+        # highest is not its best): the order, then the record so far.
+        return (f"**{ROUND_CAP} {round_no}: order called right.** So far: {lead} "
+                f"{record[0]} of {record[1]}.")
     head = f"**Round {round_no}: {CALLED_WORDS[verdict]}.**"
     parts = []
     if verdict == "partly" and right:
@@ -9215,3 +9215,302 @@ def learned_evidence(rows, skill_line=""):
 
 
 LEARNED_RANGE_RECORD = "The Overall score's Round-ahead record:"
+
+
+# --- persona fixes ---
+# Persona fixes (prototype, 2026-10-02; two demo viewers, a senior food
+# scientist and an R&D director): provenance from the note, "Called it?"
+# led by the Overall score's order, plain progress and score wording, a
+# Predicted column on Results, a credible "What next?", strip and
+# tooltips that agree, plain tooltips with the terms of art last.
+
+def own_source(note=None):
+    """A row of the user's own, where it came from: its note when it has
+    one ('Pilot batch 6.1 · EGBO'); else 'your own formulation' (also for
+    the default note the app types itself)."""
+    note = str(note or "").strip()
+    if not note or note == OWN_FORMULATION_NOTE:
+        return OWN_FORMULATION_KIND
+    return note
+
+
+# Called it?, re-aimed: the Overall score's order first.
+CALLED_HEAD_FORECAST = "Forecast order"
+CALLED_HEAD_MEASURED = "Measured order"
+CALLED_OVERALL = "Overall"
+
+
+def called_order(groups):
+    """The measured order, highest first, equal values together: 'F16, F17
+    above F18'; more than three levels: 'F16 top, F20 bottom'."""
+    names = [", ".join(f"F{n}" for n in g) for g in groups if g]
+    if len(names) <= 3:
+        return " above ".join(names)
+    return f"{names[0]} top, {names[-1]} bottom"
+
+
+def _about(x):
+    """'about 4' (one point or more, whole); 'about 0.6' under one."""
+    x = abs(float(x))
+    return f"about {x:.0f}" if x >= 1 else f"about {x:.1f}"
+
+
+def called_landing(above_gap=None, below_gap=None):
+    """Where the Overall scores landed against their forecast: 'scored about
+    4 better than forecast' (the mean of measured − forecast over those
+    above their 95 % range); 'scored about 2 below forecast'; 'scored as
+    forecast' when every one landed in its range."""
+    if above_gap is not None:
+        return f"scored {_about(above_gap)} better than forecast"
+    if below_gap is not None:
+        return f"scored {_about(below_gap)} below forecast"
+    return "scored as forecast"
+
+
+def called_score_head(round_no, order_text, landing_text="", off=()):
+    """Called it?'s headline when the Overall score's order held: '**Round 6:
+    order called right.** Overall: F16, F17 above F18; scored about 4
+    better than forecast.'; a measurement whose order did not hold is said
+    after it ('Tangy order off')."""
+    head = (f"**{ROUND_CAP} {round_no}: order called right.**" if not off
+            else f"**{ROUND_CAP} {round_no}: {CALLED_OVERALL} order called right.**")
+    tail = [order_text] if order_text else []
+    if off:
+        tail.append(f"{', '.join(off)} order off")
+    elif landing_text:
+        tail.append(landing_text)
+    return f"{head} {CALLED_OVERALL}: {'; '.join(tail)}." if tail else head
+
+
+def called_measure_line(name, right, counted, held):
+    """One measurement's line: 'Consistency: order right (2 of 2 pairs).';
+    off: 'Tangy: 1 of 2 pairs in the right order.' Never 'highest': for a
+    measurement with a target, the highest is not the best."""
+    if not counted:
+        return f"{name}: all measured the same, nothing to order."
+    pairs = "pair" if counted == 1 else "pairs"
+    if held:
+        return f"{name}: order right ({right} of {counted} {pairs})."
+    return f"{name}: {right} of {counted} {pairs} in the right order."
+
+
+def called_so_far(cells):
+    """The cumulative record, a second short line: 'So far: Overall 10 of
+    11 pairs, Consistency 8 of 8.' from [(name, right, pairs)]; the first
+    says 'pairs'."""
+    out = []
+    for k, (name, right, pairs) in enumerate(cells):
+        if not pairs:
+            continue
+        out.append(f"{name} {right} of {pairs}" + (" pairs" if not out else ""))
+    return f"So far: {', '.join(out)}." if out else ""
+
+
+# Progress, plain.
+def strip_progress_tail(best_text, rise_text=None):
+    """The strip's Progress line after its word: '· best 98.3 (+3.3)'
+    (Rising, Within noise); '· best 99.2 of 100' otherwise."""
+    return f"· best {best_text}" + (f" (+{rise_text})" if rise_text is not None else "")
+
+
+def progress_rise_answer(before_text, best_text, rise_text, need_text):
+    """Are we improving?'s answer after its word: 'Best 95.0 → 98.3 (+3.3;
+    needs 3.0)'."""
+    return f"Best {before_text} → {best_text} (+{rise_text}; needs {need_text})"
+
+
+def progress_need_plain(need_text, sd_text="1", assumed=True):
+    """The "?"'s plain line on the rise needed: '3.0 is the rise needed to
+    beat tasting noise. Noise is assumed at about 1 point, because there are
+    no Repeats.'"""
+    if assumed:
+        why = (f"Noise is assumed at about {points_text(sd_text)}, because there are no "
+               "Repeats yet.")
+    else:
+        why = f"Noise measured from your Repeats: about {points_text(sd_text)}."
+    return f"{need_text} is the rise needed to beat tasting noise. {why}"
+
+
+# How the Overall score is built, from the project's own shares.
+def score_built(rows, total_text):
+    """One plain sentence from [(name, share text, goal, range width
+    text)]: 'Each measurement is worth 25 of 100 points; it loses points
+    the further it is from its target (25 × distance ÷ 15).' Mixed shares
+    or goals name each."""
+    if not rows:
+        return ""
+    shares = {s for _, s, _, _ in rows}
+    goals = {g for _, _, g, _ in rows}
+    widths = {w for _, _, _, w in rows}
+    rule = {"target": "it loses points the further it is from its target",
+            "max": "it earns more points the higher it is",
+            "min": "it earns more points the lower it is"}
+    if len(shares) == 1 and len(goals) == 1 and len(widths) == 1:
+        s, g, w = next(iter(shares)), next(iter(goals)), next(iter(widths))
+        sum_ = {"target": f"{s} × distance ÷ {w}",
+                "max": f"{s} × (value − Lowest) ÷ {w}",
+                "min": f"{s} × (Highest − value) ÷ {w}"}
+        what = "measurement" if len(rows) > 1 else rows[0][0]
+        lead = f"Each {what} is worth" if len(rows) > 1 else f"{what} is worth"
+        if g == "target":
+            return f"{lead} {s} of {total_text} points; {rule[g]} ({sum_[g]})."
+        return f"{lead} up to {s} of {total_text} points; {rule[g]} ({sum_[g]})."
+    worth = ", ".join(f"{n} {s}" for n, s, _, _ in rows)
+    parts = []
+    if "target" in goals:
+        parts.append("one with a target loses points the further it is from it (share × "
+                     "distance ÷ its Range width)")
+    if goals & {"max", "min"}:
+        parts.append("a higher-is-better or lower-is-better one earns its share in step "
+                     "with where it sits in its Range")
+    return f"Points out of {total_text}: {worth}; " + "; ".join(parts) + "."
+
+
+# Results: the Round's forecast beside what was measured.
+RESULTS_PREDICTED_COLUMN = "Predicted (95 % range)"
+RESULTS_RESULT_COLUMN = "Result"
+RESULTS_PREDICTED_CAPTION = "Forecast before tasting, from earlier Rounds."
+
+
+def results_predicted_help(round_no):
+    return (f"Each {FORMULATION} of {ROUND_CAP} {round_no} as forecast before tasting, from "
+            f"the {FORMULATION}s scored before {ROUND_CAP} {round_no} only (the Review's "
+            f"Called it?), beside what was measured. Shown: the {OVERALL_SCORE_COLUMN} and the "
+            "measurements the model ordered right before this Round (Predictable). A value "
+            "at the top of its Range reads ≥ that top.")
+
+
+# What next?, credible.
+PREVIEW_APART_COLUMN = "What sets it apart"
+
+
+def apart_line(role, changes, beyond=False, against_best=True):
+    """One plain line per suggestion, from its role and its top changes
+    [(direction 'less'/'more', name)]: 'Explores: less Tapioca starch and
+    Nutritional yeast than anything tested'; 'Balanced: more Coconut cream
+    than Best so far'."""
+    head = role[:1].upper() + role[1:]
+    if not changes:
+        return head
+    dirs = {d for d, _ in changes}
+    if len(dirs) == 1:
+        what = f"{changes[0][0]} " + " and ".join(n for _, n in changes)
+    else:
+        what = ", ".join(f"{d} {n}" for d, n in changes)
+    ref = " than anything tested" if beyond else (f" than {BEST_SO_FAR_COLUMN}"
+                                                   if against_best else "")
+    return f"{head}: {what}{ref}"
+
+
+def roles_help(close_pct, far_pct):
+    """The roles, for the preview's "?"."""
+    return (f"Refines the best: within {close_pct} % of each row's Lowest–Highest span of "
+            f"{BEST_SO_FAR_COLUMN}. Explores: more than {far_pct} % from every {FORMULATION} "
+            "tested, to learn where the model is unsure. Balanced: in between. Than anything "
+            f"tested: an amount below or above every {FORMULATION} recorded so far.")
+
+
+LEARNING_ROUND = "Learning round: predicted about level with your best."
+WIDEN_BEYOND = "Suggestions stay inside your limits; widening goes beyond them."
+STOP_HEAD = "Little left to gain inside your limits"
+STOP_WIDEN = "Widen a limit or stop."
+STOP_ADD = "Add an ingredient or stop."
+
+
+def stop_help(threshold_text):
+    return (f"No suggestion inside your limits is predicted to beat {BEST_SO_FAR_COLUMN} by "
+            f"more than results vary ({threshold_text}), and the expected gain is under it "
+            "too. Widening a limit lets the next suggestions go further; or stop here.")
+
+
+# Tooltips that agree with the verdicts.
+def misses_scoped(names, inside, total):
+    """The misses row's plain sentence, scoped to what missed: 'Single
+    measurements (Thickness uniformity, Creaminess) landed outside their
+    predicted range more often than expected, so their ranges can be too
+    narrow. The Overall score landed in range 10 of 12 times.' (no claim
+    on their order: that is the Model item's)."""
+    who = f" ({', '.join(names)})" if names else ""
+    line = (f"Single measurements{who} landed outside their predicted range more often than "
+            "expected, so their forecasts can miss by more than their range shows.")
+    if total:
+        line += f" The {OVERALL_SCORE_COLUMN} landed in range {inside} of {total} times."
+    return line
+
+
+def model_plain(predictable, partly, not_yet):
+    """The Model "?"'s opening sentence: 'The model put Consistency and
+    Tangy in the right order before tasting, clearly more often than
+    chance. Not yet: Creaminess, Thickness uniformity.'"""
+    def _and(names):
+        return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+    if predictable:
+        line = (f"The model put {_and(predictable)} in the right order before tasting, "
+                "clearly more often than chance.")
+    elif partly:
+        line = (f"The model leans right on the order of {_and(partly)} before tasting, not "
+                "yet clearly.")
+    else:
+        line = "The model has not yet ordered any measurement right more often than chance."
+    if predictable and partly:
+        line += f" Partly: {', '.join(partly)}."
+    if not_yet and (predictable or partly):
+        line += f" Not yet: {', '.join(not_yet)}."
+    return line
+
+
+def _than(value):
+    if value is None:
+        return None
+    if value > 0.2:
+        return "more accurate than"
+    if value < -0.2:
+        return "less accurate than"
+    return "about as accurate as"
+
+
+def skill_plain(inside, total, vs_mean=None, vs_best=None):
+    """The Overall score's record in plain words: 'Overall score: 10 of 12
+    landed in their predicted range; its forecasts were more accurate than
+    assuming each new formulation scores like your best.'"""
+    if not total:
+        return ""
+    line = f"{OVERALL_SCORE_COLUMN}: {inside} of {total} landed in their predicted range"
+    best, mean = _than(vs_best), _than(vs_mean)
+    if best is not None:
+        line += (f"; its forecasts were {best} assuming each new {FORMULATION} scores like "
+                 "your best")
+    elif mean is not None:
+        line += (f"; its forecasts were {mean} assuming each new {FORMULATION} scores like "
+                 "the average so far")
+    return line + "."
+
+
+def for_experts(text):
+    """The terms of art, last: 'For experts: …'."""
+    return f"For experts: {text}" if text else ""
+
+
+EXPERT_TERMS = ("Round-ahead (rolling-origin) checks; 95 % posterior predictive intervals; "
+                "suggestions by qLogNEI on a Gaussian process.")
+
+
+def single_record(inside, total):
+    """'Single measurements: 27 of 36 landed in their predicted range.'"""
+    return f"Single measurements: {inside} of {total} landed in their predicted range."
+
+
+def next_misses_short(repeat_no=None):
+    """Make a round's misses line above Generate, at most 10 words (persona
+    fixes: scoped to the single measurements, so it agrees with the
+    Review's Model item; replaces the earlier 'Predictions miss more…')."""
+    if repeat_no is None:
+        return "Single measurements miss more than expected: add a Repeat."
+    return f"Single measurements miss more than expected: repeat {FORMULATION_CAP} {repeat_no}."
+
+
+def forecast_order_tail(order):
+    """Make a round's forecast for a measurement with a target: ' Order,
+    high to low: F18, F16, F17.' (never "Highest", which would read as
+    best)."""
+    return f" Order, high to low: {', '.join(f'F{n}' for n in order)}."

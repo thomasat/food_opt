@@ -913,7 +913,8 @@ def render(opt):
         for which in ("progress", "next"):
             _strip_item(opt, places, facts, which)
         _next_body(opt, places, facts)
-        _answer(opt, places.q["progress"], facts, "progress")
+        _answer(opt, places.q["progress"], facts, "progress",
+                text=progress_answer_text(opt, facts))
         for which in ("predictions", "drives"):
             with places.q[which].body:
                 st.caption(_say(opt, wording.CHART_FAILED))
@@ -938,7 +939,7 @@ def render(opt):
     save(opt)
     # Review learned: the next suggestions, previewed last (a few seconds
     # once per setup), under a spinner in What next?.
-    _next_preview(opt, places, computed)
+    _next_preview(opt, places, computed, facts)
 
 
 class _Places:
@@ -1056,10 +1057,15 @@ def strip_line(opt, facts, which, card):
         f = facts.best
         if f is None:
             return (card.lines[0][0] if card.lines else ""), False
-        nums = story_numbers(opt)
+        # Persona fixes: 'Rising · best 98.3 (+3.3)'; the start stays on the
+        # chart ("Start: 91.7 (Round 1)").
+        a = facts.improvement
+        if facts.progress in ("rising", "within_noise") and a is not None \
+                and a.rise is not None:
+            rise, _ = rise_and_need(a)
+            return _say(opt, wording.strip_progress_tail(one_decimal(f.score), rise)), False
         best = wording.score_of(one_decimal(f.score), opt.utility_ceiling())
-        start = one_decimal(nums[0]) if nums is not None and nums[0] != nums[2] else None
-        return _say(opt, wording.strip_progress(start, best)), False
+        return _say(opt, wording.strip_progress_tail(best)), False
     if which == "predictions":
         return (wording.strip_short(card.lines[0][0]) if card.lines else ""), False
     return "", False
@@ -1084,7 +1090,7 @@ def _strip_item(opt, places, facts, which):
     lf = learned_cached(opt) if which == "predictions" else None
     if lf is not None and card is not None:
         # Review learned: the Model item reads the section's verdicts.
-        card = learned_card(opt, lf, card)
+        card = learned_card(opt, lf, card, facts)
     slot = places.item[which].container(gap=None) if places is not None else None
     with slot if slot is not None else st.container(gap=None):
         label = _say(opt, wording.LEARNED_STRIP_LABEL if lf is not None
@@ -1113,10 +1119,27 @@ def _next_body(opt, places, facts):
         if card is None:
             st.caption(_say(opt, _PLACEHOLDERS["next"]))
             return
-        word = f":red[{card.word}]" if card.tone == "off" else card.word
-        st.subheader(word, anchor=False, help=card.help)
+        step = getattr(facts, "next", None) if facts is not None else None
+        if step is not None and step.kind == "close" and card.tone != "off":
+            # Persona fixes: the stop signal is the headline.
+            y = getattr(facts, "yardstick", None)
+            tip = (wording.stop_help(wording.points_text(f"{y.value:.1f}"))
+                   if y is not None and y.value is not None else "")
+            st.markdown(stop_headline(opt, facts),
+                        help="\n\n".join(t for t in (_say(opt, tip), card.help) if t))
+        else:
+            word = f":red[{card.word}]" if card.tone == "off" else card.word
+            st.subheader(word, anchor=False, help=card.help)
         for text, warn in card.lines + repeat_asks(opt, facts, card):
             st.markdown(f":red[**{text}**]" if warn else text)
+
+
+def stop_headline(opt, facts):
+    """'**Little left to gain inside your limits.** Widen a limit or stop.'
+    (no limit binds: 'Add an ingredient or stop.')."""
+    b = getattr(facts.next, "binding", None)
+    return _say(opt, wording.answer_line(wording.STOP_HEAD,
+                                         wording.STOP_WIDEN if b is not None else wording.STOP_ADD))
 
 
 def repeat_asks(opt, facts, next_card):
@@ -1190,7 +1213,7 @@ def _gate(opt):
     for which in _STATUS_ORDER:
         _strip_item(opt, places, facts, which)
     _next_body(opt, places, facts)
-    _answer(opt, places.q["progress"], facts, "progress")
+    _answer(opt, places.q["progress"], facts, "progress", text=progress_answer_text(opt, facts))
     _how(opt, None)
 
 
@@ -1214,7 +1237,7 @@ def _finish(opt, places, facts):
         with places.link.container():
             if not _repeat_link(opt, facts):
                 explored_link(opt, facts.next)
-    _answer(opt, places.q["progress"], facts, "progress")
+    _answer(opt, places.q["progress"], facts, "progress", text=progress_answer_text(opt, facts))
 
 
 def _standing(opt, computed, yard, spinner=True):
@@ -1681,6 +1704,65 @@ def status_texts(opt, facts):
     return {k: _say(opt, v) for k, v in out.items()}
 
 
+def misses_plain(opt, facts):
+    """The misses row's sentence, scoped (persona fixes): the measurements
+    that missed most (2 misses or more, from the diagnosis), the Overall
+    score's own record, then the row's tail and its Repeat."""
+    step = facts.next
+    d = getattr(step, "diagnosis", None)
+    names = [i.name for i in (d.items if d is not None else []) if i.misses >= 2][:3]
+    score = getattr(facts.headline, "score", None) if facts.headline is not None else None
+    inside, total = (score.inside, score.total) if score is not None else (0, 0)
+    no = opt.pending_batch_no
+    left = len(open_rows(opt)) if opt.pending_batch else 0
+    line = f"{wording.misses_scoped(names, inside, total)} {wording.next_plain_tail(no, left)}"
+    if d is not None and facts.best is not None:
+        line += " " + wording.next_plain_repeat_ask(facts.best.formulation, bool(left))
+    return _say(opt, line)
+
+
+def progress_answer_text(opt, facts):
+    """Are we improving?'s answer after its word, after a rise (persona
+    fixes): 'Best 95.0 → 98.3 (+3.3; needs 3.0)'; None otherwise (the
+    card's line)."""
+    f, a = facts.best, getattr(facts, "improvement", None)
+    if f is None or a is None or getattr(a, "rise", None) is None \
+            or facts.progress not in ("rising", "within_noise"):
+        return None
+    rise, need = rise_and_need(a)
+    return wording.progress_rise_answer(one_decimal(f.score - a.rise), one_decimal(f.score),
+                                        rise, need)
+
+
+def score_built_text(opt):
+    """How the Overall score is built, one plain sentence from the
+    project's own shares, goals and Ranges (FoodOptimizer._compute_utility)."""
+    rows = []
+    for o in opt.objectives:
+        width = float(o.get('max_val', 10.0)) - float(o.get('min_val', 0.0))
+        rows.append((o['name'], f"{round(float(o['weight']), 1):g}", o.get('goal'),
+                     f"{round(width, 2):g}"))
+    return _say(opt, wording.score_built(rows, f"{round(opt.utility_ceiling(), 1):g}"))
+
+
+def progress_plain(opt, facts):
+    """The Progress "?"'s plain lines (persona fixes): what the rise needed
+    is, then how the Overall score is built."""
+    out = []
+    a, y = getattr(facts, "improvement", None), getattr(facts, "yardstick", None)
+    if facts.progress in ("rising", "within_noise") and a is not None \
+            and getattr(a, "rise", None) is not None:
+        _, need = rise_and_need(a)
+        assumed = y is None or getattr(y, "assumed", True)
+        sd = "1" if (a.sd is None or assumed) else f"{a.sd:.1f}"
+        out.append(wording.progress_need_plain(need, sd, assumed))
+    try:
+        out.append(score_built_text(opt))
+    except Exception:
+        pass
+    return [t for t in out if t]
+
+
 def _full_sentence(line):
     """A full status line's sentence, its label and bold word taken off."""
     return re.sub(r"^\w+: (\*\*[^*]+\*\* )?", "", line)
@@ -1695,7 +1777,20 @@ def status_help(opt, facts, which):
         ev = _say(opt, evidence_line(opt, facts, which))
     except Exception:       # the evidence line must never take a card down
         ev = None
-    parts = [p for p in (full and _full_sentence(full), ev, tip) if p]
+    plain = []
+    if which == "progress" and facts is not None and facts.best is not None:
+        plain = progress_plain(opt, facts)
+    elif which == "next" and facts is not None and facts.next is not None \
+            and facts.next.kind == "misses":
+        # Persona fixes: the misses row scoped to what missed, so it agrees
+        # with the Model item's verdicts (its full sentence said "recent
+        # results fell outside").
+        full = None
+        plain = [misses_plain(opt, facts)]
+    # Persona fixes: the plain additions join the plain paragraph, so the
+    # "?" stays plain, then evidence, then rule.
+    lead = " ".join(t for t in (full and _full_sentence(full), *plain) if t)
+    parts = [p for p in (lead, ev, tip) if p]
     return "\n\n".join(parts) or None
 
 
@@ -5296,7 +5391,11 @@ def learned_facts_from(opt, checks):
         named = ([(insights.SCORE, score_call)] if score_call is not None else []) + calls
         items = [(n, call, learned.round_checks(checks, n, r)) for n, call in named
                  if call.pairs or learned.round_checks(checks, n, r)]
-    return LearnedFacts(orderings, effects, (r, calls), score_call, landing, skill_line, items)
+    lf = LearnedFacts(orderings, effects, (r, calls), score_call, landing, skill_line, items)
+    # Persona fixes: the same record in plain words, the terms of art last.
+    lf.plain_line = wording.skill_plain(inside, total, None if fact is None else fact.value,
+                                        None if best is None else best[0])
+    return lf
 
 
 def learned_facts(opt, computed):
@@ -5400,39 +5499,119 @@ def learned_chart(opt, lf):
 _LEARNED_W = 460
 
 
+def measured_groups(cks):
+    """The Round's formulations by measured value, highest first, equal
+    values together: [[16, 17], [18]]."""
+    levels = sorted({c.measured for c in cks}, reverse=True)
+    return [sorted(int(c.formulation) for c in cks if c.measured == v) for v in levels]
+
+
+def score_landing(cks):
+    """Persona fixes: where the Overall scores landed against their
+    forecast, as called_landing's arguments: the mean of measured −
+    forecast over those above their 95 % range; else over those below."""
+    above = [c.measured - c.predicted for c in cks if c.measured > c.high]
+    below = [c.measured - c.predicted for c in cks if c.measured < c.low]
+    if above:
+        return sum(above) / len(above), None
+    if below:
+        return None, sum(below) / len(below)
+    return None, None
+
+
+def _is_target(opt, name):
+    if name == insights.SCORE:
+        return False
+    return any(o['name'] == name and o.get('goal') == 'target' for o in opt.objectives)
+
+
 def called_line(opt, lf):
-    """Called it?'s headline from the facts: called — the lead's record and
-    the latest call ('**Consistency: 8 of 8 calls right.** Round 6: F18
-    highest, as forecast.'); partly or missed said plainly. None with
-    nothing to call."""
+    """Called it?'s headline from the facts (persona fixes): led by the
+    Overall score whenever its order held — '**Round 6: order called
+    right.** Overall: F16, F17 above F18; scored about 4 better than
+    forecast.' — else partly or missed said plainly. None with nothing to
+    call."""
     if not lf.items:
         return None
     r = lf.called[0]
     got = learned.called_summary(lf.items)
-    o = lf.orderings.get(got.lead) if got.lead is not None else None
-    record = (o.right, o.pairs) if o is not None and o.pairs else None
+    score = next((it for it in lf.items if it[0] == insights.SCORE), None)
+    if score is not None and insights.SCORE in got.right:
+        _, _, cks = score
+        line = wording.called_score_head(
+            r, wording.called_order(measured_groups(cks)),
+            wording.called_landing(*score_landing(cks)),
+            [learned_label(opt, n) for n in got.off])
+        return _short(opt, line)
+    if got.verdict == learned.CALLED and got.lead is not None:
+        # The Overall score not drawn (all measured the same): the lead
+        # measurement's line, never "highest".
+        lead = next(it for it in lf.items if it[0] == got.lead)
+        line = (f"**{wording.ROUND_CAP} {r}: order called right.** " + wording.called_measure_line(
+            learned_label(opt, got.lead), lead[1].right, lead[1].counted, True))
+        return _short(opt, line)
     line = wording.called_answer(
-        r, got.verdict, learned_label(opt, got.lead) if got.lead else None, record, got.top,
+        r, got.verdict, None, None, None,
         [learned_label(opt, n) for n in got.right], [learned_label(opt, n) for n in got.off])
     return _short(opt, line)
 
 
+def round_predicted_frame(opt, checks, r):
+    """Results' Round view (persona fixes): per formulation of Round `r`,
+    the Overall score and each measurement Predictable before that Round
+    (as Called it? picks them), Measured beside Predicted — the Round-ahead
+    forecast and its 95 % range. None when nothing was checked."""
+    if not checks or r not in insights._ordered_rounds(checks):
+        return None
+    earlier = learned.before(checks, r)
+    picked = [n for n, o in learned.orderings(opt, earlier).items()
+              if n != insights.SCORE and o.verdict == learned.PREDICTABLE]
+    rows = []
+    for name in [insights.SCORE] + picked:
+        _, hi = insights._range_of(opt, name)
+        d = 1 if name == insights.SCORE else max(1, decimals(opt, name))
+        for c in learned.round_checks(checks, name, r):
+            rows.append({
+                _say(opt, wording.RESULTS_RESULT_COLUMN): learned_label(opt, name),
+                _say(opt, wording.FORMULATION_CAP): int(c.formulation),
+                _say(opt, wording.MEASURED_COLUMN): f"{c.measured:.{d}f}",
+                _say(opt, wording.RESULTS_PREDICTED_COLUMN):
+                    f"{capped(c.predicted, hi, d)} ({capped(c.low, hi, d)}–{capped(c.high, hi, d)})"})
+    return pd.DataFrame(rows) if rows else None
+
+
+def called_so_far(opt, lf):
+    """The cumulative record of the results drawn, a second short line:
+    'So far: Overall 10 of 11 pairs, Consistency 8 of 8.'"""
+    cells = []
+    for name in learned.shown(lf.items):
+        o = lf.orderings.get(name[0])
+        if o is None:
+            continue
+        label = wording.CALLED_OVERALL if name[0] == insights.SCORE else learned_label(opt, name[0])
+        cells.append((label, o.right, o.pairs))
+    return _say(opt, wording.called_so_far(cells))
+
+
 def called_detail(opt, lf):
-    """Called it?'s "?": per result its pairs (a ✓ or ✗ each), the top
-    pick, the forecast values and 95 % ranges, the Overall score's landing
-    (above its range: better than forecast); the panels left out (all
-    measured the same); then the rule."""
+    """Called it?'s "?": per result its order line ('pairs in the right
+    order'; never "highest" for a measurement with a target), its pairs (a
+    ✓ or ✗ each), the forecast values and 95 % ranges, the Overall score's
+    landing (above its range: better than forecast); the panels left out
+    (all measured the same); then the rule."""
     out = []
     for name, call, cks in lf.items:
         label = learned_label(opt, name)
         if learned.all_tied(cks):
             out.append(wording.called_tied(label))
             continue
-        line = wording.called_pairs(label, call.right, call.counted, len(call.pairs))
+        line = wording.called_measure_line(label, call.right, call.counted,
+                                           learned.order_held(call))
         if name == insights.SCORE and sum(lf.landing):
             line = line.rstrip(".") + "; " + wording.called_range(*lf.landing)
         bits = [wording.called_pair(p.high, p.low, p.right) for p in call.pairs]
-        top = wording.called_top(call.top_predicted, call.top_measured, call.top_right)
+        top = ("" if _is_target(opt, name)
+               else wording.called_top(call.top_predicted, call.top_measured, call.top_right))
         if top:
             bits.append(top)
         _, hi = insights._range_of(opt, name)
@@ -5569,11 +5748,16 @@ def called_chart(opt, lf):
             align="right", dx=-9, fontSize=FONT_LABEL, color=ink).encode(x=x, y=y, text="text:N")
         right = lab.transform_filter("datum.x == 1").mark_text(
             align="left", dx=9, fontSize=FONT_LABEL, color=ink).encode(x=x, y=y, text="text:N")
-        heads = alt.Chart(pd.DataFrame({
-            "x": [0, 1], "y": [_SLOPE_HEADS, _SLOPE_HEADS],
-            "t": [_say(opt, wording.CALLED_TIP_FORECAST), _say(opt, wording.CALLED_TIP_MEASURED)]})
-        ).mark_text(fontSize=FONT_SMALL, color=muted()).encode(x=x, y=y, text="t:N")
-        layers = [line, dots, left, right, heads] + ([leaders] if len(lead) else [])
+        # Persona fixes: "Forecast order" / "Measured order", each set off
+        # from the middle so the two never meet at 11 px.
+        head_frame = pd.DataFrame({
+            "x": [0.35, 0.65], "y": [_SLOPE_HEADS, _SLOPE_HEADS],
+            "t": [_say(opt, wording.CALLED_HEAD_FORECAST), _say(opt, wording.CALLED_HEAD_MEASURED)]})
+        heads_l = alt.Chart(head_frame).transform_filter("datum.x < 0.5").mark_text(
+            fontSize=FONT_SMALL, color=muted(), align="right").encode(x=x, y=y, text="t:N")
+        heads_r = alt.Chart(head_frame).transform_filter("datum.x > 0.5").mark_text(
+            fontSize=FONT_SMALL, color=muted(), align="left").encode(x=x, y=y, text="t:N")
+        layers = [line, dots, left, right, heads_l, heads_r] + ([leaders] if len(lead) else [])
         panels.append(alt.layer(*layers).properties(
             width=width, height=CALLED_H,
             title=alt.TitleParams(_say(opt, learned_label(opt, name)), fontSize=FONT_TITLE,
@@ -5595,6 +5779,9 @@ def _called_top(opt, slot, lf):
         return
     with slot.container(key=CALLED_KEY, gap="small"):
         st.markdown(line, help=called_detail(opt, lf))
+        so_far = called_so_far(opt, lf)
+        if so_far:
+            st.markdown(so_far)
         try:
             chart = called_chart(opt, lf)
         except Exception:
@@ -5620,8 +5807,9 @@ def _learned_section(opt, slot, computed, facts):
     not_yet = lf.names_by(learned.NOT_YET)
     named = [(learned_label(opt, n), o) for n, o in lf.orderings.items()]
     help_ = wording.learned_help(
-        wording.LEARNED_RULE, lf.skill_line,
-        wording.learned_counts([(n, o.right, o.pairs, o.chance) for n, o in named]),
+        wording.LEARNED_RULE, _expert_lines(lf),
+        "\n\n".join(t for t in (getattr(lf, "plain_line", ""), wording.learned_counts(
+            [(n, o.right, o.pairs, o.chance) for n, o in named])) if t),
         wording.learned_tops([(n, o.top_right, o.top_rounds, o.top_chance) for n, o in named]))
     with slot.answer.container():
         st.markdown(_say(opt, wording.learned_answer(predictable, partly, not_yet)),
@@ -5636,9 +5824,17 @@ def _learned_section(opt, slot, computed, facts):
             st.caption(_say(opt, wording.LEARNED_CAPTION), help=_say(opt, help_))
 
 
-def learned_card(opt, lf, card):
+def _expert_lines(lf):
+    """'For experts: …': the skill figures and the method's terms of art."""
+    return wording.for_experts(" ".join(t for t in (lf.skill_line, wording.EXPERT_TERMS) if t))
+
+
+def learned_card(opt, lf, card, facts=None):
     """The strip's Model item from the section's verdicts; the old card's
-    warning lines (red) kept."""
+    warning lines (red) kept. Its "?" (persona fixes): a plain sentence
+    first, the records in plain words, the rule, the terms of art last;
+    the old Predictions card's sentence only when it warns (its "still very
+    uncertain" contradicted Predicts)."""
     word, line = wording.learned_strip(lf.names_by(learned.PREDICTABLE),
                                        lf.names_by(learned.PARTLY))
     old = card.lines if card is not None else []
@@ -5646,16 +5842,35 @@ def learned_card(opt, lf, card):
     # The old card's further lines (a Repeat request, the measurements'
     # misses) stay, under the names: the strip shows a warning or the names.
     rest = [(t, w) for t, w in old[1:] if not w]
-    plain = wording.learned_answer(lf.names_by(learned.PREDICTABLE), lf.names_by(learned.PARTLY),
-                                   lf.names_by(learned.NOT_YET)).replace("**", "")
-    # As every strip "?": the plain sentence, the evidence, the exact rule.
+    plain = wording.model_plain(lf.names_by(learned.PREDICTABLE), lf.names_by(learned.PARTLY),
+                                lf.names_by(learned.NOT_YET))
     ev = wording.learned_evidence(
-        [(learned_label(opt, n), o.right, o.pairs) for n, o in lf.orderings.items()],
-        lf.skill_line)
-    help_ = f"{plain}\n\n{ev}\n\n{wording.LEARNED_RULE}"
-    if card is not None and card.help:
-        # The Overall score's range record and its diagnosis, as before.
+        [(learned_label(opt, n), o.right, o.pairs) for n, o in lf.orderings.items()])
+    record = getattr(lf, "plain_line", "")
+    h = getattr(facts, "headline", None) if facts is not None else None
+    if h is not None and getattr(h, "total", 0):
+        record = (record + " " + wording.single_record(h.inside, h.total)).strip()
+    if rest and facts is not None and getattr(facts, "best", None) is not None:
+        # The card's Repeat request, said plainly (it sits in What next?).
+        record += " " + wording.next_plain_repeat_ask(facts.best.formulation,
+                                                      values=not opt.has_ingredients())
+    # As every strip "?": plain first (one paragraph), the evidence, the rule.
+    help_ = "\n\n".join(t for t in (f"{plain} {record}".strip(), ev, wording.LEARNED_RULE) if t)
+    if card is not None and card.help and warns:
+        # A warning stays explained, as before.
         help_ += f"\n\n{wording.LEARNED_RANGE_RECORD}\n\n{card.help}"
+    expert = _expert_lines(lf)
+    if card is not None and card.help and not warns and facts is not None:
+        # The old card's exact rule and diagnosis stay, in the experts'
+        # line; its plain sentence (it read "still very uncertain" beside
+        # Predicts) does not.
+        try:
+            tip = tooltip_for(opt, "predictions", facts)
+        except Exception:
+            tip = None
+        if tip:
+            expert += " " + " ".join(tip.split("\n\n"))
+    help_ += "\n\n" + expert
     return Card(_say(opt, word), warns + [(_say(opt, line), False)] + rest, None,
                 _say(opt, help_))
 
@@ -5705,7 +5920,13 @@ def round_forecast_lines(opt, checks, rows=None):
                 continue
             cells.append(f"F{no} {capped_range(p, top)}")
             means[no] = p.raw_mean if p.raw_mean is not None else p.mean
-        if cells:
+        if cells and _is_target(opt, name) and len(means) > 1:
+            # Persona fixes: a measurement with a target has no "best"
+            # highest; its forecast order, high to low, said neutrally.
+            order = sorted(means, key=means.get, reverse=True)
+            lines.append(wording.forecast_line(name, cells, None)
+                         + wording.forecast_order_tail(order))
+        elif cells:
             lines.append(wording.forecast_line(name, cells, learned.top_of(means)
                                                if len(means) > 1 else None))
     return lines, wording.forecast_help(learned.round_start(opt), opt.pending_batch_no)
@@ -5740,10 +5961,51 @@ def _preview_count(opt):
     return min(10, max(1, n))
 
 
+class PreviewRow(tuple):
+    """(k, role, score text, changes) as before, plus (persona fixes) the
+    plain line that sets it apart, the predicted mean and the recipe."""
+
+    def __new__(cls, k, role, text, changes, apart="", mean=None, recipe=None):
+        row = super().__new__(cls, (k, role, text, changes))
+        row.apart, row.mean, row.recipe = apart, mean, recipe
+        return row
+
+
+def apart_text(opt, recipe, role):
+    """What sets a suggestion apart (persona fixes), from its role and its
+    two largest changes against Best so far (FoodOptimizer._variable_deltas):
+    'Explores: less Tapioca starch and Nutritional yeast than anything
+    tested' when they go below or above every formulation recorded; else
+    against Best so far."""
+    best = opt._best_recipe_index()
+    if best is None:
+        return wording.apart_line(role, [])
+    here, there = insights.at_total(opt, recipe), insights.start_recipe(opt, best)
+    tested = opt._recorded_before(None)
+    variables = opt._by_name()
+    out = []
+    for name, delta in opt._variable_deltas(here, there)[:2]:
+        setting = variables[name].get('category', 'ingredient') != 'ingredient'
+        word = ("higher" if delta > 0 else "lower") if setting else (
+            "more" if delta > 0 else "less")
+        absent = variables[name].get('_absent_value', 0.0)
+        vals = [float(r.get(name, absent)) for r in tested]
+        v = float(here.get(name, absent))
+        tol = 1e-6 * max(1.0, abs(v))
+        beyond = bool(vals) and ((delta < 0 and v < min(vals) - tol)
+                                 or (delta > 0 and v > max(vals) + tol))
+        out.append((word, name, beyond))
+    far = [(w, n) for w, n, b in out if b]
+    if far:
+        return wording.apart_line(role, far, beyond=True)
+    return wording.apart_line(role, [(w, n) for w, n, _ in out])
+
+
 def preview_rows(opt, computed):
-    """The next suggestions as Generate would make them now: [(k, role,
-    score text, top-2 changes against Best so far)], cached per setup and
-    next Formulation number; None when the preview failed."""
+    """The next suggestions as Generate would make them now: [PreviewRow
+    (k, role, score text, top-2 changes against Best so far; .apart,
+    .mean, .recipe)], cached per setup and next Formulation number; None
+    when the preview failed."""
     n = _preview_count(opt)
     key = (insights.setup_key(opt), opt.next_formulation_no, n)
     hit = st.session_state.get(PREVIEW_KEY)
@@ -5769,13 +6031,48 @@ def preview_rows(opt, computed):
         for row in rows:
             p = preds.get(row["formulation"], {}).get(insights.SCORE)
             text = "—" if p is None else capped_range(insights.widened(score, p, factor), top, 0)
-            out.append((row["formulation"], opt.suggestion_role(row["recipe"]), text,
-                        opt.vs_best_text(row["recipe"], n=2, max_changes=2)))
+            role = opt.suggestion_role(row["recipe"])
+            try:
+                apart = apart_text(opt, row["recipe"], role)
+            except Exception:
+                apart = wording.apart_line(role, [])
+            out.append(PreviewRow(row["formulation"], role, text,
+                                  opt.vs_best_text(row["recipe"], n=2, max_changes=2),
+                                  apart, None if p is None else float(p.mean), row["recipe"]))
     st.session_state[PREVIEW_KEY] = (key, out)
     return out
 
 
-def _next_preview(opt, places, computed):
+def learning_round(opt, rows):
+    """Every suggestion's predicted Overall score at or below Best so far
+    (to the tenth): a learning round (persona fixes)."""
+    best = opt.best_index()
+    means = [r.mean for r in rows or () if getattr(r, "mean", None) is not None]
+    if best is None or not means or len(means) != len(rows):
+        return False
+    return all(round(m, 1) <= round(float(opt.Y_history[best]), 1) for m in means)
+
+
+def widen_beyond(opt, step, rows):
+    """Next advises widening a Lowest or Highest of X while a suggestion
+    moves X away from that limit (persona fixes): the one line saying the
+    suggestions stay inside the limits."""
+    b = getattr(step, "binding", None) if step is not None and step.kind == "close" else None
+    best = opt._best_recipe_index()
+    if b is None or b.kind not in ("lowest", "highest") or best is None:
+        return False
+    there = insights.start_recipe(opt, best)
+    for r in rows or ():
+        if getattr(r, "recipe", None) is None:
+            continue
+        here = insights.at_total(opt, r.recipe)
+        d = float(here.get(b.name, 0.0)) - float(there.get(b.name, 0.0))
+        if (b.kind == "lowest" and d > 1e-9) or (b.kind == "highest" and d < -1e-9):
+            return True
+    return False
+
+
+def _next_preview(opt, places, computed, facts=None):
     """What next?'s preview of the next suggestions (no Round open): drawn
     last, under a spinner in its own place, once per setup."""
     if opt.pending_batch or computed is None or computed.get("failed"):
@@ -5790,12 +6087,22 @@ def _next_preview(opt, places, computed):
             st.caption(_say(opt, wording.LEARNED_PREVIEW_FAILED))
             return
         best = opt.best_formulation_no()
-        st.markdown(f"**{_say(opt, wording.LEARNED_PREVIEW_TITLE)}**",
-                    help=_say(opt, wording.preview_help(len(rows), best)))
-        cols = [_say(opt, c) for c in wording.PREVIEW_COLUMNS]
-        frame = pd.DataFrame([dict(zip(cols, (k, role, text, changes)))
-                              for k, role, text, changes in rows])
-        st.dataframe(frame, hide_index=True)
+        from food_bo import CLOSE_TO_THE_BEST, FAR_FROM_TESTED
+        help_ = (wording.preview_help(len(rows), best) + "\n\n" + wording.roles_help(
+            f"{100 * CLOSE_TO_THE_BEST:.0f}", f"{100 * FAR_FROM_TESTED:.0f}"))
+        st.markdown(f"**{_say(opt, wording.LEARNED_PREVIEW_TITLE)}**", help=_say(opt, help_))
+        # Persona fixes: a learning round said as one, above the table.
+        if learning_round(opt, rows):
+            st.caption(_say(opt, wording.LEARNING_ROUND))
+        cols = [_say(opt, c) for c in (wording.PREVIEW_COLUMNS[0], wording.PREVIEW_APART_COLUMN,
+                                       *wording.PREVIEW_COLUMNS[2:])]
+        frame = pd.DataFrame([dict(zip(cols, (r[0], _say(opt, getattr(r, "apart", "") or r[1]),
+                                              r[2], r[3]))) for r in rows])
+        # Persona fixes: a static table that wraps its words, so the line
+        # that sets each apart and its changes read whole at 820 px.
+        st.table(frame.set_index(cols[0]))
+        if widen_beyond(opt, getattr(facts, "next", None), rows):
+            st.markdown(_say(opt, wording.WIDEN_BEYOND))
         st.caption(_say(opt, wording.LEARNED_PREVIEW_CAPTION))
 
 
@@ -5867,7 +6174,7 @@ def _progress_body(opt, slot):
                 st.caption(_say(opt, wording.STORY_TARGET_CAPTION),
                            help=_say(opt, wording.story_target_help(
                                int(opt.formulation_ids[s[0]]), int(opt.formulation_ids[b]),
-                               s[1])))
+                               s[1])) + "\n\n" + score_built_text(opt))
 
 
 def _drives_section(opt, slot, computed, facts):

@@ -273,10 +273,37 @@ def _round_link(opt):
     if (opt.pending_batch or last is None
             or last in insights.rounds_not_checked(opt)
             or last not in {r for r, _ in insights.round_order(opt)}):
-        return
+        return False
     link(wording.for_project(opt, wording.round_measured_against_predicted(last)),
          wording.TAB_INSIGHTS, section=ui_insights.TRUST_SECTION, fold=ui_insights.EACH_KEY,
          key="link_round_checked")
+    return True
+
+
+def _round_predicted(opt):
+    """Persona fixes: under the link, the last Round's forecast beside what
+    was measured — a Predicted column (the Round-ahead forecast and its 95 %
+    range) next to Measured, for the Overall score and the Predictable
+    measurements. Read from the Review's checks; fitted here only when they
+    are not worked out yet."""
+    last = opt.last_batch_no()
+    checks = ui_insights.cached_checks(opt)
+    if not checks or last not in insights._ordered_rounds(checks):
+        try:
+            with st.spinner(wording.for_project(opt, wording.RESULTS_PREDICTED_CAPTION)):
+                checks = ui_insights.checks_here(opt)
+        except Exception:
+            return
+    try:
+        frame = ui_insights.round_predicted_frame(opt, checks, last)
+    except Exception:
+        frame = None
+    if frame is None or frame.empty:
+        return
+    st.dataframe(frame, hide_index=True, key="round_predicted",
+                 height=table_height(len(frame)))
+    st.caption(wording.for_project(opt, wording.RESULTS_PREDICTED_CAPTION),
+               help=wording.for_project(opt, wording.results_predicted_help(last)))
 
 
 def _progress_line(opt):
@@ -419,7 +446,8 @@ def _best(opt):
         line = _progress_line(opt)
         if line:
             st.caption(wording.for_project(opt, line))
-        _round_link(opt)
+        if _round_link(opt):
+            _round_predicted(opt)
         for text in _waiting_lines(opt):
             st.caption(wording.for_project(opt, text))
 

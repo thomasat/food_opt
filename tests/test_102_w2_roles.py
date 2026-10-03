@@ -149,7 +149,10 @@ def test_the_cold_start_and_own_rows_keep_their_kinds(tmp_path, monkeypatch):
     opt = _opt(tmp_path, monkeypatch, "own")
     assert opt.compared_with_text({"Water": 90.0, "Wheat gluten": 20.0}, own=True) == (
         "Your own formulation · Water +50.00 g")
-    assert bo_views.role(opt, {"recipe": {"Water": 90.0}, "note": "Mine"}) == (
+    # Persona fixes: a note of the user's own is the row's source.
+    assert bo_views.role(opt, {"recipe": {"Water": 90.0}, "note": "Mine"}) == "Mine"
+    assert bo_views.role(opt, {"recipe": {"Water": 90.0},
+                               "note": wording.OWN_FORMULATION_NOTE}) == (
         wording.OWN_FORMULATION_KIND)
 
 
