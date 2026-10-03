@@ -63,9 +63,9 @@ EXPECTED = {
         # Review learned: Model's verdict word; the Overall score's red
         # coverage warning is kept (never folded).
         # The section repeats it in full under its answer.
-        [("Model", "Predicts", [":red[**3 / 16 missed**]",
-                                ":red[**Overall score: 3 / 16 missed**]",
-                                "Measurements miss more than expected"]),
+        # Review learned 2: the section repeats no old-card line; the red
+        # miss line stays in the strip.
+        [("Model", "Predicts", [":red[**3 / 16 missed**]"]),
          ("Progress", "Flat", ["87.8 → 90.1 of 100"]),
          ("Next", ":red[Check panel first]", [":red[**Before Round 6**]",
                                               ":red[**Formulation 11's Repeat: 10.5 lower**]"])],
@@ -75,9 +75,11 @@ EXPECTED = {
         # Review diagnosis ruling 2 (2026-10-02): the CV-widening rule no
         # longer says "Check your panel's consistency" without Repeat
         # evidence (Line C's one Repeat pair has 1 df); it asks for a Repeat.
-        [("Model", "Not yet", ["predictable", "Repeat Formulation 18 to check noise"]),
+        # Review learned 2: the Repeat request moved to What next?.
+        [("Model", "Not yet", ["predictable"]),
          ("Progress", "Within noise", ["87.3 → 89.8 of 100"]),
-         ("Next", "Record Round 6", ["4 formulations open", "Guided search, not a forecast"])],
+         ("Next", "Record Round 6", ["4 formulations open", "Guided search, not a forecast",
+                                     "Repeat Formulation 18 to check noise"])],
         "How the app chose Round 6", [_HIDDEN + wording.HERO_HIDDEN["noise"]]),
     D.UPGRADE: (
         "Review after Round 3 · 7 formulations · Formulation 8 waiting",
@@ -101,8 +103,7 @@ EXPECTED = {
         # Review four, ruling 1: the Overall score missed 4 of 16 (tail
         # 0.007): Off, on the score the suggestions use.
         # Review learned: Model's word; the red miss line kept.
-        [("Model", "Predicts", [":red[**4 / 16 missed**]",
-                                ":red[**Overall score: 4 / 16 missed**]"]),
+        [("Model", "Predicts", [":red[**4 / 16 missed**]"]),
          ("Progress", "Within noise", ["85.1 → 87.9 of 100"]),
          ("Next", "Record Round 6", ["4 trials open", "Round 7: Repeat Trial 21"])],
         "How the app chose Round 6", [_HIDDEN + wording.HERO_HIDDEN["skill"]]),

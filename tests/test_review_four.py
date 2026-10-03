@@ -250,11 +250,9 @@ def test_score_verdict_rule():
 # Overall score's red miss line is kept (never folded).
 CARDS = {
     D.LINE_A: ("Predicts", ["Firmness"]),
-    D.LINE_B: ("Predicts", [":red[**3 / 16 missed**]",
-                            ":red[**Overall score: 3 / 16 missed**]",
-                            "Measurements miss more than expected"]),
-    D.PROCESS_ONLY: ("Predicts", [":red[**4 / 16 missed**]",
-                                  ":red[**Overall score: 4 / 16 missed**]"]),
+    # Review learned 2: the section repeats no old-card line.
+    D.LINE_B: ("Predicts", [":red[**3 / 16 missed**]"]),
+    D.PROCESS_ONLY: ("Predicts", [":red[**4 / 16 missed**]"]),
     D.TIMING: ("Predicts", ["Firmness, Juiciness +2"]),
 }
 

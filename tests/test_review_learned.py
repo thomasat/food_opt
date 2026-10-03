@@ -8,18 +8,24 @@ checkable evidence, right after "Are we improving?".
 - Verdict: Predictable at a one-sided binomial p < 0.05 with at least 5
   pairs; Partly when it leans right (p < 0.20); Not yet otherwise or when
   it barely varies.
-- Stable effect: a 95 % posterior interval over the tested stretch that
-  excludes 0, and the same sign under the last 3 Round-ahead refits.
+- Clear effect (review learned 2, strict): a 95 % posterior interval over
+  the tested stretch that excludes 0, with one sign, in EACH of the last 4
+  Round-ahead refits; not in a moved-together pair; at least one noise SD.
+  Anything less names no effect; the section has no effects column.
 - Make a round's forecast before tasting: Predictable measurements only,
   never at or past the top of the Range, from the same models the Round's
   check uses.
-- Called it?: honest on a miss; above the range reads "better than
-  forecast".
+- Called it?: at the top, under the strip, as charts (forecast range, tick,
+  measured dot) with one answer line from the facts; honest on a miss;
+  above the range reads "better than forecast"; only once the project's
+  latest Round is scored.
+- The section: one answer line, the ordering chart, its caption; no table.
 - What next?: the next suggestions previewed on a copy, the project and
   the RNG untouched, the same as Generate.
 
 Synthetic: hand-made checks and the demo projects; no pilot data."""
 import copy
+import json
 import re
 
 import pytest
@@ -31,6 +37,7 @@ import insights
 import learned
 import ui_insights as U
 import wording
+from food_bo import FoodOptimizer
 from insights import Check, Prediction
 from tests import demo_projects as D
 from tests.test_app_ui import APP_PATH
@@ -150,8 +157,67 @@ def test_called_it_overall_score_landing_words():
     assert wording.called_pairs("Tangy", 0, 0, 3) == "Tangy: all measured the same, nothing to order."
 
 
+def _items(score_meas, firm_meas, score_pred=(90, 85, 80), firm_pred=(9, 8, 7)):
+    """Called it? items for Round 3: the Overall score and Firm, three
+    formulations (F7-F9) each, ranges ±1 (the score ±3)."""
+    sc = [_check(7 + k, 3, insights.SCORE, p, m, low=p - 3, high=p + 3)
+          for k, (p, m) in enumerate(zip(score_pred, score_meas))]
+    fm = [_check(7 + k, 3, "Firm", p, m) for k, (p, m) in enumerate(zip(firm_pred, firm_meas))]
+    checks = sc + fm
+    return [(n, learned.round_call(checks, n, 3), learned.round_checks(checks, n, 3))
+            for n in (insights.SCORE, "Firm")]
+
+
+def _answer(items):
+    got = learned.called_summary(items)
+    lab = lambda t: (t[0], "Overall score" if t[1] == insights.SCORE else t[1], *t[2:])
+    return got, wording.called_answer(3, got.verdict, None if got.good is None else lab(got.good),
+                                      [lab(m) for m in got.misses], got.above, "Overall score")
+
+
+def test_called_it_answer_when_called():
+    got, line = _answer(_items((91, 84, 79), (9.2, 8.1, 6.8)))
+    assert got.verdict == learned.CALLED and not got.misses
+    assert line == "**Round 3: called it.** F7 highest Firm; all in range."
+    assert _words(line) <= 10
+
+
+def test_called_it_above_the_range_is_better_than_forecast():
+    # F7's Overall score lands above its range: better than forecast, not a miss.
+    got, line = _answer(_items((97, 84, 79), (9.2, 8.1, 6.8)))
+    assert got.verdict == learned.CALLED and got.above == 1
+    assert line == "**Round 3: called it.** F7 highest Firm; 1 beat forecast."
+    # Below the range is a miss.
+    got, line = _answer(_items((91, 84, 70), (9.2, 8.1, 6.8)))
+    assert got.verdict == learned.CALLED_PARTLY
+    assert line == "**Round 3: partly.** F7 highest Firm; Overall score below range."
+
+
+def test_called_it_is_honest_on_a_miss_in_its_line():
+    # Firm in reverse order and out of range: said plainly.
+    got, line = _answer(_items((91, 84, 79), (6, 8.1, 9.5)))
+    assert got.verdict == learned.CALLED_PARTLY
+    assert ("order", "Firm") in got.misses and ("top", "Firm") in got.misses
+    assert line.startswith("**Round 3: partly.**") and "Firm order off" in line
+    # Everything wrong: missed.
+    got, line = _answer(_items((60, 65, 70), (5, 6.5, 10)))
+    assert got.verdict == learned.CALLED_MISSED
+    assert line.startswith("**Round 3: missed.**")
+
+
+def test_called_it_shows_only_for_the_latest_scored_round():
+    class _O:
+        batch_history = [1, 1, 2, 2]
+        pending_batch = None
+        pending_batch_no = None
+    o = _O()
+    assert learned.is_latest(o, 2) and not learned.is_latest(o, 1)
+    o.pending_batch, o.pending_batch_no = [{"formulation": 5}], 3   # Round 3 open
+    assert not learned.is_latest(o, 2)
+
+
 # ------------------------------------------------------------------ #
-#  Stable effects
+#  Clear effects (the strict rule)
 # ------------------------------------------------------------------ #
 
 @pytest.fixture(scope="module")
@@ -178,33 +244,83 @@ def test_refits_are_the_round_ahead_training_rows(line_a):
     assert refits[-1][1] == list(range(len(opt.Y_history)))
 
 
-@pytest.mark.parametrize("by_fit,stable", [
-    ([(0, 1, 0.5, 0.1)] * 3, True),                                           # all +, CI > 0
-    ([(0, 1, 0.5, 0.1), (0, 1, -0.2, 0.1), (0, 1, 0.5, 0.1)], False),         # a flip
-    ([(0, 1, 0.5, 0.1), (0, 1, 0.4, 0.1), (0, 1, 0.1, 0.1)], False),          # CI spans 0
-    ([None, (0, 1, 0.4, 0.1), (0, 1, 0.5, 0.1)], False),                      # not there
-    ([(0, 1, -0.5, 0.1)] * 3, True),                                          # all −
+@pytest.mark.parametrize("got,together,noise,steady,claim", [
+    ([(0, 1, 0.5, 0.1)] * 4, False, 0.3, True, True),                   # all +, every CI > 0
+    ([(0, 1, -0.5, 0.1)] * 4, False, 0.3, True, True),                  # all −
+    ([(0, 1, 0.5, 0.1)] * 3 + [(0, 1, -0.5, 0.1)], False, 0.3, False, False),   # sign flips
+    ([(0, 1, 0.1, 0.1)] + [(0, 1, 0.5, 0.1)] * 3, False, 0.3, False, False),    # an early CI spans 0
+    ([None] + [(0, 1, 0.5, 0.1)] * 3, False, 0.3, False, False),        # a refit without it
+    ([(0, 1, 0.5, 0.1)] * 4, True, 0.3, True, False),                   # moved together
+    ([(0, 1, 0.5, 0.1)] * 4, False, 0.6, True, False),                  # under one noise SD
+    ([(0, 1, 0.5, 0.1)] * 4, False, None, True, False),                 # noise unknown
 ])
-def test_stable_effect_rule(line_a, monkeypatch, by_fit, stable):
-    opt, _, _ = line_a
+def test_clear_effect_rule(got, together, noise, steady, claim):
+    assert learned.judge_effect(got, together, noise) == (steady, claim)
+
+
+def _patched_effects(opt, monkeypatch, by_fit, moved=(), noise=0.1):
     refits = learned.refit_rows(opt)
     sizes = [len(rows) for _, rows in refits]
 
     class _F:
+        model = None
+
         def __init__(self, name, rows):
             self.name, self.rows = name, rows
 
     monkeypatch.setattr(learned.insights, "fit", lambda o, n, rows: _F(n, rows))
-    first = learned._columns(opt)[0][1]
+    monkeypatch.setattr(learned.insights, "moved_pairs", lambda o: list(moved))
+    monkeypatch.setattr(learned, "noise_of", lambda o, n, f, c=(): noise)
+    var, first = learned._columns(opt)[0]
     monkeypatch.setattr(learned, "effect_of", lambda o, f, rows, col:
                         by_fit[sizes.index(len(rows))] if col == first else None)
-    eff = learned.effects(opt)
-    got = [e for e in eff[insights.SCORE]]
-    assert len(got) == 1 and got[0].stable is stable
-    assert [e.stable for e in learned.stable(eff, insights.SCORE)] == ([True] if stable else [])
+    return var, learned.effects(opt)
 
 
-def test_effects_need_three_rounds(monkeypatch, line_a):
+def test_unstable_sign_names_no_effect(line_a, monkeypatch):
+    opt, _, _ = line_a
+    _, eff = _patched_effects(opt, monkeypatch, [(0, 1, 0.5, 0.1), (0, 1, -0.4, 0.1),
+                                                 (0, 1, 0.5, 0.1), (0, 1, 0.5, 0.1)])
+    assert len(eff[insights.SCORE]) == 1 and not eff[insights.SCORE][0].stable
+    assert learned.stable(eff, insights.SCORE) == []
+
+
+def test_moved_together_names_no_effect(line_a, monkeypatch):
+    opt, _, _ = line_a
+    var = learned._columns(opt)[0][0]
+    steady = [(0, 1, 0.5, 0.1)] * learned.STABLE_REFITS
+    _, eff = _patched_effects(opt, monkeypatch, steady, moved=[(var, "Other", 0.8)])
+    e = eff[insights.SCORE][0]
+    assert e.steady and e.together and not e.stable
+    assert learned.stable(eff, insights.SCORE) == []
+    # The same, not moved together: named.
+    _, eff = _patched_effects(opt, monkeypatch, steady)
+    assert [e.var for e in learned.stable(eff, insights.SCORE)] == [var]
+
+
+def test_too_small_names_no_effect(line_a, monkeypatch):
+    opt, _, _ = line_a
+    steady = [(0, 1, 0.5, 0.1)] * learned.STABLE_REFITS
+    _, eff = _patched_effects(opt, monkeypatch, steady, noise=0.8)
+    assert learned.stable(eff, insights.SCORE) == []
+
+
+def test_no_claim_leaves_the_profiler_headline_to_its_own_rule(line_a, monkeypatch):
+    opt, _, _ = line_a
+    lf = U.LearnedFacts({insights.SCORE: learned.Ordering(insights.SCORE)},
+                        {insights.SCORE: [learned.Effect(insights.SCORE, "Salt", 0, 1, 0.5, 0.3,
+                                                         0.7, [1] * 4, False, True, True, 0.1)]},
+                        (None, []), None, (0, 0, 0), "")
+    assert U.learned_lead(opt, lf) is None
+
+
+def test_noise_stand_in_is_conservative():
+    checks = [_check(1, 2, "Firm", 5, 7), _check(2, 2, "Firm", 5, 3)]
+    assert learned.forecast_miss(checks, "Firm") == pytest.approx(2.0)
+    assert learned.forecast_miss(checks, "Other") is None
+
+
+def test_effects_need_four_rounds(monkeypatch, line_a):
     opt, _, _ = line_a
     monkeypatch.setattr(learned, "refit_rows", lambda o: [(1, [0, 1, 2, 3, 4])])
     assert learned.effects(opt) == {}
@@ -324,6 +440,19 @@ def screen(tmp_path_factory):
     mp.undo()
 
 
+def _section_leaves(at, title):
+    """The leaves of the section headed `title`, up to the next heading."""
+    out, inside = [], False
+    for el, _, _ in _leaves(at.tabs[3]):
+        t = _text(el)
+        if el.type == "markdown" and t.startswith("#### "):
+            inside = t[5:] == title
+            continue
+        if inside:
+            out.append(el)
+    return out
+
+
 def test_section_order(screen):
     assert U.SECTION_ORDER[:2] == ("progress", "predictions")
     assert U._QUESTIONS["predictions"] == wording.LEARNED_TITLE
@@ -332,8 +461,71 @@ def test_section_order(screen):
     text = " | ".join(_text(el) for el, _, _ in _leaves(screen.tabs[3]))
     # The old trust section is gone from the default view.
     assert wording.Q1_TITLE not in text
-    assert "Called it" in text or "called it" in text
     assert wording.learned_not_predictable([]).split(":")[0] in text
+    # Round 6 is open: no Called it? until it is scored.
+    assert "called it" not in text.lower() and "Round 5: partly" not in text
+
+
+def test_section_is_one_line_one_chart_one_caption(screen):
+    els = _section_leaves(screen, wording.LEARNED_TITLE)
+    kinds = [el.type for el in els]
+    assert not any(k in ("table", "dataframe", "arrow_data_frame", "arrow_table") for k in kinds)
+    texts = [_text(el) for el in els if _text(el)]
+    assert len(texts) == 2, texts            # the answer and the caption
+    assert texts[0].startswith("**Predicts") or texts[0].startswith("**Partly")
+    assert texts[1] == wording.LEARNED_CAPTION
+    assert sum("vega" in k or "chart" in k for k in kinds) == 1
+    every = " | ".join(_text(el) for el, _, _ in _leaves(screen.tabs[3]))
+    for gone in ("Learned effects", "Raised by", "Lowered by", "Picked the top one",
+                 "Measurements miss more than expected"):
+        assert gone not in every
+
+
+@pytest.fixture(scope="module")
+def scored(tmp_path_factory):
+    """Line A with Round 6 closed unrecorded: Round 5 is the latest scored."""
+    mp = pytest.MonkeyPatch()
+    mp.chdir(tmp_path_factory.mktemp("review-learned-scored"))
+    with bo_views.fresh():
+        state = json.loads((D.HERE / f"{D.LINE_A}.json").read_text())
+        opt = FoodOptimizer(state["project_name"])
+        opt.import_json(state)
+        opt._drop_pending_batch()
+        opt.save()
+        at = AppTest.from_file(APP_PATH, default_timeout=900)
+        at.session_state["_loaded_project"] = D.LINE_A
+        at.run()
+        at.session_state["main_tab"] = wording.TAB_INSIGHTS
+        at.run()
+        assert not at.exception, [e.message for e in at.exception]
+        yield at
+    mp.undo()
+
+
+def test_called_it_sits_at_the_top_as_charts(scored):
+    leaves = [(el, _text(el)) for el, _, _ in _leaves(scored.tabs[3])]
+    texts = [t for _, t in leaves]
+    first_heading = next(i for i, t in enumerate(texts) if t.startswith("#### "))
+    assert texts[first_heading] == f"#### {wording.Q2_TITLE}"
+    called = [i for i, t in enumerate(texts) if re.match(r"\*\*Round 5: (called it|partly|missed)\.\*\*", t)]
+    assert called and called[0] < first_heading
+    line = texts[called[0]]
+    assert _words(line) <= 12, line
+    # Visual: a chart and the caption, before the first heading.
+    between = leaves[called[0] + 1:first_heading]
+    assert any("vega" in el.type or "chart" in el.type for el, _ in between)
+    assert wording.CALLED_CAPTION in [t for _, t in between]
+    # The pairs, one ✓ or ✗ each, are in its "?", not on the page.
+    el = leaves[called[0]][0]
+    assert "✓" in el.help or "✗" in el.help or "tie" in el.help
+    assert not any("✓" in t or "✗" in t for t in texts)
+
+
+def test_called_chart_is_at_most_three_small_panels(scored):
+    # Any LearnedFacts the scored screen worked out: its chart's panels.
+    lf = scored.session_state[U.LEARNED_KEY][1]
+    assert 1 <= len(lf.items) <= 1 + learned.CALLED_PANELS
+    assert lf.items[0][0] == insights.SCORE
 
 
 def test_strip_reads_the_model_verdict(screen):
@@ -352,8 +544,17 @@ def test_wording_passes_banned_and_limits():
     texts = [wording.LEARNED_TITLE, wording.LEARNED_STRIP_LABEL, *wording.LEARNED_WORDS.values(),
              *wording.LEARNED_REASONS.values(), wording.LEARNED_COL_RESULT,
              wording.LEARNED_COL_VERDICT, wording.LEARNED_COL_PAIRS, wording.LEARNED_COL_TOP,
-             wording.LEARNED_COL_EFFECTS, wording.LEARNED_CHART_X, wording.LEARNED_CHANCE,
-             wording.LEARNED_CAPTION, wording.LEARNED_EFFECTS_CAPTION, wording.LEARNED_NONE_YET,
+             wording.LEARNED_CHART_X, wording.LEARNED_CHANCE,
+             wording.LEARNED_CAPTION, wording.LEARNED_NONE_YET,
+             wording.CALLED_CAPTION, wording.CALLED_RULE, *wording.CALLED_WORDS.values(),
+             wording.CALLED_TIP_FORECAST, wording.CALLED_TIP_MEASURED,
+             wording.called_answer(6, "partly", ("top", "Firmness", 18),
+                                   [("range", "Juiciness", 1)], 0, "Overall score"),
+             wording.called_answer(6, "called", ("order", "Tangy"), [], 2, "Overall score"),
+             wording.called_answer(6, "missed", None, [("order", "Firmness")], 0,
+                                   "Overall score"),
+             wording.learned_counts([("Overall score", 10, 11, 5.5)]),
+             wording.learned_tops([("Overall score", 3, 4, 1.7)]),
              wording.LEARNED_FORECAST_TITLE, wording.LEARNED_FORECAST_NONE,
              wording.LEARNED_PREVIEW_TITLE, wording.LEARNED_PREVIEW_CAPTION,
              wording.LEARNED_RULE, wording.LEARNED_TOP_RULE, wording.LEARNED_STABLE_RULE,
@@ -368,7 +569,7 @@ def test_wording_passes_banned_and_limits():
         assert not any(p.search(t) for p in _BANNED), t
         assert not re.search(r"\bgain\b", t, re.I), t
     # Captions at most 8 words, labels at most 5, the strip at most 6.
-    for c in (wording.LEARNED_CAPTION, wording.LEARNED_EFFECTS_CAPTION,
+    for c in (wording.LEARNED_CAPTION, wording.CALLED_CAPTION,
               wording.LEARNED_PREVIEW_CAPTION, wording.LEARNED_FORECAST_NONE):
         assert _words(c) <= 8, c
     for label in (wording.LEARNED_STRIP_LABEL, wording.LEARNED_COL_PAIRS, wording.LEARNED_COL_TOP,

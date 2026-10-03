@@ -8918,11 +8918,9 @@ LEARNED_COL_RESULT = "Result"
 LEARNED_COL_VERDICT = "Verdict"
 LEARNED_COL_PAIRS = "Ordered right before tasting"
 LEARNED_COL_TOP = "Picked the top one"
-LEARNED_COL_EFFECTS = "Learned effects"
 LEARNED_CHART_X = "Pairs ordered right (%)"
 LEARNED_CHANCE = "Chance"
 LEARNED_CAPTION = "Dot: share right. Bar: 95 % interval."
-LEARNED_EFFECTS_CAPTION = "Effects named only when steady 3 Rounds."
 LEARNED_NONE_YET = "Nothing to check yet: needs a scored Round."
 LEARNED_FORECAST_TITLE = "Forecast before tasting"
 LEARNED_FORECAST_NONE = "No measurement predictable yet."
@@ -8980,16 +8978,6 @@ def learned_top(right, rounds, chance):
     return f"{right} of {rounds} Rounds (chance {chance:.1f})"
 
 
-def learned_effects(raised, lowered):
-    """'Raised by Tapioca starch, Xanthan gum. Lowered by Salt.'; '—'."""
-    parts = []
-    if raised:
-        parts.append(f"Raised by {', '.join(raised)}")
-    if lowered:
-        parts.append(f"Lowered by {', '.join(lowered)}")
-    return ". ".join(parts) + "." if parts else "—"
-
-
 def learned_effect_tip(var, name, lo, hi, mean, low, high):
     """One effect's numbers, for the "?"."""
     sign = lambda v: f"{v:+.2f}".replace("-", "−")
@@ -9008,10 +8996,24 @@ def learned_not_predictable(names):
     return f"{NOT_PREDICTABLE_YET}: {', '.join(names)}."
 
 
-def learned_help(pairs_rule, skill_line):
-    """The section answer's "?": the rule, then the Overall score's expert
-    line."""
-    return "\n\n".join(t for t in (pairs_rule, skill_line) if t)
+def learned_help(pairs_rule, skill_line, counts="", tops=""):
+    """The section answer's "?": the counts, the top picks, the rule, then
+    the Overall score's expert line."""
+    return "\n\n".join(t for t in (counts, tops, pairs_rule, skill_line) if t)
+
+
+def learned_counts(rows):
+    """'Ordered right before tasting: Overall score 10 of 11 pairs (chance
+    5.5), …' from [(name, right, pairs, chance)]."""
+    cells = [f"{n} {learned_pairs(r, p, c)}" for n, r, p, c in rows if p]
+    return f"{LEARNED_COL_PAIRS}: {'; '.join(cells)}." if cells else ""
+
+
+def learned_tops(rows):
+    """'Picked the top one: Overall score 3 of 4 Rounds (chance 1.7); …'
+    from [(name, right, rounds, chance)]."""
+    cells = [f"{n} {learned_top(r, k, c)}" for n, r, k, c in rows if k]
+    return f"{LEARNED_COL_TOP}: {'; '.join(cells)}." if cells else ""
 
 
 LEARNED_RULE = ("Each Round's formulations are forecast before tasting, from the formulations "
@@ -9043,16 +9045,68 @@ def learned_skill_line(inside, total, vs_mean, vs_best, n):
     return line.replace("−0.", "−0.").replace("-", "−")
 
 
-LEARNED_STABLE_RULE = ("An effect is named only when it is steady: moving that ingredient or setting "
-                       "from the 10th to the 90th percentile of its tested amounts, the other "
-                       "amounts as tested, changes the prediction with a 95 % posterior interval "
-                       "that excludes 0, and in the same direction under the models fitted "
-                       "through each of the last 3 Rounds.")
+LEARNED_STABLE_RULE = ("An effect is named only when all three are true. 1: moving that ingredient or "
+                       "setting from the 10th to the 90th percentile of its tested amounts, the "
+                       "other amounts as tested, changes the prediction with a 95 % posterior "
+                       "interval that excludes 0, in the same direction, under each of the "
+                       "models fitted through the last 4 Rounds. 2: it did not move together "
+                       "with another row (|r| ≥ 0.7). 3: the change is at least one noise SD "
+                       "of that result (its Repeats' SD; without Repeats, the larger of the "
+                       "model's fitted noise and the forecasts' typical miss). Otherwise no "
+                       "effect is named.")
 
 
 def called_title(round_no):
     """'Round 6: called it?'"""
     return f"Round {round_no}: called it?"
+
+
+CALLED_TIP_FORECAST = "Forecast"
+CALLED_TIP_MEASURED = "Measured"
+CALLED_WORDS = {"called": "called it", "partly": "partly", "missed": "missed"}
+CALLED_CAPTION = "Blue: forecast and 95 % range. Dot: measured."
+CALLED_RULE = ("Forecast before tasting, from the formulations scored before this Round; the "
+               "Overall score and each measurement predictable before it. Called it: every "
+               "pair in the forecast order, the top one picked, and every value inside its "
+               "95 % range. An Overall score above its range is better than forecast, not a "
+               "miss.")
+
+
+def called_good(good):
+    """The thing it got right: 'F18 highest Consistency'; 'Tangy order
+    right'."""
+    if good is None:
+        return ""
+    if good[0] == "top":
+        return f"F{good[2]} highest {good[1]}"
+    return f"{good[1]} order right"
+
+
+def called_miss(miss, score_name):
+    """'Creaminess order off'; 'Tangy top pick off'; 'Tangy outside range';
+    the Overall score: 'Overall score below range'."""
+    if miss[0] == "order":
+        return f"{miss[1]} order off"
+    if miss[0] == "top":
+        return f"{miss[1]} top pick off"
+    return f"{miss[1]} {'below' if miss[1] == score_name else 'outside'} range"
+
+
+def called_answer(round_no, verdict, good, misses, above, score_name):
+    """Called it?'s answer, at most about 10 words: '**Round 6: called it.**
+    F18 highest Consistency; 2 beat forecast.'; '**Round 6: partly.**
+    F18 highest Consistency; Tangy outside range.'; '**Round 6: missed.**
+    Consistency order off.'"""
+    head = f"**Round {round_no}: {CALLED_WORDS[verdict]}.**"
+    if verdict == "called":
+        rest = "all in range" if not above else f"{above} beat forecast"
+        parts = [called_good(good), rest]
+    elif verdict == "partly":
+        parts = [called_good(good), called_miss(misses[0], score_name)]
+    else:
+        parts = [called_miss(m, score_name) for m in misses[:1]]
+    body = "; ".join(p for p in parts if p)
+    return f"{head} {body[:1].upper()}{body[1:]}." if body else head
 
 
 def called_pairs(name, right, counted, total):

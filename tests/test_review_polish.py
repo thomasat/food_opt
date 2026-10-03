@@ -57,8 +57,10 @@ def test_off_names_the_measurements(screens):  # noqa: F811
     # says Predictions); the plain line sits under the trust answer.
     # Review learned: the Model item keeps both lines; the section repeats
     # the red one in full under its answer.
-    assert p["lines"] == [":red[**3 / 16 missed**]", ":red[**Overall score: 3 / 16 missed**]",
-                          "Measurements miss more than expected"]
+    # Review learned 2 (owner: not wordy): the section repeats no old-card
+    # line; "Measurements miss more than expected" contradicted the
+    # per-measurement verdicts and is gone. The red line stays in the strip.
+    assert p["lines"] == [":red[**3 / 16 missed**]"]
 
 
 def test_the_method_is_one_click_away(screens):  # noqa: F811

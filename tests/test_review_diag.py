@@ -232,9 +232,10 @@ def test_cv_widening_asks_for_a_repeat_not_the_panel(demos, name, line):
     # One action, one card (demo build): when the Next card already asks
     # for this Repeat (process-only: "Round 7: Repeat Trial 21"), the
     # Predictions card does not say it again.
-    asked = any(line.split(" to check")[0] in t for t in n["lines"])
-    assert (line in p["lines"]) == (not asked), (p["lines"], n["lines"])
-    assert asked == (name == D.PROCESS_ONLY), n["lines"]
+    # Review learned 2: the request is What next?'s alone (the Model
+    # section repeats no old-card line).
+    asked = [t for t in n["lines"] if line.split(" to check")[0] in t]
+    assert len(asked) == 1 and line not in p["lines"], (p["lines"], n["lines"])
     texts = [p["word"], *p["lines"], p["help"]]
     assert not [t for t in texts if BENCH.search(t)]
     if name == D.PROCESS_ONLY:
@@ -319,7 +320,9 @@ def _check_without_repeat(at, name, word):
     assert not [t for t in texts if BENCH.search(t)], name
     p, _, n = cards(at)
     assert p["word"] == word
-    assert wording.CARD_MEASURES_MISS in p["lines"]
+    # Review learned 2: the line contradicted the per-measurement verdicts;
+    # gone from the section.
+    assert wording.CARD_MEASURES_MISS not in p["lines"]
     assert not any(line.startswith(":red[") for line in p["lines"])
     assert all(line != wording.CARD_DIAG["unexplained"] for line in p["lines"])
     asks = [line for line in p["lines"] + n["lines"]

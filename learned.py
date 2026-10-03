@@ -14,11 +14,16 @@ before its Round, then compared with what was measured.
   p < PARTLY_P, at least PARTLY_MIN pairs); Not yet otherwise, or when the
   measurement barely varies within Rounds (more than FLAT_TIES of its
   pairs measured equal).
-- Stable effect: moving one ingredient or setting from the 10th to the 90th
-  percentile of its tested amounts, averaged over the tested formulations,
-  under the model fitted through the latest Round, has a 95 % interval
-  that excludes 0; and its sign was the same under each of the last
-  STABLE_REFITS Round-ahead refits (fitted through Rounds k-2, k-1 and k).
+- Clear effect (review learned 2, strict): moving one ingredient or setting
+  from the 10th to the 90th percentile of its tested amounts, averaged
+  over the tested formulations, has a 95 % posterior interval that
+  excludes 0, with the same sign, under EACH of the last STABLE_REFITS
+  Round-ahead refits (fitted through Rounds k-3 … k); the row did not move
+  together with another (|r| >= insights.MOVED_R); and the latest change is
+  at least one noise SD of the result (its Repeats' SD when they give one,
+  else the larger of the latest model's fitted noise and the Round-ahead
+  forecasts' root-mean-square miss; the Overall score's assumed 1 point as
+  the floor). Anything less is no claim.
 - Before you taste: the open Round's forecast from the rows recorded before
   the Round, the very model its Round-ahead check later uses.
 - What next preview: FoodOptimizer.ask() on a deep copy whose saving is
@@ -40,7 +45,7 @@ MIN_PAIRS = 5
 PARTLY_P = 0.20
 PARTLY_MIN = 5
 FLAT_TIES = 0.5
-STABLE_REFITS = 3
+STABLE_REFITS = 4
 STRETCH = (0.10, 0.90)
 
 PREDICTABLE, PARTLY, NOT_YET = "predictable", "partly", "not_yet"
@@ -216,6 +221,70 @@ def called_it(opt, checks, r=None):
     return r, [(n, round_call(checks, n, r)) for n in picked]
 
 
+CALLED, CALLED_PARTLY, CALLED_MISSED = "called", "partly", "missed"
+CALLED_PANELS = 2       # Predictable measurements drawn beside the Overall score
+
+
+def round_checks(checks, name, r):
+    """`name`'s checks of Round `r`, by formulation (the Overall score:
+    fully measured only)."""
+    return sorted([c for c in checks if c.name == name and c.round == r
+                   and (name != insights.SCORE or c.fully_measured)],
+                  key=lambda c: c.formulation)
+
+
+def is_latest(opt, r):
+    """Whether Round `r` is the project's latest Round: none recorded or
+    opened after it (an open Round with nothing saved yet counts)."""
+    order = insights.round_order(opt)
+    pending = getattr(opt, "pending_batch_no", None) if getattr(opt, "pending_batch", None) else None
+    return bool(order) and order[-1][0] == r and pending in (None, r)
+
+
+@dataclass
+class CalledSummary:
+    """Called it?'s facts for one Round, from its items [(name, RoundCall,
+    [Check])] (the Overall score first): the verdict, the first thing it
+    got right (`good`: ('top', name, F) or ('order', name)), the misses
+    (('order', name), ('top', name) or ('range', name, n)) and how many
+    Overall scores landed above their range (better than forecast)."""
+    verdict: str
+    good: tuple | None
+    misses: list
+    above: int
+
+
+def called_summary(items):
+    """CalledSummary of `items`, measurements read before the Overall score
+    for the 'good' phrase. Order: every counted pair right; top: the one
+    forecast highest measured highest; range: every measured value inside
+    its 95 % range — an Overall score above its range is better than
+    forecast, not a miss."""
+    misses, goods, tops, above, inside = [], [], [], 0, 0
+    for name, call, cks in items:
+        if call.counted:
+            (goods if call.right == call.counted else misses).append(("order", name))
+        if call.top_right is True:
+            tops.append(("top", name, call.top_predicted))
+        elif call.top_right is False:
+            misses.append(("top", name))
+        up = [c for c in cks if name == insights.SCORE and c.measured > c.high]
+        above += len(up)
+        out = [c for c in cks if not c.inside and c not in up]
+        inside += sum(1 for c in cks if c.inside) + len(up)
+        if out:
+            misses.append(("range", name, len(out)))
+    good = (next((g for g in tops if g[1] != insights.SCORE), None) or
+            (tops[0] if tops else None) or (goods[0] if goods else None))
+    if not misses:
+        verdict = CALLED
+    elif goods or tops or inside:
+        verdict = CALLED_PARTLY
+    else:
+        verdict = CALLED_MISSED
+    return CalledSummary(verdict, good, misses, above)
+
+
 # ------------------------------------------------------------------ #
 #  Skill against two baselines (the expert line)
 # ------------------------------------------------------------------ #
@@ -266,7 +335,10 @@ class Effect:
     low: float          # its 95 % interval
     high: float
     signs: list         # the sign of the mean under each refit, oldest first
-    stable: bool
+    stable: bool        # all three parts of the clear-effect rule hold
+    steady: bool = False    # (a) every refit's interval excludes 0, one sign
+    together: bool = False  # (b) moved together with another row
+    noise: float | None = None  # (c) the result's noise SD it must reach
 
     @property
     def up(self):
@@ -339,17 +411,74 @@ def refit_rows(opt):
     return out[-STABLE_REFITS:]
 
 
-def effects(opt):
+def forecast_miss(checks, name):
+    """The Round-ahead forecasts' root-mean-square miss on `name` (the
+    Overall score: fully measured only), or None with no check."""
+    mine = [c for c in checks or () if c.name == name
+            and (name != insights.SCORE or c.fully_measured)]
+    if not mine:
+        return None
+    return math.sqrt(sum((c.measured - c.predicted) ** 2 for c in mine) / len(mine))
+
+
+def noise_of(opt, name, fitted, checks=()):
+    """The noise SD an effect on `name` must reach: its Repeats' SD when
+    they give one (insights.noise_yardstick); else the larger of the latest
+    model's fitted noise and the Round-ahead forecasts' typical miss (the
+    fitted noise alone runs small on few rows: a conservative stand-in); the
+    Overall score never under its assumed 1 point. None when nothing is
+    known (then no claim)."""
+    yard = insights.noise_yardstick(opt, name=name)
+    if yard.from_repeats and yard.value is not None:
+        value = float(yard.value)
+    else:
+        fitted_sd = None
+        if fitted is not None and fitted.model is not None:
+            try:
+                fitted_sd = insights.fitted_noise_sd(fitted.model)
+            except Exception:
+                fitted_sd = None
+        known = [v for v in (fitted_sd, forecast_miss(checks, name)) if v is not None]
+        value = max(known) if known else None
+    if name == insights.SCORE:
+        value = max(value or 0.0, insights.ASSUMED_NOISE_SD)
+    return value
+
+
+def judge_effect(got, together, noise):
+    """(steady, stable) by the clear-effect rule from `got`, each refit's
+    (lo, hi, mean, sd) oldest first (None where not worked out)."""
+    if not got or any(g is None for g in got):
+        return False, False
+    signs = set()
+    for _lo, _hi, mean, sd in got:
+        low, high = mean - insights.Z95 * sd, mean + insights.Z95 * sd
+        if not (low > 0 or high < 0):
+            return False, False
+        signs.add(1 if mean > 0 else -1)
+    steady = len(signs) == 1
+    big = noise is not None and abs(got[-1][2]) >= noise - 1e-12
+    return steady, steady and not together and big
+
+
+def effects(opt, checks=()):
     """{output: [Effect]} for every output and continuous row, each judged
-    by the stable-effect rule; {} with fewer than STABLE_REFITS Rounds."""
+    by the clear-effect rule (module docstring; `checks`, the Round-ahead
+    checks, give the noise stand-in); {} with fewer than STABLE_REFITS
+    Rounds."""
     refits = refit_rows(opt)
     if len(refits) < STABLE_REFITS:
         return {}
     cols = _columns(opt)
+    try:
+        moved = {n for a, b, _r in insights.moved_pairs(opt) for n in (a, b)}
+    except Exception:
+        moved = set()
     out = {}
     for name in names(opt):
         per = []
         fits = [insights.fit(opt, name, rows) for _, rows in refits]
+        noise = noise_of(opt, name, fits[-1], checks)
         for var, col in cols:
             got = []
             for f, (_, rows) in zip(fits, refits):
@@ -364,16 +493,17 @@ def effects(opt):
             low, high = mean - insights.Z95 * sd, mean + insights.Z95 * sd
             signs = [None if g is None else (1 if g[2] > 0 else -1 if g[2] < 0 else 0)
                      for g in got]
-            sign = signs[-1]
-            stable = (sign != 0 and (low > 0 or high < 0)
-                      and all(s == sign for s in signs))
-            per.append(Effect(name, var, lo, hi, mean, low, high, signs, stable))
+            together = var in moved
+            steady, ok = judge_effect(got, together, noise)
+            per.append(Effect(name, var, lo, hi, mean, low, high, signs, ok, steady, together,
+                              noise))
         out[name] = per
     return out
 
 
 def stable(effect_map, name):
-    """The stable effects on `name`, largest first."""
+    """The clear effects on `name` (all three parts of the rule), largest
+    first."""
     return sorted([e for e in effect_map.get(name, []) if e.stable],
                   key=lambda e: -abs(e.mean))
 
