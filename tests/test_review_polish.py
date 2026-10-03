@@ -42,7 +42,7 @@ def test_evidence_numbers_are_the_cards(screens):  # noqa: F811
     # Review learned: the Model item; its evidence the ordering counts,
     # then the Overall score's coverage and skill against both baselines.
     # Persona fixes 2: too-close pairs left out; Cook loss joins Firmness.
-    assert p["lines"] == ["Firmness, Cook loss"]
+    assert p["lines"] == ["Overall score, Firmness"]
     ev = p["help"].split("\n\n")[1]
     # Persona fixes 2: a result with no pair far enough apart is left out
     # (Line A's Overall score).

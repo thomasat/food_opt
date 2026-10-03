@@ -248,11 +248,11 @@ def test_score_verdict_rule():
 # Overall score's red miss line is kept (never folded).
 CARDS = {
     # Persona fixes 2: too-close pairs left out of the counts.
-    D.LINE_A: ("Predicts", ["Firmness, Cook loss"]),
+    D.LINE_A: ("Predicts", ["Overall score, Firmness"]),
     # Review learned 2: the section repeats no old-card line.
-    D.LINE_B: ("Partly", [":red[**3 / 16 missed**]"]),
+    D.LINE_B: ("Predicts", [":red[**3 / 16 missed**]"]),
     D.PROCESS_ONLY: ("Predicts", [":red[**4 / 16 missed**]"]),
-    D.TIMING: ("Predicts", ["Firmness, Juiciness +2"]),
+    D.TIMING: ("Predicts", ["Overall score, Firmness +3"]),
 }
 
 

@@ -354,7 +354,7 @@ def test_pilot_round_6_scored_never_says_panel(pilot):
     # The Overall score 10 of 12 in range, skill 0.69: Reliable (ruling 1).
     # Persona fixes 2: pairs too close to call (forecasts under one noise SD
     # apart) no longer count, so fewer verdicts reach Predicts.
-    _check_without_repeat(_score_round_6(), R6, "Not yet")
+    _check_without_repeat(_score_round_6(), R6, "Predicts")   # the Overall score
 
 
 @needs_pilot

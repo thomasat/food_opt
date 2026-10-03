@@ -401,7 +401,9 @@ def test_model_tooltip_opens_plain_and_ends_for_experts(monkeypatch):
     got = U.learned_card(None, lf, card, facts)
     assert got.word == "Predicts"
     tip = got.help
-    assert tip.startswith("The model put Consistency in the right order before tasting")
+    # Persona fixes 2: the Overall score named when Predictable.
+    assert tip.startswith("The model put Overall score and Consistency in the right order "
+                          "before tasting")
     assert "still very uncertain" not in tip
     assert "about as accurate as assuming each new formulation scores like your best" in tip
     assert "Single measurements: 27 of 36 landed in their predicted range." in tip

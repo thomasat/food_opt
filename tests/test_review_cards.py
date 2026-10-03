@@ -53,7 +53,8 @@ EXPECTED = {
         # (Firmness's within-Round order beat chance).
         # Persona fixes 2: pairs under one tasting noise apart left out;
         # Firmness and Cook loss still clearly beat chance.
-        [("Model", "Predicts", ["Firmness, Cook loss"]),
+        # Persona fixes 2: the Overall score named when Predictable.
+        [("Model", "Predicts", ["Overall score, Firmness"]),
          ("Progress", "No new best", ["· best 90.5 of 100"]),
          ("Next", "Record Round 6", ["4 formulations open", "Round 7: Repeat Formulation 15"])],
         "How the app chose Round 6", ["Suggestions go where expected gain peaks."]),
@@ -69,7 +70,7 @@ EXPECTED = {
         # miss line stays in the strip.
         # Persona fixes 2: the too-close pairs left out, Partly; Flat after
         # a rise reads Plateau.
-        [("Model", "Partly", [":red[**3 / 16 missed**]"]),
+        [("Model", "Predicts", [":red[**3 / 16 missed**]"]),
          ("Progress", "Plateau since Round 3", ["· best 90.1 of 100"]),
          ("Next", ":red[Check panel first]", [":red[**Before Round 6**]",
                                               ":red[**Formulation 11's Repeat: 10.5 lower**]"])],
@@ -95,7 +96,7 @@ EXPECTED = {
         "Where the app looks next", [_HIDDEN + wording.HERO_HIDDEN["skill"]]),
     D.TIMING: (
         "Review after Round 12 · 60 formulations",
-        [("Model", "Predicts", ["Firmness, Juiciness +2"]),   # review learned
+        [("Model", "Predicts", ["Overall score, Firmness +3"]),   # persona fixes 2
          ("Progress", "Plateau since Round 5", ["· best 92.5 of 100"]),   # persona fixes 2
          ("Next", "Make Round 13", ["No Round open", f"**{wording.LEARNED_PREVIEW_TITLE}**"])],
         "Where the app looks next", ["Suggestions go where expected gain peaks."]),
@@ -360,8 +361,8 @@ def test_predictions_tooltip_says_the_coverage_and_skill_exactly(screens):
     # Persona fixes: a plain sentence first; the skill figures in plain
     # words, the terms of art in a last "For experts:" line.
     # Persona fixes 2: too-close pairs left out; Cook loss joins Firmness.
-    assert plain.startswith("The model put Firmness and Cook loss in the right order before "
-                            "tasting")
+    assert plain.startswith("The model put Overall score and Firmness in the right order "
+                            "before tasting")
     assert "one-sided binomial test, p < 0.05, at least 5 pairs" in rule
     assert "Overall score: 13 of 15 landed in their predicted range" in plain
     expert = rule.split("\n\n")[-1]
@@ -389,7 +390,7 @@ def test_off_says_check_before_the_round(screens):
     # Review four, ruling 1: the check is the Next card's, in red. Review
     # learned: the strip's Model word reads the model's verdicts (Firmness).
     # Persona fixes 2: too-close pairs left out, Firmness Partly.
-    assert p["word"] == "Partly"
+    assert p["word"] == "Predicts"     # the Overall score, named (persona fixes 2)
     assert ":red[**Check panel before Round 6**]" not in p["lines"]
     assert n["word"] == ":red[Check panel first]" and ":red[**Before Round 6**]" in n["lines"]
 

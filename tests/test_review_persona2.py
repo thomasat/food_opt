@@ -224,9 +224,10 @@ def test_slopegraph_draws_too_close_faint(plain):
 
 
 def test_pair_noise_is_the_tasting_noise(tmp_path, monkeypatch):
-    """Coordinator's ruling: the noise Progress uses — Repeats' SD from one
-    df, else the assumed 1 point; a measurement, that point in its own
-    units through its share of the score (σ × Range width ÷ share)."""
+    """Coordinator's ruling: the noise Progress uses — Repeats' SD from the
+    same 3 df Progress needs, else the assumed 1 point; a measurement, that
+    point in its own units through its share of the score (σ × Range width
+    ÷ share)."""
     opt = _opt(tmp_path, monkeypatch)
     opt.add_objective("Sour", 25.0, goal="target", target=5, min_val=0, max_val=15)
     opt.add_objective("Crisp", 50.0, goal="max", min_val=0, max_val=10)
@@ -240,9 +241,14 @@ def test_pair_noise_is_the_tasting_noise(tmp_path, monkeypatch):
     # 25 points on a 0-15 scale: 0.6, the yogurt's case.
     assert learned.points_per_unit({"goal": "target", "weight": 25.0, "min_val": 0,
                                     "max_val": 15}) == pytest.approx(25 / 15)
-    # Repeats with one degree of freedom set the Overall noise.
-    monkeypatch.setattr(learned.insights, "repeat_sd", lambda o, n, m=None: NS(
-        sd=2.0 if n == insights.SCORE else None, df=1))
+    # Repeats with fewer than Progress's 3 df: still the assumed 1 point.
+    spread = lambda df: (lambda o, n, m=None, w=(): NS(
+        sd=2.0 if n == insights.SCORE else None, df=df, pairs=df, groups=df))
+    monkeypatch.setattr(learned.insights, "repeat_sd", spread(2))
+    assert learned.overall_noise(opt) == (1.0, True)
+    assert insights.noise_yardstick(opt).assumed
+    # From 3 df, as Progress: the Repeats' SD.
+    monkeypatch.setattr(learned.insights, "repeat_sd", spread(insights.YARDSTICK_DF))
     assert learned.overall_noise(opt) == (2.0, False)
     assert learned.pair_noise(opt)["Sour"] == pytest.approx(2.0 * 15 / 25)
     assert wording.check_noise([("Overall score", "1.0")]) == (
@@ -396,3 +402,18 @@ def test_persona2_wording_limits():
     for text in (wording.CALLED_RULE, wording.LEARNED_RULE, wording.ENTERED_ROUND_CAPTION):
         assert "better than forecast" not in text and "not a miss" not in text
         assert "only your own" not in text
+
+
+def test_model_item_names_the_overall_score(monkeypatch):
+    """The Model item agrees with the Forecast check's record: an Overall
+    score that is Predictable is named, first."""
+    monkeypatch.setattr(U, "_say", lambda o, t: t)
+    o = lambda v: NS(verdict=v)
+    ords = {insights.SCORE: o(learned.PREDICTABLE), "Consistency": o(learned.NOT_YET),
+            "Tangy": o(learned.PREDICTABLE)}
+    assert U.model_names(None, ords, learned.PREDICTABLE) == ["Overall score", "Tangy"]
+    assert wording.learned_strip(["Overall score"], []) == ("Predicts", "Overall score")
+    lf = U.LearnedFacts(ords, {}, (6, []), None, (0, 0, 0), "")
+    assert lf.model_names(None, learned.NOT_YET) == ["Consistency"]
+    # The profiler's list stays the measurements' own.
+    assert lf.names_by(learned.PREDICTABLE) == ["Tangy"]

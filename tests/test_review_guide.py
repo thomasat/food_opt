@@ -33,7 +33,7 @@ STATUS = {
     # Persona fixes 2: too-close pairs left out; Flat after a rise reads
     # Plateau since Round N.
     D.LINE_A: ("Predicts", "No new best", None),
-    D.LINE_B: ("Partly", "Plateau since Round 3", "Check panel first"),
+    D.LINE_B: ("Predicts", "Plateau since Round 3", "Check panel first"),
     D.LINE_C: ("Not yet", "Within noise", None),
     D.PROCESS_ONLY: ("Predicts", "Within noise", None),
 }

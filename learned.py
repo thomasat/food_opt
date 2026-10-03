@@ -229,20 +229,22 @@ def orderings(opt, checks, noise=None):
 
 
 def _repeat_noise(opt, name):
-    """`name`'s SD between Repeats when they give at least one degree of
-    freedom (and some spread), else None."""
+    """`name`'s SD between Repeats from the same threshold Progress uses
+    (insights.noise_yardstick: YARDSTICK_DF degrees of freedom, at least
+    REPEAT_SD_SHOWN), else None."""
     try:
-        spread = insights.repeat_sd(opt, name, None)
+        yard = insights.noise_yardstick(opt, name=name)
     except Exception:
         return None
-    if spread.sd is not None and spread.df >= 1 and spread.sd > 0:
-        return float(spread.sd)
+    if yard.from_repeats and yard.value:
+        return float(yard.value)
     return None
 
 
 def overall_noise(opt):
     """(SD, assumed): the Overall score's tasting noise as Progress has it —
-    the Repeats' SD from one degree of freedom, else the assumed 1 point."""
+    the Repeats' SD from YARDSTICK_DF degrees of freedom, else the assumed
+    1 point."""
     sd = _repeat_noise(opt, insights.SCORE)
     return (sd, False) if sd is not None else (insights.ASSUMED_NOISE_SD, True)
 
@@ -261,7 +263,7 @@ def pair_noise(opt, checks=()):
     """{name: the tasting noise an order claim must reach} (coordinator's
     ruling, persona fixes 2: the same noise Progress uses, so the screen
     tells one story). The Overall score: overall_noise. A measurement: its
-    Repeats' SD when they give one; else the Overall noise in its own units
+    Repeats' SD from the same threshold; else the Overall noise in its own units
     through its share of the score (σ × Range width ÷ share: 1 × 15 ÷ 25 =
     0.6 for a target worth 25 points on 0-15). 0 when it moves no points.
     `checks` is accepted for callers and not used."""

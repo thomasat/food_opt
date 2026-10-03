@@ -8936,7 +8936,7 @@ LEARNED_CHANCE = "Chance"
 LEARNED_CAPTION = "Dot: share right. Bar: 95 % interval."
 LEARNED_NONE_YET = "Nothing to check yet: needs a scored Round."
 LEARNED_FORECAST_TITLE = "Forecast before tasting"
-LEARNED_FORECAST_NONE = "No measurement predictable yet."
+LEARNED_FORECAST_NONE = "No result predictable yet."
 LEARNED_PREVIEW_TITLE = "Next suggestions"
 LEARNED_PREVIEW_SPINNER = "Previewing the next suggestions…"
 LEARNED_PREVIEW_CAPTION = "Generate on Make a round makes these."
@@ -9174,7 +9174,8 @@ def forecast_help(n_rows, round_no):
     """The forecast panel's "?"."""
     return (f"Forecast from the {n_rows} {FORMULATION}s scored before Round {round_no}: the "
             f"same forecast the Review checks once results are saved (Forecast check). Only "
-            f"measurements the model has ordered right before (Predictable) are shown. A value "
+            f"results the model has ordered right before (Predictable) are shown, the Overall "
+            f"score among them. A value "
             f"at the top of its Range reads ≥ that top.")
 
 

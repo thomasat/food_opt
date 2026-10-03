@@ -291,7 +291,7 @@ def test_trust_answer_on_line_a(screens):
     line = next(t for k, t in sections(screens[D.LINE_A])[wording.LEARNED_TITLE]
                 if k == "markdown")
     # Persona fixes 2: pairs under one tasting noise apart left out.
-    assert line == "**Predicts Firmness, Cook loss.** Not yet: Juiciness."
+    assert line == "**Predicts Overall score, Firmness.** Not yet: Juiciness, Cook loss."
 
 
 # ------------------------------------------------------------------ #

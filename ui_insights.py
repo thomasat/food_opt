@@ -4567,7 +4567,7 @@ def review_status(opt):
         # Review learned: the Model word, as the Review's strip says it
         # (from every Round's checks, never a partial set); red as before.
         ords = lf.orderings if lf is not None else learned.orderings(opt, every)
-        pick = lambda v: [n for n, o in ords.items() if n != insights.SCORE and o.verdict == v]
+        pick = lambda v: model_names(opt, ords, v)
         word, _ = wording.learned_strip(pick(learned.PREDICTABLE), pick(learned.PARTLY))
         text = wording.review_status_learned(word, prog.word,
                                              nxt.word if nxt.tone == "off" else None)
@@ -5433,6 +5433,18 @@ class LearnedFacts:
         return [n for n, o in self.orderings.items()
                 if n != insights.SCORE and o.verdict == verdict]
 
+    def model_names(self, opt, verdict):
+        """The Model item's names (persona fixes 2): the Overall score too,
+        first, as the screen says it."""
+        return model_names(opt, self.orderings, verdict)
+
+
+def model_names(opt, orderings, verdict):
+    """[label] of the results with `verdict`, the Overall score first
+    (persona fixes 2: the strip, the section and Make a round name it, so
+    they agree with the Forecast check's record)."""
+    return [learned_label(opt, n) for n, o in orderings.items() if o.verdict == verdict]
+
 
 def _short(opt, text):
     """'F18' as the project says it: 'T18' in a study of trials."""
@@ -5937,9 +5949,9 @@ def _learned_section(opt, slot, computed, facts):
         with slot.answer.container():
             st.markdown(_say(opt, wording.LEARNED_NONE_YET))
         return
-    predictable = lf.names_by(learned.PREDICTABLE)
-    partly = lf.names_by(learned.PARTLY)
-    not_yet = lf.names_by(learned.NOT_YET)
+    predictable = lf.model_names(opt, learned.PREDICTABLE)
+    partly = lf.model_names(opt, learned.PARTLY)
+    not_yet = lf.model_names(opt, learned.NOT_YET)
     named = [(learned_label(opt, n), o) for n, o in lf.orderings.items()]
     help_ = wording.learned_help(
         wording.LEARNED_RULE, _expert_lines(lf),
@@ -5970,15 +5982,16 @@ def learned_card(opt, lf, card, facts=None):
     first, the records in plain words, the rule, the terms of art last;
     the old Predictions card's sentence only when it warns (its "still very
     uncertain" contradicted Predicts)."""
-    word, line = wording.learned_strip(lf.names_by(learned.PREDICTABLE),
-                                       lf.names_by(learned.PARTLY))
+    word, line = wording.learned_strip(lf.model_names(opt, learned.PREDICTABLE),
+                                       lf.model_names(opt, learned.PARTLY))
     old = card.lines if card is not None else []
     warns = [(t, w) for t, w in old if w]
     # The old card's further lines (a Repeat request, the measurements'
     # misses) stay, under the names: the strip shows a warning or the names.
     rest = [(t, w) for t, w in old[1:] if not w]
-    plain = wording.model_plain(lf.names_by(learned.PREDICTABLE), lf.names_by(learned.PARTLY),
-                                lf.names_by(learned.NOT_YET))
+    plain = wording.model_plain(lf.model_names(opt, learned.PREDICTABLE),
+                                lf.model_names(opt, learned.PARTLY),
+                                lf.model_names(opt, learned.NOT_YET))
     ev = wording.learned_evidence(
         [(learned_label(opt, n), o.right, o.pairs) for n, o in lf.orderings.items()])
     record = getattr(lf, "plain_line", "")
@@ -6040,11 +6053,16 @@ def round_forecast_lines(opt, checks, rows=None):
     if not rows or not checks:
         return [], None
     ords = learned.orderings(opt, checks)
-    wanted = [n for n, o in ords.items() if n != insights.SCORE and o.verdict == learned.PREDICTABLE]
+    # Persona fixes 2: the Overall score's row too when it is Predictable
+    # (first, as the Model item names it), even if no measurement is.
+    wanted = [n for n, o in ords.items() if o.verdict == learned.PREDICTABLE]
     if not wanted:
         return [], None
     with insights.memo_in_use(memo(opt)):
         preds = learned.forecast(opt, rows, wanted)
+        score_fit = (insights.fit(opt, insights.SCORE, list(range(learned.round_start(opt))))
+                     if insights.SCORE in wanted else None)
+    factor = insights.column_factor(opt, checks) if score_fit is not None else 1.0
     lines = []
     for name in wanted:
         _, top = insights._range_of(opt, name)
@@ -6053,16 +6071,20 @@ def round_forecast_lines(opt, checks, rows=None):
             p = preds[no].get(name)
             if p is None:
                 continue
+            if name == insights.SCORE:
+                # Widened as that Round's check will be (the Round table's range).
+                p = insights.widened(score_fit, p, factor)
             cells.append(f"F{no} {capped_range(p, top)}")
             means[no] = p.raw_mean if p.raw_mean is not None else p.mean
+        label = learned_label(opt, name)
         if cells and _is_target(opt, name) and len(means) > 1:
             # Persona fixes: a measurement with a target has no "best"
             # highest; its forecast order, high to low, said neutrally.
             order = sorted(means, key=means.get, reverse=True)
-            lines.append(wording.forecast_line(name, cells, None)
+            lines.append(wording.forecast_line(label, cells, None)
                          + wording.forecast_order_tail(order))
         elif cells:
-            lines.append(wording.forecast_line(name, cells, learned.top_of(means)
+            lines.append(wording.forecast_line(label, cells, learned.top_of(means)
                                                if len(means) > 1 else None))
     return lines, wording.forecast_help(learned.round_start(opt), opt.pending_batch_no)
 

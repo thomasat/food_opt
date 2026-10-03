@@ -379,15 +379,16 @@ def test_capped_never_reads_100():
 def test_forecast_panel_shows_predictable_measurements_only(line_a, monkeypatch):
     opt, checks, memo = line_a
     monkeypatch.setattr(U.st, "session_state", {U.MEMO_KEY: (opt.project_name, memo)})
-    # Persona fixes 2: with the noise rule Line A's forecasts are too close
-    # to call (nothing Predictable, no lines); without it, as before.
+    # Persona fixes 2: one line per Predictable result, the Overall score
+    # first when it is (as the Model item names it); with the noise rule
+    # and without it.
     assert [ln.split(":")[0] for ln in U.round_forecast_lines(opt, checks)[0]] == [
-        n for n, o in learned.orderings(opt, checks).items()
-        if n != insights.SCORE and o.verdict == learned.PREDICTABLE]
-    monkeypatch.setattr(learned, "pair_noise", lambda o, c: {})
+        U.learned_label(opt, n) for n, o in learned.orderings(opt, checks).items()
+        if o.verdict == learned.PREDICTABLE]
+    monkeypatch.setattr(learned, "pair_noise", lambda o, c=(): {})
     ords = learned.orderings(opt, checks)
-    predictable = [n for n, o in ords.items()
-                   if n != insights.SCORE and o.verdict == learned.PREDICTABLE]
+    predictable = [U.learned_label(opt, n) for n, o in ords.items()
+                   if o.verdict == learned.PREDICTABLE]
     assert predictable          # the demo's clean panel orders Firmness right
     lines, help_ = U.round_forecast_lines(opt, checks)
     assert [ln.split(":")[0] for ln in lines] == predictable
@@ -396,8 +397,9 @@ def test_forecast_panel_shows_predictable_measurements_only(line_a, monkeypatch)
     assert all(f"F{no} " in lines[0] for no in open_nos)
     assert "Predictable" in help_
     # Nothing Predictable: no lines.
-    flat = [c for c in checks if c.name == insights.SCORE]
-    assert U.round_forecast_lines(opt, flat) == ([], None)
+    monkeypatch.setattr(learned, "orderings", lambda o, c, n=None: {
+        k: learned.Ordering(k) for k in learned.names(o)})
+    assert U.round_forecast_lines(opt, checks) == ([], None)
 
 
 def test_forecast_is_the_round_ahead_check(line_a):
