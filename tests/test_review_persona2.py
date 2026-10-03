@@ -185,7 +185,8 @@ def test_forecast_check_detail_says_too_close_and_the_noise(plain):
     assert "Overall score: too close to call (2 pairs)" in detail
     assert "2 misses, both higher than forecast" in detail
     assert "F16, F18 too close" in detail
-    assert "Too close to call: forecasts under one noise SD apart (Overall score 3.0" in detail
+    assert "Too close to call: forecasts less than one tasting-noise apart; noise assumed 1 " \
+        "point until Repeats measure it (Overall score 3.0" in detail
     assert "a miss, above or below" in detail
     assert "better than forecast" not in detail and "not a miss" not in detail
 
@@ -222,14 +223,31 @@ def test_slopegraph_draws_too_close_faint(plain):
     assert wording.CALLED_CAPTION == "Grey: kept. Dashed: crossed. Faint: too close."
 
 
-def test_pair_noise_uses_the_apps_yardstick():
-    checks = _round6()
-    opt = _Obj()
-    noise = learned.pair_noise(opt, checks)
-    # No Repeats (the stand-in object has none): the forecasts' typical
-    # miss; the Overall score never under the assumed 1 point.
-    assert noise[insights.SCORE] >= insights.ASSUMED_NOISE_SD
-    assert noise["Consistency"] == pytest.approx(learned.forecast_miss(checks, "Consistency"))
+def test_pair_noise_is_the_tasting_noise(tmp_path, monkeypatch):
+    """Coordinator's ruling: the noise Progress uses — Repeats' SD from one
+    df, else the assumed 1 point; a measurement, that point in its own
+    units through its share of the score (σ × Range width ÷ share)."""
+    opt = _opt(tmp_path, monkeypatch)
+    opt.add_objective("Sour", 25.0, goal="target", target=5, min_val=0, max_val=15)
+    opt.add_objective("Crisp", 50.0, goal="max", min_val=0, max_val=10)
+    noise = learned.pair_noise(opt)
+    assert learned.overall_noise(opt) == (1.0, True)
+    assert noise[insights.SCORE] == 1.0
+    for name in ("Sour", "Crisp", "Firmness"):
+        obj = next(o for o in opt.objectives if o["name"] == name)
+        width = obj["max_val"] - obj["min_val"]
+        assert noise[name] == pytest.approx(width / obj["weight"]), name
+    # 25 points on a 0-15 scale: 0.6, the yogurt's case.
+    assert learned.points_per_unit({"goal": "target", "weight": 25.0, "min_val": 0,
+                                    "max_val": 15}) == pytest.approx(25 / 15)
+    # Repeats with one degree of freedom set the Overall noise.
+    monkeypatch.setattr(learned.insights, "repeat_sd", lambda o, n, m=None: NS(
+        sd=2.0 if n == insights.SCORE else None, df=1))
+    assert learned.overall_noise(opt) == (2.0, False)
+    assert learned.pair_noise(opt)["Sour"] == pytest.approx(2.0 * 15 / 25)
+    assert wording.check_noise([("Overall score", "1.0")]) == (
+        "Too close to call: forecasts less than one tasting-noise apart; noise assumed 1 point "
+        "until Repeats measure it (Overall score 1.0).")
 
 
 # ------------------------------------------------------------------ #
@@ -361,7 +379,8 @@ def test_persona2_strings_pass_banned():
               wording.check_bias([("Sour", -2.4)]), wording.score_recipe("25", "15"),
               wording.widen_reason("lowest", "Pea protein", "20 g", predicted=True),
               wording.other_side("more", "Pea protein"), wording.plateau_word(7),
-              wording.check_noise([("Overall score", "3.2")]),
+              wording.check_noise([("Overall score", "1.0")]),
+              wording.check_noise([("Overall score", "1.0")], assumed=False),
               wording.check_measure_line("Tangy", 1, 2, 1, False)]
     hits = [(t, p.pattern) for t in texts for p in _BANNED if p.search(t)]
     assert hits == []

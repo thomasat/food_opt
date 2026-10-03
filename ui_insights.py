@@ -5720,7 +5720,11 @@ def called_detail(opt, lf):
                                              wording.called_ranges(cells)) if t))
     noise = [(learned_label(opt, n), f"{lf.noise[n]:.1f}") for n, _, _ in lf.items
              if lf.noise.get(n)]
-    out.append(wording.check_noise(noise))
+    try:
+        assumed = learned.overall_noise(opt)[1]
+    except Exception:
+        assumed = True
+    out.append(wording.check_noise(noise, assumed))
     out.append(wording.CALLED_RULE)
     return _short(opt, "\n\n".join(t for t in out if t))
 

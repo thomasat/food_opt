@@ -51,9 +51,9 @@ EXPECTED = {
         # measurements' 33 / 35).
         # Review learned: the strip's Model item reads the model's verdicts
         # (Firmness's within-Round order beat chance).
-        # Persona fixes 2: Firmness's within-Round forecasts are too close
-        # to call (under one noise SD apart): no order claim, Not yet.
-        [("Model", "Not yet", ["predictable"]),
+        # Persona fixes 2: pairs under one tasting noise apart left out;
+        # Firmness and Cook loss still clearly beat chance.
+        [("Model", "Predicts", ["Firmness, Cook loss"]),
          ("Progress", "No new best", ["· best 90.5 of 100"]),
          ("Next", "Record Round 6", ["4 formulations open", "Round 7: Repeat Formulation 15"])],
         "How the app chose Round 6", ["Suggestions go where expected gain peaks."]),
@@ -359,9 +359,9 @@ def test_predictions_tooltip_says_the_coverage_and_skill_exactly(screens):
     # against both baselines.
     # Persona fixes: a plain sentence first; the skill figures in plain
     # words, the terms of art in a last "For experts:" line.
-    # Persona fixes 2: Line A's forecasts are too close to call.
-    assert plain.startswith("The model has not yet ordered any measurement right more often "
-                            "than chance.")
+    # Persona fixes 2: too-close pairs left out; Cook loss joins Firmness.
+    assert plain.startswith("The model put Firmness and Cook loss in the right order before "
+                            "tasting")
     assert "one-sided binomial test, p < 0.05, at least 5 pairs" in rule
     assert "Overall score: 13 of 15 landed in their predicted range" in plain
     expert = rule.split("\n\n")[-1]

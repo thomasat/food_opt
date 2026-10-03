@@ -9033,7 +9033,7 @@ LEARNED_RULE = ("Each Round's formulations are forecast before tasting, from the
                 "scored before that Round. Within each Round, every pair whose measured values "
                 "differ counts as ordered right when the forecast put them in the same order; "
                 "a pair measured equal is not counted, nor one whose forecasts differ by less "
-                "than one noise SD of the result (too close to call). Guessing gets half right. Predictable: "
+                "than one tasting noise of the result (too close to call). Guessing gets half right. Predictable: "
                 "right clearly more often than chance (one-sided binomial test, p < 0.05, at "
                 "least 5 pairs). Partly: right in more than half, p < 0.20. Not yet: otherwise, "
                 "or when more than half of its pairs measured equal (it barely varies).")
@@ -9076,11 +9076,11 @@ CALLED_RULE = (f"Forecast before tasting, from the {FORMULATION}s scored before 
                f"a {FORMULATION}'s forecast (left) to its measured value (right), each side "
                "placed by its own values, highest at the top. A measured value outside its "
                "95 % range is a miss, above or below. A pair counts only when its forecasts "
-               "differ by at least one noise SD of that result; closer pairs are too close to "
-               "call (drawn faint) and left out of every count. Noise SD: the Repeats' SD when "
-               "they give one; else the larger of the model's fitted noise and the forecasts' "
-               "typical miss, the Overall score at least the assumed 1 point. Equal measured "
-               "values share a point and are not counted.")
+               "differ by at least one tasting noise of that result; closer pairs are too close "
+               "to call (drawn faint) and left out of every count. Tasting noise: the Repeats' "
+               "SD when they give one; else the Overall score's assumed 1 point, and for a "
+               "measurement that point in its own units through its share of the score (Range "
+               "width ÷ share). Equal measured values share a point and are not counted.")
 
 
 def called_record(name, right, pairs):
@@ -9627,13 +9627,14 @@ def check_pair_close(high, low):
     return f"F{high}, F{low} too close"
 
 
-def check_noise(cells):
-    """'Too close to call: forecasts under one noise SD apart (Overall
-    score 3.2, Consistency 2.6).' from [(name, SD text)]."""
-    if not cells:
-        return ""
-    return ("Too close to call: forecasts under one noise SD apart ("
-            + ", ".join(f"{n} {v}" for n, v in cells) + ").")
+def check_noise(cells, assumed=True):
+    """The rule named in the "?": 'Too close to call: forecasts less than
+    one tasting-noise apart; noise assumed 1 point until Repeats measure it
+    (Overall score 1.0, Consistency 0.6).' from [(name, SD text)]."""
+    head = ("Too close to call: forecasts less than one tasting-noise apart; "
+            + ("noise assumed 1 point until Repeats measure it" if assumed
+               else "noise measured from your Repeats"))
+    return head + (" (" + ", ".join(f"{n} {v}" for n, v in cells) + ")." if cells else ".")
 
 
 # Progress: Flat after a rise reads as a plateau.

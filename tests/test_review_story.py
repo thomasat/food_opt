@@ -290,8 +290,8 @@ def test_trust_answer_on_line_a(screens):
     # Review learned: the trust evidence is what the model learned.
     line = next(t for k, t in sections(screens[D.LINE_A])[wording.LEARNED_TITLE]
                 if k == "markdown")
-    # Persona fixes 2: too close to call, so no order is claimed yet.
-    assert line == "**Not predictable yet.**"
+    # Persona fixes 2: pairs under one tasting noise apart left out.
+    assert line == "**Predicts Firmness, Cook loss.** Not yet: Juiciness."
 
 
 # ------------------------------------------------------------------ #
@@ -480,7 +480,7 @@ def test_pilot_story(pilot):
     assert re.fullmatch(r"· best \d+\.\d of 100", items[0]["line"]), items[0]
     assert re.fullmatch(r"[A-Z][\w ]+(, [A-Z][\w ]+)?", items[1]["line"]), items[1]
     line = next(t for k, t in got[wording.LEARNED_TITLE] if k == "markdown")
-    assert re.fullmatch(r"\*\*Predicts .+\.\*\* Not yet: .+\.", line), line
+    assert re.fullmatch(r"\*\*Predicts .+\.\*\*( Partly: .+\.)? Not yet: .+\.", line), line
     line = next(t for k, t in got[wording.Q3_TITLE] if k == "markdown")
     # Review learned 2b: no effect claim (7 ingredients, no Repeats).
     assert re.fullmatch(r"How each (ingredient|setting|ingredient or setting) moves each result\.", line), line

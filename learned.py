@@ -8,10 +8,10 @@ before its Round, then compared with what was measured.
   values differ is "ordered right" when the Round-ahead prediction put them
   in the same order. Chance is half the pairs. A measured tie is not
   counted. Persona fixes 2 (coordinator: an order claim only when the
-  forecast made one): a pair whose forecasts differ by less than one noise
-  SD of the result (pair_noise: noise_of, the same yardstick the clear-
-  effect rule uses) is "too close to call" and not counted either, nor is
-  "the top one" when the top two forecasts are that close.
+  forecast made one): a pair whose forecasts differ by less than one
+  tasting noise of the result (pair_noise: the noise Progress uses) is
+  "too close to call" and not counted either, nor is "the top one" when
+  the top two forecasts are that close.
 - Verdict: Predictable when the share right is clearly above chance (a
   one-sided binomial test against 50 %, p < VERDICT_P, with at least
   MIN_PAIRS pairs); Partly when it leans right (share above 50 %,
@@ -228,20 +228,54 @@ def orderings(opt, checks, noise=None):
     return {n: ordering(checks, n, noise.get(n) or 0.0) for n in names(opt)}
 
 
-def pair_noise(opt, checks):
-    """{name: the noise SD an order claim must reach}: noise_of (Repeats'
-    SD; else the larger of the fitted noise and the Round-ahead forecasts'
-    typical miss; the Overall score never under its assumed 1 point), the
-    yardstick the clear-effect rule uses. 0 when nothing is known."""
-    out = {}
+def _repeat_noise(opt, name):
+    """`name`'s SD between Repeats when they give at least one degree of
+    freedom (and some spread), else None."""
+    try:
+        spread = insights.repeat_sd(opt, name, None)
+    except Exception:
+        return None
+    if spread.sd is not None and spread.df >= 1 and spread.sd > 0:
+        return float(spread.sd)
+    return None
+
+
+def overall_noise(opt):
+    """(SD, assumed): the Overall score's tasting noise as Progress has it —
+    the Repeats' SD from one degree of freedom, else the assumed 1 point."""
+    sd = _repeat_noise(opt, insights.SCORE)
+    return (sd, False) if sd is not None else (insights.ASSUMED_NOISE_SD, True)
+
+
+def points_per_unit(obj):
+    """How many Overall-score points one unit of a measurement moves, from
+    FoodOptimizer._compute_utility: its share over its Range width, for a
+    target, a higher-is-better and a lower-is-better measurement alike."""
+    width = float(obj.get('max_val', 10.0)) - float(obj.get('min_val', 0.0))
+    width = width if width else 1.0
+    return float(obj.get('weight', 0.0)) / width if obj.get('goal') in (
+        'target', 'max', 'min') else 0.0
+
+
+def pair_noise(opt, checks=()):
+    """{name: the tasting noise an order claim must reach} (coordinator's
+    ruling, persona fixes 2: the same noise Progress uses, so the screen
+    tells one story). The Overall score: overall_noise. A measurement: its
+    Repeats' SD when they give one; else the Overall noise in its own units
+    through its share of the score (σ × Range width ÷ share: 1 × 15 ÷ 25 =
+    0.6 for a target worth 25 points on 0-15). 0 when it moves no points.
+    `checks` is accepted for callers and not used."""
+    sigma, _ = overall_noise(opt)
+    out = {insights.SCORE: float(sigma)}
+    objs = {o['name']: o for o in getattr(opt, "objectives", None) or ()}
     for n in names(opt):
-        try:
-            v = noise_of(opt, n, None, checks)
-        except Exception:
-            v = forecast_miss(checks, n)
-            if n == insights.SCORE:
-                v = max(v or 0.0, insights.ASSUMED_NOISE_SD)
-        out[n] = float(v or 0.0)
+        if n == insights.SCORE:
+            continue
+        sd = _repeat_noise(opt, n)
+        if sd is None:
+            ppu = points_per_unit(objs[n]) if n in objs else 0.0
+            sd = sigma / ppu if ppu > 0 else 0.0
+        out[n] = float(sd)
     return out
 
 
