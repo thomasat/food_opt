@@ -8867,6 +8867,19 @@ def story_no_leader(kind="ingredients"):
     return f"No single {what} clearly leads yet"
 
 
+def profiler_guide(kind="ingredients"):
+    """Review learned 2b (coordinator: no effect claims on thin data): the
+    profiler's headline, a reading guide: 'How each ingredient moves each
+    result.'"""
+    what = {"settings": "setting", "both": "ingredient or setting"}.get(kind, "ingredient")
+    return f"How each {what} moves each result."
+
+
+PROFILER_NO_CLAIM = ("No effect is named here: with no Repeats the noise is not measured, so a "
+                     "slope this model draws could be chance. Effects are named once Repeats "
+                     "measure the noise.")
+
+
 def story_leader_rule(noise_text):
     """The finding's "?", its rule: tested stretches only."""
     return (f"Counted over tested amounts only: the dashed, untested stretches are the model's "
@@ -9045,17 +9058,6 @@ def learned_skill_line(inside, total, vs_mean, vs_best, n):
     return line.replace("−0.", "−0.").replace("-", "−")
 
 
-LEARNED_STABLE_RULE = ("An effect is named only when all three are true. 1: moving that ingredient or "
-                       "setting from the 10th to the 90th percentile of its tested amounts, the "
-                       "other amounts as tested, changes the prediction with a 95 % posterior "
-                       "interval that excludes 0, in the same direction, under each of the "
-                       "models fitted through the last 4 Rounds. 2: it did not move together "
-                       "with another row (|r| ≥ 0.7). 3: the change is at least one noise SD "
-                       "of that result (its Repeats' SD; without Repeats, the larger of the "
-                       "model's fitted noise and the forecasts' typical miss). Otherwise no "
-                       "effect is named.")
-
-
 def called_title(round_no):
     """'Round 6: called it?'"""
     return f"Round {round_no}: called it?"
@@ -9064,49 +9066,63 @@ def called_title(round_no):
 CALLED_TIP_FORECAST = "Forecast"
 CALLED_TIP_MEASURED = "Measured"
 CALLED_WORDS = {"called": "called it", "partly": "partly", "missed": "missed"}
-CALLED_CAPTION = "Blue: forecast and 95 % range. Dot: measured."
-CALLED_RULE = ("Forecast before tasting, from the formulations scored before this Round; the "
-               "Overall score and each measurement predictable before it. Called it: every "
-               "pair in the forecast order, the top one picked, and every value inside its "
-               "95 % range. An Overall score above its range is better than forecast, not a "
-               "miss.")
+# Review learned 2b (coordinator: the range bars read as misses; the claim
+# is the ORDER): one slopegraph per result, the forecast on the left, the
+# measured value on the right, each side on its own scale.
+CALLED_CAPTION = "Grey: order kept. Dashed: order crossed."
+CALLED_RULE = (f"Forecast before tasting, from the {FORMULATION}s scored before this Round, for "
+               "the Overall score and each measurement predictable before it. Each line joins "
+               f"a {FORMULATION}'s forecast (left) to its measured value (right), each side "
+               "placed by its own values, highest at the top. Called it: no line crosses "
+               "(every pair measured apart in the forecast order) and the one forecast highest measured highest. Equal measured "
+               "values share a point and are not counted. An Overall score above its 95 % "
+               "range is better than forecast, not a miss.")
 
 
-def called_good(good):
-    """The thing it got right: 'F18 highest Consistency'; 'Tangy order
-    right'."""
-    if good is None:
-        return ""
-    if good[0] == "top":
-        return f"F{good[2]} highest {good[1]}"
-    return f"{good[1]} order right"
+def called_record(name, right, pairs):
+    """The cumulative record: '**Consistency: 8 of 8 calls right.**'."""
+    return f"**{name}: {right} of {pairs} calls right.**"
 
 
-def called_miss(miss, score_name):
-    """'Creaminess order off'; 'Tangy top pick off'; 'Tangy outside range';
-    the Overall score: 'Overall score below range'."""
-    if miss[0] == "order":
-        return f"{miss[1]} order off"
-    if miss[0] == "top":
-        return f"{miss[1]} top pick off"
-    return f"{miss[1]} {'below' if miss[1] == score_name else 'outside'} range"
+def called_latest(round_no, top, short=False):
+    """'Round 6: F18 highest, as forecast.'; short: 'Latest: F18 highest, as
+    forecast.' (a long result name keeps the line to 12 words)."""
+    return f"{'Latest' if short else f'Round {round_no}'}: F{top} highest, as forecast."
 
 
-def called_answer(round_no, verdict, good, misses, above, score_name):
-    """Called it?'s answer, at most about 10 words: '**Round 6: called it.**
-    F18 highest Consistency; 2 beat forecast.'; '**Round 6: partly.**
-    F18 highest Consistency; Tangy outside range.'; '**Round 6: missed.**
-    Consistency order off.'"""
+def _names(names):
+    return ", ".join(names)
+
+
+def called_answer(round_no, verdict, lead=None, record=None, top=None, right=(), off=()):
+    """Called it?'s headline, at most about 12 words: called — the lead's
+    record, then the latest call ('**Consistency: 8 of 8 calls right.**
+    Round 6: F18 highest, as forecast.'); partly ('**Round 10: partly.**
+    Consistency right; Overall score, Tangy order off.'); missed
+    ('**Round 10: missed.** Consistency, Tangy order off.')."""
+    if verdict == "called" and lead is not None and record is not None:
+        line = called_record(lead, *record)
+        if top is None:
+            return line
+        full = f"{line} {called_latest(round_no, top)}"
+        return full if len(full.split()) <= 12 else f"{line} {called_latest(round_no, top, True)}"
     head = f"**Round {round_no}: {CALLED_WORDS[verdict]}.**"
-    if verdict == "called":
-        rest = "all in range" if not above else f"{above} beat forecast"
-        parts = [called_good(good), rest]
-    elif verdict == "partly":
-        parts = [called_good(good), called_miss(misses[0], score_name)]
-    else:
-        parts = [called_miss(m, score_name) for m in misses[:1]]
-    body = "; ".join(p for p in parts if p)
-    return f"{head} {body[:1].upper()}{body[1:]}." if body else head
+    parts = []
+    if verdict == "partly" and right:
+        parts.append(f"{_names(right)} right")
+    if off:
+        parts.append(f"{_names(off)} order off")
+    return f"{head} {'; '.join(parts)}." if parts else head
+
+
+def called_tied(name):
+    """A panel left out: 'Tangy: all measured the same, not drawn.'"""
+    return f"{name}: all measured the same, not drawn."
+
+
+def called_ranges(cells):
+    """'Forecast (95 % range): F16 13.5 (11.1–≥ 15), F17 ….'"""
+    return f"Forecast (95 % range): {', '.join(cells)}." if cells else ""
 
 
 def called_pairs(name, right, counted, total):

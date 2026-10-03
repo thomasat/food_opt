@@ -329,11 +329,8 @@ def test_the_finding_is_not_the_next_cards_word(screens):
     nxt = cards(at)[2]["word"]
     line = next(t for k, t in sections(at)[wording.Q3_TITLE] if k == "markdown")
     assert not line.startswith(f"**{nxt}")
-    # Review story 3: no clear leader over tested amounts reads
-    # 'No single ingredient (or setting) clearly leads yet'. Review learned:
-    # a stable effect leads when there is one.
-    assert re.match(r"\*\*.+ (matters most|raises .+|lowers .+)\.\*\*|"
-                    r"\*\*No single (ingredient|setting)", line), line
+    # Review learned 2b: no effect claim on thin data; a reading guide.
+    assert re.fullmatch(r"How each (ingredient|setting|ingredient or setting) moves each result\.", line), line
 
 
 def test_the_profiler_defaults_to_four_columns():
@@ -479,7 +476,8 @@ def test_pilot_story(pilot):
     line = next(t for k, t in got[wording.LEARNED_TITLE] if k == "markdown")
     assert re.fullmatch(r"\*\*Predicts .+\.\*\* Not yet: .+\.", line), line
     line = next(t for k, t in got[wording.Q3_TITLE] if k == "markdown")
-    assert re.fullmatch(r"\*\*.+ (raises|lowers) .+\.\*\*", line), line
+    # Review learned 2b: no effect claim (7 ingredients, no Repeats).
+    assert re.fullmatch(r"How each (ingredient|setting|ingredient or setting) moves each result\.", line), line
     # Review story 3: two rows moved together (|r| >= 0.7) across the 10
     # Rounds; noted under the profiler (by pattern: no pilot names here).
     assert any(re.fullmatch(r".+ and .+ moved together: effects mixed\.", t)

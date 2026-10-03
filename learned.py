@@ -241,48 +241,66 @@ def is_latest(opt, r):
     return bool(order) and order[-1][0] == r and pending in (None, r)
 
 
+def all_tied(cks):
+    """Whether every measured value of a Round's checks is the same (nothing
+    to order: its panel is left out)."""
+    return len({c.measured for c in cks}) <= 1
+
+
+def shown(items, cap=1 + CALLED_PANELS):
+    """The items Called it? draws: those with something to order (not every
+    value measured the same), at most `cap`, in order."""
+    return [it for it in items if not all_tied(it[2])][:cap]
+
+
 @dataclass
 class CalledSummary:
-    """Called it?'s facts for one Round, from its items [(name, RoundCall,
-    [Check])] (the Overall score first): the verdict, the first thing it
-    got right (`good`: ('top', name, F) or ('order', name)), the misses
-    (('order', name), ('top', name) or ('range', name, n)) and how many
-    Overall scores landed above their range (better than forecast)."""
+    """Called it?'s facts for one Round, judged on ORDER (review learned 2,
+    coordinator: the order is the claim): `drawn` the items drawn, `right`
+    the names whose order held (every counted pair right, the one forecast
+    highest measured highest), `off` the names it did not, `tied` the names
+    left out (all measured the same), `lead` the name the headline leads
+    with (the first measurement drawn, else the Overall score) and `top`
+    its formulation forecast highest; `above` the Overall scores measured
+    above their 95 % range (better than forecast, said in the "?")."""
     verdict: str
-    good: tuple | None
-    misses: list
+    drawn: list
+    right: list
+    off: list
+    tied: list
+    lead: str | None
+    top: int | None
     above: int
 
 
+def order_held(call):
+    """Every counted pair in the forecast order and the top one picked."""
+    return call.right == call.counted and call.top_right is not False
+
+
 def called_summary(items):
-    """CalledSummary of `items`, measurements read before the Overall score
-    for the 'good' phrase. Order: every counted pair right; top: the one
-    forecast highest measured highest; range: every measured value inside
-    its 95 % range — an Overall score above its range is better than
-    forecast, not a miss."""
-    misses, goods, tops, above, inside = [], [], [], 0, 0
-    for name, call, cks in items:
-        if call.counted:
-            (goods if call.right == call.counted else misses).append(("order", name))
-        if call.top_right is True:
-            tops.append(("top", name, call.top_predicted))
-        elif call.top_right is False:
-            misses.append(("top", name))
-        up = [c for c in cks if name == insights.SCORE and c.measured > c.high]
-        above += len(up)
-        out = [c for c in cks if not c.inside and c not in up]
-        inside += sum(1 for c in cks if c.inside) + len(up)
-        if out:
-            misses.append(("range", name, len(out)))
-    good = (next((g for g in tops if g[1] != insights.SCORE), None) or
-            (tops[0] if tops else None) or (goods[0] if goods else None))
-    if not misses:
+    """CalledSummary of `items` [(name, RoundCall, [Check])], the Overall
+    score first: called when every drawn item's order held, missed when
+    none did, partly otherwise."""
+    drawn = shown(items)
+    right = [n for n, call, _ in drawn if order_held(call)]
+    off = [n for n, call, _ in drawn if not order_held(call)]
+    tied = [n for n, _, cks in items if all_tied(cks) and cks]
+    above = sum(1 for n, _, cks in items if n == insights.SCORE
+                for c in cks if c.measured > c.high)
+    if not drawn:
+        verdict = CALLED_MISSED if off else CALLED
+    elif not off:
         verdict = CALLED
-    elif goods or tops or inside:
+    elif right:
         verdict = CALLED_PARTLY
     else:
         verdict = CALLED_MISSED
-    return CalledSummary(verdict, good, misses, above)
+    measures = [it for it in drawn if it[0] != insights.SCORE]
+    lead_item = (measures or drawn or [None])[0]
+    lead = lead_item[0] if lead_item else None
+    top = lead_item[1].top_predicted if lead_item else None
+    return CalledSummary(verdict, [n for n, _, _ in drawn], right, off, tied, lead, top, above)
 
 
 # ------------------------------------------------------------------ #

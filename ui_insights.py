@@ -5086,7 +5086,7 @@ PREVIEW_KEY = "_insights_preview"
 LEARNED_ROW_H = 30          # px per row of the ordering chart
 CALLED_KEY = "insights_called"
 CALLED_W = 250              # px per Called it? panel
-CALLED_ROW_H = 26           # px per formulation row in a Called it? panel
+CALLED_H = 120              # px, a Called it? slopegraph's height
 
 
 class LearnedFacts:
@@ -5124,11 +5124,9 @@ def learned_facts_from(opt, checks):
     """LearnedFacts from the Round-ahead checks; the effects from the models
     already fitted for them (memo)."""
     orderings = learned.orderings(opt, checks)
-    with insights.memo_in_use(memo(opt)):
-        try:
-            effects = learned.effects(opt, checks)
-        except Exception:
-            effects = {}
+    # Review learned 2b: no effect is claimed on screen; learned.effects
+    # stays (tested) for when Repeats measure the noise.
+    effects = {}
     r, calls = learned.called_it(opt, checks)
     score_call = None if r is None else learned.round_call(checks, insights.SCORE, r)
     mine = [c for c in checks if c.name == insights.SCORE and c.round == r and c.fully_measured]
@@ -5142,8 +5140,9 @@ def learned_facts_from(opt, checks):
         None if best is None else best[0], None if fact is None else fact.n)
     items = []
     if r is not None and learned.is_latest(opt, r):
-        named = ([(insights.SCORE, score_call)] if score_call is not None else []) + \
-            calls[:learned.CALLED_PANELS]
+        # Every Predictable measurement: learned.shown leaves out the ones
+        # measured all the same, then keeps 1 + CALLED_PANELS.
+        named = ([(insights.SCORE, score_call)] if score_call is not None else []) + calls
         items = [(n, call, learned.round_checks(checks, n, r)) for n, call in named
                  if call.pairs or learned.round_checks(checks, n, r)]
     return LearnedFacts(orderings, effects, (r, calls), score_call, landing, skill_line, items)
@@ -5183,14 +5182,6 @@ def capped_range(p, top, d=1):
     """'13.5 (11.1–≥ 15)'; ' to ' when a bound is negative."""
     sep = " to " if p.low < 0 or p.high < 0 else "–"
     return f"{capped(p.mean, top, d)} ({capped(p.low, top, d)}{sep}{capped(p.high, top, d)})"
-
-
-def effect_tips(opt, lf, name):
-    """The numbers of `name`'s named effects (the strict rule), for Method
-    and definitions."""
-    return " ".join(wording.learned_effect_tip(e.var, learned_label(opt, name), _num(e.lo),
-                                               _num(e.hi), e.mean, e.low, e.high)
-                    for e in learned.stable(lf.effects, name))
 
 
 def wilson(right, n, z=insights.Z95):
@@ -5257,93 +5248,150 @@ _LEARNED_W = 420
 
 
 def called_line(opt, lf):
-    """Called it?'s answer from the facts: '**Round 6: called it.** F18
-    highest Consistency; 2 beat forecast.'; None with nothing to call."""
+    """Called it?'s headline from the facts: called — the lead's record and
+    the latest call ('**Consistency: 8 of 8 calls right.** Round 6: F18
+    highest, as forecast.'); partly or missed said plainly. None with
+    nothing to call."""
     if not lf.items:
         return None
     r = lf.called[0]
     got = learned.called_summary(lf.items)
-    lab = lambda t: (t[0], learned_label(opt, t[1]), *t[2:])
-    line = wording.called_answer(r, got.verdict, None if got.good is None else lab(got.good),
-                                 [lab(m) for m in got.misses], got.above,
-                                 learned_label(opt, insights.SCORE))
+    o = lf.orderings.get(got.lead) if got.lead is not None else None
+    record = (o.right, o.pairs) if o is not None and o.pairs else None
+    line = wording.called_answer(
+        r, got.verdict, learned_label(opt, got.lead) if got.lead else None, record, got.top,
+        [learned_label(opt, n) for n in got.right], [learned_label(opt, n) for n in got.off])
     return _short(opt, line)
 
 
 def called_detail(opt, lf):
     """Called it?'s "?": per result its pairs (a ✓ or ✗ each), the top
-    pick and the Overall score's landing; then the rule."""
+    pick, the forecast values and 95 % ranges, the Overall score's landing
+    (above its range: better than forecast); the panels left out (all
+    measured the same); then the rule."""
     out = []
-    for name, call, _ in lf.items:
-        line = wording.called_pairs(learned_label(opt, name), call.right, call.counted,
-                                    len(call.pairs))
+    for name, call, cks in lf.items:
+        label = learned_label(opt, name)
+        if learned.all_tied(cks):
+            out.append(wording.called_tied(label))
+            continue
+        line = wording.called_pairs(label, call.right, call.counted, len(call.pairs))
         if name == insights.SCORE and sum(lf.landing):
             line = line.rstrip(".") + "; " + wording.called_range(*lf.landing)
         bits = [wording.called_pair(p.high, p.low, p.right) for p in call.pairs]
         top = wording.called_top(call.top_predicted, call.top_measured, call.top_right)
         if top:
             bits.append(top)
-        out.append(line + ("  \n" + " · ".join(bits) if bits else ""))
+        _, hi = insights._range_of(opt, name)
+        cells = [f"F{c.formulation} {capped(c.predicted, hi)} ({capped(c.low, hi)}–"
+                 f"{capped(c.high, hi)})" for c in cks]
+        out.append("  \n".join(t for t in (line, " · ".join(bits),
+                                             wording.called_ranges(cells)) if t))
     out.append(wording.CALLED_RULE)
     return _short(opt, "\n\n".join(out))
 
 
-def called_frame(opt, lf):
-    """One row per formulation per panel: its forecast (tick), 95 % range
-    (bar) and measured value (dot); `where` in range, above or below (an
-    Overall score above its range: better than forecast)."""
-    rows = []
-    for name, _call, cks in lf.items:
-        for c in cks:
-            where = ("in" if c.inside else "above" if c.measured > c.high else "below")
-            rows.append({"panel": learned_label(opt, name), "name": name,
-                         "f": _short(opt, f"F{c.formulation}"), "no": int(c.formulation),
-                         "low": float(c.low), "high": float(c.high),
-                         "predicted": float(c.predicted), "measured": float(c.measured),
-                         "where": where})
-    return pd.DataFrame(rows)
+_SLOPE_GAP = 0.16       # the least gap between two end labels (of the panel's 0–1 height)
+
+
+def _spread(ys, gap=_SLOPE_GAP):
+    """Label heights for points at `ys` (0–1), nudged apart to at least
+    `gap`, in the same order; the points themselves stay put."""
+    order = sorted(range(len(ys)), key=lambda k: ys[k])
+    out = list(ys)
+    for a, b in zip(order, order[1:]):
+        if out[b] - out[a] < gap:
+            out[b] = out[a] + gap
+    top = max(out) if out else 0
+    if top > 1:
+        out = [v - (top - 1) for v in out]
+    return out
+
+
+def _side(values):
+    """Each value's height on its own side, 0 (lowest) to 1 (highest); all
+    equal: 0.5."""
+    lo, hi = min(values), max(values)
+    return [0.5 if hi <= lo else (v - lo) / (hi - lo) for v in values]
+
+
+def slope_frames(opt, name, call, cks):
+    """(lines, labels) for one slopegraph: a row per formulation per side
+    (x 0: forecast, 1: measured) with its height and whether its line
+    crossed another (in a pair measured apart against the forecast); one
+    label per distinct point per side, equal values sharing it."""
+    _, top = insights._range_of(opt, name)
+    d = 1 if name == insights.SCORE else max(1, decimals(opt, name))
+    crossed = set()
+    for p in call.pairs:
+        if p.right is False:
+            crossed |= {p.high, p.low}
+    rank = {c.formulation: learned._rank_value(c) for c in cks}
+    rows, labels = [], []
+    for x, values, shown in ((0, [rank[c.formulation] for c in cks],
+                              [capped(c.predicted, top, d) for c in cks]),
+                             (1, [c.measured for c in cks],
+                              [f"{c.measured:.{d}f}" for c in cks])):
+        ys = _side(values)
+        for c, y in zip(cks, ys):
+            rows.append({"f": int(c.formulation), "x": x, "y": y,
+                         "crossed": c.formulation in crossed,
+                         "value": shown[cks.index(c)]})
+        groups = {}
+        for c, y, v in zip(cks, ys, shown):
+            groups.setdefault(round(y, 9), []).append((c.formulation, v))
+        keys = sorted(groups)
+        lab_y = _spread(keys)
+        for k, ly in zip(keys, lab_y):
+            nos = ", ".join(_short(opt, f"F{n}") for n, _ in sorted(groups[k]))
+            v = groups[k][0][1]
+            labels.append({"x": x, "y": ly, "text": f"{nos}  {v}" if x == 0 else f"{v}  {nos}"})
+    return pd.DataFrame(rows), pd.DataFrame(labels)
 
 
 def called_chart(opt, lf):
-    """Called it?'s panels side by side, at most 1 + CALLED_PANELS, each
-    about CALLED_W px: one row per formulation of the Round, the forecast's
-    95 % range a light blue bar, the forecast a blue tick, the measured
-    value an ink dot. None with nothing to draw."""
-    frame = called_frame(opt, lf)
-    if frame.empty:
+    """Called it?'s slopegraphs side by side, at most 1 + CALLED_PANELS,
+    each about CALLED_W px: per result, a line per formulation from its
+    forecast (left) to its measured value (right), each side on its own
+    scale, values printed at the ends; grey where the order held, ink and
+    dashed where it crossed. A result measured all the same is left out
+    (said in the "?"). None with nothing to draw."""
+    drawn = learned.shown(lf.items)
+    if not drawn:
         return None
-    blue, ink = model_blue(), mark("bar_latest")[0]
-    fill, fill_op = _BAND_FILL[theme()]
-    order = [f for f in sorted(set(frame["f"]), key=lambda t: int(re.sub(r"\D", "", t) or 0))]
+    # Kept order: the neutral grey (3:1); crossed: ink, dashed (no red).
+    grey, ink = mark("neutral")[0], mark("bar_latest")[0]
     panels = []
-    for k, (panel, part) in enumerate(frame.groupby("panel", sort=False)):
-        name = part["name"].iloc[0]
-        lo_r, hi_r = insights._range_of(opt, name)
-        dom = _padded(list(part["low"]) + list(part["high"]) + list(part["measured"]))
-        dom = [max(lo_r, dom[0]), min(hi_r, dom[1])]
-        scale = alt.Scale(domain=dom, nice=False, zero=False)
-        axis = alt.Axis(tickCount=4, grid=False)
-        x = alt.X("predicted:Q", title=None, scale=scale, axis=axis)
-        y = alt.Y("f:N", sort=order, title=None,
-                  axis=alt.Axis(ticks=False, domain=False, labels=k == 0, labelPadding=6))
+    for name, call, cks in drawn:
+        lines, labels = slope_frames(opt, name, call, cks)
+        x = alt.X("x:Q", axis=None, scale=alt.Scale(domain=[-1.15, 2.15], nice=False))
+        y = alt.Y("y:Q", axis=None, scale=alt.Scale(domain=[-0.12, 1.3], nice=False))
+        colour = alt.Color("crossed:N", legend=None,
+                           scale=alt.Scale(domain=[False, True], range=[grey, ink]))
+        dash = alt.StrokeDash("crossed:N", legend=None,
+                              scale=alt.Scale(domain=[False, True], range=[[1, 0], [5, 3]]))
         tip = [alt.Tooltip("f:N", title=_say(opt, wording.FORMULATION_CAP)),
-               alt.Tooltip("predicted:Q", format=".1f", title=_say(opt, wording.CALLED_TIP_FORECAST)),
-               alt.Tooltip("low:Q", format=".1f", title="95 % low"),
-               alt.Tooltip("high:Q", format=".1f", title="95 % high"),
-               alt.Tooltip("measured:Q", format=".1f", title=_say(opt, wording.CALLED_TIP_MEASURED))]
-        base = alt.Chart(part)
-        bar = base.mark_bar(height=12, color=fill, opacity=min(1.0, fill_op * 2.2),
-                            cornerRadius=3).encode(
-            x=alt.X("low:Q", title=None, scale=scale, axis=axis), x2="high:Q", y=y, tooltip=tip)
-        tick = base.mark_tick(color=blue, thickness=2.5, size=16, opacity=1).encode(
-            x=x, y=y, tooltip=tip)
-        dot = base.mark_point(filled=True, size=70, color=ink, opacity=1).encode(
-            x=alt.X("measured:Q", scale=scale, axis=axis, title=None), y=y, tooltip=tip)
-        panels.append((bar + tick + dot).properties(
-            width=CALLED_W, height=alt.Step(CALLED_ROW_H),
-            title=alt.TitleParams(_say(opt, panel), fontSize=12, anchor="start",
-                                  fontWeight="normal")))
-    return alt.hconcat(*panels, spacing=18).resolve_scale(x="independent")
+               alt.Tooltip("value:N", title=_say(opt, wording.CALLED_TIP_MEASURED))]
+        base = alt.Chart(lines)
+        line = base.mark_line(strokeWidth=2).encode(x=x, y=y, detail="f:N", color=colour,
+                                                    strokeDash=dash)
+        dots = base.mark_point(filled=True, size=46, opacity=1).encode(
+            x=x, y=y, color=colour, tooltip=tip)
+        lab = alt.Chart(labels)
+        left = lab.transform_filter("datum.x == 0").mark_text(
+            align="right", dx=-7, fontSize=11, color=ink).encode(x=x, y=y, text="text:N")
+        right = lab.transform_filter("datum.x == 1").mark_text(
+            align="left", dx=7, fontSize=11, color=ink).encode(x=x, y=y, text="text:N")
+        heads = alt.Chart(pd.DataFrame({
+            "x": [0, 1], "y": [1.24, 1.24],
+            "t": [_say(opt, wording.CALLED_TIP_FORECAST), _say(opt, wording.CALLED_TIP_MEASURED)]})
+        ).mark_text(fontSize=10, color=muted()).encode(x=x, y=y, text="t:N")
+        panels.append((line + dots + left + right + heads).properties(
+            width=CALLED_W, height=CALLED_H,
+            title=alt.TitleParams(_say(opt, learned_label(opt, name)), fontSize=12,
+                                  anchor="middle", fontWeight="bold", offset=2)))
+    return alt.hconcat(*panels, spacing=14).configure_view(stroke=None).properties(
+        padding={"top": 2, "bottom": 2, "left": 2, "right": 2})
 
 
 def _called_top(opt, slot, lf):
@@ -5422,44 +5470,16 @@ def learned_card(opt, lf, card):
                 _say(opt, help_))
 
 
-def learned_lead(opt, lf):
-    """The profiler's finding from a stable effect, or None: the largest
-    effect (as a share of its result's Range) on the Overall score or a
-    measurement that is Predictable or Partly."""
-    if lf is None:
-        return None
-    best = None
-    for name, o in lf.orderings.items():
-        if name != insights.SCORE and o.verdict == learned.NOT_YET:
-            continue
-        lo, hi = insights._range_of(opt, name)
-        for e in learned.stable(lf.effects, name):
-            size = abs(e.mean) / (hi - lo) if hi > lo else 0.0
-            if best is None or size > best[0]:
-                best = (size, e)
-    if best is None:
-        return None
-    e = best[1]
-    name = (f"the {_say(opt, wording.OVERALL_SCORE_COLUMN)}" if e.name == insights.SCORE
-            else e.name)
-    return wording.learned_headline(e.var, name, e.up)
-
-
 def _how_learned(opt, computed):
     """Method and definitions: the ordering accuracy and verdict rules, the
     stable-effect rule, the two skill baselines, and the Overall score's
     forecast against measured chart that the section replaced."""
     st.markdown(f"**{_say(opt, wording.METHOD_LEARNED_TITLE)}**")
     lf = learned_cached(opt)
-    for text in (wording.LEARNED_RULE, wording.LEARNED_TOP_RULE, wording.LEARNED_STABLE_RULE,
+    for text in (wording.LEARNED_RULE, wording.LEARNED_TOP_RULE, wording.PROFILER_NO_CLAIM,
                  lf.skill_line if lf is not None else ""):
         if text:
             st.markdown(_say(opt, text))
-    if lf is not None:
-        for name in lf.orderings:
-            tips = effect_tips(opt, lf, name)
-            if tips:
-                st.caption(_say(opt, tips))
     checks = [c for c in ((computed or {}).get("checks") or ()) if c.name == insights.SCORE]
     if checks:
         try:
@@ -5661,32 +5681,29 @@ def _progress_body(opt, slot):
 
 def _drives_section(opt, slot, computed, facts):
     """"What drives each result?": the profiler (Overall score, each
-    measurement, Expected gain), through Suggestion 1 when there is one;
-    the answer a finding (review story): the row that moves the predicted
-    score most, and where the reference sits on it."""
+    measurement, Expected gain), through Suggestion 1 when there is one.
+    Review learned 2b (coordinator: 7 ingredients, at most 30 batches and
+    no Repeats are too thin for any effect claim): the headline is a
+    reading guide, never a finding; its "?" says why no effect is named.
+    driver_finding and learned.effects stay, tested, unused here."""
     with slot.body:
         try:
             got = _profiler(opt, computed)
         except Exception:
             st.caption(_say(opt, wording.CHART_FAILED))
             got = None
-    profile, guard = (got[0], got[2]) if got is not None else (None, None)
-    line = driver_finding(opt, profile, guard)
-    lead = learned_lead(opt, learned_cached(opt))
-    if lead is not None:
-        # Review learned: a stable, confident effect leads the finding.
-        line = wording.answer_line(lead, "")
-    ev = None
+    profile = got[0] if got is not None else None
+    kind = ("ingredients" if not getattr(profile, "columns", None)
+            else _more_kind(opt, [c.name for c in profile.columns]))
+    line = wording.profiler_guide(kind)
+    ev = wording.PROFILER_NO_CLAIM
     if got is not None:
         cfg = getattr(opt, "bo_config", None) or {}
-        ev = wording.evidence([wording.ev_profiler(opt.complete_count(), profile.ref_label,
-                                                   profile.ref_no,
-                                                   cfg.get("acquisition", "qlognei"))])
-        rule = wording.story_leader_rule(f"{leader_noise(opt):g}")
-        ev = f"{wording.story_driver_help(profile.ref_label)} {rule}\n\n{ev}"
+        ev += "\n\n" + wording.evidence([wording.ev_profiler(
+            opt.complete_count(), profile.ref_label, profile.ref_no,
+            cfg.get("acquisition", "qlognei"))])
     with slot.answer.container():
-        st.markdown(_say(opt, line),
-                    help=_say(opt, ev) if ev else _evidence_help(opt, facts, "next"))
+        st.markdown(_say(opt, line), help=_say(opt, ev))
 
 
 def tried_answer(opt, strips):

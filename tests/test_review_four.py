@@ -98,11 +98,9 @@ def test_answer_lines_open_with_the_cards_word(screens, name):  # noqa: F811
         assert re.match(r"\*\*(Predicts|Partly predicts|Not predictable yet)", q1), q1
         # Review story: Q3's answer is a finding, never the Next card's word.
         assert not q3.startswith(f"**{plain(n['word'])}.**")
-        # Review story 3: no clear leader over tested amounts reads
-        # 'No single ingredient (or setting) clearly leads yet'.
-        # Review learned: or a stable effect, 'Methylcellulose raises Firmness'.
-        assert re.match(r"\*\*.+ (matters most|raises .+|lowers .+)\.\*\*|"
-                        r"\*\*No single (ingredient|setting)", q3), q3
+        # Review learned 2b: no effect claim on thin data; Q3's headline is
+        # a reading guide.
+        assert re.fullmatch(r"How each (ingredient|setting|ingredient or setting) moves each result\.", q3), q3
     assert q2.startswith(f"**{plain(g['word'])}.**")
     assert re.match(r"\*\*\d+ tested\.\*\* ", q4), q4
     for line in (q1, q2, q3, q4):

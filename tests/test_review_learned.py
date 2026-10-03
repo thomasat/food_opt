@@ -168,41 +168,71 @@ def _items(score_meas, firm_meas, score_pred=(90, 85, 80), firm_pred=(9, 8, 7)):
             for n in (insights.SCORE, "Firm")]
 
 
-def _answer(items):
+def _answer(items, record=(8, 8)):
     got = learned.called_summary(items)
-    lab = lambda t: (t[0], "Overall score" if t[1] == insights.SCORE else t[1], *t[2:])
-    return got, wording.called_answer(3, got.verdict, None if got.good is None else lab(got.good),
-                                      [lab(m) for m in got.misses], got.above, "Overall score")
+    lab = lambda n: "Overall score" if n == insights.SCORE else n
+    return got, wording.called_answer(3, got.verdict, lab(got.lead) if got.lead else None,
+                                      record, got.top, [lab(n) for n in got.right],
+                                      [lab(n) for n in got.off])
 
 
-def test_called_it_answer_when_called():
+def test_called_it_leads_with_the_record_then_the_latest_call():
     got, line = _answer(_items((91, 84, 79), (9.2, 8.1, 6.8)))
-    assert got.verdict == learned.CALLED and not got.misses
-    assert line == "**Round 3: called it.** F7 highest Firm; all in range."
-    assert _words(line) <= 10
+    assert got.verdict == learned.CALLED and got.lead == "Firm" and got.top == 7
+    assert line == "**Firm: 8 of 8 calls right.** Round 3: F7 highest, as forecast."
+    assert _words(line) <= 12
+
+
+def test_called_it_is_judged_on_order_not_range():
+    # Every value far outside its range, every order right: called (the
+    # order is the claim); the ranges are in the "?".
+    got, _ = _answer(_items((70, 60, 50), (20, 15, 1)))
+    assert got.verdict == learned.CALLED
 
 
 def test_called_it_above_the_range_is_better_than_forecast():
-    # F7's Overall score lands above its range: better than forecast, not a miss.
-    got, line = _answer(_items((97, 84, 79), (9.2, 8.1, 6.8)))
+    got, _ = _answer(_items((97, 84, 79), (9.2, 8.1, 6.8)))
     assert got.verdict == learned.CALLED and got.above == 1
-    assert line == "**Round 3: called it.** F7 highest Firm; 1 beat forecast."
-    # Below the range is a miss.
-    got, line = _answer(_items((91, 84, 70), (9.2, 8.1, 6.8)))
-    assert got.verdict == learned.CALLED_PARTLY
-    assert line == "**Round 3: partly.** F7 highest Firm; Overall score below range."
+    assert wording.called_range(2, 1, 0) == "2 of 3 in range, 1 better than forecast."
 
 
 def test_called_it_is_honest_on_a_miss_in_its_line():
-    # Firm in reverse order and out of range: said plainly.
+    # Firm in reverse order: said plainly.
     got, line = _answer(_items((91, 84, 79), (6, 8.1, 9.5)))
-    assert got.verdict == learned.CALLED_PARTLY
-    assert ("order", "Firm") in got.misses and ("top", "Firm") in got.misses
-    assert line.startswith("**Round 3: partly.**") and "Firm order off" in line
-    # Everything wrong: missed.
+    assert got.verdict == learned.CALLED_PARTLY and got.off == ["Firm"]
+    assert line == "**Round 3: partly.** Overall score right; Firm order off."
+    # Everything in reverse: missed.
     got, line = _answer(_items((60, 65, 70), (5, 6.5, 10)))
     assert got.verdict == learned.CALLED_MISSED
-    assert line.startswith("**Round 3: missed.**")
+    assert line == "**Round 3: missed.** Overall score, Firm order off."
+
+
+def test_a_result_measured_all_the_same_is_left_out():
+    items = _items((91, 84, 79), (8, 8, 8))
+    got = learned.called_summary(items)
+    assert [n for n, _, _ in learned.shown(items)] == [insights.SCORE]
+    assert got.tied == ["Firm"] and got.lead == insights.SCORE
+    assert wording.called_tied("Tangy") == "Tangy: all measured the same, not drawn."
+
+
+def test_slopegraph_marks_crossings_and_shares_tied_points(monkeypatch):
+    class _O:
+        pass
+    monkeypatch.setattr(U.insights, "_range_of", lambda o, n: (0.0, 100.0))
+    monkeypatch.setattr(U, "_say", lambda o, t: t)
+    items = _items((91, 84, 79), (9, 9, 9.5))      # F7 = F8 measured; F9 highest: crossed
+    name, call, cks = items[1]
+    lines, labels = U.slope_frames(_O(), name, call, cks)
+    measured = lines[lines.x == 1].set_index("f")
+    assert measured.loc[7, "y"] == measured.loc[8, "y"] < measured.loc[9, "y"] == 1
+    assert set(lines[lines.crossed].f) == {7, 8, 9}
+    right = list(labels[labels.x == 1].text)
+    assert len(right) == 2 and any("F7, F8" in t for t in right)
+    # Held order: nothing crossed.
+    name, call, cks = _items((91, 84, 79), (9.2, 8.1, 6.8))[1]
+    lines, _ = U.slope_frames(_O(), name, call, cks)
+    assert not lines.crossed.any()
+    assert U._spread([0.0, 0.05, 1.0]) == pytest.approx([0.0, U._SLOPE_GAP, 1.0])
 
 
 def test_called_it_shows_only_for_the_latest_scored_round():
@@ -303,15 +333,6 @@ def test_too_small_names_no_effect(line_a, monkeypatch):
     steady = [(0, 1, 0.5, 0.1)] * learned.STABLE_REFITS
     _, eff = _patched_effects(opt, monkeypatch, steady, noise=0.8)
     assert learned.stable(eff, insights.SCORE) == []
-
-
-def test_no_claim_leaves_the_profiler_headline_to_its_own_rule(line_a, monkeypatch):
-    opt, _, _ = line_a
-    lf = U.LearnedFacts({insights.SCORE: learned.Ordering(insights.SCORE)},
-                        {insights.SCORE: [learned.Effect(insights.SCORE, "Salt", 0, 1, 0.5, 0.3,
-                                                         0.7, [1] * 4, False, True, True, 0.1)]},
-                        (None, []), None, (0, 0, 0), "")
-    assert U.learned_lead(opt, lf) is None
 
 
 def test_noise_stand_in_is_conservative():
@@ -507,7 +528,8 @@ def test_called_it_sits_at_the_top_as_charts(scored):
     texts = [t for _, t in leaves]
     first_heading = next(i for i, t in enumerate(texts) if t.startswith("#### "))
     assert texts[first_heading] == f"#### {wording.Q2_TITLE}"
-    called = [i for i, t in enumerate(texts) if re.match(r"\*\*Round 5: (called it|partly|missed)\.\*\*", t)]
+    called = [i for i, t in enumerate(texts)
+              if re.match(r"\*\*(Round 5: (partly|missed)|.+: \d+ of \d+ calls right)\.\*\*", t)]
     assert called and called[0] < first_heading
     line = texts[called[0]]
     assert _words(line) <= 12, line
@@ -524,8 +546,23 @@ def test_called_it_sits_at_the_top_as_charts(scored):
 def test_called_chart_is_at_most_three_small_panels(scored):
     # Any LearnedFacts the scored screen worked out: its chart's panels.
     lf = scored.session_state[U.LEARNED_KEY][1]
-    assert 1 <= len(lf.items) <= 1 + learned.CALLED_PANELS
+    drawn = learned.shown(lf.items)
+    assert 1 <= len(drawn) <= 1 + learned.CALLED_PANELS
     assert lf.items[0][0] == insights.SCORE
+    assert U.CALLED_W <= 260 and U.CALLED_H <= 140
+
+
+def test_profiler_headline_names_no_effect(screen):
+    els = _section_leaves(screen, wording.Q3_TITLE)
+    answer = next(_text(el) for el in els if el.type == "markdown" and _text(el))
+    assert answer in {wording.profiler_guide(k) for k in ("ingredients", "settings", "both")}
+    assert wording.PROFILER_NO_CLAIM in answer_help(els)
+    for kind in ("ingredients", "settings", "both"):
+        assert _words(wording.profiler_guide(kind)) <= 8
+
+
+def answer_help(els):
+    return next(el.help for el in els if el.type == "markdown" and _text(el))
 
 
 def test_strip_reads_the_model_verdict(screen):
@@ -548,16 +585,17 @@ def test_wording_passes_banned_and_limits():
              wording.LEARNED_CAPTION, wording.LEARNED_NONE_YET,
              wording.CALLED_CAPTION, wording.CALLED_RULE, *wording.CALLED_WORDS.values(),
              wording.CALLED_TIP_FORECAST, wording.CALLED_TIP_MEASURED,
-             wording.called_answer(6, "partly", ("top", "Firmness", 18),
-                                   [("range", "Juiciness", 1)], 0, "Overall score"),
-             wording.called_answer(6, "called", ("order", "Tangy"), [], 2, "Overall score"),
-             wording.called_answer(6, "missed", None, [("order", "Firmness")], 0,
-                                   "Overall score"),
+             wording.called_answer(6, "called", "Thickness uniformity", (16, 18), 18),
+             wording.called_answer(10, "partly", right=["Consistency"],
+                                   off=["Overall score", "Thickness uniformity"]),
+             wording.called_answer(10, "missed", off=["Firmness"]),
              wording.learned_counts([("Overall score", 10, 11, 5.5)]),
              wording.learned_tops([("Overall score", 3, 4, 1.7)]),
              wording.LEARNED_FORECAST_TITLE, wording.LEARNED_FORECAST_NONE,
              wording.LEARNED_PREVIEW_TITLE, wording.LEARNED_PREVIEW_CAPTION,
-             wording.LEARNED_RULE, wording.LEARNED_TOP_RULE, wording.LEARNED_STABLE_RULE,
+             wording.LEARNED_RULE, wording.LEARNED_TOP_RULE, wording.PROFILER_NO_CLAIM,
+             *(wording.profiler_guide(k) for k in ("ingredients", "settings", "both")),
+             wording.called_tied("Tangy"), wording.called_ranges(["F16 13.5 (11.1–≥ 15)"]),
              wording.METHOD_LEARNED_TITLE, wording.METHOD_FORECAST_CHART,
              wording.learned_answer(["Firmness"], ["Juiciness"], ["Cook loss"]),
              wording.learned_skill_line(22, 24, 0.61, -0.11, 24),
@@ -575,6 +613,10 @@ def test_wording_passes_banned_and_limits():
     for label in (wording.LEARNED_STRIP_LABEL, wording.LEARNED_COL_PAIRS, wording.LEARNED_COL_TOP,
                   wording.LEARNED_CHART_X, wording.LEARNED_FORECAST_TITLE):
         assert _words(label) <= 5, label
+    for line in (wording.called_answer(6, "called", "Thickness uniformity", (16, 18), 18),
+                 wording.called_answer(10, "partly", right=["Consistency"],
+                                       off=["Overall score", "Tangy"])):
+        assert _words(line) <= 12, line
     for names in (["Firmness"], ["Consistency", "Tangy", "Creaminess"], []):
         word, line = wording.learned_strip(names, [])
         assert _words(f"{word} {line}") <= 6
