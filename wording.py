@@ -9447,6 +9447,7 @@ def model_plain(predictable, partly, not_yet):
     Tangy in the right order before tasting, clearly more often than
     chance. Not yet: Creaminess, Thickness uniformity.'"""
     def _and(names):
+        names = [f"the {n}" if n == OVERALL_SCORE_COLUMN else n for n in names]
         return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
     if predictable:
         line = (f"The model put {_and(predictable)} in the right order before tasting, "
