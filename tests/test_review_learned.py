@@ -17,8 +17,8 @@ checkable evidence, right after "Are we improving?".
   check uses.
 - Called it?: at the top, under the strip, as charts (forecast range, tick,
   measured dot) with one answer line from the facts; honest on a miss;
-  above the range reads "better than forecast"; only once the project's
-  latest Round is scored.
+  persona fixes 2: renamed "Forecast check"; outside the range is a miss on
+  either side; only once the project's latest Round is scored.
 - The section: one answer line, the ordering chart, its caption; no table.
 - What next?: the next suggestions previewed on a copy, the project and
   the RNG untouched, the same as Generate.
@@ -130,7 +130,8 @@ def test_called_it_is_honest_on_a_miss():
         checks += [_check(base + k, r, "Firm", 10 - k, 10 - k) for k in range(3)]
         checks += [_check(base + 10 + k, r, "Firm", 5 - k, 5 - k) for k in range(1)]
     checks += [_check(20 + k, 3, "Firm", 10 - k, 5 + k) for k in range(3)]
-    r, calls = learned.called_it(_called_opt(), checks)
+    # No noise here (every pair counts): test_review_persona2 has the rule.
+    r, calls = learned.called_it(_called_opt(), checks, None, {})
     assert r == 3 and [n for n, _ in calls] == ["Firm"]
     call = calls[0][1]
     assert (call.right, call.counted) == (0, 3)
@@ -150,8 +151,9 @@ def test_called_it_picks_by_the_verdict_before_the_round():
 
 
 def test_called_it_overall_score_landing_words():
-    assert wording.called_range(1, 2, 0) == "1 of 3 in range, 2 better than forecast."
-    assert wording.called_range(2, 0, 1) == "2 of 3 in range, 1 below forecast."
+    assert wording.called_range(1, 2, 0) == \
+        "1 of 3 in range; 2 misses, both higher than forecast."
+    assert wording.called_range(2, 0, 1) == "2 of 3 in range; 1 miss, lower than forecast."
     # A measured tie is said as one; all equal: nothing to order.
     assert wording.called_pair(17, 16, None) == "F16 = F17 (tie)"
     assert wording.called_pairs("Tangy", 0, 0, 3) == "Tangy: all measured the same, nothing to order."
@@ -191,10 +193,10 @@ def test_called_it_is_judged_on_order_not_range():
     assert got.verdict == learned.CALLED
 
 
-def test_called_it_above_the_range_is_better_than_forecast():
+def test_called_it_above_the_range_is_a_miss():
     got, _ = _answer(_items((97, 84, 79), (9.2, 8.1, 6.8)))
     assert got.verdict == learned.CALLED and got.above == 1
-    assert wording.called_range(2, 1, 0) == "2 of 3 in range, 1 better than forecast."
+    assert wording.called_range(2, 1, 0) == "2 of 3 in range; 1 miss, higher than forecast."
 
 
 def test_called_it_is_honest_on_a_miss_in_its_line():
@@ -377,6 +379,12 @@ def test_capped_never_reads_100():
 def test_forecast_panel_shows_predictable_measurements_only(line_a, monkeypatch):
     opt, checks, memo = line_a
     monkeypatch.setattr(U.st, "session_state", {U.MEMO_KEY: (opt.project_name, memo)})
+    # Persona fixes 2: with the noise rule Line A's forecasts are too close
+    # to call (nothing Predictable, no lines); without it, as before.
+    assert [ln.split(":")[0] for ln in U.round_forecast_lines(opt, checks)[0]] == [
+        n for n, o in learned.orderings(opt, checks).items()
+        if n != insights.SCORE and o.verdict == learned.PREDICTABLE]
+    monkeypatch.setattr(learned, "pair_noise", lambda o, c: {})
     ords = learned.orderings(opt, checks)
     predictable = [n for n, o in ords.items()
                    if n != insights.SCORE and o.verdict == learned.PREDICTABLE]
@@ -498,7 +506,8 @@ def test_section_is_one_line_one_chart_one_caption(screen):
     assert not any(k in ("table", "dataframe", "arrow_data_frame", "arrow_table") for k in kinds)
     texts = [_text(el) for el in els if _text(el)]
     assert len(texts) == 2, texts            # the answer and the caption
-    assert texts[0].startswith("**Predicts") or texts[0].startswith("**Partly")
+    # Persona fixes 2: Line A's forecasts are too close to call.
+    assert texts[0].startswith(("**Predicts", "**Partly", "**Not predictable yet"))
     assert texts[1] == wording.LEARNED_CAPTION
     assert sum("vega" in k or "chart" in k for k in kinds) == 1
     every = " | ".join(_text(el) for el, _, _ in _leaves(screen.tabs[3]))
@@ -531,16 +540,16 @@ def scored(tmp_path_factory):
 def test_called_it_sits_at_the_top_as_charts(scored):
     leaves = [(el, _text(el)) for el, _, _ in _leaves(scored.tabs[3])]
     texts = [t for _, t in leaves]
-    first_heading = next(i for i, t in enumerate(texts) if t.startswith("#### "))
-    assert texts[first_heading] == f"#### {wording.Q2_TITLE}"
+    first_heading = texts.index(f"#### {wording.Q2_TITLE}")
+    # Persona fixes 2: the block's own heading, "Forecast check", first.
+    title = texts.index(f"**{wording.FORECAST_CHECK_TITLE}**")
     called = [i for i, t in enumerate(texts)
-              if re.match(r"\*\*Round 5: (partly|missed|order called right|Overall order called "
-                          r"right)\.\*\*", t)]
-    assert called and called[0] < first_heading
+              if re.match(r"\*\*Round 5: (scored|.+ measured) ", t)]
+    assert called and title < called[0] < first_heading
     line = texts[called[0]]
-    # Persona fixes: the coordinator's headline, the Overall score's order
-    # first ("F16, F17 above F18; scored about 4 better than forecast").
-    assert _words(line) <= 16, line
+    # Persona fixes 2: where the scores landed, then the order of the
+    # pairs that count ("… 2 of 3 above their range; order too close to call").
+    assert _words(line) <= 18, line
     assert "calls right" not in line
     # Visual: a chart and the caption, before the first heading.
     between = leaves[called[0] + 1:first_heading]
@@ -548,7 +557,7 @@ def test_called_it_sits_at_the_top_as_charts(scored):
     assert wording.CALLED_CAPTION in [t for _, t in between]
     # The pairs, one ✓ or ✗ each, are in its "?", not on the page.
     el = leaves[called[0]][0]
-    assert "✓" in el.help or "✗" in el.help or "tie" in el.help
+    assert "✓" in el.help or "✗" in el.help or "tie" in el.help or "too close" in el.help
     assert not any("✓" in t or "✗" in t for t in texts)
 
 
@@ -577,7 +586,8 @@ def answer_help(els):
 
 def test_strip_reads_the_model_verdict(screen):
     labels = [b.label for b in screen.tabs[3].button if b.key == f"{U.SEE_CHART_KEY}_predictions"]
-    assert labels and labels[0].startswith("**Predicts**")
+    # Persona fixes 2: the verdict, whichever it is (Line A: Not yet).
+    assert labels and labels[0].startswith(("**Predicts**", "**Partly**", "**Not yet**"))
     assert _words(labels[0]) <= 6
 
 

@@ -290,7 +290,8 @@ def test_trust_answer_on_line_a(screens):
     # Review learned: the trust evidence is what the model learned.
     line = next(t for k, t in sections(screens[D.LINE_A])[wording.LEARNED_TITLE]
                 if k == "markdown")
-    assert line == "**Predicts Firmness.** Not yet: Juiciness, Cook loss."
+    # Persona fixes 2: too close to call, so no order is claimed yet.
+    assert line == "**Not predictable yet.**"
 
 
 # ------------------------------------------------------------------ #
@@ -468,14 +469,16 @@ def test_pilot_story(pilot):
     assert list(got) == STORY
     line = next(t for k, t in got[wording.Q2_TITLE] if k == "markdown")
     # Review story 2: "of 100", so Flat at 96.4 reads as near the ceiling.
-    assert re.fullmatch(r"\*\*Flat\.\*\* \d+\.\d → \d+\.\d of 100 · same for \d Rounds\.", line)
+    # Persona fixes 2: Flat after a rise reads "Plateau since Round N".
+    assert re.fullmatch(r"\*\*Plateau since Round \d+\.\*\* \d+\.\d → \d+\.\d of 100\.", line), line
     items, _ = strip(at)
     # The strip, by pattern only (no pilot numbers in the repository).
     # Review learned: the Model item (by pattern only: no pilot names).
-    assert [i["word"] for i in items][:2] == ["Flat", "Predicts"]
+    assert re.fullmatch(r"Plateau since Round \d+", items[0]["word"]) and \
+        items[1]["word"] == "Predicts"
     # Persona fixes: 'Flat · best 99.2 of 100' (the start stays on the chart).
     assert re.fullmatch(r"· best \d+\.\d of 100", items[0]["line"]), items[0]
-    assert re.fullmatch(r"[A-Z][\w ]+, [A-Z][\w ]+", items[1]["line"]), items[1]
+    assert re.fullmatch(r"[A-Z][\w ]+(, [A-Z][\w ]+)?", items[1]["line"]), items[1]
     line = next(t for k, t in got[wording.LEARNED_TITLE] if k == "markdown")
     assert re.fullmatch(r"\*\*Predicts .+\.\*\* Not yet: .+\.", line), line
     line = next(t for k, t in got[wording.Q3_TITLE] if k == "markdown")
@@ -486,7 +489,7 @@ def test_pilot_story(pilot):
     assert any(re.fullmatch(r".+ and .+ moved together: effects mixed\.", t)
                for k, t in got[wording.Q3_TITLE] if k == "caption"), got[wording.Q3_TITLE]
     before = cards(_open(R6), order="screen")
-    assert [c["word"] for c in before[:2]] == ["No new best", "Predicts"]
+    assert [c["word"] for c in before[:2]] == ["No new best", "Not yet"]
 
 
 # ------------------------------------------------------------------ #
@@ -524,7 +527,9 @@ def test_no_chart_above_the_first_section_and_what_next_last(screens, name):
         assert el.type not in CHART and el.type != "subheader", el.type
     # What next? holds the Next word with its "?" and no primary.
     rows = section(at, wording.Q5_TITLE)
-    heads = [el for el, _ in rows if el.type == "subheader"]
+    # Persona fixes 2: the Next word is a small answer line, not a subheader.
+    heads = [el for el, _ in rows if el.type == "subheader" or (
+        el.type == "markdown" and re.fullmatch(r"(:red\[)?\*\*[^*]+\.\*\*\]?", _text(el)))]
     assert len(heads) == 1 and heads[0].proto.help
     assert not [el for el, _ in rows if el.type == "button" and el.proto.type == "primary"]
 

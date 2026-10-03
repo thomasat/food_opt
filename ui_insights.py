@@ -1128,8 +1128,11 @@ def _next_body(opt, places, facts):
             st.markdown(stop_headline(opt, facts),
                         help="\n\n".join(t for t in (_say(opt, tip), card.help) if t))
         else:
-            word = f":red[{card.word}]" if card.tone == "off" else card.word
-            st.subheader(word, anchor=False, help=card.help)
+            # Persona fixes 2: the same small style as the other answer
+            # lines (it was a subheader, oversized).
+            word = (f":red[**{card.word}.**]" if card.tone == "off"
+                    else wording.answer_line(card.word, ""))
+            st.markdown(word, help=card.help)
         for text, warn in card.lines + repeat_asks(opt, facts, card):
             st.markdown(f":red[**{text}**]" if warn else text)
 
@@ -1611,6 +1614,29 @@ def scored_without(opt, best_round):
     return (rounds, number_list(names)) if names else None
 
 
+def widen_reason_text(opt, b):
+    """Persona fixes 2: the widen advice with its reason — 'The predicted
+    best sits at Pea protein's Lowest (20 g). To test below it, widen
+    the limit.' ("Your best" when Best so far sits there too); None for a
+    limit that is not a row's Lowest or Highest."""
+    if b is None or b.kind not in ("lowest", "highest"):
+        return None
+    var = opt._by_name().get(b.name)
+    if var is None or var.get('type') != 'continuous':
+        return None
+    lo, hi = var['bounds']
+    value = float(lo if b.kind == "lowest" else hi)
+    unit = opt.unit_of(b.name)
+    amount = (fmt_setting(value, unit) if insights.is_setting(opt, b.name)
+              else join_unit(f"{value:.0f}" if value == round(value) else _num(value), unit))
+    best = opt._best_recipe_index()
+    ours = False
+    if best is not None:
+        ours = any(x.kind == b.kind and x.name == b.name
+                   for x in insights.binding_limits(opt, insights.start_recipe(opt, best)))
+    return _say(opt, wording.widen_reason(b.kind, b.name, amount, predicted=not ours))
+
+
 def _close_change(b):
     """The close row's change in its words: raise a Highest, lower a Lowest,
     widen a limit; '' when nothing binds."""
@@ -1677,7 +1703,7 @@ def status_full_texts(opt, facts):
             wording.STATUS_PREDICTIONS, prediction_sentence(opt, facts),
             wording.PREDICTIONS_WORDS[facts.predictions])
     if "progress" not in facts.pending:
-        word = None if facts.progress is None else wording.PROGRESS_WORDS[facts.progress]
+        word = progress_word(opt, facts)
         out["progress"] = wording.status_line(wording.STATUS_PROGRESS,
                                               progress_sentence(opt, facts), word)
     if "next" not in facts.pending:
@@ -1696,7 +1722,7 @@ def status_texts(opt, facts):
             wording.STATUS_PREDICTIONS, prediction_short(opt, facts),
             wording.PREDICTIONS_WORDS[facts.predictions])
     if "progress" not in facts.pending:
-        word = None if facts.progress is None else wording.PROGRESS_WORDS[facts.progress]
+        word = progress_word(opt, facts)
         out["progress"] = wording.status_line(wording.STATUS_PROGRESS,
                                               progress_short(opt, facts), word)
     if "next" not in facts.pending:
@@ -1745,6 +1771,24 @@ def score_built_text(opt):
     return _say(opt, wording.score_built(rows, f"{round(opt.utility_ceiling(), 1):g}"))
 
 
+def score_recipe_text(opt):
+    """Persona fixes 2: the score recipe in one caption under Closer to
+    target — 'Score: 25 per measurement, minus 25 × distance ÷ 15.' — from
+    the project's own shares and Ranges, when every measurement has a
+    target with one share and one Range width; None otherwise (the "?"
+    has the full sentence)."""
+    objs = [o for o in opt.objectives]
+    if not objs or any(o.get('goal') != 'target' for o in objs):
+        return None
+    shares = {f"{round(float(o['weight']), 1):g}" for o in objs}
+    widths = {f"{round(float(o.get('max_val', 10.0)) - float(o.get('min_val', 0.0)), 2):g}"
+              for o in objs}
+    if len(shares) != 1 or len(widths) != 1:
+        return None
+    per = "measurement" if len(objs) > 1 else objs[0]['name']
+    return _say(opt, wording.score_recipe(next(iter(shares)), next(iter(widths)), per))
+
+
 def progress_plain(opt, facts):
     """The Progress "?"'s plain lines (persona fixes): what the rise needed
     is, then how the Overall score is built."""
@@ -1756,6 +1800,8 @@ def progress_plain(opt, facts):
         assumed = y is None or getattr(y, "assumed", True)
         sd = "1" if (a.sd is None or assumed) else f"{a.sd:.1f}"
         out.append(wording.progress_need_plain(need, sd, assumed))
+    if plateau_round(opt, facts) is not None:
+        out.append(wording.PLATEAU_RULE)
     try:
         out.append(score_built_text(opt))
     except Exception:
@@ -4354,9 +4400,33 @@ def predictions_card(opt, facts):
     return Card(word, lines, "off" if facts.predictions == "off" else None)
 
 
+def plateau_round(opt, facts):
+    """Persona fixes 2: the Round of the last new best when the status is
+    Flat but Best so far rose since the first Round (the display word reads
+    "Plateau since Round N"; the status rule is unchanged); else None."""
+    if facts is None or facts.progress != "flat" or facts.best is None:
+        return None
+    try:
+        nums = story_numbers(opt)
+    except Exception:
+        return None
+    if nums is None or nums[3] is None or not nums[2] > nums[0] + 1e-9:
+        return None
+    return nums[3]
+
+
+def progress_word(opt, facts):
+    """The Progress word as shown everywhere (strip, section, Make a round,
+    tooltips): 'Plateau since Round 7' after a rise, else the status's."""
+    if facts is None or facts.progress is None:
+        return None
+    r = plateau_round(opt, facts)
+    return wording.plateau_word(r) if r is not None else wording.PROGRESS_WORDS[facts.progress]
+
+
 def progress_card(opt, facts):
     f = facts.best
-    word = None if facts.progress is None else wording.PROGRESS_WORDS[facts.progress]
+    word = progress_word(opt, facts)
     if f is None:
         return Card(word or "—", [(wording.NO_COMPLETE_FORMULATION, False)])
     tie = None if facts.tie is None else int(opt.formulation_ids[facts.tie])
@@ -4367,7 +4437,8 @@ def progress_card(opt, facts):
         tail = (wording.card_rising(rise, need) if facts.progress == "rising"
                 else wording.card_rise(rise, need))
     elif facts.progress == "flat":
-        tail = wording.card_flat(a.rounds)
+        # Persona fixes 2: "Plateau since Round 7" already says how long.
+        tail = None if plateau_round(opt, facts) is not None else wording.card_flat(a.rounds)
     else:
         tail = wording.card_best_who(f.formulation, tie)
     # Review story: the line goes from the start (the first scored Round's
@@ -4428,7 +4499,12 @@ def next_card(opt, facts):
         lines = [(wording.card_add_to(no if opt.pending_batch else None), False)]
     elif kind == "close":
         word = wording.CARD_CLOSE if step.binding is not None else wording.CARD_CLOSE_TOP
-        lines = [(wording.card_close_line(
+        reason = None
+        try:
+            reason = widen_reason_text(opt, step.binding)
+        except Exception:
+            reason = None
+        lines = [(reason or wording.card_close_line(
             _close_change(step.binding),
             settings_only=not insights.has_ingredient_choice(opt)), False)]
     if ask is not None and kind in _ASK_REPEAT and (left or _why_link_offered(opt)):
@@ -5350,6 +5426,8 @@ class LearnedFacts:
         self.called, self.score_call, self.landing = called, score_call, landing
         self.skill_line = skill_line
         self.items = list(items)
+        self.noise = {}         # persona fixes 2: {name: the SD an order claim must reach}
+        self.checks = None      # the Round-ahead checks (the bias line reads every result)
 
     def names_by(self, verdict):
         return [n for n, o in self.orderings.items()
@@ -5369,12 +5447,16 @@ def learned_label(opt, name):
 def learned_facts_from(opt, checks):
     """LearnedFacts from the Round-ahead checks; the effects from the models
     already fitted for them (memo)."""
-    orderings = learned.orderings(opt, checks)
+    # Persona fixes 2: an order claim only when the forecasts were one
+    # noise SD of the result apart (learned.pair_noise), everywhere.
+    noise = learned.pair_noise(opt, checks)
+    orderings = learned.orderings(opt, checks, noise)
     # Review learned 2b: no effect is claimed on screen; learned.effects
     # stays (tested) for when Repeats measure the noise.
     effects = {}
-    r, calls = learned.called_it(opt, checks)
-    score_call = None if r is None else learned.round_call(checks, insights.SCORE, r)
+    r, calls = learned.called_it(opt, checks, None, noise)
+    score_call = (None if r is None else
+                  learned.round_call(checks, insights.SCORE, r, noise.get(insights.SCORE) or 0.0))
     mine = [c for c in checks if c.name == insights.SCORE and c.round == r and c.fully_measured]
     landing = (sum(c.inside for c in mine), sum(c.measured > c.high for c in mine),
                sum(c.measured < c.low for c in mine))
@@ -5392,6 +5474,8 @@ def learned_facts_from(opt, checks):
         items = [(n, call, learned.round_checks(checks, n, r)) for n, call in named
                  if call.pairs or learned.round_checks(checks, n, r)]
     lf = LearnedFacts(orderings, effects, (r, calls), score_call, landing, skill_line, items)
+    lf.noise = noise
+    lf.checks = list(checks)
     # Persona fixes: the same record in plain words, the terms of art last.
     lf.plain_line = wording.skill_plain(inside, total, None if fact is None else fact.value,
                                         None if best is None else best[0])
@@ -5525,35 +5609,45 @@ def _is_target(opt, name):
     return any(o['name'] == name and o.get('goal') == 'target' for o in opt.objectives)
 
 
+def check_bias_line(opt, lf):
+    """Persona fixes 2: 'Forecasts ran about 2 high on Tangy.' — every
+    result of the Round whose measured values all sit on one side of their
+    forecasts by more than its noise SD (learned.round_bias), the largest
+    first; '' with none."""
+    r = lf.called[0]
+    if r is None or not lf.items:
+        return ""
+    names = [insights.SCORE] + [n for n in lf.orderings if n != insights.SCORE]
+    cells = []
+    for name in names:
+        cks = (learned.round_checks(lf.checks, name, r) if lf.checks is not None
+               else next((it[2] for it in lf.items if it[0] == name), []))
+        g = learned.round_bias(cks, lf.noise.get(name) or 0.0)
+        if g is not None:
+            cells.append((learned_label(opt, name), g))
+    cells.sort(key=lambda c: -abs(c[1]))
+    return _say(opt, wording.check_bias(cells))
+
+
 def called_line(opt, lf):
-    """Called it?'s headline from the facts (persona fixes): led by the
-    Overall score whenever its order held — '**Round 6: order called
-    right.** Overall: F16, F17 above F18; scored about 4 better than
-    forecast.' — else partly or missed said plainly. None with nothing to
-    call."""
+    """The Forecast check's headline from the facts (persona fixes 2):
+    where the Overall scores landed against their 95 % ranges (a miss on
+    either side), then the order of the pairs that count — '**Round 6:
+    scored higher than forecast.** 2 of 3 above their range; order too
+    close to call.' A measurement leads when the Overall score is not
+    there. None with nothing to check."""
     if not lf.items:
         return None
     r = lf.called[0]
-    got = learned.called_summary(lf.items)
-    score = next((it for it in lf.items if it[0] == insights.SCORE), None)
-    if score is not None and insights.SCORE in got.right:
-        _, _, cks = score
-        line = wording.called_score_head(
-            r, wording.called_order(measured_groups(cks)),
-            wording.called_landing(*score_landing(cks)),
-            [learned_label(opt, n) for n in got.off])
-        return _short(opt, line)
-    if got.verdict == learned.CALLED and got.lead is not None:
-        # The Overall score not drawn (all measured the same): the lead
-        # measurement's line, never "highest".
-        lead = next(it for it in lf.items if it[0] == got.lead)
-        line = (f"**{wording.ROUND_CAP} {r}: order called right.** " + wording.called_measure_line(
-            learned_label(opt, got.lead), lead[1].right, lead[1].counted, True))
-        return _short(opt, line)
-    line = wording.called_answer(
-        r, got.verdict, None, None, None,
-        [learned_label(opt, n) for n in got.right], [learned_label(opt, n) for n in got.off])
-    return _short(opt, line)
+    lead = next((it for it in lf.items if it[0] == insights.SCORE), lf.items[0])
+    name, call, cks = lead
+    inside = sum(1 for c in cks if c.low <= c.measured <= c.high)
+    above = sum(1 for c in cks if c.measured > c.high)
+    below = sum(1 for c in cks if c.measured < c.low)
+    order = wording.check_order(call.right, call.counted, call.close,
+                                tied=bool(cks) and learned.all_tied(cks) and len(cks) > 1)
+    subject = None if name == insights.SCORE else learned_label(opt, name)
+    return _short(opt, wording.check_line(r, inside, above, below, order, subject))
 
 
 def round_predicted_frame(opt, checks, r):
@@ -5564,7 +5658,7 @@ def round_predicted_frame(opt, checks, r):
     if not checks or r not in insights._ordered_rounds(checks):
         return None
     earlier = learned.before(checks, r)
-    picked = [n for n, o in learned.orderings(opt, earlier).items()
+    picked = [n for n, o in learned.orderings(opt, earlier, learned.pair_noise(opt, checks)).items()
               if n != insights.SCORE and o.verdict == learned.PREDICTABLE]
     rows = []
     for name in [insights.SCORE] + picked:
@@ -5590,26 +5684,31 @@ def called_so_far(opt, lf):
             continue
         label = wording.CALLED_OVERALL if name[0] == insights.SCORE else learned_label(opt, name[0])
         cells.append((label, o.right, o.pairs))
+    if cells and not any(p for _, _, p in cells) and any(
+            getattr(lf.orderings.get(it[0]), "close", 0) for it in learned.shown(lf.items)):
+        # Persona fixes 2: nothing far enough apart to count, said.
+        return _say(opt, wording.CHECK_SO_FAR_NONE)
     return _say(opt, wording.called_so_far(cells))
 
 
 def called_detail(opt, lf):
-    """Called it?'s "?": per result its order line ('pairs in the right
-    order'; never "highest" for a measurement with a target), its pairs (a
-    ✓ or ✗ each), the forecast values and 95 % ranges, the Overall score's
-    landing (above its range: better than forecast); the panels left out
-    (all measured the same); then the rule."""
+    """The Forecast check's "?": per result its order line (the pairs that
+    count; too close to call said plainly), its pairs (a ✓ or ✗ each, or
+    "too close"), the forecast values and 95 % ranges, the Overall score's
+    misses on either side; the panels left out (all measured the same);
+    the noise each claim had to reach; then the rule."""
     out = []
     for name, call, cks in lf.items:
         label = learned_label(opt, name)
         if learned.all_tied(cks):
             out.append(wording.called_tied(label))
             continue
-        line = wording.called_measure_line(label, call.right, call.counted,
-                                           learned.order_held(call))
+        line = wording.check_measure_line(label, call.right, call.counted, call.close,
+                                          learned.order_held(call))
         if name == insights.SCORE and sum(lf.landing):
             line = line.rstrip(".") + "; " + wording.called_range(*lf.landing)
-        bits = [wording.called_pair(p.high, p.low, p.right) for p in call.pairs]
+        bits = [wording.check_pair_close(p.high, p.low) if p.close
+                else wording.called_pair(p.high, p.low, p.right) for p in call.pairs]
         top = ("" if _is_target(opt, name)
                else wording.called_top(call.top_predicted, call.top_measured, call.top_right))
         if top:
@@ -5619,8 +5718,11 @@ def called_detail(opt, lf):
                  f"{capped(c.high, hi)})" for c in cks]
         out.append("  \n".join(t for t in (line, " · ".join(bits),
                                              wording.called_ranges(cells)) if t))
+    noise = [(learned_label(opt, n), f"{lf.noise[n]:.1f}") for n, _, _ in lf.items
+             if lf.noise.get(n)]
+    out.append(wording.check_noise(noise))
     out.append(wording.CALLED_RULE)
-    return _short(opt, "\n\n".join(out))
+    return _short(opt, "\n\n".join(t for t in out if t))
 
 
 # Review readable: a slopegraph's y runs over _SLOPE_Y (data units) in
@@ -5674,10 +5776,17 @@ def slope_frames(opt, name, call, cks):
     label per distinct point per side, equal values sharing it."""
     _, top = insights._range_of(opt, name)
     d = 1 if name == insights.SCORE else max(1, decimals(opt, name))
-    crossed = set()
+    crossed, counted, close = set(), set(), set()
     for p in call.pairs:
         if p.right is False:
             crossed |= {p.high, p.low}
+        if p.right is not None:
+            counted |= {p.high, p.low}
+        if p.close:
+            close |= {p.high, p.low}
+    # Persona fixes 2: a formulation in no pair that counts, only in pairs
+    # too close to call, is drawn faint.
+    faint = close - counted
     rank = {c.formulation: learned._rank_value(c) for c in cks}
     rows, labels = [], []
     for x, values, shown in ((0, [rank[c.formulation] for c in cks],
@@ -5688,6 +5797,10 @@ def slope_frames(opt, name, call, cks):
         for c, y in zip(cks, ys):
             rows.append({"f": int(c.formulation), "x": x, "y": y,
                          "crossed": c.formulation in crossed,
+                         "state": ("crossed" if c.formulation in crossed else
+                                   "close" if c.formulation in faint else "kept"),
+                         "op": 0.3 if c.formulation in faint and c.formulation not in crossed
+                         else 1.0,
                          "value": shown[cks.index(c)]})
         groups = {}
         for c, y, v in zip(cks, ys, shown):
@@ -5699,6 +5812,7 @@ def slope_frames(opt, name, call, cks):
             v = groups[k][0][1]
             # "dot": the point's own height; lx–lx2 a short leader's span.
             labels.append({"x": x, "y": ly, "dot": k,
+                           "faint": all(n in faint for n, _ in groups[k]),
                            "lx": x - 0.04 if x == 0 else x + 0.04,
                            "lx2": x - 0.1 if x == 0 else x + 0.1,
                            "text": f"{nos}  {v}" if x == 0 else f"{v}  {nos}"})
@@ -5726,17 +5840,21 @@ def called_chart(opt, lf):
         xs = alt.Scale(domain=[-1.3, 2.3], nice=False)
         ys = alt.Scale(domain=list(_SLOPE_Y), nice=False)
         x, y = alt.X("x:Q", axis=None, scale=xs), alt.Y("y:Q", axis=None, scale=ys)
-        colour = alt.Color("crossed:N", legend=None,
-                           scale=alt.Scale(domain=[False, True], range=[grey, ink]))
-        dash = alt.StrokeDash("crossed:N", legend=None,
-                              scale=alt.Scale(domain=[False, True], range=[[1, 0], [5, 3]]))
+        # Persona fixes 2: too close to call drawn faint (grey, light).
+        states = ["kept", "crossed", "close"]
+        colour = alt.Color("state:N", legend=None,
+                           scale=alt.Scale(domain=states, range=[grey, ink, grey]))
+        dash = alt.StrokeDash("state:N", legend=None,
+                              scale=alt.Scale(domain=states, range=[[1, 0], [5, 3], [1, 0]]))
+        # The opacity as given ("op": 1, or 0.3 when too close to call).
+        fade = alt.Opacity("op:Q", legend=None, scale=None)
         tip = [alt.Tooltip("f:N", title=_say(opt, wording.FORMULATION_CAP)),
                alt.Tooltip("value:N", title=_say(opt, wording.CALLED_TIP_MEASURED))]
         base = alt.Chart(lines)
         line = base.mark_line(strokeWidth=2).encode(x=x, y=y, detail="f:N", color=colour,
-                                                    strokeDash=dash)
-        dots = base.mark_point(filled=True, size=46, opacity=1).encode(
-            x=x, y=y, color=colour, tooltip=tip)
+                                                    strokeDash=dash, opacity=fade)
+        dots = base.mark_point(filled=True, size=46).encode(
+            x=x, y=y, color=colour, opacity=fade, tooltip=tip)
         lab = alt.Chart(labels)
         # Review readable: a short leader from each dot to its label when
         # the label was moved apart from a near-equal one.
@@ -5744,10 +5862,13 @@ def called_chart(opt, lf):
         leaders = alt.Chart(lead).mark_rule(color=grey, strokeWidth=1, tooltip=False).encode(
             x=alt.X("lx:Q", scale=xs, axis=None), x2="lx2:Q",
             y=alt.Y("dot:Q", scale=ys, axis=None), y2="y:Q")
+        text_colour = alt.condition("datum.faint", alt.value(grey), alt.value(ink))
         left = lab.transform_filter("datum.x == 0").mark_text(
-            align="right", dx=-9, fontSize=FONT_LABEL, color=ink).encode(x=x, y=y, text="text:N")
+            align="right", dx=-9, fontSize=FONT_LABEL).encode(x=x, y=y, text="text:N",
+                                                              color=text_colour)
         right = lab.transform_filter("datum.x == 1").mark_text(
-            align="left", dx=9, fontSize=FONT_LABEL, color=ink).encode(x=x, y=y, text="text:N")
+            align="left", dx=9, fontSize=FONT_LABEL).encode(x=x, y=y, text="text:N",
+                                                            color=text_colour)
         # Persona fixes: "Forecast order" / "Measured order", each set off
         # from the middle so the two never meet at 11 px.
         head_frame = pd.DataFrame({
@@ -5760,8 +5881,12 @@ def called_chart(opt, lf):
         layers = [line, dots, left, right, heads_l, heads_r] + ([leaders] if len(lead) else [])
         panels.append(alt.layer(*layers).properties(
             width=width, height=CALLED_H,
-            title=alt.TitleParams(_say(opt, learned_label(opt, name)), fontSize=FONT_TITLE,
-                                  anchor="middle", fontWeight="bold", offset=4)))
+            title=alt.TitleParams(
+                _say(opt, learned_label(opt, name)), fontSize=FONT_TITLE, anchor="middle",
+                fontWeight="bold", offset=4,
+                # Persona fixes 2: nothing to claim, said plainly.
+                **({"subtitle": _say(opt, wording.CHECK_TOO_CLOSE), "subtitleFontSize": FONT_SMALL,
+                    "subtitleColor": muted()} if not call.counted else {}))))
     return readable(alt.hconcat(*panels, spacing=_CALLED_SPACING).configure_view(stroke=None))
 
 
@@ -5778,7 +5903,13 @@ def _called_top(opt, slot, lf):
     if line is None:
         return
     with slot.container(key=CALLED_KEY, gap="small"):
+        # Persona fixes 2: the block named plainly, in the small title style
+        # of Closer to target (not a fifth question).
+        st.markdown(f"**{_say(opt, wording.FORECAST_CHECK_TITLE)}**")
         st.markdown(line, help=called_detail(opt, lf))
+        bias = check_bias_line(opt, lf)
+        if bias:
+            st.markdown(bias)
         so_far = called_so_far(opt, lf)
         if so_far:
             st.markdown(so_far)
@@ -5971,7 +6102,7 @@ class PreviewRow(tuple):
         return row
 
 
-def apart_text(opt, recipe, role):
+def apart_text(opt, recipe, role, binding=None):
     """What sets a suggestion apart (persona fixes), from its role and its
     two largest changes against Best so far (FoodOptimizer._variable_deltas):
     'Explores: less Tapioca starch and Nutritional yeast than anything
@@ -5995,19 +6126,34 @@ def apart_text(opt, recipe, role):
         beyond = bool(vals) and ((delta < 0 and v < min(vals) - tol)
                                  or (delta > 0 and v > max(vals) + tol))
         out.append((word, name, beyond))
+    # Persona fixes 2: Next advises widening X's Lowest (Highest) while this
+    # suggestion moves X up (down): said, so the two never read as a clash.
+    other = None
+    kind = binding.kind if binding is not None else None
+    if kind in ("lowest", "highest"):
+        away = ("more", "higher") if binding.kind == "lowest" else ("less", "lower")
+        hit = next((it for it in out if it[1] == binding.name and it[0] in away), None)
+        if hit is not None:
+            out.remove(hit)
+            other = wording.other_side(hit[0], hit[1])
     far = [(w, n) for w, n, b in out if b]
     if far:
-        return wording.apart_line(role, far, beyond=True)
-    return wording.apart_line(role, [(w, n) for w, n, _ in out])
+        line = wording.apart_line(role, far, beyond=True)
+    else:
+        line = wording.apart_line(role, [(w, n) for w, n, _ in out])
+    if other:
+        line += f"; {other}" if out else f": {other}"
+    return line
 
 
-def preview_rows(opt, computed):
+def preview_rows(opt, computed, binding=None):
     """The next suggestions as Generate would make them now: [PreviewRow
     (k, role, score text, top-2 changes against Best so far; .apart,
     .mean, .recipe)], cached per setup and next Formulation number; None
     when the preview failed."""
     n = _preview_count(opt)
-    key = (insights.setup_key(opt), opt.next_formulation_no, n)
+    key = (insights.setup_key(opt), opt.next_formulation_no, n,
+           None if binding is None else (binding.kind, binding.name))
     hit = st.session_state.get(PREVIEW_KEY)
     if hit and hit[0] == key:
         return hit[1]
@@ -6033,7 +6179,7 @@ def preview_rows(opt, computed):
             text = "—" if p is None else capped_range(insights.widened(score, p, factor), top, 0)
             role = opt.suggestion_role(row["recipe"])
             try:
-                apart = apart_text(opt, row["recipe"], role)
+                apart = apart_text(opt, row["recipe"], role, binding)
             except Exception:
                 apart = wording.apart_line(role, [])
             out.append(PreviewRow(row["formulation"], role, text,
@@ -6081,8 +6227,11 @@ def _next_preview(opt, places, computed, facts=None):
     if not ready or opt.complete_count() < insights.MIN_ROWS:
         return
     with places.preview.container():
+        step = getattr(facts, "next", None)
+        binding = (getattr(step, "binding", None)
+                   if step is not None and step.kind == "close" else None)
         with st.spinner(_say(opt, wording.LEARNED_PREVIEW_SPINNER)):
-            rows = preview_rows(opt, computed)
+            rows = preview_rows(opt, computed, binding)
         if not rows:
             st.caption(_say(opt, wording.LEARNED_PREVIEW_FAILED))
             return
@@ -6093,7 +6242,7 @@ def _next_preview(opt, places, computed, facts=None):
         st.markdown(f"**{_say(opt, wording.LEARNED_PREVIEW_TITLE)}**", help=_say(opt, help_))
         # Persona fixes: a learning round said as one, above the table.
         if learning_round(opt, rows):
-            st.caption(_say(opt, wording.LEARNING_ROUND))
+            st.caption(_say(opt, wording.LEARNING_ROUND_WHY))
         cols = [_say(opt, c) for c in (wording.PREVIEW_COLUMNS[0], wording.PREVIEW_APART_COLUMN,
                                        *wording.PREVIEW_COLUMNS[2:])]
         frame = pd.DataFrame([dict(zip(cols, (r[0], _say(opt, getattr(r, "apart", "") or r[1]),
@@ -6175,6 +6324,13 @@ def _progress_body(opt, slot):
                            help=_say(opt, wording.story_target_help(
                                int(opt.formulation_ids[s[0]]), int(opt.formulation_ids[b]),
                                s[1])) + "\n\n" + score_built_text(opt))
+                # Persona fixes 2: the score recipe on screen, one line.
+                try:
+                    recipe = score_recipe_text(opt)
+                except Exception:
+                    recipe = None
+                if recipe:
+                    st.caption(recipe)
 
 
 def _drives_section(opt, slot, computed, facts):

@@ -344,13 +344,17 @@ def _check_without_repeat(at, name, word):
 def test_pilot_round_5_never_says_panel(pilot):
     # 9 Overall-score checks: under SKILL_MIN, Not yet (ruling 1).
     # Review learned: the Model item's word (the ordering rule).
-    _check_without_repeat(_open_review(R5), R5, "Predicts")
+    # Persona fixes 2: pairs too close to call (forecasts under one noise SD
+    # apart) no longer count, so fewer verdicts reach Predicts.
+    _check_without_repeat(_open_review(R5), R5, "Not yet")
 
 
 @needs_pilot
 def test_pilot_round_6_scored_never_says_panel(pilot):
     # The Overall score 10 of 12 in range, skill 0.69: Reliable (ruling 1).
-    _check_without_repeat(_score_round_6(), R6, "Predicts")
+    # Persona fixes 2: pairs too close to call (forecasts under one noise SD
+    # apart) no longer count, so fewer verdicts reach Predicts.
+    _check_without_repeat(_score_round_6(), R6, "Not yet")
 
 
 @needs_pilot

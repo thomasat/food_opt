@@ -261,6 +261,15 @@ def _number(cell):
         return None
 
 
+def _round_checkable(opt):
+    """Whether the last Round has a Round-ahead check to link to (no Round
+    open, the last Round checkable)."""
+    last = opt.last_batch_no()
+    return not (opt.pending_batch or last is None
+                or last in insights.rounds_not_checked(opt)
+                or last not in {r for r, _ in insights.round_order(opt)})
+
+
 def _round_link(opt):
     """E1 (spec 2026-09-30-bo-views §5; 04 §3): after Save results, with no
     Round open and the last Round checkable, one text-style link to
@@ -269,11 +278,9 @@ def _round_link(opt):
     Insights opens on arrival). A rule
     that needs no fit (rounds_not_checked), so it never waits; gone once
     the next Round is generated."""
-    last = opt.last_batch_no()
-    if (opt.pending_batch or last is None
-            or last in insights.rounds_not_checked(opt)
-            or last not in {r for r, _ in insights.round_order(opt)}):
+    if not _round_checkable(opt):
         return False
+    last = opt.last_batch_no()
     link(wording.for_project(opt, wording.round_measured_against_predicted(last)),
          wording.TAB_INSIGHTS, section=ui_insights.TRUST_SECTION, fold=ui_insights.EACH_KEY,
          key="link_round_checked")
@@ -446,8 +453,12 @@ def _best(opt):
         line = _progress_line(opt)
         if line:
             st.caption(wording.for_project(opt, line))
-        if _round_link(opt):
-            _round_predicted(opt)
+        if _round_checkable(opt):
+            # Persona fixes 2: the link, its table and its caption in one
+            # box, so the caption never reads as the next table's.
+            with st.container(border=True, key="round_predicted_box"):
+                if _round_link(opt):
+                    _round_predicted(opt)
         for text in _waiting_lines(opt):
             st.caption(wording.for_project(opt, text))
 

@@ -247,9 +247,10 @@ def test_score_verdict_rule():
 # Review learned: the item is Model, its word the model's verdicts; the
 # Overall score's red miss line is kept (never folded).
 CARDS = {
-    D.LINE_A: ("Predicts", ["Firmness"]),
+    # Persona fixes 2: too-close pairs left out of the counts.
+    D.LINE_A: ("Not yet", ["predictable"]),
     # Review learned 2: the section repeats no old-card line.
-    D.LINE_B: ("Predicts", [":red[**3 / 16 missed**]"]),
+    D.LINE_B: ("Partly", [":red[**3 / 16 missed**]"]),
     D.PROCESS_ONLY: ("Predicts", [":red[**4 / 16 missed**]"]),
     D.TIMING: ("Predicts", ["Firmness, Juiciness +2"]),
 }
@@ -416,7 +417,9 @@ def test_pilot_cards_on_the_overall_score(pilot):
     p = cards(_open(R5))[0]
     # Review learned: the Model item, by the ordering rule (no pilot names
     # here); no red line.
-    assert p["word"] == "Predicts"
+    # Persona fixes 2: pairs too close to call (forecasts under one noise SD
+    # apart) no longer count, so fewer verdicts reach Predicts.
+    assert p["word"] == "Not yet"
     assert not any(line.startswith(":red[") for line in p["lines"])
     at = _open(ALL10)
     assert cards(at)[0]["word"] == "Predicts"

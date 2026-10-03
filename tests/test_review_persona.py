@@ -129,8 +129,10 @@ def _round6(score_meas=(98.33, 98.33, 91.67), cons_meas=(12, 12, 13)):
 
 
 def _lf(opt, checks):
-    orderings = learned.orderings(opt, checks)
-    r, calls = learned.called_it(opt, checks, 6)
+    # Persona fixes 2: no noise here (every pair counts); the noise rule
+    # has its own tests (test_review_persona2).
+    orderings = learned.orderings(opt, checks, {})
+    r, calls = learned.called_it(opt, checks, 6, {})
     score_call = learned.round_call(checks, insights.SCORE, 6)
     named = [(insights.SCORE, score_call)] + calls
     items = [(n, call, learned.round_checks(checks, n, 6)) for n, call in named]
@@ -144,8 +146,10 @@ def test_called_it_leads_with_the_overall_score(plain):
     opt = _Obj()
     lf = _lf(opt, _round6())
     line = U.called_line(opt, lf)
-    assert line == ("**Round 6: order called right.** Overall: F16, F17 above F18; scored "
-                    "about 4 better than forecast.")
+    # Persona fixes 2: led by where the scores landed (a miss above its
+    # range is a miss), then the order of the pairs that count.
+    assert line == ("**Round 6: scored higher than forecast.** 2 of 3 above their range; "
+                    "order right (2 pairs).")
     # "about 4": the mean of measured − forecast over those above their range.
     above, below = U.score_landing(learned.round_checks(_round6(), insights.SCORE, 6))
     assert above == pytest.approx(((98.33 - 94.3) + (98.33 - 94.7)) / 2) and below is None
@@ -172,17 +176,18 @@ def test_called_it_off_orders_say_pairs_in_the_right_order(plain):
     opt = _Obj()
     lf = _lf(opt, _round6(cons_meas=(13, 12, 11)))      # Consistency reversed
     line = U.called_line(opt, lf)
-    assert line.startswith("**Round 6: Overall order called right.**")
-    assert "Consistency order off" in line and _words(line) <= 14
+    assert line.startswith("**Round 6: scored higher than forecast.**")
+    assert _words(line) <= 17
     assert "Consistency: 1 of 3 pairs in the right order." in U.called_detail(opt, lf)
-    # The Overall order off too: partly or missed, said plainly.
+    # The Overall order off too, and misses both ways, said plainly.
     lf = _lf(opt, _round6(score_meas=(90, 91, 97), cons_meas=(13, 12, 11)))
-    assert U.called_line(opt, lf).startswith("**Round 6: missed.**")
+    assert U.called_line(opt, lf) == ("**Round 6: scored outside forecast, both ways.** All 3 "
+                                      "outside their range; order right in 1 of 3 pairs.")
     assert wording.called_record("Firm", 8, 8) == "**Firm: 8 of 8 pairs in the right order.**"
 
 
 def test_called_it_landing_words():
-    assert wording.called_landing(3.8) == "scored about 4 better than forecast"
+    assert wording.called_landing(3.8) == "scored about 4 above forecast"
     assert wording.called_landing(None, -2.2) == "scored about 2 below forecast"
     assert wording.called_landing() == "scored as forecast"
     assert wording.called_order([[16, 17], [18]]) == "F16, F17 above F18"

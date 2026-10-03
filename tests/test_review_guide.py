@@ -30,8 +30,10 @@ STATUS = {
     # Review learned: past the gate the word is the Model item's (the
     # model's verdicts); the line stays red where the Overall score's
     # record was Off (the process-only study, 12 of 16).
-    D.LINE_A: ("Predicts", "No new best", None),
-    D.LINE_B: ("Predicts", "Flat", "Check panel first"),
+    # Persona fixes 2: too-close pairs left out; Flat after a rise reads
+    # Plateau since Round N.
+    D.LINE_A: ("Not yet", "No new best", None),
+    D.LINE_B: ("Partly", "Plateau since Round 3", "Check panel first"),
     D.LINE_C: ("Not yet", "Within noise", None),
     D.PROCESS_ONLY: ("Predicts", "Within noise", None),
 }

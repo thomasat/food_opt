@@ -9032,7 +9032,8 @@ def learned_tops(rows):
 LEARNED_RULE = ("Each Round's formulations are forecast before tasting, from the formulations "
                 "scored before that Round. Within each Round, every pair whose measured values "
                 "differ counts as ordered right when the forecast put them in the same order; "
-                "a pair measured equal is not counted. Guessing gets half right. Predictable: "
+                "a pair measured equal is not counted, nor one whose forecasts differ by less "
+                "than one noise SD of the result (too close to call). Guessing gets half right. Predictable: "
                 "right clearly more often than chance (one-sided binomial test, p < 0.05, at "
                 "least 5 pairs). Partly: right in more than half, p < 0.20. Not yet: otherwise, "
                 "or when more than half of its pairs measured equal (it barely varies).")
@@ -9059,24 +9060,27 @@ def learned_skill_line(inside, total, vs_mean, vs_best, n):
 
 
 def called_title(round_no):
-    """'Round 6: called it?'"""
-    return f"Round {round_no}: called it?"
+    """'Round 6: forecast check'"""
+    return f"Round {round_no}: forecast check"
 
 
 CALLED_TIP_FORECAST = "Forecast"
 CALLED_TIP_MEASURED = "Measured"
-CALLED_WORDS = {"called": "called it", "partly": "partly", "missed": "missed"}
+CALLED_WORDS = {"called": "order called right", "partly": "partly", "missed": "missed"}
 # Review learned 2b (coordinator: the range bars read as misses; the claim
 # is the ORDER): one slopegraph per result, the forecast on the left, the
 # measured value on the right, each side on its own scale.
-CALLED_CAPTION = "Grey: order kept. Dashed: order crossed."
+CALLED_CAPTION = "Grey: kept. Dashed: crossed. Faint: too close."
 CALLED_RULE = (f"Forecast before tasting, from the {FORMULATION}s scored before this Round, for "
                "the Overall score and each measurement predictable before it. Each line joins "
                f"a {FORMULATION}'s forecast (left) to its measured value (right), each side "
-               "placed by its own values, highest at the top. Called it: no line crosses "
-               "(every pair measured apart in the forecast order) and the one forecast highest measured highest. Equal measured "
-               "values share a point and are not counted. An Overall score above its 95 % "
-               "range is better than forecast, not a miss.")
+               "placed by its own values, highest at the top. A measured value outside its "
+               "95 % range is a miss, above or below. A pair counts only when its forecasts "
+               "differ by at least one noise SD of that result; closer pairs are too close to "
+               "call (drawn faint) and left out of every count. Noise SD: the Repeats' SD when "
+               "they give one; else the larger of the model's fitted noise and the forecasts' "
+               "typical miss, the Overall score at least the assumed 1 point. Equal measured "
+               "values share a point and are not counted.")
 
 
 def called_record(name, right, pairs):
@@ -9150,15 +9154,14 @@ def called_top(top, measured_top, right):
 
 
 def called_range(inside, above, below):
-    """The Overall score's landing: '1 of 3 in range, 2 better than
-    forecast.' Above the range is better than forecast, not a miss."""
+    """The Overall score's landing: '1 of 3 in range; 2 misses, both higher
+    than forecast.' Outside the range is a miss, above or below (persona
+    fixes 2)."""
     total = inside + above + below
-    parts = [f"{inside} of {total} in range"]
-    if above:
-        parts.append(f"{above} better than forecast")
-    if below:
-        parts.append(f"{below} below forecast")
-    return ", ".join(parts) + "."
+    out = f"{inside} of {total} in range"
+    if above or below:
+        out += f"; {check_misses(above, below)}"
+    return out + "."
 
 
 def forecast_line(name, cells, top):
@@ -9170,7 +9173,7 @@ def forecast_line(name, cells, top):
 def forecast_help(n_rows, round_no):
     """The forecast panel's "?"."""
     return (f"Forecast from the {n_rows} {FORMULATION}s scored before Round {round_no}: the "
-            f"same forecast the Review checks once results are saved (Called it?). Only "
+            f"same forecast the Review checks once results are saved (Forecast check). Only "
             f"measurements the model has ordered right before (Predictable) are shown. A value "
             f"at the top of its Range reads ≥ that top.")
 
@@ -9257,20 +9260,20 @@ def _about(x):
 
 def called_landing(above_gap=None, below_gap=None):
     """Where the Overall scores landed against their forecast: 'scored about
-    4 better than forecast' (the mean of measured − forecast over those
+    4 above forecast' (the mean of measured − forecast over those
     above their 95 % range); 'scored about 2 below forecast'; 'scored as
     forecast' when every one landed in its range."""
     if above_gap is not None:
-        return f"scored {_about(above_gap)} better than forecast"
+        return f"scored {_about(above_gap)} above forecast"
     if below_gap is not None:
         return f"scored {_about(below_gap)} below forecast"
     return "scored as forecast"
 
 
 def called_score_head(round_no, order_text, landing_text="", off=()):
-    """Called it?'s headline when the Overall score's order held: '**Round 6:
+    """The earlier headline when the Overall score's order held: '**Round 6:
     order called right.** Overall: F16, F17 above F18; scored about 4
-    better than forecast.'; a measurement whose order did not hold is said
+    above forecast.'; a measurement whose order did not hold is said
     after it ('Tangy order off')."""
     head = (f"**{ROUND_CAP} {round_no}: order called right.**" if not off
             else f"**{ROUND_CAP} {round_no}: {CALLED_OVERALL} order called right.**")
@@ -9375,7 +9378,7 @@ RESULTS_PREDICTED_CAPTION = "Forecast before tasting, from earlier Rounds."
 def results_predicted_help(round_no):
     return (f"Each {FORMULATION} of {ROUND_CAP} {round_no} as forecast before tasting, from "
             f"the {FORMULATION}s scored before {ROUND_CAP} {round_no} only (the Review's "
-            f"Called it?), beside what was measured. Shown: the {OVERALL_SCORE_COLUMN} and the "
+            f"Forecast check), beside what was measured. Shown: the {OVERALL_SCORE_COLUMN} and the "
             "measurements the model ordered right before this Round (Predictable). A value "
             "at the top of its Range reads ≥ that top.")
 
@@ -9514,3 +9517,164 @@ def forecast_order_tail(order):
     high to low: F18, F16, F17.' (never "Highest", which would read as
     best)."""
     return f" Order, high to low: {', '.join(f'F{n}' for n in order)}."
+
+
+# --- persona fixes 2 ---
+# Persona fixes 2 (prototype, 2026-10-02; the senior food scientist's
+# re-test: clearer, not yet trusted): an honest Forecast check (a miss on
+# either side; an order claim only when the forecasts were a noise SD
+# apart; a steady bias said), provenance from the notes, the widen advice
+# with its reason, the score recipe on screen, Plateau after a rise.
+FORECAST_CHECK_TITLE = "Forecast check"
+CHECK_TOO_CLOSE = "Too close to call"
+CHECK_SO_FAR_NONE = "So far: every pair too close to call."
+
+
+def check_landing(above, below):
+    """'higher' / 'lower' / 'both' / 'inside' from the misses' sides."""
+    if above and below:
+        return "both"
+    return "higher" if above else "lower" if below else "inside"
+
+
+def check_head(round_no, above, below, subject=None):
+    """'**Round 6: scored higher than forecast.**'; a measurement as the
+    subject: '**Round 6: Consistency measured lower than forecast.**'."""
+    verb = "scored" if subject is None else f"{subject} measured"
+    what = {"higher": f"{verb} higher than forecast", "lower": f"{verb} lower than forecast",
+            "both": f"{verb} outside forecast, both ways",
+            "inside": f"{verb} as forecast"}[check_landing(above, below)]
+    return f"**{ROUND_CAP} {round_no}: {what}.**"
+
+
+def check_misses(above, below):
+    """'2 misses, both higher than forecast'; '1 miss, lower than
+    forecast'; '2 misses: 1 higher, 1 lower'."""
+    n = above + below
+    word = "miss" if n == 1 else "misses"
+    if above and below:
+        return f"{n} {word}: {above} higher, {below} lower"
+    side = "higher" if above else "lower"
+    lead = "" if n == 1 else ("both " if n == 2 else "all ")
+    return f"{n} {word}, {lead}{side} than forecast"
+
+
+def check_range(inside, above, below):
+    """The headline's range part: '2 of 3 above their range'; '1 of 3
+    below its range'; 'all 3 in range'; 'all 3 outside their range'."""
+    total = inside + above + below
+    out = above + below
+    if not out:
+        return "in range" if total == 1 else f"all {total} in range"
+    side = "above" if not below else "below" if not above else "outside"
+    if out == total == 1:
+        return f"{side} its range"
+    lead = (("both" if total == 2 else f"all {total}") if out == total
+            else f"{out} of {total}")
+    return f"{lead} {side} {'its' if out == 1 else 'their'} range"
+
+
+def check_order(right, counted, close, tied=False):
+    """The headline's order part: 'order too close to call'; 'order right
+    (1 pair; 2 too close)'; 'order right in 1 of 2 pairs'."""
+    if tied:
+        return "all the same"
+    if not counted:
+        return "order too close to call" if close else ""
+    pairs = "pair" if counted == 1 else "pairs"
+    tail = f"; {close} too close" if close else ""
+    if right == counted:
+        return f"order right ({counted} {pairs}{tail})"
+    return f"order right in {right} of {counted} {pairs}{tail}"
+
+
+def check_line(round_no, inside, above, below, order_text="", subject=None):
+    """The Forecast check's headline, at most 14 words (numbers aside):
+    '**Round 6: scored higher than forecast.** 2 of 3 above their range;
+    order too close to call.'"""
+    tail = "; ".join(t for t in (check_range(inside, above, below), order_text) if t)
+    head = check_head(round_no, above, below, subject)
+    return f"{head} {tail[:1].upper()}{tail[1:]}." if tail else head
+
+
+def check_bias(cells):
+    """A steady bias in one line, from [(name, measured − forecast)]:
+    'Forecasts ran about 2 high on Tangy.'; two: '… about 2 high on Tangy,
+    about 1 low on Firmness.'"""
+    if not cells:
+        return ""
+    bits = [f"{_about(g)} {'high' if g < 0 else 'low'} on {n}" for n, g in cells[:2]]
+    return f"Forecasts ran {', '.join(bits)}."
+
+
+def check_measure_line(name, right, counted, close, held):
+    """One result's line in the "?": 'Consistency: too close to call (3
+    pairs).'; 'Consistency: order right (1 of 1 pair; 2 too close).';
+    'Tangy: 1 of 2 pairs in the right order.'"""
+    if not counted:
+        if not close:
+            return f"{name}: all measured the same, nothing to order."
+        return f"{name}: too close to call ({close} {'pair' if close == 1 else 'pairs'})."
+    pairs = "pair" if counted == 1 else "pairs"
+    tail = f"; {close} too close" if close else ""
+    if held:
+        return f"{name}: order right ({right} of {counted} {pairs}{tail})."
+    return f"{name}: {right} of {counted} {pairs} in the right order{tail}."
+
+
+def check_pair_close(high, low):
+    """'F17, F16 too close'."""
+    return f"F{high}, F{low} too close"
+
+
+def check_noise(cells):
+    """'Too close to call: forecasts under one noise SD apart (Overall
+    score 3.2, Consistency 2.6).' from [(name, SD text)]."""
+    if not cells:
+        return ""
+    return ("Too close to call: forecasts under one noise SD apart ("
+            + ", ".join(f"{n} {v}" for n, v in cells) + ").")
+
+
+# Progress: Flat after a rise reads as a plateau.
+def plateau_word(round_no):
+    """'Plateau since Round 7'."""
+    return f"Plateau since {ROUND_CAP} {round_no}"
+
+
+PLATEAU_RULE = (f"Plateau since {ROUND_CAP} N: Flat, after Best so far rose since the first "
+                f"{ROUND_CAP}; {ROUND_CAP} N made the best.")
+
+
+# The score recipe, on screen under Closer to target.
+def score_recipe(share, width, per="measurement"):
+    """'Score: 25 per measurement, minus 25 × distance ÷ 15.'"""
+    return f"Score: {share} per {per}, minus {share} × distance ÷ {width}."
+
+
+# What next?: the widen advice with its reason; a suggestion that moves
+# the same ingredient the other way says so.
+def widen_reason(kind, name, amount_text, predicted=False):
+    """'Your best sits at Pea protein's Lowest (20 g). To test below it,
+    widen the limit.'"""
+    who = "The predicted best" if predicted else "Your best"
+    end, way = ("Lowest", "below") if kind == "lowest" else ("Highest", "above")
+    return f"{who} sits at {name}'s {end} ({amount_text}). To test {way} it, widen the limit."
+
+
+OTHER_SIDE = "checks the other side"
+
+
+def other_side(word, name):
+    """'more Coconut cream (checks the other side)'."""
+    return f"{word} {name} ({OTHER_SIDE})"
+
+
+LEARNING_ROUND_WHY = "Not expected to beat your best; tests untried amounts."
+
+# Provenance from the notes: a Round of entered formulations.
+ENTERED_ROUND_CAPTION = (
+    f"This {ROUND_CAP} holds entered {FORMULATION}s (sources in their notes). For the app's "
+    f"suggestions too, click Generate a different {ROUND_CAP}, then Generate."
+)
+ENTERED_TAIL = " (entered)"

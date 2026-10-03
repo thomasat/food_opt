@@ -41,9 +41,12 @@ def test_evidence_numbers_are_the_cards(screens):  # noqa: F811
     # Overall score's record; the measurements' count follows.
     # Review learned: the Model item; its evidence the ordering counts,
     # then the Overall score's coverage and skill against both baselines.
-    assert "Firmness" in p["lines"]
+    # Persona fixes 2: Line A's forecasts are too close to call: Not yet.
+    assert p["lines"] == ["predictable"]
     ev = p["help"].split("\n\n")[1]
-    assert ev.startswith("Evidence: pairs ordered right before tasting — Overall score ")
+    # Persona fixes 2: a result with no pair far enough apart is left out
+    # (Line A's Overall score).
+    assert ev.startswith("Evidence: pairs ordered right before tasting — ")
     # Persona fixes: the coverage and skill figures in the experts' line.
     assert "Overall score: 13 of 15 inside the 95 % predicted range." in \
         p["help"].split("For experts:")[1]

@@ -7,7 +7,11 @@ before its Round, then compared with what was measured.
 - Ordering: within each Round, every pair of formulations whose measured
   values differ is "ordered right" when the Round-ahead prediction put them
   in the same order. Chance is half the pairs. A measured tie is not
-  counted.
+  counted. Persona fixes 2 (coordinator: an order claim only when the
+  forecast made one): a pair whose forecasts differ by less than one noise
+  SD of the result (pair_noise: noise_of, the same yardstick the clear-
+  effect rule uses) is "too close to call" and not counted either, nor is
+  "the top one" when the top two forecasts are that close.
 - Verdict: Predictable when the share right is clearly above chance (a
   one-sided binomial test against 50 %, p < VERDICT_P, with at least
   MIN_PAIRS pairs); Partly when it leans right (share above 50 %,
@@ -69,7 +73,8 @@ def _rank_value(c):
 class PairCall:
     high: int            # the formulation predicted higher
     low: int
-    right: bool | None   # None: measured equal, not counted
+    right: bool | None   # None: not counted (measured equal, or too close)
+    close: bool = False  # forecasts under one noise SD apart: too close to call
 
 
 @dataclass
@@ -78,6 +83,7 @@ class RoundCall:
     pairs: list
     top_predicted: int | None
     top_measured: list   # the formulations measured highest (ties: several)
+    top_close: bool = False     # the top two forecasts under one noise SD apart
 
     @property
     def right(self):
@@ -88,10 +94,21 @@ class RoundCall:
         return sum(1 for p in self.pairs if p.right is not None)
 
     @property
+    def close(self):
+        """Pairs too close to call (measured apart, forecasts within noise)."""
+        return sum(1 for p in self.pairs if p.close)
+
+    @property
+    def ties(self):
+        return sum(1 for p in self.pairs if p.right is None and not p.close)
+
+    @property
     def top_right(self):
         """Whether the formulation predicted highest was measured highest;
         None when every formulation measured the same."""
         if self.top_predicted is None or len(self.top_measured) == len(self.pairs_members()):
+            return None
+        if self.top_close:
             return None
         return self.top_predicted in self.top_measured
 
@@ -99,8 +116,16 @@ class RoundCall:
         return {n for p in self.pairs for n in (p.high, p.low)}
 
 
-def round_call(checks, name, r):
-    """One Round's pairs for `name`, each by the model's predicted order."""
+def too_close(a, b, noise):
+    """Whether the forecasts of checks `a` and `b` differ by less than one
+    noise SD (`noise`; 0 or None: never)."""
+    return bool(noise) and abs(_rank_value(a) - _rank_value(b)) < noise - 1e-12
+
+
+def round_call(checks, name, r, noise=0.0):
+    """One Round's pairs for `name`, each by the model's predicted order; a
+    pair measured apart whose forecasts are under `noise` apart is too close
+    to call (not counted)."""
     mine = sorted([c for c in checks if c.name == name and c.round == r
                    and (name != insights.SCORE or c.fully_measured)],
                   key=lambda c: c.formulation)
@@ -108,17 +133,22 @@ def round_call(checks, name, r):
     for i, a in enumerate(mine):
         for b in mine[i + 1:]:
             hi, lo = (a, b) if _rank_value(a) >= _rank_value(b) else (b, a)
+            close = False
             if hi.measured == lo.measured:
                 right = None
+            elif too_close(hi, lo, noise):
+                right, close = None, True
             else:
                 right = _rank_value(hi) > _rank_value(lo) and hi.measured > lo.measured
-            pairs.append(PairCall(hi.formulation, lo.formulation, right))
+            pairs.append(PairCall(hi.formulation, lo.formulation, right, close))
     if len(mine) < 2:
         return RoundCall(r, [], None, [])
-    top = max(mine, key=_rank_value)
+    ranked = sorted(mine, key=_rank_value, reverse=True)
+    top = ranked[0]
     best = max(c.measured for c in mine)
     return RoundCall(r, pairs, top.formulation,
-                     [c.formulation for c in mine if c.measured == best])
+                     [c.formulation for c in mine if c.measured == best],
+                     too_close(ranked[0], ranked[1], noise))
 
 
 @dataclass
@@ -127,6 +157,7 @@ class Ordering:
     right: int = 0
     pairs: int = 0          # counted pairs (measured values differ)
     ties: int = 0           # pairs measured equal
+    close: int = 0          # pairs too close to call (forecasts within noise)
     top_right: int = 0
     top_rounds: int = 0
     top_chance: float = 0.0
@@ -150,7 +181,7 @@ class Ordering:
 def judge(o):
     """`o` with its verdict and reason set by the rule in the module
     docstring."""
-    every = o.pairs + o.ties
+    every = o.pairs + o.ties + o.close
     if every and o.ties / every > FLAT_TIES:
         o.verdict, o.reason = NOT_YET, "flat"
     elif o.pairs < PARTLY_MIN:
@@ -164,17 +195,19 @@ def judge(o):
     return o
 
 
-def ordering(checks, name):
-    """Ordering accuracy of `name` over every Round checked, judged."""
+def ordering(checks, name, noise=0.0):
+    """Ordering accuracy of `name` over every Round checked, judged; pairs
+    too close to call (`noise`) left out."""
     o = Ordering(name)
     for r in insights._ordered_rounds([c for c in checks if c.name == name]):
-        call = round_call(checks, name, r)
+        call = round_call(checks, name, r, noise)
         if not call.pairs:
             continue
         o.rounds.append(r)
         o.right += call.right
         o.pairs += call.counted
-        o.ties += len(call.pairs) - call.counted
+        o.ties += call.ties
+        o.close += call.close
         if call.top_right is not None:
             members = call.pairs_members()
             o.top_rounds += 1
@@ -188,8 +221,40 @@ def names(opt):
     return [insights.SCORE] + [o['name'] for o in opt.measurements_by_importance()]
 
 
-def orderings(opt, checks):
-    return {n: ordering(checks, n) for n in names(opt)}
+def orderings(opt, checks, noise=None):
+    """{name: Ordering}; `noise` {name: SD} (pair_noise of `checks` when
+    None): a pair closer than that is too close to call."""
+    noise = pair_noise(opt, checks) if noise is None else noise
+    return {n: ordering(checks, n, noise.get(n) or 0.0) for n in names(opt)}
+
+
+def pair_noise(opt, checks):
+    """{name: the noise SD an order claim must reach}: noise_of (Repeats'
+    SD; else the larger of the fitted noise and the Round-ahead forecasts'
+    typical miss; the Overall score never under its assumed 1 point), the
+    yardstick the clear-effect rule uses. 0 when nothing is known."""
+    out = {}
+    for n in names(opt):
+        try:
+            v = noise_of(opt, n, None, checks)
+        except Exception:
+            v = forecast_miss(checks, n)
+            if n == insights.SCORE:
+                v = max(v or 0.0, insights.ASSUMED_NOISE_SD)
+        out[n] = float(v or 0.0)
+    return out
+
+
+def round_bias(cks, noise):
+    """Persona fixes 2: measured − forecast on average over a Round's checks
+    `cks` of one result, when every one sits on the same side of its
+    forecast by more than `noise` (at least two checks); else None."""
+    if len(cks) < 2 or not noise:
+        return None
+    d = [c.measured - c.predicted for c in cks]
+    if all(x > noise for x in d) or all(x < -noise for x in d):
+        return sum(d) / len(d)
+    return None
 
 
 def before(checks, r):
@@ -206,7 +271,7 @@ def latest_round(checks):
     return order[-1] if order else None
 
 
-def called_it(opt, checks, r=None):
+def called_it(opt, checks, r=None, noise=None):
     """[(name, RoundCall)] for Round `r` (the latest checked when None), for
     the measurements that were Predictable BEFORE that Round — the ones its
     forecast showed — so nothing is picked after the fact. The Overall score
@@ -215,10 +280,11 @@ def called_it(opt, checks, r=None):
     r = latest_round(checks) if r is None else r
     if r is None:
         return r, []
+    noise = pair_noise(opt, checks) if noise is None else noise
     earlier = before(checks, r)
-    picked = [n for n, o in orderings(opt, earlier).items()
+    picked = [n for n, o in orderings(opt, earlier, noise).items()
               if n != insights.SCORE and o.verdict == PREDICTABLE]
-    return r, [(n, round_call(checks, n, r)) for n in picked]
+    return r, [(n, round_call(checks, n, r, noise.get(n) or 0.0)) for n in picked]
 
 
 CALLED, CALLED_PARTLY, CALLED_MISSED = "called", "partly", "missed"
@@ -262,7 +328,8 @@ class CalledSummary:
     left out (all measured the same), `lead` the name the headline leads
     with (the first measurement drawn, else the Overall score) and `top`
     its formulation forecast highest; `above` the Overall scores measured
-    above their 95 % range (better than forecast, said in the "?")."""
+    above their 95 % range (misses, like those below); `close` the names
+    drawn whose every pair was too close to call (persona fixes 2)."""
     verdict: str
     drawn: list
     right: list
@@ -271,11 +338,18 @@ class CalledSummary:
     lead: str | None
     top: int | None
     above: int
+    close: list = field(default_factory=list)
 
 
 def order_held(call):
-    """Every counted pair in the forecast order and the top one picked."""
-    return call.right == call.counted and call.top_right is not False
+    """Every counted pair in the forecast order and the top one picked; at
+    least one pair counted (all too close: nothing held)."""
+    return call.counted > 0 and call.right == call.counted and call.top_right is not False
+
+
+def order_counts(call):
+    """Whether any pair of `call` counts (measured apart, forecasts apart)."""
+    return call.counted > 0
 
 
 def called_summary(items):
@@ -284,11 +358,12 @@ def called_summary(items):
     none did, partly otherwise."""
     drawn = shown(items)
     right = [n for n, call, _ in drawn if order_held(call)]
-    off = [n for n, call, _ in drawn if not order_held(call)]
+    close = [n for n, call, _ in drawn if not order_counts(call)]
+    off = [n for n, call, _ in drawn if order_counts(call) and not order_held(call)]
     tied = [n for n, _, cks in items if all_tied(cks) and cks]
     above = sum(1 for n, _, cks in items if n == insights.SCORE
                 for c in cks if c.measured > c.high)
-    if not drawn:
+    if not drawn or not (right or off):
         verdict = CALLED_MISSED if off else CALLED
     elif not off:
         verdict = CALLED
@@ -300,7 +375,8 @@ def called_summary(items):
     lead_item = (measures or drawn or [None])[0]
     lead = lead_item[0] if lead_item else None
     top = lead_item[1].top_predicted if lead_item else None
-    return CalledSummary(verdict, [n for n, _, _ in drawn], right, off, tied, lead, top, above)
+    return CalledSummary(verdict, [n for n, _, _ in drawn], right, off, tied, lead, top, above,
+                         close)
 
 
 # ------------------------------------------------------------------ #

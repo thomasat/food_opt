@@ -51,7 +51,9 @@ EXPECTED = {
         # measurements' 33 / 35).
         # Review learned: the strip's Model item reads the model's verdicts
         # (Firmness's within-Round order beat chance).
-        [("Model", "Predicts", ["Firmness"]),
+        # Persona fixes 2: Firmness's within-Round forecasts are too close
+        # to call (under one noise SD apart): no order claim, Not yet.
+        [("Model", "Not yet", ["predictable"]),
          ("Progress", "No new best", ["· best 90.5 of 100"]),
          ("Next", "Record Round 6", ["4 formulations open", "Round 7: Repeat Formulation 15"])],
         "How the app chose Round 6", ["Suggestions go where expected gain peaks."]),
@@ -65,8 +67,10 @@ EXPECTED = {
         # The section repeats it in full under its answer.
         # Review learned 2: the section repeats no old-card line; the red
         # miss line stays in the strip.
-        [("Model", "Predicts", [":red[**3 / 16 missed**]"]),
-         ("Progress", "Flat", ["· best 90.1 of 100"]),
+        # Persona fixes 2: the too-close pairs left out, Partly; Flat after
+        # a rise reads Plateau.
+        [("Model", "Partly", [":red[**3 / 16 missed**]"]),
+         ("Progress", "Plateau since Round 3", ["· best 90.1 of 100"]),
          ("Next", ":red[Check panel first]", [":red[**Before Round 6**]",
                                               ":red[**Formulation 11's Repeat: 10.5 lower**]"])],
         "How the app chose Round 6", [_HIDDEN + wording.HERO_HIDDEN["verdict"]]),
@@ -92,7 +96,7 @@ EXPECTED = {
     D.TIMING: (
         "Review after Round 12 · 60 formulations",
         [("Model", "Predicts", ["Firmness, Juiciness +2"]),   # review learned
-         ("Progress", "Flat", ["· best 92.5 of 100"]),
+         ("Progress", "Plateau since Round 5", ["· best 92.5 of 100"]),   # persona fixes 2
          ("Next", "Make Round 13", ["No Round open", f"**{wording.LEARNED_PREVIEW_TITLE}**"])],
         "Where the app looks next", ["Suggestions go where expected gain peaks."]),
     D.PROCESS_ONLY: (
@@ -244,13 +248,16 @@ def cards(at, order="role"):
                 "buttons": []}
         if it["label"] == wording.CARD_NEXT:
             rows = _next_rows(at)
-            card["lines"] = [t for el, t in rows if el.type == "markdown"]
+            # Persona fixes 2: What next?'s word is a small answer line
+            # ('**Make Round 7.**'), no longer a subheader.
+            word = lambda el, t: (el.type in ("subheader", "heading")
+                                  or (el.type == "markdown" and re.fullmatch(r"(:red\[)?\*\*[^*]+\.\*\*\]?", t)))
+            card["lines"] = [t for el, t in rows if el.type == "markdown" and not word(el, t)]
             card["buttons"] = [(el.proto.type, el.label) for el, _ in rows
                                if el.type == "button"]
-            card["next_word"] = next((t for el, t in rows if el.type in ("subheader", "heading")),
-                                     None)
-            card["next_help"] = next((el.proto.help for el, t in rows
-                                      if el.type in ("subheader", "heading")), None)
+            card["next_word"] = next((re.sub(r"^:red\[|\]$", "", t).strip("*").rstrip(".")
+                                      for el, t in rows if word(el, t)), None)
+            card["next_help"] = next((el.proto.help for el, t in rows if word(el, t)), None)
         else:
             if it["line"]:
                 card["lines"].append(it["line"])
@@ -352,7 +359,9 @@ def test_predictions_tooltip_says_the_coverage_and_skill_exactly(screens):
     # against both baselines.
     # Persona fixes: a plain sentence first; the skill figures in plain
     # words, the terms of art in a last "For experts:" line.
-    assert plain.startswith("The model put Firmness in the right order before tasting")
+    # Persona fixes 2: Line A's forecasts are too close to call.
+    assert plain.startswith("The model has not yet ordered any measurement right more often "
+                            "than chance.")
     assert "one-sided binomial test, p < 0.05, at least 5 pairs" in rule
     assert "Overall score: 13 of 15 landed in their predicted range" in plain
     expert = rule.split("\n\n")[-1]
@@ -379,7 +388,8 @@ def test_off_says_check_before_the_round(screens):
     p, _, n = cards(screens[D.LINE_B])
     # Review four, ruling 1: the check is the Next card's, in red. Review
     # learned: the strip's Model word reads the model's verdicts (Firmness).
-    assert p["word"] == "Predicts"
+    # Persona fixes 2: too-close pairs left out, Firmness Partly.
+    assert p["word"] == "Partly"
     assert ":red[**Check panel before Round 6**]" not in p["lines"]
     assert n["word"] == ":red[Check panel first]" and ":red[**Before Round 6**]" in n["lines"]
 

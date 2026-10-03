@@ -1227,6 +1227,17 @@ def _signed_change(opt, name, value, unit):
     return ("+" if value > 0 else "−") + fmt_setting(abs(value), unit)
 
 
+def own_round_caption(rows):
+    """Persona fixes 2: a Round of the user's own rows says where they came
+    from — "only your own formulations" only when no row carries a note of
+    its own (the default note the app types does not count); else the
+    entered line that points at the notes."""
+    notes = {str(r.get('note') or "").strip() for r in rows}
+    if notes - {"", wording.OWN_FORMULATION_NOTE}:
+        return wording.ENTERED_ROUND_CAPTION
+    return wording.ONLY_OWN_FORMULATIONS_CAPTION
+
+
 def why_frame(opt, why, preds, hide=False):
     """One row per formulation of the open Round (review I12): its role
     (M5) straight after its number, so it is on screen at 1366 px (T47
@@ -1244,8 +1255,11 @@ def why_frame(opt, why, preds, hide=False):
     rows = []
     for r in why.rows:
         p = (preds or {}).get(r.formulation, {}).get(insights.SCORE)
-        item = {wording.FORMULATION_CAP: say(wording.why_row_label(r.formulation, r.own,
-                                                                   r.edited))}
+        label = wording.why_row_label(r.formulation, r.own, r.edited)
+        if r.own and r.role != wording.OWN_FORMULATION_KIND:
+            # Persona fixes 2: its note is its source (the Role column).
+            label = wording.why_row_label(r.formulation) + wording.ENTERED_TAIL
+        item = {wording.FORMULATION_CAP: say(label)}
         item[wording.ROLE] = say(r.role)
         item[wording.PREDICTED_SCORE_COLUMN] = "" if p is None else ui_insights.score_text(p)
         item[wording.MODEL_SD] = f"{r.sd:.2f}"
@@ -2153,7 +2167,7 @@ def render(opt, storage, tab_open=False):
     # no Generate control anywhere on this screen, and this is the button
     # that gets one back — so the line sits directly above it.
     if rows and all(r.get('note') for r in rows):
-        st.caption(wording.for_project(opt, wording.ONLY_OWN_FORMULATIONS_CAPTION))
+        st.caption(wording.for_project(opt, own_round_caption(rows)))
     numbers = [r['formulation'] for r in rows]
     regenerate = confirm_action(
         "regenerate", wording.GENERATE_DIFFERENT_BATCH,
