@@ -9373,7 +9373,7 @@ def score_built(rows, total_text):
 # Results: the Round's forecast beside what was measured.
 RESULTS_PREDICTED_COLUMN = "Predicted (95 % range)"
 RESULTS_RESULT_COLUMN = "Result"
-RESULTS_PREDICTED_CAPTION = "Forecast before tasting, from earlier Rounds."
+RESULTS_PREDICTED_CAPTION = "Replay: forecast from earlier Rounds only."
 
 
 def results_predicted_help(round_no):
