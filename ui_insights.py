@@ -117,8 +117,42 @@ def _private(chart):
 def show_chart(chart, **kwargs):
     """The one door this file draws an Altair chart through: every chart on
     this tab goes here instead of calling st.altair_chart directly, so none
-    of a project's data can leave the machine through its action menu."""
-    st.altair_chart(_private(chart), **kwargs)
+    of a project's data can leave the machine through its action menu. The
+    shared type scale (readable) is set here too, for any chart a builder
+    did not already set it on."""
+    st.altair_chart(_private(readable(chart)), **kwargs)
+
+
+# Review readable (2026-10-02; owner: "please make sure the plots don't look
+# smooshed and it's easy to read"): one type scale and padding for every
+# chart the Review and Make a round draw, set on the top-level spec, so
+# Streamlit's theme (14 px legends and titles, 16 px label padding) and the
+# old 9–10 px marks no longer mix. No text on a chart is under FONT_SMALL.
+FONT_TITLE = 13          # a chart's own title
+FONT_AXIS_TITLE = 12     # axis, legend and header titles
+FONT_LABEL = 12          # axis labels, legend labels, facet headers, end labels
+FONT_SMALL = 11          # the least: tick labels in small multiples, notes
+CHART_PADDING = {"left": 4, "top": 6, "right": 14, "bottom": 4}
+MIN_CHART_W = 380        # px: no chart narrower than this
+
+
+def readable(chart):
+    """`chart` with the shared type scale, legend and padding (one Altair
+    config for the Review's charts). Idempotent; top-level charts only. A
+    single or layered view fits the column's width only: its height is the
+    plot's own (Streamlit's "fit" squeezed the plot by its legend and axes,
+    so rows and lanes sized in px came out short)."""
+    if isinstance(chart, (alt.Chart, alt.LayerChart)):
+        chart = chart.properties(autosize=alt.AutoSizeParams(type="fit-x", contains="padding"))
+    return (chart
+            .configure_axis(labelFontSize=FONT_LABEL, titleFontSize=FONT_AXIS_TITLE,
+                            titleFontWeight="normal", labelPadding=4, titlePadding=8)
+            .configure_legend(labelFontSize=FONT_LABEL, titleFontSize=FONT_AXIS_TITLE,
+                              labelLimit=0, padding=4, rowPadding=4, columnPadding=16)
+            .configure_header(labelFontSize=FONT_LABEL, titleFontSize=FONT_AXIS_TITLE)
+            .configure_title(fontSize=FONT_TITLE, anchor="start", offset=8)
+            .configure_text(fontSize=FONT_SMALL)
+            .properties(padding=CHART_PADDING))
 
 
 # --- review plots (2026-10-02) ---
@@ -2992,8 +3026,8 @@ def explore_map_chart(pool_mean, pool_sd, tested, picks, ref=None, opt=None):
     rule = [] if ref is None else [
         alt.Chart(line).mark_rule(strokeDash=[4, 3], color=ink, tooltip=False)
         .encode(x="ref:Q"),
-        alt.Chart(line).mark_text(align="left", baseline="top", dx=4, color=muted(),
-                                  tooltip=False)
+        alt.Chart(line).mark_text(align="left", baseline="top", dx=5, color=muted(),
+                                  fontSize=FONT_SMALL, tooltip=False)
         .encode(x="ref:Q", y=alt.value(4), text="label:N")]
     numbered = "no" in tested.columns
     ring_tip = ({"tooltip": [alt.Tooltip("no:Q", title=word, format="d"),
@@ -3023,10 +3057,91 @@ def explore_map_chart(pool_mean, pool_sd, tested, picks, ref=None, opt=None):
                          alt.Tooltip("mean:Q", title=wording.WHY_AXIS_MEAN, format=".1f"),
                          alt.Tooltip("sd:Q", title=wording.MODEL_SD, format=".2f"),
                          *([bo_tip()] if len(mine) else [])]),
-        alt.Chart(mine).mark_text(dy=-12, color=muted(), tooltip=False)
-        .encode(x=x, y=y, text="no:N"),
+        *_pick_labels(mine, pool, tested, ref, x, y),
     ]
-    return titled(alt.layer(*layers).properties(height=280), say(wording.PLOT_MAP))
+    return readable(titled(alt.layer(*layers).properties(height=300), say(wording.PLOT_MAP)))
+
+
+_MAP_W, _MAP_H = 730, 300      # px: the map's plot, about (the column less its axis)
+
+
+def _nice(lo, hi, count=10):
+    """(lo, hi) widened to whole ticks, as Vega's nice scale does (d3's
+    tick increment for about `count` ticks)."""
+    span = hi - lo
+    if span <= 0:
+        return lo - 0.5, hi + 0.5
+    raw = span / count
+    power = 10 ** math.floor(math.log10(raw))
+    err = raw / power
+    step = power * (10 if err >= 50 ** 0.5 else 5 if err >= 10 ** 0.5 else 2 if err >= 2 ** 0.5
+                    else 1)
+    return math.floor(lo / step) * step, math.ceil(hi / step) * step
+_LABEL_SPOTS = (("above", 0, -13, "center", "bottom"), ("left", -9, 0, "right", "middle"),
+                ("right", 9, 0, "left", "middle"), ("below", 0, 13, "center", "top"))
+
+
+def place_labels(points, others, xr, yr, line=None):
+    """Review readable: for each labelled point ({"x", "y", "text"}, data
+    units) the spot — above, left, right or below its mark — whose label
+    box overlaps least the labels already placed, the marks in `points`
+    and `others` and the vertical `line` (an x), in px on a _MAP_W ×
+    _MAP_H plot over the ranges `xr`, `yr`. Returns the spot names."""
+    def px(x, y):
+        return ((x - xr[0]) / ((xr[1] - xr[0]) or 1) * _MAP_W,
+                (1 - (y - yr[0]) / ((yr[1] - yr[0]) or 1)) * _MAP_H)
+
+    def box(cx, cy, w, h, spot):
+        _, dx, dy, align, base = spot
+        x0 = cx + dx - (w / 2 if align == "center" else w if align == "right" else 0)
+        y0 = cy + dy - (h / 2 if base == "middle" else h if base == "bottom" else 0)
+        return x0, y0, x0 + w, y0 + h
+
+    def overlap(a, b):
+        return max(0, min(a[2], b[2]) - max(a[0], b[0])) * max(0, min(a[3], b[3]) - max(a[1], b[1]))
+
+    marks = [px(p["x"], p["y"]) for p in list(points) + list(others)]
+    marks = [(mx - 6, my - 6, mx + 6, my + 6) for mx, my in marks]
+    lx = None if line is None else px(line, yr[0])[0]
+    placed, out = [], []
+    for p in points:
+        cx, cy = px(p["x"], p["y"])
+        w, h = 7 * len(str(p["text"])) + 2, 13
+        best = None
+        for k, spot in enumerate(_LABEL_SPOTS):
+            b = box(cx, cy, w, h, spot)
+            cost = sum(overlap(b, o) for o in placed + marks) + k * 0.5
+            if lx is not None and b[0] - 2 <= lx <= b[2] + 2:
+                cost += 40
+            if b[0] < 0 or b[2] > _MAP_W or b[1] < 0 or b[3] > _MAP_H:
+                cost += 200
+            if best is None or cost < best[0]:
+                best = (cost, spot, b)
+        placed.append(best[2])
+        out.append(best[1][0])
+    return out
+
+
+def _pick_labels(mine, pool, tested, ref, x, y):
+    """The suggestions' numbers, each at its place_labels spot (one text
+    layer per spot)."""
+    if not len(mine):
+        return []
+    xs = list(pool["mean"]) + list(tested.get("mean", [])) + list(mine["mean"])
+    ys = list(pool["sd"]) + list(tested.get("sd", [])) + list(mine["sd"]) + [0.0]
+    pts = [{"x": m, "y": d, "text": n} for m, d, n in zip(mine["mean"], mine["sd"], mine["no"])]
+    near = [{"x": m, "y": d} for m, d in zip(tested.get("mean", []), tested.get("sd", []))]
+    spots = place_labels(pts, near, _nice(min(xs), max(xs)), _nice(min(ys), max(ys)), ref)
+    frame = mine.assign(spot=spots)
+    out = []
+    for name, dx, dy, align, base in _LABEL_SPOTS:
+        part = frame[frame["spot"] == name]
+        if len(part):
+            out.append(alt.Chart(part).mark_text(dx=dx, dy=dy, align=align, baseline=base,
+                                                 color=muted(), fontSize=FONT_LABEL,
+                                                 tooltip=False)
+                       .encode(x=x, y=y, text="no:N"))
+    return out
 
 
 def explore_withheld(opt, score, checks):
@@ -3273,8 +3388,9 @@ def tried_chart(opt, axes, lines):
               # baseline, clear of the Highest written under it (the second
               # line used to sit on that number).
               axis=alt.Axis(orient="top", labelAngle=0, ticks=False,
-                            labelPadding=22 + 13 * (max(l.count("\n") for l in labels)),
-                            domain=False, labelLimit=0, labelFontSize=11, labelLineHeight=13,
+                            labelPadding=24 + 14 * (max(l.count("\n") for l in labels)),
+                            domain=False, labelLimit=0, labelFontSize=FONT_LABEL,
+                            labelLineHeight=14,
                             labelExpr="split(datum.label, '\\n')"))
     lo = min([0.0] + list(df["t"])) if len(df) else 0.0
     hi = max([1.0] + list(df["t"])) if len(df) else 1.0
@@ -3303,7 +3419,7 @@ def tried_chart(opt, axes, lines):
     stroke = alt.Scale(domain=kinds or [""], range=[look[k][0] for k in kinds] or [grey])
     dash = alt.Scale(domain=kinds or [""], range=[look[k][1] for k in kinds] or [[1, 0]])
     kind_legend = alt.Legend(title=None, orient="bottom", labelLimit=0, symbolStrokeWidth=3,
-                             symbolType="stroke")
+                             symbolType="stroke", offset=26)
     axes_df = pd.DataFrame({"axis": labels, "t0": 0.0, "t1": 1.0})
     layers = [
         alt.Chart(axes_df).mark_rule(color=grey, opacity=grey_o, strokeWidth=1.5, tooltip=False)
@@ -3322,14 +3438,14 @@ def tried_chart(opt, axes, lines):
                     strokeDash=alt.StrokeDash("role:N", scale=dash, legend=kind_legend))
             .transform_filter(alt.FieldEqualPredicate(field="role", equal=k)))
     text = lambda where, **kw: (alt.Chart(ends[ends["where"] == where])
-                                .mark_text(color=text_c, fontSize=10, tooltip=False, **kw)
+                                .mark_text(color=text_c, fontSize=FONT_SMALL, tooltip=False, **kw)
                                 .encode(x=x, y=alt.Y("t:Q", scale=t_scale, axis=None),
                                         text="text:N"))
     layers += [text("low", baseline="top", dy=6), text("high", baseline="bottom", dy=-6)]
     if (ends["where"] == "option").any():
         layers.append(text("option", align="left", dx=5, baseline="middle"))
     heading = wording.PLOT_TRIED_SETTINGS if not opt.has_ingredients() else wording.PLOT_TRIED
-    return titled(alt.layer(*layers).properties(height=300), _say(opt, heading))
+    return readable(titled(alt.layer(*layers).properties(height=280), _say(opt, heading)))
 
 
 # ---- How the app chooses ------------------------------------------ #
@@ -4431,14 +4547,24 @@ PROFILE_CHART_CACHE = "_insights_profile_chart"
 PROFILE_REF_KEY = "insights_profile_ref"
 PROFILE_MORE_KEY = "insights_profile_more"
 PROFILE_MORE_ROWS_KEY = "insights_profile_more_rows"
-_PANEL_W = 104
+_PANEL_W = 150
 
 
 def panel_width(n):
-    """Review story: wider panels when fewer columns are drawn (4 by
-    default), so the profiler keeps about the same overall width."""
-    return max(_PANEL_W, min(160, 640 // max(1, n)))
-_PANEL_H = {"score": 84, "measure": 60, "gain": 60}     # review four: compact rows
+    """Review story: wider panels when fewer columns are drawn. Review
+    readable: at most PROFILE_WRAP panels a row (more wrap to a second
+    block), so a panel is never under 140 px; one or two panels still make
+    MIN_CHART_W with the row titles."""
+    n = min(max(1, n), PROFILE_WRAP)
+    return max(_PANEL_W, min(260, 600 // n))
+
+
+# Review readable: taller rows (were 84 / 60 / 60 px), the row titles
+# written across in a column at the left (were rotated, 10 px).
+_PANEL_H = {"score": 100, "measure": 76, "gain": 76}
+PROFILE_WRAP = 4            # panels a row at 820 px
+_ROW_TITLE_W = 104          # px for a row's title, left of its tick labels
+_PROFILE_SPACING = 14
 
 
 class ProfileColumn:
@@ -4603,7 +4729,8 @@ def gain_greyable(reason):
 
 
 def _row_title(opt, name):
-    """A row's y title, two short lines: the result and its aim."""
+    """A row's title, short lines: the result and its aim (written across,
+    in the column left of the panels)."""
     if name == insights.SCORE:
         return ["Overall score", "(of 100)"]
     # (The Overall row's "zoomed" is added by profile_chart, from its domain.)
@@ -4615,8 +4742,8 @@ def _row_title(opt, name):
         aim = wording.PROFILER_ROW_LOWER
     else:
         aim = wording.PROFILER_ROW_HIGHER
-    # Rotated beside a short panel: the name on at most two lines.
-    return _wrap(obj['name'], 13).split("\n")[:2] + [aim]
+    # Beside a short panel: the name on at most two lines.
+    return _wrap(obj['name'], 14).split("\n")[:2] + [aim]
 
 
 def _row_domain(opt, profile, columns, name):
@@ -4732,6 +4859,19 @@ def profile_chart(opt, profile, columns=None, rows=None, gain=True):
     names = [n for n in profile.rows if rows is None or n in rows or n == insights.SCORE]
     if not cols or not names:
         return None
+    # Review readable: at most PROFILE_WRAP panels a row; more columns
+    # (added under "+N more") wrap into a second block below, with its own
+    # headers and row titles.
+    blocks = [_profile_block(opt, profile, cols[i:i + PROFILE_WRAP], names, gain, len(cols))
+              for i in range(0, len(cols), PROFILE_WRAP)]
+    chart = blocks[0] if len(blocks) == 1 else alt.vconcat(*blocks, spacing=22)
+    chart = chart.resolve_scale(fill="shared", stroke="shared", strokeDash="shared")
+    return readable(titled(chart, _say(opt, wording.PLOT_PROFILER)))
+
+
+def _profile_block(opt, profile, cols, names, gain, n_all):
+    """One block of the profiler: a row per result over `cols` (at most
+    PROFILE_WRAP), each a faceted layer."""
     with_gain = gain and profile.gain_drawn and all(c.gain is not None for c in cols)
     blue = model_blue()
     gain_c = mark("neutral")[0] if profile.greyed else blue
@@ -4745,8 +4885,9 @@ def profile_chart(opt, profile, columns=None, rows=None, gain=True):
              _say(opt, wording.PROFILER_UNTESTED_DASHED), _say(opt, wording.PROFILER_TESTED),
              _say(opt, wording.PLOT_INTERVAL))
     ref_name, target_name, untested_name, tested_name, band_name = texts
-    # The header under each column: its name and unit, wrapped to the panel.
-    labels = {c.name: _wrap(_x_title(c.path), 14) for c in cols}
+    # The header above each column: its name and unit, wrapped to the panel.
+    pw = panel_width(n_all)
+    labels = {c.name: _wrap(_x_title(c.path), max(14, pw // 7)) for c in cols}
     order = [labels[c.name] for c in cols]
     any_grey = any(not all(c.near) for c in cols)
     any_target = any(o.get('goal') == 'target' and o.get('target') is not None
@@ -4757,7 +4898,8 @@ def profile_chart(opt, profile, columns=None, rows=None, gain=True):
     roles = alt.Scale(domain=role_dom, range=[ref_c, tgt_c][:len(role_dom)])
     dashes = alt.Scale(domain=role_dom, range=[[1, 0], [4, 3]][:len(role_dom)])
     rings_s = alt.Scale(domain=[tested_name], range=["circle"])
-    legend = alt.Legend(title=None, orient="top", labelLimit=0, symbolOpacity=0.7)
+    legend = alt.Legend(title=None, orient="top", labelLimit=0, symbolOpacity=0.7,
+                        offset=10)
     predicted = _say(opt, wording.PREDICTED)
     row_kinds = [("score" if n == insights.SCORE else "measure", n) for n in names]
     if with_gain:
@@ -4766,23 +4908,34 @@ def profile_chart(opt, profile, columns=None, rows=None, gain=True):
     out_rows = []
     for r, (kind, name) in enumerate(row_kinds):
         last_row = r == len(row_kinds) - 1
+        df = _profile_row_frame(opt, cols, kind, name, labels, texts)
         if kind == "gain":
             ys = alt.Scale(domain=[0.0, gain_top * 1.05], nice=False)
             y_title = [wording.PROFILER_GAIN_ROW, "(points)"]
         else:
             domain = _row_domain(opt, profile, cols, name)
+            if kind == "score" and df["mark"].astype(str).str.startswith("note_").any():
+                # Review readable: room above the line for "at its Highest",
+                # so the note never sits on the band or the rings.
+                domain = [domain[0], domain[1] + (domain[1] - domain[0]) * 22
+                          / (_PANEL_H[kind] - 22)]
             ys = alt.Scale(domain=domain, nice=False, zero=False)
             y_title = _row_title(opt, name)
             if kind == "score":
                 ceiling = float(opt.utility_ceiling())
                 y_title = [y_title[0], zoomed("(of 100)", domain[0], domain[1], ceiling)
                            .replace("((", "(").replace("))", ")")]
-        df = _profile_row_frame(opt, cols, kind, name, labels, texts)
         x = alt.X("x:Q", title=None, scale=alt.Scale(nice=False, zero=False),
-                  axis=alt.Axis(labelFontSize=9, tickCount=3, labelFlush=True, grid=False,
-                                labels=last_row, ticks=last_row))
-        y_axis = alt.Axis(title=y_title, labelFontSize=9, tickCount=3, titleFontSize=10,
-                          titleFontWeight="normal", titleLimit=_PANEL_H[kind])
+                  axis=alt.Axis(labelFontSize=FONT_SMALL, tickCount=3, labelFlush=True,
+                                grid=False, labels=last_row, ticks=last_row))
+        # Review readable: the row's title written across, right-aligned in
+        # a column of its own left of the tick labels (was rotated, 10 px).
+        y_axis = alt.Axis(title=y_title, labelFontSize=FONT_SMALL, tickCount=3,
+                          titleFontSize=FONT_AXIS_TITLE, titleFontWeight="normal",
+                          titleAngle=0, titleAlign="right", titleBaseline="middle",
+                          titleAnchor="middle", titleX=-30,
+                          titleY=_PANEL_H[kind] / 2 - 7 * (len(y_title) - 1),
+                          titleLimit=_ROW_TITLE_W, titleLineHeight=14)
         y = alt.Y("v:Q", scale=ys, axis=y_axis)
         base = alt.Chart()
         tip_title = (wording.GAIN_TOOLTIP_TITLE if kind == "gain"
@@ -4829,7 +4982,7 @@ def profile_chart(opt, profile, columns=None, rows=None, gain=True):
                               strokeDash=alt.StrokeDash("role:N", scale=dashes, legend=legend))
                       .transform_filter(_only("ref")))
         if (df["mark"] == "ring").any():
-            layers.append(base.mark_point(filled=False, size=26, strokeWidth=1.2,
+            layers.append(base.mark_point(filled=False, size=34, strokeWidth=1.3,
                                           opacity=ring_o, color=ring_c)
                           .encode(x=x, y=alt.Y("score:Q", scale=ys, axis=y_axis),
                                   shape=alt.Shape("what:N", scale=rings_s, legend=legend),
@@ -4841,8 +4994,8 @@ def profile_chart(opt, profile, columns=None, rows=None, gain=True):
                           .transform_filter(_only("ring")))
         for end, align, dx in (("Highest", "right", -3), ("Lowest", "left", 3)):
             if (df["mark"] == "note_" + end).any():
-                layers.append(base.mark_text(fontSize=9, color=muted(), baseline="top", dy=2,
-                                             dx=dx, align=align, tooltip=False)
+                layers.append(base.mark_text(fontSize=FONT_SMALL, color=muted(), baseline="top",
+                                             dy=2, dx=dx, align=align, tooltip=False)
                               .encode(x=x, y=alt.value(0), text="note:N")
                               .transform_filter(_only("note_" + end)))
         if (df["mark"] == "stop").any():
@@ -4850,25 +5003,23 @@ def profile_chart(opt, profile, columns=None, rows=None, gain=True):
             stop_tip = [alt.Tooltip("why:N", title=_say(opt, wording.PROFILER_STOPPED))]
             layers += [base.mark_rule(strokeDash=[2, 2], color=stop_c, opacity=stop_o)
                        .encode(x=x, tooltip=stop_tip).transform_filter(_only("stop")),
-                       base.mark_text(fontSize=9, color=muted(), baseline="bottom", dy=-2,
-                                      dx=-3, align="right")
+                       base.mark_text(fontSize=FONT_SMALL, color=muted(), baseline="bottom",
+                                      dy=-2, dx=-3, align="right")
                        .encode(x=x, y=alt.value(_PANEL_H[kind]), text="note:N", tooltip=stop_tip)
                        .transform_filter(_only("stop"))]
         # Each column named once, above the top row (a header under the
         # bottom row's tick labels overlapped them in Streamlit's renderer).
-        header = (alt.Header(labelOrient="top", labelFontSize=10, labelLimit=panel_width(len(cols)) + 8,
-                             labelExpr="split(datum.label, '\\n')", labelPadding=4,
-                             labelBaseline="bottom")
+        header = (alt.Header(labelOrient="top", labelFontSize=FONT_LABEL, labelLimit=pw + 8,
+                             labelExpr="split(datum.label, '\\n')", labelPadding=6,
+                             labelBaseline="bottom", labelLineHeight=14)
                   if r == 0 else alt.Header(labels=False))
         out_rows.append(
-            alt.layer(*layers, data=df).properties(width=panel_width(len(cols)),
-                                                  height=_PANEL_H[kind])
+            alt.layer(*layers, data=df).properties(width=pw, height=_PANEL_H[kind])
             .facet(column=alt.Column("col:N", sort=order, title=None, header=header),
-                   spacing=14, bounds="flush")   # review four: tick labels clear
+                   spacing=_PROFILE_SPACING, bounds="flush")   # review four: tick labels clear
             .resolve_scale(x="independent"))
-    chart = alt.vconcat(*out_rows, spacing=8).resolve_scale(
+    return alt.vconcat(*out_rows, spacing=12).resolve_scale(
         fill="shared", stroke="shared", strokeDash="shared")
-    return titled(chart, _say(opt, wording.PLOT_PROFILER))
 
 
 def profile_shown(profile, order=None):
@@ -5083,10 +5234,10 @@ def _evidence_help(opt, facts, which):
 
 LEARNED_KEY = "_insights_learned"
 PREVIEW_KEY = "_insights_preview"
-LEARNED_ROW_H = 30          # px per row of the ordering chart
+LEARNED_ROW_H = 34          # px per row of the ordering chart (review readable: 12 px labels)
 CALLED_KEY = "insights_called"
-CALLED_W = 250              # px per Called it? panel
-CALLED_H = 120              # px, a Called it? slopegraph's height
+CALLED_W = 250              # px per Called it? panel (3 fit 820 px with their spacing)
+CALLED_H = 160              # px, a Called it? slopegraph's height (review readable: was 120)
 
 
 class LearnedFacts:
@@ -5220,10 +5371,12 @@ def learned_chart(opt, lf):
         domain=[wording.LEARNED_WORDS[k] for k in (learned.PREDICTABLE, learned.PARTLY,
                                                    learned.NOT_YET)],
         range=[blue, blue, grey]), legend=None)
-    y = alt.Y("name:N", sort=order, title=None, axis=alt.Axis(labelLimit=180, ticks=False,
+    y = alt.Y("name:N", sort=order, title=None, axis=alt.Axis(labelLimit=260, ticks=False,
                                                                  domain=False))
+    # Review readable: 8 px of room past 0 and 100, so a dot at 100 % is drawn whole.
     x = alt.X("pct:Q", title=_say(opt, wording.LEARNED_CHART_X),
-              scale=alt.Scale(domain=[0, 100]), axis=alt.Axis(values=[0, 25, 50, 75, 100]))
+              scale=alt.Scale(domain=[0, 100], padding=8),
+              axis=alt.Axis(values=[0, 25, 50, 75, 100]))
     tip = [alt.Tooltip("name:N", title=_say(opt, wording.LEARNED_COL_RESULT)),
            alt.Tooltip("verdict:N", title=_say(opt, wording.LEARNED_COL_VERDICT)),
            alt.Tooltip("n:N", title=_say(opt, wording.LEARNED_COL_PAIRS)),
@@ -5233,18 +5386,18 @@ def learned_chart(opt, lf):
         strokeDash=[4, 3], color=grey).encode(x="x:Q")
     chance_text = alt.Chart(pd.DataFrame({"x": [50], "t": [_say(opt, wording.LEARNED_CHANCE)]})
                             ).mark_text(dy=-6, dx=3, align="left", baseline="bottom",
-                                        color=grey, fontSize=11).encode(
+                                        color=grey, fontSize=FONT_LABEL).encode(
         x="x:Q", y=alt.value(0), text="t:N")
     bars = base.mark_rule(strokeWidth=4, strokeCap="round").encode(
         y=y, x="lo:Q", x2="hi:Q", color=colour, opacity=alt.Opacity("op:Q", legend=None),
         tooltip=tip)
     dots = base.mark_point(filled=True, size=110).encode(
         y=y, x=x, color=colour, opacity=alt.value(1.0), tooltip=tip)
-    return (chance + chance_text + bars + dots).properties(
-        width=_LEARNED_W, height=alt.Step(LEARNED_ROW_H))
+    return readable((chance + chance_text + bars + dots).properties(
+        width=_LEARNED_W, height=alt.Step(LEARNED_ROW_H)))
 
 
-_LEARNED_W = 420
+_LEARNED_W = 460
 
 
 def called_line(opt, lf):
@@ -5291,20 +5444,40 @@ def called_detail(opt, lf):
     return _short(opt, "\n\n".join(out))
 
 
-_SLOPE_GAP = 0.16       # the least gap between two end labels (of the panel's 0–1 height)
+# Review readable: a slopegraph's y runs over _SLOPE_Y (data units) in
+# CALLED_H px; two end labels (12 px text) sit at least 17 px apart, so
+# near-equal values (13.5 and 13.4) never overlap.
+_SLOPE_Y = (-0.16, 1.34)
+_SLOPE_HEADS = 1.27         # the Forecast / Measured heads
+_SLOPE_GAP = 17 * (_SLOPE_Y[1] - _SLOPE_Y[0]) / CALLED_H
+_SLOPE_LABELS = (-0.08, 1.08)   # where end labels may sit (under the heads)
 
 
-def _spread(ys, gap=_SLOPE_GAP):
-    """Label heights for points at `ys` (0–1), nudged apart to at least
-    `gap`, in the same order; the points themselves stay put."""
+def _spread(ys, gap=_SLOPE_GAP, lo=_SLOPE_LABELS[0], hi=_SLOPE_LABELS[1]):
+    """Label heights for points at `ys` (0–1), in the same order, at least
+    `gap` apart: labels closer than that are moved apart as a block centred
+    on their points' mean (so neither label drifts far), kept within
+    [lo, hi]. The points themselves stay put."""
     order = sorted(range(len(ys)), key=lambda k: ys[k])
+    blocks = []                    # [members, centre]
+
+    def centre(members):
+        half = (len(members) - 1) * gap / 2
+        mean = sum(ys[k] for k in members) / len(members)
+        return min(max(mean, lo + half), hi - half) if hi - lo >= 2 * half else (lo + hi) / 2
+
+    for k in order:
+        blocks.append([[k], centre([k])])
+        while len(blocks) > 1:
+            (a, ca), (b, cb) = blocks[-2], blocks[-1]
+            if (cb - (len(b) - 1) * gap / 2) - (ca + (len(a) - 1) * gap / 2) >= gap - 1e-12:
+                break
+            members = a + b
+            blocks[-2:] = [[members, centre(members)]]
     out = list(ys)
-    for a, b in zip(order, order[1:]):
-        if out[b] - out[a] < gap:
-            out[b] = out[a] + gap
-    top = max(out) if out else 0
-    if top > 1:
-        out = [v - (top - 1) for v in out]
+    for members, c in blocks:
+        for i, k in enumerate(members):
+            out[k] = c + (i - (len(members) - 1) / 2) * gap
     return out
 
 
@@ -5345,7 +5518,11 @@ def slope_frames(opt, name, call, cks):
         for k, ly in zip(keys, lab_y):
             nos = ", ".join(_short(opt, f"F{n}") for n, _ in sorted(groups[k]))
             v = groups[k][0][1]
-            labels.append({"x": x, "y": ly, "text": f"{nos}  {v}" if x == 0 else f"{v}  {nos}"})
+            # "dot": the point's own height; lx–lx2 a short leader's span.
+            labels.append({"x": x, "y": ly, "dot": k,
+                           "lx": x - 0.04 if x == 0 else x + 0.04,
+                           "lx2": x - 0.1 if x == 0 else x + 0.1,
+                           "text": f"{nos}  {v}" if x == 0 else f"{v}  {nos}"})
     return pd.DataFrame(rows), pd.DataFrame(labels)
 
 
@@ -5362,10 +5539,14 @@ def called_chart(opt, lf):
     # Kept order: the neutral grey (3:1); crossed: ink, dashed (no red).
     grey, ink = mark("neutral")[0], mark("bar_latest")[0]
     panels = []
+    # Review readable: one panel alone still MIN_CHART_W wide.
+    width = max(CALLED_W, (MIN_CHART_W - _CALLED_SPACING * (len(drawn) - 1)) // len(drawn))
     for name, call, cks in drawn:
         lines, labels = slope_frames(opt, name, call, cks)
-        x = alt.X("x:Q", axis=None, scale=alt.Scale(domain=[-1.15, 2.15], nice=False))
-        y = alt.Y("y:Q", axis=None, scale=alt.Scale(domain=[-0.12, 1.3], nice=False))
+        # Review readable: about 85 px each side for the end labels at 12 px.
+        xs = alt.Scale(domain=[-1.3, 2.3], nice=False)
+        ys = alt.Scale(domain=list(_SLOPE_Y), nice=False)
+        x, y = alt.X("x:Q", axis=None, scale=xs), alt.Y("y:Q", axis=None, scale=ys)
         colour = alt.Color("crossed:N", legend=None,
                            scale=alt.Scale(domain=[False, True], range=[grey, ink]))
         dash = alt.StrokeDash("crossed:N", legend=None,
@@ -5378,20 +5559,29 @@ def called_chart(opt, lf):
         dots = base.mark_point(filled=True, size=46, opacity=1).encode(
             x=x, y=y, color=colour, tooltip=tip)
         lab = alt.Chart(labels)
+        # Review readable: a short leader from each dot to its label when
+        # the label was moved apart from a near-equal one.
+        lead = labels[(labels["y"] - labels["dot"]).abs() > 1e-9]
+        leaders = alt.Chart(lead).mark_rule(color=grey, strokeWidth=1, tooltip=False).encode(
+            x=alt.X("lx:Q", scale=xs, axis=None), x2="lx2:Q",
+            y=alt.Y("dot:Q", scale=ys, axis=None), y2="y:Q")
         left = lab.transform_filter("datum.x == 0").mark_text(
-            align="right", dx=-7, fontSize=11, color=ink).encode(x=x, y=y, text="text:N")
+            align="right", dx=-9, fontSize=FONT_LABEL, color=ink).encode(x=x, y=y, text="text:N")
         right = lab.transform_filter("datum.x == 1").mark_text(
-            align="left", dx=7, fontSize=11, color=ink).encode(x=x, y=y, text="text:N")
+            align="left", dx=9, fontSize=FONT_LABEL, color=ink).encode(x=x, y=y, text="text:N")
         heads = alt.Chart(pd.DataFrame({
-            "x": [0, 1], "y": [1.24, 1.24],
+            "x": [0, 1], "y": [_SLOPE_HEADS, _SLOPE_HEADS],
             "t": [_say(opt, wording.CALLED_TIP_FORECAST), _say(opt, wording.CALLED_TIP_MEASURED)]})
-        ).mark_text(fontSize=10, color=muted()).encode(x=x, y=y, text="t:N")
-        panels.append((line + dots + left + right + heads).properties(
-            width=CALLED_W, height=CALLED_H,
-            title=alt.TitleParams(_say(opt, learned_label(opt, name)), fontSize=12,
-                                  anchor="middle", fontWeight="bold", offset=2)))
-    return alt.hconcat(*panels, spacing=14).configure_view(stroke=None).properties(
-        padding={"top": 2, "bottom": 2, "left": 2, "right": 2})
+        ).mark_text(fontSize=FONT_SMALL, color=muted()).encode(x=x, y=y, text="t:N")
+        layers = [line, dots, left, right, heads] + ([leaders] if len(lead) else [])
+        panels.append(alt.layer(*layers).properties(
+            width=width, height=CALLED_H,
+            title=alt.TitleParams(_say(opt, learned_label(opt, name)), fontSize=FONT_TITLE,
+                                  anchor="middle", fontWeight="bold", offset=4)))
+    return readable(alt.hconcat(*panels, spacing=_CALLED_SPACING).configure_view(stroke=None))
+
+
+_CALLED_SPACING = 16
 
 
 def _called_top(opt, slot, lf):
@@ -5642,12 +5832,13 @@ def _trust_section(opt, slot, computed, facts):
 
 
 def _progress_body(opt, slot):
-    """"Are we improving?" (review story): two model-free charts side by
-    side — the best so far with each Round's average, the start and the
-    best named; and Closer to target, one row per measurement. Drawn at
-    once; the answer line is drawn with the cards."""
+    """"Are we improving?" (review story): two model-free charts — the best
+    so far with each Round's average, the start and the best named; and
+    Closer to target, one row per measurement. Review readable: stacked,
+    each the column's full width (side by side, both were cramped). Drawn
+    at once; the answer line is drawn with the cards."""
     with slot.body:
-        left, right = st.columns(IMPROVING_SPLIT, gap="medium")
+        left = right = st.container()   # one above the other
         with left:
             try:
                 chart = improving_chart(opt)
@@ -5779,12 +5970,16 @@ def _tried_section(opt, slot):
 STORY_Q_HEIGHT = 290         # the forecast chart's plot height (less 30)
 # Review story 2: the improving pair fits the first screen at 1280×800,
 # under the strip; Closer to target is drawn as tall, so the two end level.
-IMPROVING_HEIGHT = 250
-IMPROVING_SPLIT = (1.1, 1)   # the best-so-far chart a little wider; Closer to target keeps its labels
+# Review readable: the two are stacked, each the column's full width (side
+# by side at 1280 px each was under 420 px and its labels collided).
+IMPROVING_HEIGHT = 240
+_IMPROVING_LANES = 48        # px above the data for the Best and Start labels
+TARGET_ROW_H = 56            # px per Closer to target row
 PATH_SHOW_LINES_KEY = "insights_path_lines"
 PATH_COLUMNS = 4             # search path panels per row
-_PATH_PANEL_W = 150
-_PATH_ROW_H = 16             # px per Round in a search path panel
+_PATH_PANEL_W = 160          # review readable: was 150
+_PATH_ROW_H = 22             # px per Round in a search path panel (was 16: rows touched)
+_PATH_SPACING = 24
 
 
 def story_start(opt):
@@ -5852,8 +6047,8 @@ def _round_layer(opt, frame_x, numbers, scale):
     expr = " : ".join(f"abs(datum.value - {m}) < 0.01 ? '{t}'" for m, t in labels) + " : ''"
     top = alt.X(f"{frame_x}:Q", title=None, scale=scale,
                 axis=alt.Axis(orient="top", values=mids, labelExpr=expr, ticks=False,
-                              domain=False, grid=False, labelFontSize=9, labelPadding=2,
-                              labelColor=muted()))
+                              domain=False, grid=False, labelFontSize=FONT_SMALL,
+                              labelPadding=3, labelColor=muted()))
     return (alt.Chart(pd.DataFrame({frame_x: rules}))
             .mark_rule(color=light, strokeWidth=1, tooltip=False).encode(x=top))
 
@@ -5894,9 +6089,18 @@ def improving_chart(opt):
         return None
     nums = story_numbers(opt)
     lo, hi = min(values), max(values)
-    top_room = 0.34 * max(hi - lo, 4.0)    # review story 2: room for the Best label at 230 px
-    y_scale = alt.Scale(domain=[lo - 0.04 * max(hi - lo, 4.0), hi + top_room], nice=False,
-                        zero=False)
+    # Review readable: the Start and Best labels sit in two lanes above
+    # every mark (_IMPROVING_LANES px), each joined to its point by a thin
+    # leader, so neither label lands on a line or a dot.
+    bottom = lo - 0.04 * max(hi - lo, 4.0)
+    data_top = hi + 0.03 * max(hi - lo, 4.0)
+    lanes = _IMPROVING_LANES if nums is not None else 0
+    top = data_top + (data_top - bottom) * lanes / (IMPROVING_HEIGHT - lanes)
+    y_scale = alt.Scale(domain=[bottom, top], nice=False, zero=False)
+
+    def at_px(px):
+        """The score drawn `px` below the plot's top."""
+        return top - (top - bottom) * px / IMPROVING_HEIGHT
     y_title = zoomed(wording.PLOT_MEASURED_SCORE, lo, hi, float(opt.utility_ceiling()))
     x_scale = alt.Scale(domain=_x_domain(opt), nice=False)
     x = alt.X(f"{formulation}:Q", title=_say(opt, wording.Q2_X_TITLE), scale=x_scale,
@@ -5912,7 +6116,12 @@ def improving_chart(opt):
                         symbolStrokeWidth=3)
     no_tip = alt.Tooltip(f"{formulation}:Q", title=_say(opt, wording.FORMULATION_CAP),
                          format="d")
-    y = alt.Y(f"{score}:Q", title=y_title, scale=y_scale)
+    # Review readable: ticks only over the data, never in the label lanes.
+    span = data_top - bottom
+    step = 5 if span <= 30 else 10 if span <= 60 else 20
+    first = math.ceil(bottom / step) * step
+    ticks = [first + step * k for k in range(int((data_top - first) // step) + 1)]
+    y = alt.Y(f"{score}:Q", title=y_title, scale=y_scale, axis=alt.Axis(values=ticks))
     layers = []
     if avgs:
         adf = pd.DataFrame([{"x0": a - 0.4, "x1": b + 0.4, "avg": m, "what": avg_name,
@@ -5942,31 +6151,40 @@ def improving_chart(opt):
         lo_x, hi_x = _x_domain(opt)
         span = hi_x - lo_x
         pts = []
+        # Best in the top lane, the start in the one under it.
         if (sno, s) != (bno, b):
             pts.append({"x": sno, "y": s, "text": wording.story_point(
-                wording.STORY_START, one_decimal(s), r0), "who": "start"})
+                wording.STORY_START, one_decimal(s), r0), "who": "start",
+                "lane": at_px(_IMPROVING_LANES - 16)})
         if rb is not None:
             pts.append({"x": bno, "y": b, "text": wording.story_point(
-                wording.STORY_BEST, one_decimal(b), rb), "who": "best"})
+                wording.STORY_BEST, one_decimal(b), rb), "who": "best",
+                "lane": at_px(12)})
         for p in pts:
             share = (p["x"] - lo_x) / span if span else 0.5
             align = "left" if share < 0.3 else "right" if share > 0.7 else "center"
-            dx = {"left": -4, "right": 4, "center": 0}[align]
+            dx = {"left": -6, "right": 6, "center": 0}[align]
             pdf = pd.DataFrame([p])
             ring_c = ink if p["who"] == "best" else grey
+            # The leader: from just above the ring up to its label.
+            px = (top - bottom) / IMPROVING_HEIGHT
+            layers.append(alt.Chart(pdf.assign(foot=p["y"] + 8 * px, head=p["lane"] - 9 * px))
+                          .mark_rule(color=grey, strokeWidth=1, strokeDash=[2, 2], tooltip=False)
+                          .encode(x=alt.X("x:Q", scale=x_scale),
+                                  y=alt.Y("foot:Q", scale=y_scale, title=y_title), y2="head:Q"))
             layers.append(alt.Chart(pdf).mark_point(size=150, strokeWidth=1.8, color=ring_c,
                                                     filled=False, tooltip=False)
                           .encode(x=alt.X("x:Q", scale=x_scale),
                                   y=alt.Y("y:Q", scale=y_scale, title=y_title)))
             layers += _halo_text(pdf, alt.X("x:Q", scale=x_scale),
-                                 alt.Y("y:Q", scale=y_scale, title=y_title), "text:N",
-                                 ink if p["who"] == "best" else muted(), fontSize=11,
+                                 alt.Y("lane:Q", scale=y_scale, title=y_title), "text:N",
+                                 ink if p["who"] == "best" else muted(), fontSize=FONT_LABEL,
                                  fontWeight="bold" if p["who"] == "best" else "normal",
-                                 align=align, dx=dx, dy=-15, baseline="bottom")
+                                 align=align, dx=dx, baseline="middle")
     rounds = _round_layer(opt, formulation, list(frame[formulation]), x_scale)
     body = alt.layer(*layers)
     chart = alt.layer(rounds, body).resolve_axis(x="independent") if rounds else body
-    return chart.properties(height=IMPROVING_HEIGHT)
+    return readable(chart.properties(height=IMPROVING_HEIGHT))
 
 
 def target_rows(opt):
@@ -6048,8 +6266,11 @@ def target_chart(opt):
     n = len(rows)
     y_scale = alt.Scale(domain=[-0.7, n - 0.3], reverse=True, nice=False, zero=False)
     expr = " : ".join(f"datum.value == {k} ? '{_esc(l)}'" for k, l in enumerate(labels)) + " : ''"
+    # Review readable: the row labels clear of the Range's low end ("0").
+    pad = 14 + 7 * max(len(e["text"]) for e in ends)
     y_axis = alt.Axis(values=list(range(n)), labelExpr=expr, title=None, ticks=False,
-                      domain=False, grid=False, labelFontSize=11, labelLimit=180, labelPadding=26)
+                      domain=False, grid=False, labelFontSize=FONT_LABEL, labelLimit=260,
+                      labelPadding=pad)
     y = alt.Y("k:Q", scale=y_scale, axis=y_axis)
     x_scale = alt.Scale(domain=[-0.02, 1.02], nice=False)
     x = alt.X("t:Q", scale=x_scale, axis=None)
@@ -6060,11 +6281,11 @@ def target_chart(opt):
     layers = [
         alt.Chart(pd.DataFrame(track)).mark_rule(color=light, strokeWidth=4, tooltip=False)
         .encode(x=alt.X("t0:Q", scale=x_scale, axis=None), x2="t1:Q", y=y),
-        alt.Chart(pd.DataFrame(ends)).mark_text(fontSize=9, color=muted(), tooltip=False,
-                                                dx=-5, align="right", baseline="middle")
+        alt.Chart(pd.DataFrame(ends)).mark_text(fontSize=FONT_SMALL, color=muted(), tooltip=False,
+                                                dx=-7, align="right", baseline="middle")
         .encode(x=x, y=y, text="text:N").transform_filter("datum.align == 'right'"),
-        alt.Chart(pd.DataFrame(ends)).mark_text(fontSize=9, color=muted(), tooltip=False,
-                                                dx=5, align="left", baseline="middle")
+        alt.Chart(pd.DataFrame(ends)).mark_text(fontSize=FONT_SMALL, color=muted(), tooltip=False,
+                                                dx=7, align="left", baseline="middle")
         .encode(x=x, y=y, text="text:N").transform_filter("datum.align == 'left'"),
     ]
     if joins:
@@ -6090,12 +6311,14 @@ def target_chart(opt):
                           tooltip=tips))
     if texts:
         tdf = pd.DataFrame(texts)
-        layers += _halo_text(tdf[tdf["who"] == "best"], x, y, "text:N", ink, fontSize=10,
-                             fontWeight="bold", dy=-11, baseline="bottom")
+        layers += _halo_text(tdf[tdf["who"] == "best"], x, y, "text:N", ink,
+                             fontSize=FONT_LABEL, fontWeight="bold", dy=-10, baseline="bottom")
         if (tdf["who"] == "start").any():
             layers += _halo_text(tdf[tdf["who"] == "start"], x, y, "text:N", muted(),
-                                 fontSize=10, dy=10, baseline="top")
-    return alt.layer(*layers).properties(height=max(IMPROVING_HEIGHT - 70, 45 * n))
+                                 fontSize=FONT_LABEL, dy=10, baseline="top")
+    # Review readable: TARGET_ROW_H px a row, so one row's value under its
+    # dot never meets the next row's value above its own.
+    return readable(alt.layer(*layers).properties(height=TARGET_ROW_H * n))
 
 
 def _esc(text):
@@ -6158,13 +6381,13 @@ def forecast_chart(opt, checks):
     if len(before) >= 3:
         note = pd.DataFrame([{"x": (min(before) + max(before)) / 2, "y": (lo + hi) / 2,
                               "text": wording.STORY_NO_FORECAST}])
-        layers.append(alt.Chart(note).mark_text(fontSize=10, color=muted(), tooltip=False)
+        layers.append(alt.Chart(note).mark_text(fontSize=FONT_SMALL, color=muted(), tooltip=False)
                       .encode(x=alt.X("x:Q", scale=x_scale), y=alt.Y("y:Q", scale=y_scale),
                               text="text:N"))
     rounds = _round_layer(opt, formulation, numbers, x_scale)
     body = alt.layer(*layers)
     chart = alt.layer(rounds, body).resolve_axis(x="independent") if rounds else body
-    return chart.properties(height=STORY_Q_HEIGHT - 30)
+    return readable(chart.properties(height=STORY_Q_HEIGHT - 30))
 
 
 def trust_counts(checks):
@@ -6281,27 +6504,32 @@ def search_path_chart(opt, axes, lines):
     colour = alt.Scale(domain=kinds, range=[look[k] for k in kinds])
     legend = alt.Legend(title=None, orient="bottom", labelLimit=0)
     word = _say(opt, wording.FORMULATION_CAP)
-    height = max(70, _PATH_ROW_H * len(rounds))
+    height = max(80, _PATH_ROW_H * len(rounds))
     y_scale = alt.Scale(domain=labels, paddingInner=0.2, paddingOuter=0.3)
     panels = []
+    # Review readable: a single panel or two still make MIN_CHART_W.
+    shown_cols = min(len(axes), PATH_COLUMNS)
+    width = max(_PATH_PANEL_W,
+                (MIN_CHART_W - 60 - _PATH_SPACING * (shown_cols - 1)) // shown_cols)
     for k, a in enumerate(axes):
         mine = df[df["axis"] == a.name]
         first = k % PATH_COLUMNS == 0
         y = alt.Y("rlabel:O", scale=y_scale, sort=labels,
                   title=_say(opt, wording.ROUND_CAP) if first else None,
                   axis=alt.Axis(labels=first, ticks=False, domain=False, grid=False,
-                                labelFontSize=9, labelColor=muted(), titleFontSize=10)
+                                labelFontSize=FONT_SMALL, labelColor=muted(),
+                                titleFontSize=FONT_AXIS_TITLE)
                   if first else None)
         if a.options is not None:
             x_scale = alt.Scale(domain=list(a.options))
-            x_axis = alt.Axis(labelAngle=0, labelFontSize=9, labelLimit=60, ticks=False,
+            x_axis = alt.Axis(labelAngle=0, labelFontSize=FONT_SMALL, labelLimit=80, ticks=False,
                               domain=False)
             x = alt.X("value:N", scale=x_scale, title=None, axis=x_axis)
         else:
             d = _shared_decimals([a.low, a.high])
-            x_scale = alt.Scale(domain=[a.low, a.high], nice=False, zero=False)
+            x_scale = alt.Scale(domain=[a.low, a.high], nice=False, zero=False, padding=9)
             x_axis = alt.Axis(values=[a.low, a.high], grid=False, ticks=False, domain=False,
-                              labelFontSize=9, labelColor=muted(),
+                              labelFontSize=FONT_SMALL, labelColor=muted(),
                               labelExpr=_ends_expr(opt, a, d), labelFlush=True)
             x = alt.X("value:Q", scale=x_scale, title=None, axis=x_axis)
         tip = [alt.Tooltip("no:Q", title=word, format="d"),
@@ -6317,27 +6545,27 @@ def search_path_chart(opt, axes, lines):
                 .mark_rule(color=light, strokeWidth=5, strokeCap="round", tooltip=False)
                 .encode(x=alt.X("lo:Q", scale=x_scale, title=None, axis=x_axis), x2="hi:Q",
                         y=y))
-        layers.append(base.mark_point(size=26, filled=True, opacity=0.95).encode(
+        layers.append(base.mark_point(size=40, filled=True, opacity=0.95).encode(
             x=x, y=y, color=alt.Color("role:N", scale=colour, legend=legend), tooltip=tip)
             .transform_filter(f"datum.role != '{_esc(wording.TRIED_BEST)}' && "
                               f"datum.role != '{_esc(wording.TRIED_WAITING)}'"))
         # Waiting for results (or Not scored): a hollow grey ring.
-        layers.append(base.mark_point(size=30, filled=False, strokeWidth=1.4).encode(
+        layers.append(base.mark_point(size=44, filled=False, strokeWidth=1.4).encode(
             x=x, y=y, color=alt.Color("role:N", scale=colour, legend=legend), tooltip=tip)
             .transform_filter(f"datum.role == '{_esc(wording.TRIED_WAITING)}'"))
-        layers.append(base.mark_point(size=110, strokeWidth=2, filled=False, color=ink)
+        layers.append(base.mark_point(size=130, strokeWidth=2, filled=False, color=ink)
                       .encode(x=x, y=y, tooltip=tip)
                       .transform_filter(f"datum.role == '{_esc(wording.TRIED_BEST)}'"))
-        layers.append(base.mark_point(size=26, filled=True).encode(
+        layers.append(base.mark_point(size=40, filled=True).encode(
             x=x, y=y, color=alt.Color("role:N", scale=colour, legend=legend), tooltip=tip)
             .transform_filter(f"datum.role == '{_esc(wording.TRIED_BEST)}'"))
-        title = alt.TitleParams(_axis_label(a), fontSize=10, fontWeight="normal",
-                                anchor="start", color=None, limit=_PATH_PANEL_W + 20)
-        panels.append(alt.layer(*layers).properties(width=_PATH_PANEL_W, height=height,
+        title = alt.TitleParams(_axis_label(a), fontSize=FONT_LABEL, fontWeight="normal",
+                                anchor="start", color=None, limit=width + 20, offset=6)
+        panels.append(alt.layer(*layers).properties(width=width, height=height,
                                                      title=title))
-    return (alt.concat(*panels, columns=PATH_COLUMNS, spacing=18)
-            .resolve_scale(color="shared", x="independent")
-            .configure_view(strokeWidth=0))
+    return readable(alt.concat(*panels, columns=PATH_COLUMNS, spacing=_PATH_SPACING)
+                    .resolve_scale(color="shared", x="independent")
+                    .configure_view(strokeWidth=0))
 
 
 def _ends_expr(opt, a, d):

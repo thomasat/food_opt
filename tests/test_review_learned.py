@@ -232,7 +232,11 @@ def test_slopegraph_marks_crossings_and_shares_tied_points(monkeypatch):
     name, call, cks = _items((91, 84, 79), (9.2, 8.1, 6.8))[1]
     lines, _ = U.slope_frames(_O(), name, call, cks)
     assert not lines.crossed.any()
-    assert U._spread([0.0, 0.05, 1.0]) == pytest.approx([0.0, U._SLOPE_GAP, 1.0])
+    # Review readable: two near labels move apart as a block centred on
+    # their points (was: the upper one pushed up); a lone one stays put.
+    got = U._spread([0.0, 0.05, 1.0])
+    assert got[1] - got[0] == pytest.approx(U._SLOPE_GAP)
+    assert (got[0] + got[1]) / 2 == pytest.approx(0.025) and got[2] == 1.0
 
 
 def test_called_it_shows_only_for_the_latest_scored_round():
@@ -549,7 +553,8 @@ def test_called_chart_is_at_most_three_small_panels(scored):
     drawn = learned.shown(lf.items)
     assert 1 <= len(drawn) <= 1 + learned.CALLED_PANELS
     assert lf.items[0][0] == insights.SCORE
-    assert U.CALLED_W <= 260 and U.CALLED_H <= 140
+    # Review readable: taller (120 -> 160 px) so 12 px end labels clear each other.
+    assert U.CALLED_W <= 260 and U.CALLED_H <= 170
 
 
 def test_profiler_headline_names_no_effect(screen):

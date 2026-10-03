@@ -335,7 +335,9 @@ def test_the_finding_is_not_the_next_cards_word(screens):
 
 def test_the_profiler_defaults_to_four_columns():
     assert U.PROFILE_COLUMNS == 4
-    assert U.panel_width(4) > U.panel_width(7) == U._PANEL_W
+    # Review readable: at most PROFILE_WRAP (4) panels a row; more columns wrap
+    # into a second block, so 7 columns draw at the 4-column width.
+    assert U.panel_width(3) > U.panel_width(4) == U.panel_width(7) == U._PANEL_W
 
 
 # ------------------------------------------------------------------ #

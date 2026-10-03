@@ -301,8 +301,14 @@ def line_a(tmp_path_factory):
     mp.undo()
 
 
+def _flat_rows(spec):
+    """Review readable: every row facet, through the wrapped blocks."""
+    top = spec["vconcat"]
+    return [r for b in top for r in b["vconcat"]] if "vconcat" in top[0] else top
+
+
 def _gain_rows(spec):
-    return [r for r in spec["vconcat"]
+    return [r for r in _flat_rows(spec)
             if wording.PROFILER_GAIN_ROW in json.dumps(r["spec"]["layer"][0].get("encoding", {}))
             or wording.PROFILER_GAIN_ROW in json.dumps(r)]
 
@@ -336,7 +342,7 @@ def _greyed(line_a, reason):
     text = json.dumps(spec)
     assert wording.PROFILER_GAIN_ROW in text
     grey, _ = U.mark("neutral")
-    gain_row = spec["vconcat"][-1]
+    gain_row = _flat_rows(spec)[-1]
     lines = [lay["mark"] for lay in gain_row["spec"]["layer"]
              if isinstance(lay["mark"], dict) and lay["mark"]["type"] in ("line", "area")]
     # The gain's line and area in grey, the line dashed: drawn, not claimed.

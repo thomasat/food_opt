@@ -53,9 +53,20 @@ def spec(line_a, best):
     return U.profile_chart(opt, best).to_dict()
 
 
+def _blocks(spec):
+    """Review readable: the profiler wraps at U.PROFILE_WRAP panels a row;
+    more columns make a second block (a vconcat of its own rows). With one
+    block, the rows are the top-level vconcat as before."""
+    top = spec["vconcat"]
+    return [b["vconcat"] for b in top] if "vconcat" in top[0] else [top]
+
+
 def _rows(spec):
-    """Each row's (facet spec, its data rows)."""
-    return [(r, spec["datasets"][r["data"]["name"]]) for r in spec["vconcat"]]
+    """Each row's (facet spec in the first block, its data rows across every
+    block)."""
+    blocks = _blocks(spec)
+    return [(r, [d for b in blocks for d in spec["datasets"][b[k]["data"]["name"]]])
+            for k, r in enumerate(blocks[0])]
 
 
 def _y_title(row):
@@ -253,7 +264,7 @@ def test_the_palette(line_a, spec):
 
 def test_every_encoded_colour_has_a_legend_and_every_mark_a_bo_tooltip(spec):
     used, shown, tips = set(), set(), []
-    for r in spec["vconcat"]:
+    for r in (r for b in _blocks(spec) for r in b):
         for layer in r["spec"]["layer"]:
             enc = layer.get("encoding", {})
             for ch in ("color", "fill", "stroke", "strokeDash", "shape"):
@@ -302,4 +313,6 @@ def test_the_profile_is_fast(line_a):
     t = time.perf_counter()
     prof = _profile(opt, computed)
     U.profile_chart(opt, prof).to_dict()
-    assert time.perf_counter() - t < 3.0
+    # Review readable: past PROFILE_WRAP columns a second block is built
+    # (every column drawn here; the app draws 4 by default): was < 3.0 s.
+    assert time.perf_counter() - t < 4.5

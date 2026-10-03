@@ -74,8 +74,17 @@ def test_split_tested_meets_where_the_grey_begins():
     assert [ok for ok, _ in U.split_tested(amounts, [True] * 5, pts)] == [True]
 
 
+def _blocks(spec):
+    """Review readable: the profiler wraps at U.PROFILE_WRAP panels a row;
+    more columns make a second block (a vconcat of its own rows). With one
+    block, the rows are the top-level vconcat as before."""
+    top = spec["vconcat"]
+    return [b["vconcat"] for b in top] if "vconcat" in top[0] else [top]
+
+
 def _rows(spec):
-    return [(r, spec["datasets"][r["data"]["name"]]) for r in spec["vconcat"]]
+    """Every row facet of every block, with its data."""
+    return [(r, spec["datasets"][r["data"]["name"]]) for b in _blocks(spec) for r in b]
 
 
 def _filtered(layer):
@@ -89,7 +98,8 @@ def test_untested_stretches_are_faded_on_every_row(line_a):
     spec = U.profile_chart(opt, profile).to_dict()
     rows = _rows(spec)
     # Overall score, each measurement, Expected gain (when drawn).
-    assert len(rows) == len(profile.rows) + (1 if profile.gain_drawn else 0)
+    blocks = -(-len(profile.columns) // U.PROFILE_WRAP)   # review readable: wrapped
+    assert len(rows) == blocks * (len(profile.rows) + (1 if profile.gain_drawn else 0))
     for row, data in rows:
         marks = {d["mark"] for d in data}
         assert {"seg_t", "seg_u", "grey"} <= marks
