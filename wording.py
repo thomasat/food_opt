@@ -9031,7 +9031,7 @@ def learned_skill_line(inside, total, vs_mean, vs_best, n):
     baselines."""
     if not total:
         return ""
-    line = f"{OVERALL_SCORE_COLUMN}: {inside} of {total} inside the 95 % likely range."
+    line = f"{OVERALL_SCORE_COLUMN}: {inside} of {total} inside the 95 % predicted range."
     if vs_mean is not None and vs_best is not None:
         line += (f" Skill over {n} checks: {vs_mean:+.2f} against the average of earlier "
                  f"scores, {vs_best:+.2f} against Best so far (1 − squared forecast error ÷ "
@@ -9119,7 +9119,8 @@ def preview_line(k, role, score_text, changes):
 def preview_help(n, best_no):
     return (f"The {n} {FORMULATION}s Generate would make now, previewed on a copy of the project "
             f"(nothing is saved). Changes are against Best so far ({FORMULATION_CAP} {best_no}). "
-            f"Predicted Overall score with its 95 % likely range; 99+ is the top of the Range.")
+            f"Predicted {OVERALL_SCORE_COLUMN} with its 95 % interval; ≥ 99 is the top of the "
+            f"Range.")
 
 
 METHOD_LEARNED_TITLE = "What the model learned: definitions"
@@ -9137,10 +9138,10 @@ def review_status_learned(model, progress, extra=None):
 def learned_evidence(rows, skill_line=""):
     """The Model item's evidence: 'Evidence: pairs ordered right before
     tasting — Overall score 14/21, Firmness 16/23. Overall score: 13 of 15
-    inside the 95 % likely range. …'"""
+    inside the 95 % predicted range. …'"""
     pairs = ", ".join(f"{name} {right}/{n}" for name, right, n in rows if n)
     line = f"Evidence: pairs ordered right before tasting — {pairs or 'none yet'}."
     return f"{line} {skill_line}".strip()
 
 
-LEARNED_RANGE_RECORD = "The Overall score's likely ranges, Round ahead:"
+LEARNED_RANGE_RECORD = "The Overall score's Round-ahead record:"

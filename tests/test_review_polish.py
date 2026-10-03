@@ -44,7 +44,7 @@ def test_evidence_numbers_are_the_cards(screens):  # noqa: F811
     assert "Firmness" in p["lines"]
     ev = p["help"].split("\n\n")[1]
     assert ev.startswith("Evidence: pairs ordered right before tasting — Overall score ")
-    assert "Overall score: 13 of 15 inside the 95 % likely range." in ev
+    assert "Overall score: 13 of 15 inside the 95 % predicted range." in ev
     assert "+0.36 against the average of earlier scores" in ev
     assert "qLogNEI" in n["help"].split("\n\n")[1]
 

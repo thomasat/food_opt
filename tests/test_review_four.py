@@ -271,7 +271,7 @@ def test_the_predictions_card(screens, name):  # noqa: F811
     ev, rule = p["help"].split("\n\n")[1:3]
     assert ev.startswith("Evidence: pairs ordered right before tasting")
     assert rule.startswith(wording.for_project(D.load(name), "Each Round's formulations are "))
-    assert "Overall score: " in p["help"] and "inside the 95 % likely range" in p["help"]
+    assert "Overall score: " in p["help"] and "inside the 95 % predicted range" in p["help"]
 
 
 def test_a_disagreeing_repeat_stays_red_on_next(screens):  # noqa: F811

@@ -680,8 +680,9 @@ def test_the_upgrade_files_predicted_gain_is_withheld(upgrade):
     line = ui_insights.standing_text(opt, standing, yard, withheld=reason)
     assert "Predicted gain" not in line and "+9.3" not in line
     # 87–100 since ftue fix A's Round-grouped folds (cold read I9); 93–100
-    # before.
-    assert line.startswith("Predicted best: 100 (95 % interval 87–100), in untested amounts.")
+    # before. Review learned: no prediction reads 100 (the ceiling reads
+    # "≥ 99").
+    assert line.startswith("Predicted best: ≥ 99 (95 % interval 87–≥ 99), in untested amounts.")
     assert line.endswith("Its gain over Best so far is not reported: fewer than 10 "
                          "Round-ahead checks of the Overall score so far (2).")
 

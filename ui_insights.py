@@ -5078,6 +5078,12 @@ class LearnedFacts:
                 if n != insights.SCORE and o.verdict == verdict]
 
 
+def _short(opt, text):
+    """'F18' as the project says it: 'T18' in a study of trials."""
+    letter = _say(opt, wording.FORMULATION_CAP)[:1] or "F"
+    return re.sub(r"\bF(\d+)\b", rf"{letter}\1", _say(opt, text))
+
+
 def learned_label(opt, name):
     return _say(opt, wording.OVERALL_SCORE_COLUMN) if name == insights.SCORE else name
 
@@ -5261,7 +5267,7 @@ def _called_block(opt, lf):
             st.markdown(_say(opt, line))
             if bits:
                 # The pairs are data, not a caption: one ✓ or ✗ each.
-                st.markdown(f":gray[{' · '.join(bits)}]")
+                st.markdown(f":gray[{_short(opt, ' · '.join(bits))}]")
 
 
 def _learned_section(opt, slot, computed, facts):
@@ -5420,7 +5426,7 @@ def forecast_panel(opt):
             return
         st.markdown(f"**{_say(opt, wording.LEARNED_FORECAST_TITLE)}**", help=_say(opt, help_))
         for line in lines:
-            st.markdown(_say(opt, line))
+            st.markdown(_short(opt, line))
 
 
 def _preview_count(opt):

@@ -351,7 +351,7 @@ def test_predictions_tooltip_says_the_coverage_and_skill_exactly(screens):
     # against both baselines.
     assert plain.startswith("Predicts Firmness.")
     assert "one-sided binomial test, p < 0.05, at least 5 pairs" in rule
-    assert "Overall score: 13 of 15 inside the 95 % likely range." in rule
+    assert "Overall score: 13 of 15 inside the 95 % predicted range." in rule
     assert re.search(r"Skill over 15 checks: \+0\.36 against the average of earlier scores, "
                      r"[+−]\d\.\d\d against Best so far", rule), rule
 
