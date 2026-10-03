@@ -49,7 +49,9 @@ EXPECTED = {
         "Review after Round 5 · 20 formulations · Round 6 open · Formulation 19 waiting",
         # Review four, ruling 1: the Overall score's record (was the
         # measurements' 33 / 35).
-        [("Predictions", "Reliable", ["13 / 15 in range"]),
+        # Review learned: the strip's Model item reads the model's verdicts
+        # (Firmness's within-Round order beat chance).
+        [("Model", "Predicts", ["Firmness"]),
          ("Progress", "No new best", ["87.8 → 90.5 of 100"]),
          ("Next", "Record Round 6", ["4 formulations open", "Round 7: Repeat Formulation 15"])],
         "How the app chose Round 6", ["Suggestions go where expected gain peaks."]),
@@ -58,8 +60,12 @@ EXPECTED = {
         # Review four, ruling 1: the Overall score missed 3 of 16 (tail
         # 0.04: More misses than expected, Not yet); the measurements' 8 / 36
         # a plain line. The disagreeing Repeat stays the Next card's, red.
-        [("Predictions", "Not yet", [":red[**3 / 16 missed**]",
-                                     "Measurements miss more than expected"]),
+        # Review learned: Model's verdict word; the Overall score's red
+        # coverage warning is kept (never folded).
+        # The section repeats it in full under its answer.
+        [("Model", "Predicts", [":red[**3 / 16 missed**]",
+                                ":red[**Overall score: 3 / 16 missed**]",
+                                "Measurements miss more than expected"]),
          ("Progress", "Flat", ["87.8 → 90.1 of 100"]),
          ("Next", ":red[Check panel first]", [":red[**Before Round 6**]",
                                               ":red[**Formulation 11's Repeat: 10.5 lower**]"])],
@@ -69,23 +75,23 @@ EXPECTED = {
         # Review diagnosis ruling 2 (2026-10-02): the CV-widening rule no
         # longer says "Check your panel's consistency" without Repeat
         # evidence (Line C's one Repeat pair has 1 df); it asks for a Repeat.
-        [("Predictions", "Not yet", ["No better than averaging",
-                                     "Repeat Formulation 18 to check noise"]),
+        [("Model", "Not yet", ["predictable", "Repeat Formulation 18 to check noise"]),
          ("Progress", "Within noise", ["87.3 → 89.8 of 100"]),
          ("Next", "Record Round 6", ["4 formulations open", "Guided search, not a forecast"])],
         "How the app chose Round 6", [_HIDDEN + wording.HERO_HIDDEN["noise"]]),
     D.UPGRADE: (
         "Review after Round 3 · 7 formulations · Formulation 8 waiting",
-        [("Predictions", "Not yet", ["2 / 10 formulations checked"]),
+        [("Model", "Not yet", ["predictable"]),
          # A warning takes the strip's line (never folded).
          ("Progress", "Too early", [":red[**Rounds 1–2 lack Cook loss**]"]),
-         ("Next", "Make Round 4", ["No Round open"])],
+         # Review learned: What next? previews the next suggestions.
+         ("Next", "Make Round 4", ["No Round open", f"**{wording.LEARNED_PREVIEW_TITLE}**"])],
         "Where the app looks next", [_HIDDEN + wording.HERO_HIDDEN["skill"]]),
     D.TIMING: (
         "Review after Round 12 · 60 formulations",
-        [("Predictions", "Reliable", ["54 / 55 in range"]),   # ruling 1
+        [("Model", "Predicts", ["Firmness, Juiciness +2"]),   # review learned
          ("Progress", "Flat", ["91.6 → 92.5 of 100"]),
-         ("Next", "Make Round 13", ["No Round open"])],
+         ("Next", "Make Round 13", ["No Round open", f"**{wording.LEARNED_PREVIEW_TITLE}**"])],
         "Where the app looks next", ["Suggestions go where expected gain peaks."]),
     D.PROCESS_ONLY: (
         "Review after Round 5 · 21 trials · Round 6 open",
@@ -94,7 +100,9 @@ EXPECTED = {
         # one card: demo build).
         # Review four, ruling 1: the Overall score missed 4 of 16 (tail
         # 0.007): Off, on the score the suggestions use.
-        [("Predictions", ":red[Off]", [":red[**4 / 16 missed**]"]),
+        # Review learned: Model's word; the red miss line kept.
+        [("Model", "Predicts", [":red[**4 / 16 missed**]",
+                                ":red[**Overall score: 4 / 16 missed**]"]),
          ("Progress", "Within noise", ["85.1 → 87.9 of 100"]),
          ("Next", "Record Round 6", ["4 trials open", "Round 7: Repeat Trial 21"])],
         "How the app chose Round 6", [_HIDDEN + wording.HERO_HIDDEN["skill"]]),
@@ -169,7 +177,10 @@ def strip(at):
     drawn, ':red[**…**]' for a warning) — and the strip's buttons
     [(type, label)], read from the leaves above the first section."""
     items, buttons, cur = [], [], None
-    labels = {wording.CARD_PROGRESS, wording.CARD_PREDICTIONS, wording.CARD_NEXT}
+    # Review learned: the Predictions item reads "Model" once the model's
+    # verdicts are in (the gate keeps "Predictions").
+    labels = {wording.CARD_PROGRESS, wording.CARD_PREDICTIONS, wording.CARD_NEXT,
+              wording.LEARNED_STRIP_LABEL}
     for el, folds, _ in _leaves(at.tabs[3]):
         text = _text(el)
         if el.type == "markdown" and text.startswith("#### "):
@@ -247,7 +258,8 @@ def cards(at, order="role"):
         found.append(card)
     if order == "screen":
         return found
-    rank = {wording.CARD_PREDICTIONS: 0, wording.CARD_PROGRESS: 1, wording.CARD_NEXT: 2}
+    rank = {wording.CARD_PREDICTIONS: 0, wording.LEARNED_STRIP_LABEL: 0,
+            wording.CARD_PROGRESS: 1, wording.CARD_NEXT: 2}
     return sorted(found, key=lambda c: rank.get(c["label"], 3))
 
 
@@ -260,8 +272,11 @@ def _title_of(at, label):
     """The section a strip item lands on, as the screen names it (Trial
     for a process-only study)."""
     heads = _headings(at)
+    # Review learned: the Predictions/Model item lands on What has the model
+    # learned?, which took Q1's place.
     want = {wording.CARD_PROGRESS: wording.Q2_TITLE,
-            wording.CARD_PREDICTIONS: wording.Q1_TITLE}[label]
+            wording.CARD_PREDICTIONS: wording.LEARNED_TITLE,
+            wording.LEARNED_STRIP_LABEL: wording.LEARNED_TITLE}[label]
     return next((h for h in heads if h == want), want)
 
 
@@ -331,11 +346,14 @@ def test_each_card_tooltip_holds_the_full_sentence_then_the_exact_rule(screens, 
 def test_predictions_tooltip_says_the_coverage_and_skill_exactly(screens):
     help_text = cards(screens[D.LINE_A])[0]["help"]
     plain, rule = help_text.split("\n\n", 1)
-    # Review four, ruling 1: the sentence's counts are the Overall score's.
-    assert "13 of 15 Overall scores landed inside the range the app predicted" in plain
-    assert ("33 of 35 Round-ahead values inside their 95 % posterior predictive intervals"
-            in rule)
-    assert "skill 1 − SSE/SSE(mean of the rows before each Round) = 0.36 over 15" in rule
+    # Review learned: the Model item's "?" is the section's sentence, then
+    # the ordering rule, then the Overall score's coverage and skill
+    # against both baselines.
+    assert plain.startswith("Predicts Firmness.")
+    assert "one-sided binomial test, p < 0.05, at least 5 pairs" in rule
+    assert "Overall score: 13 of 15 inside the 95 % likely range." in rule
+    assert re.search(r"Skill over 15 checks: \+0\.36 against the average of earlier scores, "
+                     r"[+−]\d\.\d\d against Best so far", rule), rule
 
 
 # Review diagnosis ruling 2: Line C and the process-only study have no
@@ -352,9 +370,9 @@ def test_warnings_are_never_folded(screens, name):
 def test_off_says_check_before_the_round(screens):
     # Review polish, one action, one card: the Next card says it.
     p, _, n = cards(screens[D.LINE_B])
-    # Review four, ruling 1: Line B's Overall score is More misses than
-    # expected (Not yet); the check is the Next card's, in red.
-    assert p["word"] == "Not yet"
+    # Review four, ruling 1: the check is the Next card's, in red. Review
+    # learned: the strip's Model word reads the model's verdicts (Firmness).
+    assert p["word"] == "Predicts"
     assert ":red[**Check panel before Round 6**]" not in p["lines"]
     assert n["word"] == ":red[Check panel first]" and ":red[**Before Round 6**]" in n["lines"]
 

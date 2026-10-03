@@ -239,8 +239,9 @@ def test_cv_widening_asks_for_a_repeat_not_the_panel(demos, name, line):
     assert not [t for t in texts if BENCH.search(t)]
     if name == D.PROCESS_ONLY:
         # Review four, ruling 1: Off on the Overall score (4 of 16 missed);
-        # the Repeat request is the Next card's alone.
-        assert p["word"] == ":red[Off]"
+        # the Repeat request is the Next card's alone. Review learned: the
+        # word is the Model item's, the miss line still red.
+        assert p["word"] == "Predicts" and p["lines"][0] == ":red[**4 / 16 missed**]"
         return
     assert "to measure how much results vary" in p["help"]
     assert ("the same values again" in p["help"]) == (name == D.PROCESS_ONLY)
@@ -339,18 +340,19 @@ def _check_without_repeat(at, name, word):
 @needs_pilot
 def test_pilot_round_5_never_says_panel(pilot):
     # 9 Overall-score checks: under SKILL_MIN, Not yet (ruling 1).
-    _check_without_repeat(_open_review(R5), R5, "Not yet")
+    # Review learned: the Model item's word (the ordering rule).
+    _check_without_repeat(_open_review(R5), R5, "Predicts")
 
 
 @needs_pilot
 def test_pilot_round_6_scored_never_says_panel(pilot):
     # The Overall score 10 of 12 in range, skill 0.69: Reliable (ruling 1).
-    _check_without_repeat(_score_round_6(), R6, "Reliable")
+    _check_without_repeat(_score_round_6(), R6, "Predicts")
 
 
 @needs_pilot
 def test_pilot_all_10_is_not_off(pilot):
     at = _open_review(ALL10)
     p = cards(at)[0]
-    assert p["word"] == "Reliable"
+    assert p["word"] == "Predicts"      # review learned: the Model item
     assert not [t for t in _all_text(at) if BENCH.search(t)]

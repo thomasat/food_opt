@@ -9060,7 +9060,7 @@ def called_pairs(name, right, counted, total):
     all measured the same, nothing to order.'"""
     if not counted:
         return f"{name}: all measured the same, nothing to order." if total else f"{name}: —"
-    return f"{name}: {right} of {counted} pairs in the right order."
+    return f"{name}: {right} of {counted} {'pair' if counted == 1 else 'pairs'} in the right order."
 
 
 def called_pair(high, low, right):
@@ -9105,6 +9105,9 @@ def forecast_help(n_rows, round_no):
             f"at the top of its Range reads ≥ that top.")
 
 
+PREVIEW_COLUMNS = ("#", "Role", PREDICTED_SCORE_COLUMN, "Changes vs Best so far")
+
+
 def preview_line(k, role, score_text, changes):
     """'1 · refines the best · Overall score 96 (92–99+) · Salt −0.10 g'."""
     parts = [f"{k}", role, f"{OVERALL_SCORE_COLUMN} {score_text}"]
@@ -9129,3 +9132,15 @@ def review_status_learned(model, progress, extra=None):
     line = (f"{REVIEW_STATUS_PREFIX}: {LEARNED_STRIP_LABEL} **{model}** · "
             f"{CARD_PROGRESS} **{progress}**")
     return line + (f" · **{extra}**" if extra else "")
+
+
+def learned_evidence(rows, skill_line=""):
+    """The Model item's evidence: 'Evidence: pairs ordered right before
+    tasting — Overall score 14/21, Firmness 16/23. Overall score: 13 of 15
+    inside the 95 % likely range. …'"""
+    pairs = ", ".join(f"{name} {right}/{n}" for name, right, n in rows if n)
+    line = f"Evidence: pairs ordered right before tasting — {pairs or 'none yet'}."
+    return f"{line} {skill_line}".strip()
+
+
+LEARNED_RANGE_RECORD = "The Overall score's likely ranges, Round ahead:"

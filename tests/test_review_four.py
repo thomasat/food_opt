@@ -29,10 +29,11 @@ from tests.test_food_bo import _BANNED
 from tests.test_review_cards import _leaves, _text, cards, screens  # noqa: F401 (fixture)
 from tests.test_review_diag import ALL10, PILOT, R5, R6, needs_pilot
 
-QUESTIONS = [wording.Q1_TITLE, wording.Q2_TITLE, wording.Q3_TITLE, wording.Q4_TITLE]
+# Review learned: "What has the model learned?" took Q1's place.
+QUESTIONS = [wording.LEARNED_TITLE, wording.Q2_TITLE, wording.Q3_TITLE, wording.Q4_TITLE]
 # Review story: the screen asks them as a story — improving first, then
 # trust, drivers, what was tried.
-STORY = [wording.Q2_TITLE, wording.Q1_TITLE, wording.Q3_TITLE, wording.Q4_TITLE]
+STORY = [wording.Q2_TITLE, wording.LEARNED_TITLE, wording.Q3_TITLE, wording.Q4_TITLE]
 # Review story 2: What next? closes the story (the Next card's content).
 STORY += [wording.Q5_TITLE]
 CHART = ("arrow_vega_lite_chart", "vega_lite_chart")
@@ -70,7 +71,7 @@ def test_four_questions_in_order_one_chart_each(screens, name):  # noqa: F811
     gate = name == D.SNACK
     for q, items in got.items():
         charts = sum(t in CHART for t, _ in items)
-        if gate and q in (wording.Q1_TITLE, wording.Q3_TITLE):
+        if gate and q in (wording.LEARNED_TITLE, wording.Q3_TITLE):
             # Before 5 scored: one line, no chart.
             assert charts == 0 and ("caption", wording.Q_WAIT) in items, (q, items)
         elif q == wording.Q2_TITLE:
@@ -93,12 +94,15 @@ def test_answer_lines_open_with_the_cards_word(screens, name):  # noqa: F811
     opt = D.load(name)
     q1, q2, q3, q4 = (firsts[wording.for_project(opt, k)] for k in QUESTIONS)
     if name != D.SNACK:
-        assert re.sub(r":red\[(.*)\]", r"\1", q1).startswith(f"**{plain(p['word'])}.**")
+        # Review learned: the section's answer names what the model predicts.
+        assert re.match(r"\*\*(Predicts|Partly predicts|Not predictable yet)", q1), q1
         # Review story: Q3's answer is a finding, never the Next card's word.
         assert not q3.startswith(f"**{plain(n['word'])}.**")
         # Review story 3: no clear leader over tested amounts reads
         # 'No single ingredient (or setting) clearly leads yet'.
-        assert re.match(r"\*\*.+ matters most\.\*\*|\*\*No single (ingredient|setting)", q3), q3
+        # Review learned: or a stable effect, 'Methylcellulose raises Firmness'.
+        assert re.match(r"\*\*.+ (matters most|raises .+|lowers .+)\.\*\*|"
+                        r"\*\*No single (ingredient|setting)", q3), q3
     assert q2.startswith(f"**{plain(g['word'])}.**")
     assert re.match(r"\*\*\d+ tested\.\*\* ", q4), q4
     for line in (q1, q2, q3, q4):
@@ -133,7 +137,7 @@ def test_each_card_links_to_its_question(screens, name):  # noqa: F811
     assert U.SECTION_KEYS == {"predictions": U.TRUST_SECTION, "progress": U.STAND_SECTION,
                               "drives": U.DRIVES_SECTION, "tried": U.EXPLORED_PLACE,
                               "next": U.NEXT_SECTION}
-    assert U._QUESTIONS["predictions"] == wording.Q1_TITLE
+    assert U._QUESTIONS["predictions"] == wording.LEARNED_TITLE
     assert U._QUESTIONS["drives"] == wording.Q3_TITLE
     assert U._QUESTIONS["next"] == wording.Q5_TITLE
 
@@ -242,12 +246,16 @@ def test_score_verdict_rule():
 
 # Review story 2: the strip's line, without "Overall score:" (the label
 # says Predictions; the answer line and the "?" still name the score).
+# Review learned: the item is Model, its word the model's verdicts; the
+# Overall score's red miss line is kept (never folded).
 CARDS = {
-    D.LINE_A: ("Reliable", ["13 / 15 in range"]),
-    D.LINE_B: ("Not yet", [":red[**3 / 16 missed**]",
-                           "Measurements miss more than expected"]),
-    D.PROCESS_ONLY: (":red[Off]", [":red[**4 / 16 missed**]"]),
-    D.TIMING: ("Reliable", ["54 / 55 in range"]),
+    D.LINE_A: ("Predicts", ["Firmness"]),
+    D.LINE_B: ("Predicts", [":red[**3 / 16 missed**]",
+                            ":red[**Overall score: 3 / 16 missed**]",
+                            "Measurements miss more than expected"]),
+    D.PROCESS_ONLY: ("Predicts", [":red[**4 / 16 missed**]",
+                                  ":red[**Overall score: 4 / 16 missed**]"]),
+    D.TIMING: ("Predicts", ["Firmness, Juiciness +2"]),
 }
 
 
@@ -258,8 +266,12 @@ def test_the_predictions_card(screens, name):  # noqa: F811
     assert p["word"] == word
     assert p["lines"][:len(first)] == first
     assert not any(line.startswith(":red[") and "Measurements" in line for line in p["lines"])
-    ev = p["help"].split("\n\n")[1]
-    assert ev.startswith("Evidence: Overall score ") and "; measurements " in ev
+    # Review learned: the "?" is the sentence, the evidence (the ordering
+    # counts, then the Overall score's coverage and skill), then the rule.
+    ev, rule = p["help"].split("\n\n")[1:3]
+    assert ev.startswith("Evidence: pairs ordered right before tasting")
+    assert rule.startswith(wording.for_project(D.load(name), "Each Round's formulations are "))
+    assert "Overall score: " in p["help"] and "inside the 95 % likely range" in p["help"]
 
 
 def test_a_disagreeing_repeat_stays_red_on_next(screens):  # noqa: F811
@@ -400,13 +412,12 @@ def _open(name):
 @needs_pilot
 def test_pilot_cards_on_the_overall_score(pilot):
     p = cards(_open(R5))[0]
-    # 9 Overall-score checks: under SKILL_MIN, so Not yet; the measurements'
-    # misses a plain line, and the neutral Repeat request.
-    assert p["word"] == "Not yet"
-    assert wording.CARD_MEASURES_MISS in p["lines"]
+    # Review learned: the Model item, by the ordering rule (no pilot names
+    # here); no red line.
+    assert p["word"] == "Predicts"
     assert not any(line.startswith(":red[") for line in p["lines"])
     at = _open(ALL10)
-    assert cards(at)[0]["word"] == "Reliable"
+    assert cards(at)[0]["word"] == "Predicts"
     assert list(sections(at)) == STORY
 
 

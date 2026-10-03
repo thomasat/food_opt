@@ -4251,14 +4251,16 @@ def review_status(opt):
     warn = pred.tone == "off" or nxt.tone == "off"
     text = wording.review_status_line(pred.word, prog.word,
                                       nxt.word if nxt.tone == "off" else None)
-    if opt.complete_count() >= insights.MIN_ROWS and checks:
-        # Review learned: the Model word, as the Review's strip says it.
-        ords = learned.orderings(opt, checks)
+    lf = learned_cached(opt)
+    every = None if lf is not None else checks_for(opt, "trust")
+    if opt.complete_count() >= insights.MIN_ROWS and (lf is not None or every):
+        # Review learned: the Model word, as the Review's strip says it
+        # (from every Round's checks, never a partial set); red as before.
+        ords = lf.orderings if lf is not None else learned.orderings(opt, every)
         pick = lambda v: [n for n, o in ords.items() if n != insights.SCORE and o.verdict == v]
         word, _ = wording.learned_strip(pick(learned.PREDICTABLE), pick(learned.PARTLY))
         text = wording.review_status_learned(word, prog.word,
                                              nxt.word if nxt.tone == "off" else None)
-        warn = nxt.tone == "off"
     return _say(opt, text), warn
 
 
@@ -5193,9 +5195,9 @@ def learned_chart(opt, lf):
             continue
         lo, hi = wilson(o.right, o.pairs)
         rows.append({"name": f"{learned_label(opt, name)} ({o.right}/{o.pairs})",
-                     "share": 100 * o.right / o.pairs,
+                     "pct": 100 * o.right / o.pairs,
                      "lo": lo, "hi": hi, "verdict": wording.LEARNED_WORDS[o.verdict],
-                     "kind": o.verdict, "n": f"{o.right}/{o.pairs}",
+                     "n": f"{o.right}/{o.pairs}",
                      "op": _VERDICT_OPACITY[o.verdict]})
     if not rows:
         return None
@@ -5208,12 +5210,12 @@ def learned_chart(opt, lf):
         range=[blue, blue, grey]), legend=None)
     y = alt.Y("name:N", sort=order, title=None, axis=alt.Axis(labelLimit=180, ticks=False,
                                                                  domain=False))
-    x = alt.X("share:Q", title=_say(opt, wording.LEARNED_CHART_X),
+    x = alt.X("pct:Q", title=_say(opt, wording.LEARNED_CHART_X),
               scale=alt.Scale(domain=[0, 100]), axis=alt.Axis(values=[0, 25, 50, 75, 100]))
     tip = [alt.Tooltip("name:N", title=_say(opt, wording.LEARNED_COL_RESULT)),
            alt.Tooltip("verdict:N", title=_say(opt, wording.LEARNED_COL_VERDICT)),
            alt.Tooltip("n:N", title=_say(opt, wording.LEARNED_COL_PAIRS)),
-           alt.Tooltip("share:Q", format=".0f", title="%")]
+           alt.Tooltip("pct:Q", format=".0f", title="%")]
     base = alt.Chart(frame)
     chance = alt.Chart(pd.DataFrame({"x": [50]})).mark_rule(
         strokeDash=[4, 3], color=grey).encode(x="x:Q")
@@ -5258,7 +5260,8 @@ def _called_block(opt, lf):
                 bits.append(top)
             st.markdown(_say(opt, line))
             if bits:
-                st.caption(" · ".join(bits))
+                # The pairs are data, not a caption: one ✓ or ✗ each.
+                st.markdown(f":gray[{' · '.join(bits)}]")
 
 
 def _learned_section(opt, slot, computed, facts):
@@ -5273,9 +5276,16 @@ def _learned_section(opt, slot, computed, facts):
     partly = lf.names_by(learned.PARTLY)
     not_yet = lf.names_by(learned.NOT_YET)
     help_ = wording.learned_help(wording.LEARNED_RULE, lf.skill_line)
+    old = card_for(opt, facts, "predictions")
     with slot.answer.container():
         st.markdown(_say(opt, wording.learned_answer(predictable, partly, not_yet)),
                     help=_say(opt, help_))
+        # The Overall score's range warnings and the old card's further
+        # lines (a Repeat request), as under the old trust answer.
+        for i, (text, warn) in enumerate(old.lines if old is not None else []):
+            if warn or i > 0:
+                st.markdown(f":red[**{text}**]" if warn and not text.startswith(":red[")
+                            else text)
     with slot.body:
         _called_block(opt, lf)
         try:
@@ -5295,11 +5305,23 @@ def learned_card(opt, lf, card):
     warning lines (red) kept."""
     word, line = wording.learned_strip(lf.names_by(learned.PREDICTABLE),
                                        lf.names_by(learned.PARTLY))
-    warns = [(t, w) for t, w in (card.lines if card is not None else []) if w]
-    help_ = wording.learned_help(wording.learned_answer(
-        lf.names_by(learned.PREDICTABLE), lf.names_by(learned.PARTLY),
-        lf.names_by(learned.NOT_YET)).replace("**", ""), lf.skill_line)
-    return Card(_say(opt, word), warns + [(_say(opt, line), False)], None, _say(opt, help_))
+    old = card.lines if card is not None else []
+    warns = [(t, w) for t, w in old if w]
+    # The old card's further lines (a Repeat request, the measurements'
+    # misses) stay, under the names: the strip shows a warning or the names.
+    rest = [(t, w) for t, w in old[1:] if not w]
+    plain = wording.learned_answer(lf.names_by(learned.PREDICTABLE), lf.names_by(learned.PARTLY),
+                                   lf.names_by(learned.NOT_YET)).replace("**", "")
+    # As every strip "?": the plain sentence, the evidence, the exact rule.
+    ev = wording.learned_evidence(
+        [(learned_label(opt, n), o.right, o.pairs) for n, o in lf.orderings.items()],
+        lf.skill_line)
+    help_ = f"{plain}\n\n{ev}\n\n{wording.LEARNED_RULE}"
+    if card is not None and card.help:
+        # The Overall score's range record and its diagnosis, as before.
+        help_ += f"\n\n{wording.LEARNED_RANGE_RECORD}\n\n{card.help}"
+    return Card(_say(opt, word), warns + [(_say(opt, line), False)] + rest, None,
+                _say(opt, help_))
 
 
 def learned_lead(opt, lf):
@@ -5462,8 +5484,10 @@ def _next_preview(opt, places, computed):
         best = opt.best_formulation_no()
         st.markdown(f"**{_say(opt, wording.LEARNED_PREVIEW_TITLE)}**",
                     help=_say(opt, wording.preview_help(len(rows), best)))
-        for k, role, text, changes in rows:
-            st.markdown(_say(opt, wording.preview_line(k, role, text, changes)))
+        cols = [_say(opt, c) for c in wording.PREVIEW_COLUMNS]
+        frame = pd.DataFrame([dict(zip(cols, (k, role, text, changes)))
+                              for k, role, text, changes in rows])
+        st.dataframe(frame, hide_index=True)
         st.caption(_say(opt, wording.LEARNED_PREVIEW_CAPTION))
 
 

@@ -27,13 +27,15 @@ from ui_helpers import REVIEW_DUE_KEY, open_rows
 # is red, per demo project (tests/test_review_cards.py EXPECTED).
 STATUS = {
     D.SNACK: ("Not yet", "Too early", None),
-    D.LINE_A: ("Reliable", "No new best", None),
-    # Review four, ruling 1: the word reads the Overall score's record
-    # (Line B 13 of 16: Not yet; the process-only study 12 of 16: Off).
-    D.LINE_B: ("Not yet", "Flat", "Check panel first"),
+    # Review learned: past the gate the word is the Model item's (the
+    # model's verdicts); the line stays red where the Overall score's
+    # record was Off (the process-only study, 12 of 16).
+    D.LINE_A: ("Predicts", "No new best", None),
+    D.LINE_B: ("Predicts", "Flat", "Check panel first"),
     D.LINE_C: ("Not yet", "Within noise", None),
-    D.PROCESS_ONLY: ("Off", "Within noise", None),
+    D.PROCESS_ONLY: ("Predicts", "Within noise", None),
 }
+RED = {D.LINE_B, D.PROCESS_ONLY}
 SETUP, BATCH, RESULTS, REVIEW = range(4)
 
 
@@ -105,11 +107,12 @@ def test_make_a_round_line_matches_the_review_cards(walked, name):
     if extra:
         assert _plain(words[2]) == extra, words
     # ... and Make a round's line says the same words, nothing new.
-    want = wording.review_status_line(pred, prog, extra)
+    want = (wording.review_status_line(pred, prog, extra) if name == D.SNACK
+            else wording.review_status_learned(pred, prog, extra))
     if name == D.PROCESS_ONLY:
         want = want.replace("Formulation", "Trial")
     assert _plain(line) == want, line
-    assert line.startswith(":red[") == (extra is not None or pred == "Off"), line
+    assert line.startswith(":red[") == (name in RED), line
     assert [b.label for b in links] == [wording.OPEN_REVIEW]
     assert links[0].proto.type == "tertiary"
 

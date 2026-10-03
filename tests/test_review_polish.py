@@ -39,12 +39,13 @@ def test_evidence_numbers_are_the_cards(screens):  # noqa: F811
     p, g, n = cards(screens[D.LINE_A])
     # Review four, ruling 1: the card and its evidence lead with the
     # Overall score's record; the measurements' count follows.
-    assert "13 / 15 in range" in p["lines"]      # review story 2: the strip's short line
+    # Review learned: the Model item; its evidence the ordering counts,
+    # then the Overall score's coverage and skill against both baselines.
+    assert "Firmness" in p["lines"]
     ev = p["help"].split("\n\n")[1]
-    assert ev.startswith("Evidence: Overall score 13/15 in range, skill 0.36 (n = 15); "
-                         "measurements 33/35")
-    assert "2 outside, up to 2 expected" in ev
-    assert "posterior predictive" in ev
+    assert ev.startswith("Evidence: pairs ordered right before tasting — Overall score ")
+    assert "Overall score: 13 of 15 inside the 95 % likely range." in ev
+    assert "+0.36 against the average of earlier scores" in ev
     assert "qLogNEI" in n["help"].split("\n\n")[1]
 
 
@@ -54,7 +55,9 @@ def test_off_names_the_measurements(screens):  # noqa: F811
     # measurements' misses a plain line under it.
     # Review story 2: the strip's line drops "Overall score:" (its label
     # says Predictions); the plain line sits under the trust answer.
-    assert p["lines"] == [":red[**3 / 16 missed**]",
+    # Review learned: the Model item keeps both lines; the section repeats
+    # the red one in full under its answer.
+    assert p["lines"] == [":red[**3 / 16 missed**]", ":red[**Overall score: 3 / 16 missed**]",
                           "Measurements miss more than expected"]
 
 

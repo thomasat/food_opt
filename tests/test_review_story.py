@@ -39,7 +39,8 @@ from tests.test_food_bo import _BANNED
 from tests.test_review_cards import _install, _leaves, _text, cards, section, strip
 from tests.test_review_diag import ALL10, PILOT, R6, needs_pilot
 
-STORY = [wording.Q2_TITLE, wording.Q1_TITLE, wording.Q3_TITLE, wording.Q4_TITLE]
+# Review learned: "What has the model learned?" took Q1's place.
+STORY = [wording.Q2_TITLE, wording.LEARNED_TITLE, wording.Q3_TITLE, wording.Q4_TITLE]
 # Review story 2: the story ends on the action.
 STORY += [wording.Q5_TITLE]
 CHART = ("arrow_vega_lite_chart", "vega_lite_chart")
@@ -102,7 +103,10 @@ def test_sections_and_cards_in_story_order(screens, name):
     assert list(sections(at)) == [wording.for_project(opt, q) for q in STORY]
     # The cards in the same order, Next last.
     labels = [c["label"] for c in cards(at, order="screen")]
-    assert labels == [wording.CARD_PROGRESS, wording.CARD_PREDICTIONS, wording.CARD_NEXT]
+    # Review learned: Model once the model's verdicts are in (the gate
+    # keeps Predictions).
+    model = wording.CARD_PREDICTIONS if name == D.SNACK else wording.LEARNED_STRIP_LABEL
+    assert labels == [wording.CARD_PROGRESS, model, wording.CARD_NEXT]
     assert U.SECTION_ORDER == ("progress", "predictions", "drives", "tried", "next")
     assert U._STATUS_ORDER == ("progress", "predictions", "next")
 
@@ -283,8 +287,10 @@ def test_trust_counts_and_lines():
 
 
 def test_trust_answer_on_line_a(screens):
-    line = next(t for k, t in sections(screens[D.LINE_A])[wording.Q1_TITLE] if k == "markdown")
-    assert re.fullmatch(r"\*\*Reliable\.\*\* \d+ of \d+ landed in their predicted range\.", line)
+    # Review learned: the trust evidence is what the model learned.
+    line = next(t for k, t in sections(screens[D.LINE_A])[wording.LEARNED_TITLE]
+                if k == "markdown")
+    assert line == "**Predicts Firmness.** Not yet: Juiciness, Cook loss."
 
 
 # ------------------------------------------------------------------ #
@@ -324,8 +330,10 @@ def test_the_finding_is_not_the_next_cards_word(screens):
     line = next(t for k, t in sections(at)[wording.Q3_TITLE] if k == "markdown")
     assert not line.startswith(f"**{nxt}")
     # Review story 3: no clear leader over tested amounts reads
-    # 'No single ingredient (or setting) clearly leads yet'.
-    assert re.match(r"\*\*.+ matters most\.\*\*|\*\*No single (ingredient|setting)", line), line
+    # 'No single ingredient (or setting) clearly leads yet'. Review learned:
+    # a stable effect leads when there is one.
+    assert re.match(r"\*\*.+ (matters most|raises .+|lowers .+)\.\*\*|"
+                    r"\*\*No single (ingredient|setting)", line), line
 
 
 def test_the_profiler_defaults_to_four_columns():
@@ -464,21 +472,20 @@ def test_pilot_story(pilot):
     assert re.fullmatch(r"\*\*Flat\.\*\* \d+\.\d → \d+\.\d of 100 · same for \d Rounds\.", line)
     items, _ = strip(at)
     # The strip, by pattern only (no pilot numbers in the repository).
-    assert [i["word"] for i in items][:2] == ["Flat", "Reliable"]
+    # Review learned: the Model item (by pattern only: no pilot names).
+    assert [i["word"] for i in items][:2] == ["Flat", "Predicts"]
     assert re.fullmatch(r"\d+\.\d → \d+\.\d of 100", items[0]["line"]), items[0]
-    assert re.fullmatch(r"(\d+) / (\d+) in range", items[1]["line"]), items[1]
-    line = next(t for k, t in got[wording.Q1_TITLE] if k == "markdown")
-    assert re.fullmatch(r"\*\*Reliable\.\*\* \d+ of \d+ landed in their predicted range\.",
-                        line)
+    assert re.fullmatch(r"[A-Z][\w ]+, [A-Z][\w ]+", items[1]["line"]), items[1]
+    line = next(t for k, t in got[wording.LEARNED_TITLE] if k == "markdown")
+    assert re.fullmatch(r"\*\*Predicts .+\.\*\* Not yet: .+\.", line), line
     line = next(t for k, t in got[wording.Q3_TITLE] if k == "markdown")
-    assert " matters most.**" in line
+    assert re.fullmatch(r"\*\*.+ (raises|lowers) .+\.\*\*", line), line
     # Review story 3: two rows moved together (|r| >= 0.7) across the 10
     # Rounds; noted under the profiler (by pattern: no pilot names here).
     assert any(re.fullmatch(r".+ and .+ moved together: effects mixed\.", t)
                for k, t in got[wording.Q3_TITLE] if k == "caption"), got[wording.Q3_TITLE]
     before = cards(_open(R6), order="screen")
-    assert [c["word"] for c in before[:2]] == ["No new best", "Not yet"]
-    assert re.fullmatch(r"(\d+) / \1 in range · needs 10", before[1]["lines"][0])
+    assert [c["word"] for c in before[:2]] == ["No new best", "Predicts"]
 
 
 # ------------------------------------------------------------------ #
@@ -489,11 +496,14 @@ def test_pilot_story(pilot):
 def test_the_strip_has_three_items_and_the_one_primary(screens, name):
     at = screens[name]
     items, buttons = strip(at)
-    assert [i["label"] for i in items] == [wording.CARD_PROGRESS, wording.CARD_PREDICTIONS,
-                                           wording.CARD_NEXT]
+    # Review learned: the Predictions item reads Model once the model's
+    # verdicts are in (the gate keeps Predictions); its key is unchanged.
+    model = wording.CARD_PREDICTIONS if name == D.SNACK else wording.LEARNED_STRIP_LABEL
+    assert [i["label"] for i in items] == [wording.CARD_PROGRESS, model, wording.CARD_NEXT]
+    keys = {wording.LEARNED_STRIP_LABEL: "predictions"}
     for i in items:
         assert i["word"] and i["help"] and "\n\n" in i["help"], i
-        assert i["key"] == f"{U.SEE_CHART_KEY}_{i['label'].lower()}"
+        assert i["key"] == f"{U.SEE_CHART_KEY}_{keys.get(i['label'], i['label'].lower())}"
     # The page's one primary sits at the strip's right end, and nowhere else.
     assert [t for t, _ in buttons] == ["primary"], buttons
     primaries = [el.label for el, _, _ in _leaves(at.tabs[3])
