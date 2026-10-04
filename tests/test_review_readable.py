@@ -54,7 +54,6 @@ def charts(tmp_path_factory):
             "profile": U.profile_chart(opt, profile),
             "profile_4": U.profile_chart(opt, profile, [c.name for c in profile.columns][:4]),
             "path": U.search_path_chart(opt, axes, lines),
-            "lines": U.tried_chart(opt, axes, lines),
             "forecast": U.forecast_chart(opt, [c for c in checks if c.name == insights.SCORE]),
             "map": U.explore_map_chart(values.pool_mean, values.pool_sd, tested, picks,
                                        U.repeat_of_best(opt, fitted), opt),
@@ -65,7 +64,8 @@ def charts(tmp_path_factory):
     mp.undo()
 
 
-NAMES = ["called", "improving", "target", "learned", "profile", "profile_4", "path", "lines",
+# Review critique (fix 5): "lines" (Show as lines) cut.
+NAMES = ["called", "improving", "target", "learned", "profile", "profile_4", "path",
          "forecast", "map"]
 
 
@@ -157,15 +157,8 @@ def test_profiler_row_titles_are_written_across(charts):
     assert titled_axes and all(d["titleFontSize"] >= 12 for d in titled_axes)
 
 
-def test_slopegraph_labels_never_overlap():
-    px = U.CALLED_H / (U._SLOPE_Y[1] - U._SLOPE_Y[0])
-    assert U._SLOPE_GAP * px >= 16          # 12 px text and a little air
-    for ys in ([0.5, 0.505], [0.0, 0.01, 0.02], [1.0, 0.99, 0.0], [0.3, 0.31, 0.33, 0.9]):
-        got = sorted(U._spread(ys))
-        assert all(b - a >= U._SLOPE_GAP - 1e-9 for a, b in zip(got, got[1:]))
-        assert U._SLOPE_LABELS[0] - 1e-9 <= got[0] and got[-1] <= U._SLOPE_LABELS[1] + 1e-9
-    # A label left alone stays at its point.
-    assert U._spread([0.0, 0.5, 1.0]) == pytest.approx([0.0, 0.5, 1.0])
+# Review critique (fix 1): the slopegraphs became one shared axis per result; their
+# label spreading went with them.
 
 
 def test_the_improving_labels_sit_above_every_mark(charts):

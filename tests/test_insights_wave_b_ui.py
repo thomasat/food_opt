@@ -526,7 +526,7 @@ def test_every_wave_b_string_passes_the_vocabulary_guard():
 
 
 def test_exact_wave_b_strings():
-    assert wording.PREDICTED_SCORE_COLUMN == "Predicted Overall score (95 % interval)"
+    assert wording.PREDICTED_SCORE_COLUMN == "Predicted Overall score (95 % range)"
     # Ledger, statistician cold read I2 (fix round B): no "19 in 20" claim; the
     # plain reading gives the 95 % aim and the coverage measured on simulated projects.
     # Ftue fix A's re-run (I9 folds): 90 % of Overall scores (was 89 %).

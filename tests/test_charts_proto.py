@@ -33,143 +33,8 @@ def _isolate(tmp_path, monkeypatch):
         yield
 
 
-def _tried(opt):
-    return U.tried_chart(opt, insights.tried_axes(opt), insights.tried_lines(opt)).to_dict()
-
-
-def _line_layers(spec):
-    return [m for m in _all_marks(spec) if _mark(m)["type"] == "line"]
-
-
-# ------------------------------------------------------------------ #
-#  What you've tried
-# ------------------------------------------------------------------ #
-
-@pytest.mark.parametrize("name", [D.LINE_A, D.LINE_C, D.SNACK, D.PROCESS_ONLY])
-def test_the_lines_are_the_formulations(name):
-    opt = D.load(name)
-    lines = insights.tried_lines(opt)
-    recorded = [int(n) for n in opt.formulation_ids]
-    skipped = [int(r['formulation']) for r in opt.skipped if r.get('recipe')]
-    pending = [n for n in U.suggested_numbers(opt) if n not in recorded]
-    assert sorted(l.formulation for l in lines) == sorted(recorded + skipped + pending)
-    df, _, labels = U.tried_frame(opt, insights.tried_axes(opt), lines)
-    assert sorted(set(df["no"])) == sorted(l.formulation for l in lines)
-    score = U._say(opt, wording.OVERALL_SCORE_COLUMN)
-    for line in lines:
-        mine = df[df["no"] == line.formulation]
-        # Every axis is crossed; the score axis only with a score.
-        assert list(mine["k"]) == list(range(len(labels) - (line.score is None)))
-        if line.score is not None:
-            [t] = mine[mine["axis"] == score]["t"]
-            assert t == pytest.approx(line.score / opt.utility_ceiling())
-
-
-@pytest.mark.parametrize("name", [D.LINE_A, D.SNACK, D.PROCESS_ONLY])
-def test_each_axis_spans_lowest_to_highest(name):
-    opt = D.load(name)
-    axes = insights.tried_axes(opt)
-    # One per varying ingredient and process setting; the Fill to total row
-    # follows the others and is left out.
-    assert [a.name for a in axes] == [n for n in (s.name for s in insights.tested_strips(opt))
-                                      if n != opt.balance_row_name()]
-    for a in axes:
-        v = opt._by_name()[a.name]
-        assert (a.low, a.high) == tuple(float(b) for b in v['bounds'])
-        assert insights.axis_share(a, a.low) == 0.0 and insights.axis_share(a, a.high) == 1.0
-    lines = insights.tried_lines(opt)
-    df, ends, labels = U.tried_frame(opt, axes, lines)
-    for k, a in enumerate(axes):
-        here = ends[ends["axis"] == labels[k]]
-        # Review plots: an end where most lines sit says how many.
-        low = re.sub(r" \(\d+ of \d+\)$", "", here[here["where"] == "low"]["text"].item())
-        high = re.sub(r" \(\d+ of \d+\)$", "", here[here["where"] == "high"]["text"].item())
-        assert low.startswith(U._num(a.low).split(".")[0]) and high.startswith(
-            U._num(a.high).split(".")[0])
-        if a.unit:
-            assert low.endswith(a.unit) and high.endswith(a.unit)
-            assert f"({a.unit})" in labels[k].replace("\n", " ")
-        for line in lines:
-            [t] = df[(df["no"] == line.formulation) & (df["k"] == k)]["t"]
-            assert t == pytest.approx((line.values[a.name] - a.low) / (a.high - a.low))
-    score = ends[ends["axis"] == labels[-1]]
-    assert list(score["text"]) == ["0", "100"]
-
-
-def test_a_choice_gets_its_options_spaced_evenly():
-    opt = _with_a_choice()
-    axes = insights.tried_axes(opt)
-    package = next(a for a in axes if a.name == "Package")
-    assert package.options == ["Tray", "Pouch", "Box"]
-    assert [insights.axis_share(package, o) for o in package.options] == [0.0, 0.5, 1.0]
-    spec = _tried(opt)
-    texts = [m for m in _all_marks(spec) if _mark(m)["type"] == "text"]
-    options = [r["text"] for m in texts for r in _rows(spec, m) if r.get("where") == "option"]
-    assert options == ["Tray", "Pouch", "Box"]
-
-
-def test_suggestions_are_bold_orange_waiting_grey_dashed_best_thick():
-    opt = D.load(D.LINE_A)
-    spec = _tried(opt)
-    by_kind = {}
-    for m in _line_layers(spec):
-        kinds = {r["role"] for r in _rows(spec, m)}
-        flt = m.get("transform", [{}])[0].get("filter", {})
-        want = flt.get("equal") or (flt.get("oneOf") or [None])[0]
-        by_kind.setdefault(want, []).append(m)
-        assert kinds  # the layer's frame is the one long frame
-    rows = _rows(spec, _line_layers(spec)[0])
-    kind_of = {r["no"]: r["role"] for r in rows}
-    assert {n for n, k in kind_of.items() if k == wording.TRIED_SUGGESTED} == {22, 23, 24, 25}
-    assert kind_of[19] == wording.TRIED_WAITING
-    best_no = int(opt.formulation_ids[opt.best_index()])
-    assert kind_of[best_no] == wording.TRIED_BEST
-    # Suggestions carry no score: they stop before the score axis.
-    assert all(r["score"] is None for r in rows if r["role"] == wording.TRIED_SUGGESTED)
-    stroke = next(m for m in by_kind[wording.TRIED_SUGGESTED])["encoding"]["stroke"]["scale"]
-    look = dict(zip(stroke["domain"], stroke["range"]))
-    assert look[wording.TRIED_SUGGESTED] == U.outline_colour()
-    assert look[wording.TRIED_WAITING] == U.mark("neutral")[0]
-    dash = by_kind[wording.TRIED_WAITING][0]["encoding"]["strokeDash"]["scale"]
-    assert dict(zip(dash["domain"], dash["range"]))[wording.TRIED_WAITING] == [4, 3]
-    width = lambda kind: max(_mark(m)["strokeWidth"] for m in by_kind[kind])
-    assert width(wording.TRIED_SUGGESTED) >= 3
-    assert width(wording.TRIED_BEST) > width(wording.TRIED_SCORED)
-    # Review four polish (re-pinned; was coloured by the Overall score):
-    # coloured by role — every other tested line light grey, the next best
-    # few mid-grey and wider, Best so far ink and widest.
-    light, mid = U._TRIED_GREYS[U.theme()]
-    assert look[wording.TRIED_SCORED] == light and look[wording.TRIED_NEXT_BEST] == mid
-    assert look[wording.TRIED_BEST] == U.mark("bar_latest")[0]
-    assert (width(wording.TRIED_BEST) > width(wording.TRIED_NEXT_BEST)
-            > width(wording.TRIED_SCORED))
-    [plain] = by_kind[wording.TRIED_SCORED]
-    assert "color" not in plain["encoding"]
-
-
-def test_the_line_tooltip_reads_formulation_round_score_and_amounts():
-    opt = D.load(D.LINE_A)
-    spec = _tried(opt)
-    for m in _line_layers(spec):
-        titles = [t["title"] for t in m["encoding"]["tooltip"]]
-        assert titles == [wording.FORMULATION_CAP, wording.ROUND_CAP,
-                          wording.OVERALL_SCORE_COLUMN, wording.tried_amounts_title()]
-    rows = _rows(spec, _line_layers(spec)[0])
-    best = next(r for r in rows if r["no"] == 15)
-    assert best["round"] == "4" and best["score_text"] == f"{opt.Y_history[14]:.2f}"
-    assert "Coconut oil" in best["amounts"] and " g" in best["amounts"]
-    assert next(r for r in rows if r["no"] == 19)["score_text"].startswith("waiting for")
-
-
-def test_many_lines_are_thin_and_semi_transparent():
-    """Review four polish (re-pinned): many tested lines are thin and light
-    grey (was thin and semi-transparent score colours)."""
-    opt = D.load(D.TIMING)
-    assert len(insights.tried_lines(opt)) > U._MANY_LINES
-    plain = next(m for m in _line_layers(_tried(opt))
-                 if m.get("transform", [{}])[0].get("filter", {}).get("equal")
-                 == wording.TRIED_SCORED)
-    assert _mark(plain)["strokeWidth"] <= 1
+# Review critique (fix 5): "Show as lines" and its parallel coordinates were cut; their
+# tests went with them.
 
 
 @pytest.mark.parametrize("which", ["light", "dark"])
@@ -185,11 +50,6 @@ def test_every_colour_reaches_3_to_1(monkeypatch, which):
     # Higher scores read stronger: contrast rises along the ramp.
     contrast = [_contrast_on(c, 1.0, page) for c in U.score_colours()]
     assert contrast == sorted(contrast)
-    spec = _tried(D.load(D.LINE_A))
-    for m in _all_marks(spec):
-        mk = _mark(m)
-        if mk["type"] == "text":
-            assert _contrast_on(mk["color"], 1.0, page) >= 4.5
 
 
 # ------------------------------------------------------------------ #

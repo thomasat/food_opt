@@ -54,7 +54,11 @@ EXPECTED = {
         # Persona fixes 2: pairs under one tasting noise apart left out;
         # Firmness and Cook loss still clearly beat chance.
         # Persona fixes 2: the Overall score named when Predictable.
-        [("Model", "Predicts", ["Overall score, Firmness"]),
+        # Review critique: the exact within-Round permutation test (the
+        # binomial treated a Round's pairs as independent) and the noise
+        # split over the measurements: the Overall score and Firmness now
+        # lean right (Partly), not clearly; the strip reads "Partly:".
+        [("Model", "Partly:", ["Overall score, Firmness +1"]),
          ("Progress", "No new best", ["· best 90.5 of 100"]),
          ("Next", "Record Round 6", ["4 formulations open", "Round 7: Repeat Formulation 15"])],
         "How the app chose Round 6", ["Suggestions go where expected gain peaks."]),
@@ -70,7 +74,8 @@ EXPECTED = {
         # miss line stays in the strip.
         # Persona fixes 2: the too-close pairs left out, Partly; Flat after
         # a rise reads Plateau.
-        [("Model", "Predicts", [":red[**3 / 16 missed**]"]),
+        # Review critique: "Predicts:" (the strip's words, with a colon).
+        [("Model", "Predicts:", [":red[**3 / 16 missed**]"]),
          ("Progress", "Plateau since Round 3", ["· best 90.1 of 100"]),
          ("Next", ":red[Check panel first]", [":red[**Before Round 6**]",
                                               ":red[**Formulation 11's Repeat: 10.5 lower**]"])],
@@ -81,14 +86,15 @@ EXPECTED = {
         # longer says "Check your panel's consistency" without Repeat
         # evidence (Line C's one Repeat pair has 1 df); it asks for a Repeat.
         # Review learned 2: the Repeat request moved to What next?.
-        [("Model", "Not yet", ["predictable"]),
+        # Review critique: "Not predictable yet", the section's words.
+        [("Model", "Not predictable yet", []),
          ("Progress", "Within noise", ["· best 89.8 (+2.5)"]),
          ("Next", "Record Round 6", ["4 formulations open", "Guided search, not a forecast",
                                      "Repeat Formulation 18 to check noise"])],
         "How the app chose Round 6", [_HIDDEN + wording.HERO_HIDDEN["noise"]]),
     D.UPGRADE: (
         "Review after Round 3 · 7 formulations · Formulation 8 waiting",
-        [("Model", "Not yet", ["predictable"]),
+        [("Model", "Not predictable yet", []),   # review critique: the section's words
          # A warning takes the strip's line (never folded).
          ("Progress", "Too early", [":red[**Rounds 1–2 lack Cook loss**]"]),
          # Review learned: What next? previews the next suggestions.
@@ -96,7 +102,7 @@ EXPECTED = {
         "Where the app looks next", [_HIDDEN + wording.HERO_HIDDEN["skill"]]),
     D.TIMING: (
         "Review after Round 12 · 60 formulations",
-        [("Model", "Predicts", ["Overall score, Firmness +3"]),   # persona fixes 2
+        [("Model", "Predicts:", ["Overall score, Firmness +3"]),   # review critique: "Predicts:"
          ("Progress", "Plateau since Round 5", ["· best 92.5 of 100"]),   # persona fixes 2
          ("Next", "Make Round 13", ["No Round open", f"**{wording.LEARNED_PREVIEW_TITLE}**"])],
         "Where the app looks next", ["Suggestions go where expected gain peaks."]),
@@ -108,7 +114,7 @@ EXPECTED = {
         # Review four, ruling 1: the Overall score missed 4 of 16 (tail
         # 0.007): Off, on the score the suggestions use.
         # Review learned: Model's word; the red miss line kept.
-        [("Model", "Predicts", [":red[**4 / 16 missed**]"]),
+        [("Model", "Predicts:", [":red[**4 / 16 missed**]"]),   # review critique: "Predicts:"
          ("Progress", "Within noise", ["· best 87.9 (+1.9)"]),
          ("Next", "Record Round 6", ["4 trials open", "Round 7: Repeat Trial 21"])],
         "How the app chose Round 6", [_HIDDEN + wording.HERO_HIDDEN["skill"]]),
@@ -213,6 +219,10 @@ def section(at, title):
             on = text[5:] == title
             continue
         if el.type == "expander":
+            on = False
+        # Review critique (fix 5): the Forecast check opens the model's
+        # section, right under What next?: its own block, not What next?'s.
+        if el.type == "markdown" and text == f"**{wording.FORECAST_CHECK_TITLE}**":
             on = False
         if on:
             out.append((el, text))
@@ -346,9 +356,11 @@ def test_word_limits(screens, name):
 def test_each_card_tooltip_holds_the_full_sentence_then_the_exact_rule(screens, name):
     p, g, n = cards(screens[name])
     for c in (p, g, n):
-        assert c["help"] and "\n\n" in c["help"], c
-    # The full plain sentence first, then the BO / statistics statement.
-    assert "Rise = Best so far minus the best before the latest scored Round" in g["help"]
+        assert c["help"], c
+        # Review critique (fix 13): about 120 words at most, plain words
+        # first; the exact rules are in Method and definitions.
+        assert _words(c["help"]) <= wording.TOOLTIP_WORDS, c
+        assert not c["help"].startswith(("For experts", "Evidence"))
     assert "Next-step rule that holds" in n["help"]
 
 
@@ -362,16 +374,14 @@ def test_predictions_tooltip_says_the_coverage_and_skill_exactly(screens):
     # words, the terms of art in a last "For experts:" line.
     # Persona fixes 2: too-close pairs left out; Cook loss joins Firmness.
     # Rebuilt framing: "from earlier Rounds", not "before tasting".
-    assert plain.startswith("Forecasting each Round from earlier Rounds, the model put the "
-                            "Overall score and Firmness in the right order")
+    # Review critique: the permutation test leaves the Overall score and
+    # Firmness leaning right (Partly); the binomial is gone; about 120 words.
+    assert plain.startswith("Forecasting each Round from earlier Rounds, the model leans right "
+                            "on the order of the Overall score, Firmness")
     assert "before tasting" not in help_text
-    assert "one-sided binomial test, p < 0.05, at least 5 pairs" in rule
+    assert "binomial" not in help_text
     assert "Overall score: 13 of 15 landed in their predicted range" in plain
-    expert = rule.split("\n\n")[-1]
-    assert expert.startswith("For experts:")
-    assert "Overall score: 13 of 15 inside the 95 % predicted range." in expert
-    assert re.search(r"Skill over 15 checks: \+0\.36 against the average of earlier scores, "
-                     r"[+−]\d\.\d\d against Best so far", expert), expert
+    assert _words(help_text) <= wording.TOOLTIP_WORDS
     assert "Skill" not in rule.split("For experts:")[0]
 
 
@@ -392,7 +402,7 @@ def test_off_says_check_before_the_round(screens):
     # Review four, ruling 1: the check is the Next card's, in red. Review
     # learned: the strip's Model word reads the model's verdicts (Firmness).
     # Persona fixes 2: too-close pairs left out, Firmness Partly.
-    assert p["word"] == "Predicts"     # the Overall score, named (persona fixes 2)
+    assert p["word"] == "Predicts:"    # review critique: the strip's colon
     assert ":red[**Check panel before Round 6**]" not in p["lines"]
     assert n["word"] == ":red[Check panel first]" and ":red[**Before Round 6**]" in n["lines"]
 
@@ -410,9 +420,9 @@ def test_waiting_and_the_repeat_request_stay_visible(screens):
 def test_one_fold_only_and_no_old_status_lines(screens, name):
     rows = outside(screens[name])
     folds = [t for k, t in rows if k == "expander"]
-    # Review four: the questions are always open; Method and definitions
-    # is the one fold left.
-    assert folds == [wording.FOLD_METHOD]
+    # Review critique (fix 4): the profiler in its own closed fold, then
+    # Method and definitions.
+    assert folds == [wording.for_project(D.load(name), wording.Q3_TITLE), wording.FOLD_METHOD]
     texts = [t for _, t in rows]
     assert not any(t.startswith(("Predictions:", "Progress:", "Next:")) for t in texts)
     assert wording.FOLD_EXPLORED not in folds

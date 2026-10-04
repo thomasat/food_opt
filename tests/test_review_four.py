@@ -33,9 +33,11 @@ from tests.test_review_diag import ALL10, PILOT, R5, R6, needs_pilot
 QUESTIONS = [wording.LEARNED_TITLE, wording.Q2_TITLE, wording.Q3_TITLE, wording.Q4_TITLE]
 # Review story: the screen asks them as a story — improving first, then
 # trust, drivers, what was tried.
-STORY = [wording.Q2_TITLE, wording.LEARNED_TITLE, wording.Q3_TITLE, wording.Q4_TITLE]
-# Review story 2: What next? closes the story (the Next card's content).
-STORY += [wording.Q5_TITLE]
+# Review critique (fix 5, re-pinned): Are we improving?, What next? (the stop
+# signal), What has the model learned? (the Forecast check just above it),
+# What have we tried?, then What drives each result? as a closed fold.
+STORY = [wording.Q2_TITLE, wording.Q5_TITLE, wording.LEARNED_TITLE, wording.Q4_TITLE,
+         wording.Q3_TITLE]
 CHART = ("arrow_vega_lite_chart", "vega_lite_chart")
 
 
@@ -55,7 +57,13 @@ def sections(at):
             out[cur] = []
             continue
         if el.type == "expander":
-            cur = None
+            # Review critique (fix 4): What drives each result? is a fold.
+            cur = el.label if not folds and el.label != wording.FOLD_METHOD else None
+            if cur is not None:
+                out[cur] = []
+            continue
+        if el.type == "markdown" and text == f"**{wording.FORECAST_CHECK_TITLE}**":
+            cur = None      # the Forecast check's own block, above the model's section
         if cur is not None and (text or el.type in CHART):
             out[cur].append((el.type, text))
     return out
@@ -71,7 +79,10 @@ def test_four_questions_in_order_one_chart_each(screens, name):  # noqa: F811
     gate = name == D.SNACK
     for q, items in got.items():
         charts = sum(t in CHART for t, _ in items)
-        if gate and q in (wording.LEARNED_TITLE, wording.Q3_TITLE):
+        if q == wording.for_project(D.load(name), wording.Q3_TITLE):
+            # Review critique (fix 4): closed, worked out only once opened.
+            assert charts == 0, (q, items)
+        elif gate and q == wording.LEARNED_TITLE:
             # Before 5 scored: one line, no chart.
             assert charts == 0 and ("caption", wording.Q_WAIT) in items, (q, items)
         elif q == wording.Q2_TITLE:
@@ -96,16 +107,15 @@ def test_answer_lines_open_with_the_cards_word(screens, name):  # noqa: F811
     if name != D.SNACK:
         # Review learned: the section's answer names what the model predicts.
         assert re.match(r"\*\*(Predicts|Partly predicts|Not predictable yet)", q1), q1
-        # Review story: Q3's answer is a finding, never the Next card's word.
-        assert not q3.startswith(f"**{plain(n['word'])}.**")
-        # Review learned 2b: no effect claim on thin data; Q3's headline is
-        # a reading guide.
-        assert re.fullmatch(r"How each (ingredient|setting|ingredient or setting) moves each result\.", q3), q3
+    # Review critique (fix 4): Q3's answer sits inside its closed fold.
+    assert q3 is None
     assert q2.startswith(f"**{plain(g['word'])}.**")
     assert re.match(r"\*\*\d+ tested\.\*\* ", q4), q4
     for line in (q1, q2, q3, q4):
         if line:
-            assert _words(line) <= 10, line
+            # Review critique: a headline up to 14 words (the assumed noise
+            # is said beside a rise: "needs 3.2 if tasting noise ≈ 1 point").
+            assert _words(line) <= 14, line
 
 
 @pytest.mark.parametrize("name", D.ALL)
@@ -166,7 +176,8 @@ def test_a_card_link_lands_on_its_question(screens):  # noqa: F811
 def test_one_method_link_and_one_fold(screens, name):  # noqa: F811
     at = screens[name]
     folds = [el.label for el, f, _ in _leaves(at.tabs[3]) if el.type == "expander" and not f]
-    assert folds == [wording.FOLD_METHOD]
+    # Review critique (fix 4): the profiler's closed fold, then Method.
+    assert folds == [wording.for_project(D.load(name), wording.Q3_TITLE), wording.FOLD_METHOD]
     links = [b for b in at.tabs[3].button if b.label == wording.METHOD_LINK]
     assert len(links) == 1 and links[0].proto.type == "tertiary"
 
@@ -248,11 +259,13 @@ def test_score_verdict_rule():
 # Overall score's red miss line is kept (never folded).
 CARDS = {
     # Persona fixes 2: too-close pairs left out of the counts.
-    D.LINE_A: ("Predicts", ["Overall score, Firmness"]),
+    # Review critique: the exact permutation test leaves them leaning right
+    # (Partly); the strip's words now end in a colon.
+    D.LINE_A: ("Partly:", ["Overall score, Firmness +1"]),
     # Review learned 2: the section repeats no old-card line.
-    D.LINE_B: ("Predicts", [":red[**3 / 16 missed**]"]),
-    D.PROCESS_ONLY: ("Predicts", [":red[**4 / 16 missed**]"]),
-    D.TIMING: ("Predicts", ["Overall score, Firmness +3"]),
+    D.LINE_B: ("Predicts:", [":red[**3 / 16 missed**]"]),
+    D.PROCESS_ONLY: ("Predicts:", [":red[**4 / 16 missed**]"]),
+    D.TIMING: ("Predicts:", ["Overall score, Firmness +3"]),
 }
 
 
@@ -265,10 +278,14 @@ def test_the_predictions_card(screens, name):  # noqa: F811
     assert not any(line.startswith(":red[") and "Measurements" in line for line in p["lines"])
     # Review learned: the "?" is the sentence, the evidence (the ordering
     # counts, then the Overall score's coverage and skill), then the rule.
-    ev, rule = p["help"].split("\n\n")[1:3]
+    ev = p["help"].split("\n\n")[1]
     assert ev.startswith("Evidence: pairs ordered right from earlier Rounds")
-    assert rule.startswith(wording.for_project(D.load(name), "Each Round's formulations are "))
-    assert "Overall score: " in p["help"] and "inside the 95 % predicted range" in p["help"]
+    # Review critique (fix 13): about 120 words; the rule itself is in
+    # Method and definitions (it no longer fits after the evidence).
+    assert len(p["help"].split()) <= wording.TOOLTIP_WORDS
+    # The Overall score's record, in plain words (its expert line may not fit).
+    assert "Overall score: " in p["help"] and ("landed in their predicted range" in p["help"]
+                                               or "inside the 95 % predicted range" in p["help"])
 
 
 def test_a_disagreeing_repeat_stays_red_on_next(screens):  # noqa: F811
@@ -419,10 +436,12 @@ def test_pilot_cards_on_the_overall_score(pilot):
     # here); no red line.
     # Persona fixes 2: pairs too close to call (forecasts under one noise SD
     # apart) no longer count, so fewer verdicts reach Predicts.
-    assert p["word"] == "Not yet"
+    # Review critique: the permutation test and the noise split over the
+    # measurements: one measurement leans right at Round 5 (Partly:).
+    assert p["word"] == "Partly:"
     assert not any(line.startswith(":red[") for line in p["lines"])
     at = _open(ALL10)
-    assert cards(at)[0]["word"] == "Predicts"
+    assert cards(at)[0]["word"] == "Predicts:"
     assert list(sections(at)) == STORY
 
 
@@ -439,8 +458,7 @@ def test_new_strings_pass_the_vocabulary_guard():
              wording.tip_gain_greyed("x"), wording.why_gain_greyed("not_yet"),
              wording.why_greyed_line("off"), wording.why_greyed_line("not_yet"),
              wording.GAIN_REASON_NOT_YET, wording.GAIN_REASON_OFF, wording.TRIED_NEXT_BEST,
-             wording.tried_caption_roles(), wording.tip_tried_roles(),
-             wording.tip_tried_roles(True), wording.Q2_X_TITLE, wording.round_tick(3),
+             wording.Q2_X_TITLE, wording.round_tick(3),
              *[f(k) for f in (wording.profiler_more_label, wording.profiler_more_placeholder)
                for k in ("ingredients", "settings", "both", "rows")],
              wording.ev_profiler(20, "Suggestion 1", 21), wording.ev_tried(20)]
@@ -506,27 +524,8 @@ def test_score_predictions_is_the_cards_word(tmp_path, monkeypatch, name):
         assert facts.predictions == ("reliable" if name == D.LINE_A else "not_yet")
 
 
-def test_q4_is_coloured_by_role():
-    opt = D.load(D.LINE_A)
-    lines = insights.tried_lines(opt)
-    df, _, _ = U.tried_frame(opt, insights.tried_axes(opt), lines)
-    roles = set(df["role"])
-    assert {wording.TRIED_BEST, wording.TRIED_NEXT_BEST, wording.TRIED_SCORED} <= roles
-    tested = [l for l in lines if l.state == "tested"]
-    nexts = set(df.loc[df["role"] == wording.TRIED_NEXT_BEST, "no"])
-    assert len(nexts) == U.next_best_count(len(tested))
-    assert 3 <= U.next_best_count(5) <= U.next_best_count(30) == 5
-    # The next best are the highest scores after Best so far.
-    ranked = sorted((l for l in tested if not l.best), key=lambda l: -l.score)
-    assert nexts == {l.formulation for l in ranked[:len(nexts)]}
-    spec = json.dumps(U.tried_chart(opt, insights.tried_axes(opt), lines).to_dict())
-    light, mid = U._TRIED_GREYS[U.theme()]
-    for colour in (light, mid, U.mark("bar_latest")[0], U.outline_colour()):
-        assert colour in spec
-    # No score ramp, no gradient legend: the Overall score is the last axis.
-    assert not any(c in spec for c in U.score_colours())
-    assert '"gradient' not in spec
-    assert _words(wording.tried_caption_roles()) <= 8
+# Review critique (fix 5): the parallel coordinates (Show as lines) were cut, and
+# test_q4_is_coloured_by_role with them.
 
 
 def test_q2_marks_its_rounds():

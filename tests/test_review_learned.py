@@ -218,28 +218,8 @@ def test_a_result_measured_all_the_same_is_left_out():
     assert wording.called_tied("Tangy") == "Tangy: all measured the same, not drawn."
 
 
-def test_slopegraph_marks_crossings_and_shares_tied_points(monkeypatch):
-    class _O:
-        pass
-    monkeypatch.setattr(U.insights, "_range_of", lambda o, n: (0.0, 100.0))
-    monkeypatch.setattr(U, "_say", lambda o, t: t)
-    items = _items((91, 84, 79), (9, 9, 9.5))      # F7 = F8 measured; F9 highest: crossed
-    name, call, cks = items[1]
-    lines, labels = U.slope_frames(_O(), name, call, cks)
-    measured = lines[lines.x == 1].set_index("f")
-    assert measured.loc[7, "y"] == measured.loc[8, "y"] < measured.loc[9, "y"] == 1
-    assert set(lines[lines.crossed].f) == {7, 8, 9}
-    right = list(labels[labels.x == 1].text)
-    assert len(right) == 2 and any("F7, F8" in t for t in right)
-    # Held order: nothing crossed.
-    name, call, cks = _items((91, 84, 79), (9.2, 8.1, 6.8))[1]
-    lines, _ = U.slope_frames(_O(), name, call, cks)
-    assert not lines.crossed.any()
-    # Review readable: two near labels move apart as a block centred on
-    # their points (was: the upper one pushed up); a lone one stays put.
-    got = U._spread([0.0, 0.05, 1.0])
-    assert got[1] - got[0] == pytest.approx(U._SLOPE_GAP)
-    assert (got[0] + got[1]) / 2 == pytest.approx(0.025) and got[2] == 1.0
+# Review critique (fix 1): the slopegraphs were replaced by one shared axis per
+# result (tests/test_review_critique.py).
 
 
 def test_called_it_shows_only_for_the_latest_scored_round():
@@ -372,8 +352,9 @@ def test_capped_never_reads_100():
     assert U.capped(14.96, 15.0) == "≥ 15"
     assert U.capped(13.52, 15.0) == "13.5"
     assert U.capped(99.6, 100.0, 0) == "≥ 99"
-    assert U.score_text(Prediction(99.7, 95.2, 100.0)) == "≥ 99 (95–≥ 99)"
-    assert "100" not in U.score_text(Prediction(98.0, 92.0, 104.0))
+    # Review critique (fix 12): never a top below the point.
+    assert U.score_text(Prediction(99.7, 95.2, 100.0)) == "≥ 99 (95–100)"
+    assert U.score_text(Prediction(98.0, 92.0, 104.0)) == "98 (92–100)"
 
 
 def test_forecast_panel_shows_predictable_measurements_only(line_a, monkeypatch):
@@ -389,13 +370,15 @@ def test_forecast_panel_shows_predictable_measurements_only(line_a, monkeypatch)
     ords = learned.orderings(opt, checks)
     predictable = [U.learned_label(opt, n) for n, o in ords.items()
                    if o.verdict == learned.PREDICTABLE]
-    assert predictable          # the demo's clean panel orders Firmness right
     lines, help_ = U.round_forecast_lines(opt, checks)
     assert [ln.split(":")[0] for ln in lines] == predictable
+    # Review critique: under the exact permutation test Line A's Firmness
+    # leans right (Partly) rather than clearly; any line drawn still reads.
     assert all(not re.search(r"\b1\d\d(\.\d)?\b", ln) for ln in lines)   # no 100+
-    open_nos = [r["formulation"] for r in U.open_rows(opt)]
-    assert all(f"F{no} " in lines[0] for no in open_nos)
-    assert "Predictable" in help_
+    if lines:
+        open_nos = [r["formulation"] for r in U.open_rows(opt)]
+        assert all(f"F{no} " in lines[0] for no in open_nos)
+        assert "Predictable" in help_
     # Nothing Predictable: no lines.
     monkeypatch.setattr(learned, "orderings", lambda o, c, n=None: {
         k: learned.Ordering(k) for k in learned.names(o)})
@@ -490,14 +473,17 @@ def _section_leaves(at, title):
 
 
 def test_section_order(screen):
-    assert U.SECTION_ORDER[:2] == ("progress", "predictions")
+    # Review critique (fix 5): progress, What next?, the model, what was
+    # tried; What drives each result? is a closed fold (no heading).
+    assert U.SECTION_ORDER == ("progress", "next", "predictions", "tried", "drives")
     assert U._QUESTIONS["predictions"] == wording.LEARNED_TITLE
-    assert _headings(screen) == [wording.Q2_TITLE, wording.LEARNED_TITLE, wording.Q3_TITLE,
-                                 wording.Q4_TITLE, wording.Q5_TITLE]
+    assert _headings(screen) == [wording.Q2_TITLE, wording.Q5_TITLE, wording.LEARNED_TITLE,
+                                 wording.Q4_TITLE]
     text = " | ".join(_text(el) for el, _, _ in _leaves(screen.tabs[3]))
     # The old trust section is gone from the default view.
     assert wording.Q1_TITLE not in text
-    assert wording.learned_not_predictable([]).split(":")[0] in text
+    # (Review critique: "Not predictable yet: …" sits in the profiler's
+    # closed fold now.)
     # Round 6 is open: no Called it? until it is scored.
     assert "called it" not in text.lower() and "Round 5: partly" not in text
 
@@ -542,7 +528,11 @@ def scored(tmp_path_factory):
 def test_called_it_sits_at_the_top_as_charts(scored):
     leaves = [(el, _text(el)) for el, _, _ in _leaves(scored.tabs[3])]
     texts = [t for _, t in leaves]
-    first_heading = texts.index(f"#### {wording.Q2_TITLE}")
+    # Review critique (fix 5): the Forecast check sits right above What has
+    # the model learned?, after What next?.
+    first_heading = texts.index(f"#### {wording.LEARNED_TITLE}")
+    assert texts.index(f"#### {wording.Q5_TITLE}") < texts.index(
+        f"**{wording.FORECAST_CHECK_TITLE}**")
     # Persona fixes 2: the block's own heading, "Forecast check", first.
     title = texts.index(f"**{wording.FORECAST_CHECK_TITLE}**")
     # Rebuilt framing: right under its title, said to be rebuilt.
@@ -553,7 +543,9 @@ def test_called_it_sits_at_the_top_as_charts(scored):
     line = texts[called[0]]
     # Persona fixes 2: where the scores landed, then the order of the
     # pairs that count ("… 2 of 3 above their range; order too close to call").
-    assert _words(line) <= 18, line
+    # Review critique: measured ties counted aloud ("; 1 tie"); at most 14
+    # words besides the numbers.
+    assert _words(re.sub(r"[\d–]+", "", line)) <= 16, line
     assert "calls right" not in line
     # Visual: a chart and the caption, before the first heading.
     between = leaves[called[0] + 1:first_heading]
@@ -576,10 +568,11 @@ def test_called_chart_is_at_most_three_small_panels(scored):
 
 
 def test_profiler_headline_names_no_effect(screen):
-    els = _section_leaves(screen, wording.Q3_TITLE)
-    answer = next(_text(el) for el in els if el.type == "markdown" and _text(el))
-    assert answer in {wording.profiler_guide(k) for k in ("ingredients", "settings", "both")}
-    assert wording.PROFILER_NO_CLAIM in answer_help(els)
+    # Review critique (fix 4): the profiler is a closed fold, worked out once
+    # opened; its answer names what bounds the lines, never an effect.
+    assert U.limiting_name(None) is None
+    assert wording.drives_limited("Formulation total") == (
+        "Single-ingredient moves are limited by the Formulation total.")
     for kind in ("ingredients", "settings", "both"):
         assert _words(wording.profiler_guide(kind)) <= 8
 
@@ -591,7 +584,10 @@ def answer_help(els):
 def test_strip_reads_the_model_verdict(screen):
     labels = [b.label for b in screen.tabs[3].button if b.key == f"{U.SEE_CHART_KEY}_predictions"]
     # Persona fixes 2: the verdict, whichever it is (Line A: Not yet).
-    assert labels and labels[0].startswith(("**Predicts**", "**Partly**", "**Not yet**"))
+    # Review critique: the section's words, "Predicts:" / "Partly:" / "Not
+    # predictable yet".
+    assert labels and labels[0].startswith(("**Predicts:**", "**Partly:**",
+                                            "**Not predictable yet**"))
     assert _words(labels[0]) <= 6
 
 

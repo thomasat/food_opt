@@ -242,7 +242,7 @@ def test_cv_widening_asks_for_a_repeat_not_the_panel(demos, name, line):
         # Review four, ruling 1: Off on the Overall score (4 of 16 missed);
         # the Repeat request is the Next card's alone. Review learned: the
         # word is the Model item's, the miss line still red.
-        assert p["word"] == "Predicts" and p["lines"][0] == ":red[**4 / 16 missed**]"
+        assert p["word"] == "Predicts:" and p["lines"][0] == ":red[**4 / 16 missed**]"
         return
     assert "to measure how much results vary" in p["help"]
     assert ("the same values again" in p["help"]) == (name == D.PROCESS_ONLY)
@@ -333,9 +333,10 @@ def _check_without_repeat(at, name, word):
     opt = FoodOptimizer(name)
     checks = insights.check_rounds(opt)
     d = insights.miss_diagnosis(opt, checks)
-    assert f"({d.misses} of {d.checked} values;" in p["help"]
-    assert f"On new ground: {d.far} of {d.misses} misses" in p["help"]
-    assert "Diagnosis rule, first that holds" in p["help"]
+    # Review critique (fix 13): the strip's "?" keeps to about 120 words,
+    # plain first; the diagnosis's counts and rule are in Method and
+    # definitions.
+    assert d is not None and len(p["help"].split()) <= wording.TOOLTIP_WORDS
     for bad in CONTRADICTION:
         assert not any(bad in t for t in texts)
 
@@ -346,7 +347,8 @@ def test_pilot_round_5_never_says_panel(pilot):
     # Review learned: the Model item's word (the ordering rule).
     # Persona fixes 2: pairs too close to call (forecasts under one noise SD
     # apart) no longer count, so fewer verdicts reach Predicts.
-    _check_without_repeat(_open_review(R5), R5, "Not yet")
+    # Review critique: the permutation test and the noise split: Partly.
+    _check_without_repeat(_open_review(R5), R5, "Partly:")
 
 
 @needs_pilot
@@ -354,12 +356,12 @@ def test_pilot_round_6_scored_never_says_panel(pilot):
     # The Overall score 10 of 12 in range, skill 0.69: Reliable (ruling 1).
     # Persona fixes 2: pairs too close to call (forecasts under one noise SD
     # apart) no longer count, so fewer verdicts reach Predicts.
-    _check_without_repeat(_score_round_6(), R6, "Predicts")   # the Overall score
+    _check_without_repeat(_score_round_6(), R6, "Predicts:")   # the Overall score
 
 
 @needs_pilot
 def test_pilot_all_10_is_not_off(pilot):
     at = _open_review(ALL10)
     p = cards(at)[0]
-    assert p["word"] == "Predicts"      # review learned: the Model item
+    assert p["word"] == "Predicts:"     # review learned: the Model item (critique: colon)
     assert not [t for t in _all_text(at) if BENCH.search(t)]

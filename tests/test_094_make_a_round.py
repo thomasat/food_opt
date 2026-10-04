@@ -109,7 +109,7 @@ def test_the_fold_is_collapsed_and_costs_nothing_until_opened(monkeypatch):
     monkeypatch.setattr(bo_views, "why", lambda *a, **k: calls.append(1))
     at = _app(opt)
     fold = _fold(at)
-    assert calls == [] and not fold.dataframe
+    assert calls == [] and not fold.dataframe and not fold.table
     assert not [b for b in _links(at) if b.proto.type == "primary"]
 
 
@@ -122,15 +122,18 @@ def test_the_opened_fold_explains_each_row(monkeypatch):
     at.session_state[ui_batch.WHY_KEY] = True
     _rerun(at)
     fold = _fold(at)
-    [frame] = [d.value for d in fold.dataframe]
-    # Role straight after Formulation: on screen at 1366 px (T47 minor 6).
+    # Review critique (fix 9): a static table (headers wrap at 1280 px), short
+    # headers; Role holds the role and Source where the row came from; the
+    # model sd is the map's y axis.
+    [table] = list(fold.table)
+    assert table.value.index.name == wording.FORMULATION_CAP
+    frame = table.value.reset_index()
     assert list(frame.columns) == [
-        wording.FORMULATION_CAP, wording.ROLE, wording.PREDICTED_SCORE_COLUMN,
-        wording.MODEL_SD, wording.EXPECTED_GAIN, wording.CLOSEST_MADE,
-        wording.LARGEST_DIFFERENCES]
+        wording.FORMULATION_CAP, wording.ROLE, wording.WHY_SOURCE, wording.WHY_COL_PREDICTED,
+        wording.WHY_COL_GAIN, wording.WHY_COL_CLOSEST, wording.LARGEST_DIFFERENCES]
     numbers = [r["formulation"] for r in opt.pending_batch]
     assert list(frame[wording.FORMULATION_CAP]) == [f"Formulation {n}" for n in numbers]
-    ei = list(frame[wording.EXPECTED_GAIN])
+    ei = list(frame[wording.WHY_COL_GAIN])
     assert not ei[0].endswith(wording.PENDING_MARK)
     assert all(v.endswith(wording.PENDING_MARK) for v in ei[1:])       # picks 2+
     assert set(frame[wording.ROLE]) <= {wording.ROLE_REFINES, wording.ROLE_BALANCED,
@@ -465,7 +468,7 @@ def test_the_why_fold_does_not_refit_on_a_rerun(monkeypatch):
         at.session_state[ui_batch.WHY_KEY] = True      # AppTest does not keep it open
         _rerun(at)
         captions = [c.value for c in _fold(at).caption]
-        assert _fold(at).dataframe                      # the recomputed fold is drawn
+        assert _fold(at).table                          # the recomputed fold is drawn
         # 01 O9 and last-fix review R-1: one Recomputed line, about what the
         # fold shows (tests/test_106_last_fixes.py).
         # Ftue fix C: one plain line either way, its reason in the tooltip.

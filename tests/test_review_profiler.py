@@ -83,10 +83,9 @@ def test_the_grid_has_a_column_per_choice_and_a_row_per_result(line_a, best, spe
     assert sorted(c.name for c in best.columns) == sorted(insights.path_choices(opt))
     assert "Salt" not in [c.name for c in best.columns]
     assert "Water" not in [c.name for c in best.columns] and best.fill == "Water"
-    # Ordered by their effect on the predicted Overall score near what has
-    # been tested (Compare all's ranking), then along the whole line.
-    keys = [(c.near_effect, c.effect) for c in best.columns]
-    assert keys == sorted(keys, reverse=True)
+    # Review critique (fix 4): Set up's order (ranking by the swing favoured
+    # the columns with the most room).
+    assert [c.name for c in best.columns] == list(insights.path_choices(opt))
     assert all(0 <= c.near_effect <= c.effect + 1e-12 for c in best.columns)
     rows = _rows(spec)
     gain = best.reason is None
@@ -103,13 +102,14 @@ def test_the_grid_has_a_column_per_choice_and_a_row_per_result(line_a, best, spe
         assert r["facet"]["column"]["sort"] == rows[0][0]["facet"]["column"]["sort"]
     assert rows[0][0]["facet"]["column"]["header"].get("labels", True) is not False
     assert all(r["facet"]["column"]["header"].get("labels") is False for r, _ in rows[1:])
-    # Each column's x runs over its own Lowest-Highest.
+    # Review critique (fix 4): each column's x runs over its reachable
+    # stretch only — where its line runs.
     for c in best.columns:
-        lo, hi = (float(b) for b in insights._var(opt, c.name)['bounds'])
         ends = sorted(d["x"] for d in rows[0][1]
                       if d["mark"] == "ends" and d["col"].replace("\n", " ").startswith(c.name))
-        assert ends == [pytest.approx(min(lo, c.path.start_amount)),
-                        pytest.approx(max(hi, c.path.start_amount))]
+        assert ends == [pytest.approx(min(c.path.amounts)), pytest.approx(max(c.path.amounts))]
+        assert c.path.amounts[0] == pytest.approx(c.path.low_end.amount)
+        assert c.path.amounts[-1] == pytest.approx(c.path.high_end.amount)
 
 
 def test_targets_are_drawn_on_their_rows(line_a, spec):
@@ -156,10 +156,15 @@ def test_the_mixture_path_matches_try_one(line_a, best):
     ingredients = [v['name'] for v in opt.variables if v.get('category') == 'ingredient']
     for c in best.columns:
         path = insights.build_path(opt, c.name, start, points=U.PROFILE_POINTS)
-        assert path.amounts == c.path.amounts
+        # Review critique (fix 4): the reachable stretch is filled in with
+        # more points (a zoomed column draws a curve); Try one's own points
+        # are all among them, with the same predictions.
+        assert set(path.amounts) <= set(c.path.amounts)
         try_one = insights.path_predictions(opt, fitted, path)
+        here = {a: k for k, a in enumerate(c.path.amounts)}
         for name, preds in c.preds.items():
-            for a, b in zip(preds, try_one[name]):
+            for t, b in zip(path.amounts, try_one[name]):
+                a = preds[here[t]]
                 assert a.mean == pytest.approx(b.mean, abs=1e-6)
                 assert a.low == pytest.approx(b.low, abs=1e-6)
                 assert a.high == pytest.approx(b.high, abs=1e-6)

@@ -184,9 +184,11 @@ def test_forecast_check_detail_says_too_close_and_the_noise(plain):
     detail = U.called_detail(opt, lf)
     assert "Overall score: too close to call (2 pairs)" in detail
     assert "2 misses, both higher than forecast" in detail
-    assert "F16, F18 too close" in detail
-    assert "Too close to call: forecasts less than one tasting-noise apart; noise assumed 1 " \
-        "point until Repeats measure it (Overall score 3.0" in detail
+    # (Review critique: the pairs one by one are its "For experts:" part,
+    # kept only when it fits about 120 words.)
+    # Review critique: the noise each claim had to reach, said as assumed.
+    assert "Tasting noise assumed: Overall score 3.0" in detail
+    assert "A Repeat would confirm." in detail
     assert "a miss, above or below" in detail
     assert "better than forecast" not in detail and "not a miss" not in detail
 
@@ -205,22 +207,8 @@ def test_bias_line(plain):
         "Forecasts ran about 2 high on Sour, about 1 low on Firm."
 
 
-def test_slopegraph_draws_too_close_faint(plain):
-    opt = _Obj()
-    lf = _lf(opt, _round6(), 6, {insights.SCORE: 3.0, "Consistency": 1.0})
-    name, call, cks = lf.items[0]
-    lines, labels = U.slope_frames(opt, name, call, cks)
-    assert set(lines["state"]) == {"close"}
-    assert labels["faint"].all()
-    # With a smaller noise F17 > F18 counts: those two drawn, F16 faint.
-    lf = _lf(opt, _round6(), 6, NOISE)
-    name, call, cks = lf.items[0]
-    lines, _ = U.slope_frames(opt, name, call, cks)
-    assert set(lines[lines.f == 16]["state"]) == {"close"}
-    assert set(lines[lines.f != 16]["state"]) == {"kept"}
-    spec = U.called_chart(opt, lf).to_dict()
-    assert "Too close to call" in str(spec)
-    assert wording.CALLED_CAPTION == "Grey: kept. Dashed: crossed. Faint: too close."
+# Review critique (fix 1): no slopegraph; too close to call is said in the panel's
+# subtitle and the headline (tests/test_review_critique.py).
 
 
 def test_pair_noise_is_the_tasting_noise(tmp_path, monkeypatch):
@@ -234,11 +222,15 @@ def test_pair_noise_is_the_tasting_noise(tmp_path, monkeypatch):
     noise = learned.pair_noise(opt)
     assert learned.overall_noise(opt) == (1.0, True)
     assert noise[insights.SCORE] == 1.0
+    # Review critique (owner's decision): each scored measurement carries an
+    # equal share of the Overall variance: σ × width ÷ (share × √k).
+    k = len(learned.scored_measurements(opt))
     for name in ("Sour", "Crisp", "Firmness"):
         obj = next(o for o in opt.objectives if o["name"] == name)
         width = obj["max_val"] - obj["min_val"]
-        assert noise[name] == pytest.approx(width / obj["weight"]), name
-    # 25 points on a 0-15 scale: 0.6, the yogurt's case.
+        assert noise[name] == pytest.approx(width / (obj["weight"] * k ** 0.5)), name
+    # 25 points on a 0-15 scale: 25 / 15 points per unit (the yogurt's case;
+    # with its 4 measurements, 0.3).
     assert learned.points_per_unit({"goal": "target", "weight": 25.0, "min_val": 0,
                                     "max_val": 15}) == pytest.approx(25 / 15)
     # Repeats with fewer than Progress's 3 df: still the assumed 1 point.
@@ -250,10 +242,9 @@ def test_pair_noise_is_the_tasting_noise(tmp_path, monkeypatch):
     # From 3 df, as Progress: the Repeats' SD.
     monkeypatch.setattr(learned.insights, "repeat_sd", spread(insights.YARDSTICK_DF))
     assert learned.overall_noise(opt) == (2.0, False)
-    assert learned.pair_noise(opt)["Sour"] == pytest.approx(2.0 * 15 / 25)
+    assert learned.pair_noise(opt)["Sour"] == pytest.approx(2.0 * 15 / (25 * k ** 0.5))
     assert wording.check_noise([("Overall score", "1.0")]) == (
-        "Too close to call: forecasts less than one tasting-noise apart; noise assumed 1 point "
-        "until Repeats measure it (Overall score 1.0).")
+        "Tasting noise assumed: Overall score 1.0. A Repeat would confirm.")
 
 
 # ------------------------------------------------------------------ #
@@ -412,7 +403,7 @@ def test_model_item_names_the_overall_score(monkeypatch):
     ords = {insights.SCORE: o(learned.PREDICTABLE), "Consistency": o(learned.NOT_YET),
             "Tangy": o(learned.PREDICTABLE)}
     assert U.model_names(None, ords, learned.PREDICTABLE) == ["Overall score", "Tangy"]
-    assert wording.learned_strip(["Overall score"], []) == ("Predicts", "Overall score")
+    assert wording.learned_strip(["Overall score"], []) == ("Predicts:", "Overall score")
     lf = U.LearnedFacts(ords, {}, (6, []), None, (0, 0, 0), "")
     assert lf.model_names(None, learned.NOT_YET) == ["Consistency"]
     # The profiler's list stays the measurements' own.

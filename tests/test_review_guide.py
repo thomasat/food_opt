@@ -32,10 +32,12 @@ STATUS = {
     # record was Off (the process-only study, 12 of 16).
     # Persona fixes 2: too-close pairs left out; Flat after a rise reads
     # Plateau since Round N.
-    D.LINE_A: ("Predicts", "No new best", None),
-    D.LINE_B: ("Predicts", "Plateau since Round 3", "Check panel first"),
-    D.LINE_C: ("Not yet", "Within noise", None),
-    D.PROCESS_ONLY: ("Predicts", "Within noise", None),
+    # Review critique: the strip's words ("Predicts:", "Partly:", "Not
+    # predictable yet"); the permutation test leaves Line A leaning right.
+    D.LINE_A: ("Partly:", "No new best", None),
+    D.LINE_B: ("Predicts:", "Plateau since Round 3", "Check panel first"),
+    D.LINE_C: ("Not predictable yet", "Within noise", None),
+    D.PROCESS_ONLY: ("Predicts:", "Within noise", None),
 }
 RED = {D.LINE_B, D.PROCESS_ONLY}
 SETUP, BATCH, RESULTS, REVIEW = range(4)
@@ -110,7 +112,7 @@ def test_make_a_round_line_matches_the_review_cards(walked, name):
         assert _plain(words[2]) == extra, words
     # ... and Make a round's line says the same words, nothing new.
     want = (wording.review_status_line(pred, prog, extra) if name == D.SNACK
-            else wording.review_status_learned(pred, prog, extra))
+            else wording.review_status_learned(pred.rstrip(":"), prog, extra))
     if name == D.PROCESS_ONLY:
         want = want.replace("Formulation", "Trial")
     assert _plain(line) == want, line

@@ -43,7 +43,8 @@ def _specs(opt, computed):
     out["spark_progress"] = U.spark_chart(opt, facts, "progress")
     # Review four: the hero, the gain bars, Try one's path, Compare all,
     # the pair chart and the triangle are gone; Q3's profiler stands in.
-    out["tried"] = U.tried_chart(opt, insights.tried_axes(opt), insights.tried_lines(opt))
+    # Review critique (fix 5): the search path replaces the cut parallel coordinates.
+    out["tried"] = U.search_path_chart(opt, insights.tried_axes(opt), insights.tried_lines(opt))
     out["progress"] = U.progress_chart(opt)
     out["mvp"] = U.measured_vs_predicted_chart(opt, checks)
     values = bo_views.map_values(opt, U.suggestion_model(opt, fitted))
@@ -87,7 +88,8 @@ def _words(text):
     return len([w for w in re.sub(r"[^\w%' ]", " ", text).split() if w])
 
 
-TITLED = ["spark_predictions", "spark_progress", "tried", "progress", "mvp", "map", "profile"]
+# Review critique (fix 5): "tried" is now the search path, titled by its section heading.
+TITLED = ["spark_predictions", "spark_progress", "progress", "mvp", "map", "profile"]
 
 
 @pytest.mark.parametrize("name", TITLED)
@@ -195,7 +197,7 @@ def test_one_colour_per_meaning_across_charts(specs):
     light, mid = U._TRIED_GREYS[U.theme()]
     for name in ("tried",):
         assert not ramp & _colours(specs[name]), name
-        assert {light, mid} <= _colours(specs[name]), name
+        assert mid in _colours(specs[name]), name     # review critique: the search path
         assert '"blues"' not in str(specs[name]).replace("'", '"'), name
     # No default palette: every colour channel with a field has its range.
     for name, spec in specs.items():
@@ -257,11 +259,6 @@ def test_sparklines_name_their_rounds_and_the_95_aim(specs):
     assert ys and all(d == [0.0, 1.0] for d in ys)
 
 
-def test_tried_end_label_counts_a_bundle_at_a_limit(line_a):
-    opt, _ = line_a
-    axes, lines = insights.tried_axes(opt), insights.tried_lines(opt)
-    _, ends, _ = U.tried_frame(opt, axes, lines)
-    counted = [t for t in ends["text"] if re.search(r"\(\d+ of \d+\)$", t)]
-    # Line A: Textured pea protein and Beet juice powder sit at a limit in
-    # most formulations.
-    assert counted, list(ends["text"])
+# Review critique (fix 5): the parallel coordinates' end labels went with the chart.
+
+

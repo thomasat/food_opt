@@ -148,8 +148,9 @@ def test_called_it_leads_with_the_overall_score(plain):
     line = U.called_line(opt, lf)
     # Persona fixes 2: led by where the scores landed (a miss above its
     # range is a miss), then the order of the pairs that count.
+    # Review critique: measured ties are counted aloud.
     assert line == ("**Round 6: scored higher than forecast.** 2 of 3 above their range; "
-                    "order right (2 pairs).")
+                    "order right (2 pairs; 1 tie).")
     # "about 4": the mean of measured − forecast over those above their range.
     above, below = U.score_landing(learned.round_checks(_round6(), insights.SCORE, 6))
     assert above == pytest.approx(((98.33 - 94.3) + (98.33 - 94.7)) / 2) and below is None
@@ -169,7 +170,10 @@ def test_called_it_measurement_lines_never_say_highest_for_a_target(plain):
     # A higher-is-better measurement may still name its top pick.
     opt = _Obj("max")
     detail = U.called_detail(opt, _lf(opt, _round6()))
-    assert "Forecast highest: F18 ✓" in detail.split("Consistency:", 1)[1]
+    # Review critique: the pairs and the top pick are the "?"'s expert part,
+    # kept when it fits the 120 words; the words themselves:
+    assert wording.called_top(18, [18], True) == "Forecast highest: F18 ✓"
+    assert "Consistency: order right (2 of 2 pairs)." in detail
 
 
 def test_called_it_off_orders_say_pairs_in_the_right_order(plain):
@@ -177,7 +181,8 @@ def test_called_it_off_orders_say_pairs_in_the_right_order(plain):
     lf = _lf(opt, _round6(cons_meas=(13, 12, 11)))      # Consistency reversed
     line = U.called_line(opt, lf)
     assert line.startswith("**Round 6: scored higher than forecast.**")
-    assert _words(line) <= 17
+    # Review critique: "; 1 tie" said too: at most 14 words besides numbers.
+    assert _words(re.sub(r"[\d–]+", "", line)) <= 16
     assert "Consistency: 1 of 3 pairs in the right order." in U.called_detail(opt, lf)
     # The Overall order off too, and misses both ways, said plainly.
     lf = _lf(opt, _round6(score_meas=(90, 91, 97), cons_meas=(13, 12, 11)))
@@ -210,8 +215,11 @@ def test_slopegraph_heads_say_order(plain, monkeypatch):
         elif isinstance(node, str):
             texts.add(node)
     walk(chart)
-    assert {"Forecast order", "Measured order"} <= texts
-    assert "Forecast" not in texts      # "Measured" stays a tooltip title
+    # Review critique (fix 1): no slopegraph; one shared axis, its legend
+    # naming the range, the forecast and the measured value in or out.
+    assert {wording.CHECK_KEY_RANGE, wording.CHECK_KEY_FORECAST, wording.CHECK_KEY_IN,
+            wording.CHECK_KEY_OUT} <= texts
+    assert "Forecast order" not in texts
 
 
 # ------------------------------------------------------------------ #
@@ -220,11 +228,12 @@ def test_slopegraph_heads_say_order(plain, monkeypatch):
 
 def test_progress_strip_and_answer_words():
     assert wording.strip_progress_tail("98.3", "3.3") == "· best 98.3 (+3.3)"
+    # Review critique (owner's decision): the assumed noise said beside it.
     assert wording.progress_rise_answer("95.0", "98.3", "3.3", "3.0") == \
-        "Best 95.0 → 98.3 (+3.3; needs 3.0)"
+        "Best 95.0 → 98.3 (+3.3; needs 3.0 if tasting noise ≈ 1 point)"
     assert wording.answer_line("Rising", wording.progress_rise_answer("95.0", "98.3", "3.3",
                                                                        "3.0")) == \
-        "**Rising.** Best 95.0 → 98.3 (+3.3; needs 3.0)."
+        "**Rising.** Best 95.0 → 98.3 (+3.3; needs 3.0 if tasting noise ≈ 1 point)."
     need = wording.progress_need_plain("3.0")
     assert need.startswith("3.0 is the rise needed to beat tasting noise.")
     assert "about 1 point" in need and "no Repeats" in need
@@ -233,7 +242,8 @@ def test_progress_strip_and_answer_words():
 def test_progress_answer_text_from_facts(monkeypatch):
     monkeypatch.setattr(U, "rise_and_need", lambda a: ("3.3", "3.0"))
     facts = NS(best=NS(score=98.33), improvement=NS(rise=3.33), progress="rising")
-    assert U.progress_answer_text(None, facts) == "Best 95.0 → 98.3 (+3.3; needs 3.0)"
+    assert U.progress_answer_text(None, facts) == (
+        "Best 95.0 → 98.3 (+3.3; needs 3.0 if tasting noise ≈ 1 point)")
     facts.progress = "flat"
     assert U.progress_answer_text(None, facts) is None
 
@@ -269,14 +279,17 @@ def test_the_score_sentence_matches_the_apps_formula(tmp_path, monkeypatch):
 def test_results_round_view_has_predicted_beside_measured(plain):
     opt = _Obj()
     frame = U.round_predicted_frame(opt, _round6(), 6)
-    assert list(frame.columns) == ["Result", "Formulation", "Measured", "Predicted (95 % range)"]
+    # Review critique (fix 11): where each landed, and every measurement.
+    assert list(frame.columns) == ["Result", "Formulation", "Measured", "Predicted (95 % range)",
+                                   "In / Above / Below range"]
     first = frame.iloc[0].to_dict()
     assert first == {"Result": "Overall score", "Formulation": 16, "Measured": "98.3",
-                     "Predicted (95 % range)": "94.3 (91.8–96.8)"}
-    # The Predictable measurement follows; a top of Range reads "≥".
+                     "Predicted (95 % range)": "94.3 (91.8–96.8)",
+                     "In / Above / Below range": "Above"}
     assert set(frame["Result"]) == {"Overall score", "Consistency"}
+    # Review critique (fix 12): a top below the point never prints.
     assert frame[frame.Result == "Consistency"].iloc[2]["Predicted (95 % range)"] == \
-        "13.6 (11.1–≥ 15)"
+        "13.6 (11.1–15)"
     assert U.round_predicted_frame(opt, _round6(), 9) is None
 
 
@@ -399,7 +412,7 @@ def test_model_tooltip_opens_plain_and_ends_for_experts(monkeypatch):
                   "those for Consistency are still very uncertain")
     facts = NS(headline=NS(inside=27, total=36))
     got = U.learned_card(None, lf, card, facts)
-    assert got.word == "Predicts"
+    assert got.word == "Predicts:"     # review critique: the strip's colon
     tip = got.help
     # Persona fixes 2: the Overall score named when Predictable.
     # Rebuilt framing: the forecast had none of that Round's results, which

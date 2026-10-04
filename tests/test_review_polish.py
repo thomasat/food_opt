@@ -30,9 +30,13 @@ def test_the_header_says_what_the_review_is():
 @pytest.mark.parametrize("name", [D.LINE_A, D.LINE_B])
 def test_each_tooltip_is_plain_then_evidence_then_rule(screens, name):  # noqa: F811
     for c in cards(screens[name]):
-        plain, evidence, rule = c["help"].split("\n\n", 2)
+        # Review critique (fix 13): plain first, then the evidence, all in
+        # about 120 words; the rule is in Method and definitions when it
+        # does not fit.
+        plain, evidence = c["help"].split("\n\n", 2)[:2]
         assert not plain.startswith("Evidence") and evidence.startswith("Evidence: ")
-        assert ".." not in evidence and rule
+        assert ".." not in evidence
+        assert len(c["help"].split()) <= wording.TOOLTIP_WORDS
 
 
 def test_evidence_numbers_are_the_cards(screens):  # noqa: F811
@@ -42,15 +46,16 @@ def test_evidence_numbers_are_the_cards(screens):  # noqa: F811
     # Review learned: the Model item; its evidence the ordering counts,
     # then the Overall score's coverage and skill against both baselines.
     # Persona fixes 2: too-close pairs left out; Cook loss joins Firmness.
-    assert p["lines"] == ["Overall score, Firmness"]
+    # Review critique: Partly under the permutation test (Cook loss too: +1).
+    assert p["lines"] == ["Overall score, Firmness +1"]
     ev = p["help"].split("\n\n")[1]
     # Persona fixes 2: a result with no pair far enough apart is left out
     # (Line A's Overall score).
     assert ev.startswith("Evidence: pairs ordered right from earlier Rounds — ")
-    # Persona fixes: the coverage and skill figures in the experts' line.
+    # Persona fixes: the coverage and skill figures in the experts' line
+    # (review critique: cut at a sentence to keep about 120 words).
     assert "Overall score: 13 of 15 inside the 95 % predicted range." in \
         p["help"].split("For experts:")[1]
-    assert "+0.36 against the average of earlier scores" in p["help"].split("For experts:")[1]
     assert "qLogNEI" in n["help"].split("\n\n")[1]
 
 
@@ -86,8 +91,9 @@ def test_make_a_round_lines_within_the_limits():
     assert _words(wording.WHY_ROLE_KEY_SHORT) <= 8
     assert _words(wording.next_misses_short(16)) <= 10
     line = wording.round_track_short([3, 4, 5], 9, 9, see_insights=True)
-    assert line == "Overall score: 9 of 9 in range. Measurements miss more."
-    assert _words(line) <= 10
+    # Review critique (fix 9): "Measurements: more misses than expected."
+    assert line == "Overall score: 9 of 9 in range. Measurements: more misses than expected."
+    assert _words(line) <= 12
     # No warning: the Rounds stay on the line.
     assert wording.round_track_short([2, 3], 5, 6) == "Overall score, Rounds 2–3: 5 of 6 in range."
 

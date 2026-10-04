@@ -43,8 +43,9 @@ def test_rebuilt_wording_pinned():
     assert wording.REBUILT_LABEL == "Rebuilt from earlier Rounds"
     assert wording.RESULTS_PREDICTED_CAPTION == "Rebuilt from earlier Rounds: what the model expected."
     assert wording.LEARNED_FORECAST_TITLE == "Expected from earlier Rounds"
+    # Review critique (fix 1): the rule describes the shared-axis chart.
     assert wording.CALLED_RULE.startswith("Rebuilt today from the formulations scored before "
-                                          "this Round only: what the model expected")
+                                          "this Round only.")
     assert "rebuilt today" in wording.results_predicted_help(6)
     assert "What the model expects" in wording.forecast_help(15, 6)
 
@@ -65,9 +66,8 @@ def test_round_ahead_words_say_from_earlier_rounds_not_before_tasting():
         assert "before tasting" not in t, t
     assert wording.STORY_TRUST_CAPTION == "Blue: predicted from earlier Rounds. Dot: measured."
     assert wording.LEARNED_COL_PAIRS == "Ordered right from earlier Rounds"
-    assert wording.LEARNED_RULE.startswith(
-        "Each Round's formulations are forecast from the formulations scored before "
-        "that Round only. ")
+    # Review critique (fix 3): the permutation rule, shorter.
+    assert wording.LEARNED_RULE.startswith("Each Round is forecast from earlier Rounds only. ")
     assert wording.learned_evidence([("Overall score", 10, 11)]) == (
         "Evidence: pairs ordered right from earlier Rounds — Overall score 10/11.")
     assert wording.model_plain(["Overall score", "Consistency"], [], ["Tangy"]) == (

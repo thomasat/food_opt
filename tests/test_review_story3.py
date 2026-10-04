@@ -161,8 +161,11 @@ def test_the_ranking_is_the_tested_stretch_effect(line_a):
         runs = [m for ok, m in U._runs(c.near, score) if ok]
         assert c.near_effect == pytest.approx(max([max(m) - min(m) for m in runs] or [0.0]))
         assert c.near_effect <= c.effect + 1e-12
-    keys = [(c.near_effect, c.effect) for c in profile.columns]
-    assert keys == sorted(keys, reverse=True)
+    # Review critique (fix 4): the columns keep Set up's order (near_effect
+    # stays, for driver_finding).
+    opt = line_a[0]
+    names = [c.name for c in profile.columns]
+    assert names == [n for n in insights.path_choices(opt) if n in names]
 
 
 def test_the_finding_uses_tested_stretches_only():

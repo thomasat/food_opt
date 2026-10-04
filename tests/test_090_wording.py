@@ -228,7 +228,7 @@ def test_exact_texts_from_the_audit():
         "Best so far: none beyond the 1-point noise threshold.")
     assert W.near_line("Coconut oil", "1.4", "Best so far") == (
         "Largest local effect from Best so far: Coconut oil, 1.4 points.")
-    assert W.PREDICTED_SCORE_COLUMN == "Predicted Overall score (95 % interval)"
+    assert W.PREDICTED_SCORE_COLUMN == "Predicted Overall score (95 % range)"
     assert W.predictions_round_caption() == "Exploring suggestions can predict below Best so far."
     assert W.predictions_round_help() == (
         "Suggestions favour formulations the model is unsure about as well as ones it predicts "

@@ -39,10 +39,10 @@ from tests.test_food_bo import _BANNED
 from tests.test_review_cards import _install, _leaves, _text, cards, section, strip
 from tests.test_review_diag import ALL10, PILOT, R6, needs_pilot
 
-# Review learned: "What has the model learned?" took Q1's place.
-STORY = [wording.Q2_TITLE, wording.LEARNED_TITLE, wording.Q3_TITLE, wording.Q4_TITLE]
-# Review story 2: the story ends on the action.
-STORY += [wording.Q5_TITLE]
+# Review critique (fix 5, re-pinned): Are we improving?, What next?, What has
+# the model learned? (the Forecast check above it), What have we tried?;
+# What drives each result? is a closed fold under them (not a heading).
+STORY = [wording.Q2_TITLE, wording.Q5_TITLE, wording.LEARNED_TITLE, wording.Q4_TITLE]
 CHART = ("arrow_vega_lite_chart", "vega_lite_chart")
 
 
@@ -107,7 +107,7 @@ def test_sections_and_cards_in_story_order(screens, name):
     # keeps Predictions).
     model = wording.CARD_PREDICTIONS if name == D.SNACK else wording.LEARNED_STRIP_LABEL
     assert labels == [wording.CARD_PROGRESS, model, wording.CARD_NEXT]
-    assert U.SECTION_ORDER == ("progress", "predictions", "drives", "tried", "next")
+    assert U.SECTION_ORDER == ("progress", "next", "predictions", "tried", "drives")
     assert U._STATUS_ORDER == ("progress", "predictions", "next")
 
 
@@ -120,27 +120,9 @@ def test_improving_has_two_charts_and_tried_has_its_toggle(screens, name):
     assert ("markdown", f"**{wording.STORY_TARGET_TITLE}**") in improving
     tried = got[wording.for_project(opt, wording.Q4_TITLE)]
     assert sum(t in CHART for t, _ in tried) == 1
-    assert ("toggle", wording.STORY_SHOW_LINES) in tried
+    # Review critique (fix 5): no "Show as lines" toggle any more.
+    assert not any(t == "toggle" for t, _ in tried)
     assert ("caption", wording.for_project(opt, wording.STORY_PATH_CAPTION)) in tried
-
-
-def test_show_as_lines_draws_the_parallel_coordinates(screens):
-    at = screens[D.LINE_A]
-    assert [t for t in at.tabs[3].toggle if t.key == U.PATH_SHOW_LINES_KEY]
-    # (AppTest drops back to the first tab on a rerun: set both, as a
-    # reader's session keeps them.)
-    at.session_state[U.PATH_SHOW_LINES_KEY] = True
-    at.session_state["main_tab"] = wording.TAB_INSIGHTS
-    at.run()
-    assert not at.exception
-    try:
-        tried = sections(at)[wording.Q4_TITLE]
-        assert ("caption", wording.tried_caption_roles()) in tried
-        assert sum(t in CHART for t, _ in tried) == 1
-    finally:
-        at.session_state[U.PATH_SHOW_LINES_KEY] = False
-        at.session_state["main_tab"] = wording.TAB_INSIGHTS
-        at.run()
 
 
 @pytest.mark.parametrize("name", [D.LINE_A, D.SNACK, D.PROCESS_ONLY])
@@ -150,7 +132,9 @@ def test_word_limits(screens, name):
         assert _words(q) <= 5
         firsts = [t for k, t in items if k == "markdown" and not t.startswith("**Closer")]
         if firsts:
-            assert _words(firsts[0]) <= 12, firsts[0]   # the bold word + at most 10
+            # Review critique: a headline up to 14 words (a rise says its
+            # assumed noise: "needs 3.2 if tasting noise ≈ 1 point").
+            assert _words(firsts[0]) <= 14, firsts[0]
         for kind, text in items:
             if kind == "caption" and text != wording.for_project(D.load(name), wording.Q_WAIT):
                 assert _words(text) <= 10, text
@@ -218,7 +202,8 @@ def test_closer_to_target_rows_targets_and_directions():
     for r in rows:
         assert wording.story_target_row(r["name"], r["goal"], r["target"]) in text
     assert "triangle-left" in text
-    assert '"strokeDash": [3, 2]' in text         # the dashed target tick
+    # Review critique (fix 6): the target a large ink diamond (was a dashed tick).
+    assert '"shape": "diamond"' in text
     # Higher is better: an arrow at the high end.
     obj = next(o for o in opt.objectives if o["goal"] == "min")
     obj["goal"] = "max"
@@ -291,7 +276,9 @@ def test_trust_answer_on_line_a(screens):
     line = next(t for k, t in sections(screens[D.LINE_A])[wording.LEARNED_TITLE]
                 if k == "markdown")
     # Persona fixes 2: pairs under one tasting noise apart left out.
-    assert line == "**Predicts Overall score, Firmness.** Not yet: Juiciness, Cook loss."
+    # Review critique: the exact permutation test (and each measurement's
+    # share of the noise): they lean right, not clearly.
+    assert line == "**Partly predicts Overall score, Firmness, Cook loss.** Not yet: Juiciness."
 
 
 # ------------------------------------------------------------------ #
@@ -326,12 +313,11 @@ def test_the_finding_line():
 
 
 def test_the_finding_is_not_the_next_cards_word(screens):
+    # Review critique (fix 4): Q3 is a closed fold, worked out once opened:
+    # nothing of it (and no Next word) on the closed screen.
     at = screens[D.LINE_A]
-    nxt = cards(at)[2]["word"]
-    line = next(t for k, t in sections(at)[wording.Q3_TITLE] if k == "markdown")
-    assert not line.startswith(f"**{nxt}")
-    # Review learned 2b: no effect claim on thin data; a reading guide.
-    assert re.fullmatch(r"How each (ingredient|setting|ingredient or setting) moves each result\.", line), line
+    assert wording.Q3_TITLE not in sections(at)
+    assert [e for e in at.tabs[3].expander if e.label == wording.Q3_TITLE]
 
 
 def test_the_profiler_defaults_to_four_columns():
@@ -403,7 +389,7 @@ def _story_strings():
             wording.story_driver("Salt"), wording.story_driver_end("Best so far", "Highest"),
             wording.story_driver_then("Salt"), wording.STORY_NO_DRIVER,
             wording.story_driver_help("Best so far"), wording.STORY_PATH_CAPTION,
-            wording.STORY_SHOW_LINES, wording.STORY_SHOW_LINES_HELP, wording.STORY_PATH_TESTED,
+            wording.STORY_PATH_TESTED,
             wording.story_path_help(), wording.story_path_help(True), wording.STORY_VALUE]
 
 
@@ -417,7 +403,7 @@ def test_story_strings_pass_the_vocabulary_guard():
     # Labels at most 5 words, captions at most 8, status lines at most 10.
     for label in (wording.STORY_ROUND_AVERAGE, wording.story_target_start(1),
                   wording.STORY_TARGET_TITLE, wording.STORY_FORECAST, wording.STORY_LANDED_IN,
-                  wording.STORY_LANDED_OUT, wording.STORY_NO_FORECAST, wording.STORY_SHOW_LINES,
+                  wording.STORY_LANDED_OUT, wording.STORY_NO_FORECAST,
                   wording.STORY_PATH_TESTED, wording.story_target_row("Textured pea protein",
                                                                       "target", 13)):
         assert _words(label) <= 5, label
@@ -475,21 +461,16 @@ def test_pilot_story(pilot):
     # The strip, by pattern only (no pilot numbers in the repository).
     # Review learned: the Model item (by pattern only: no pilot names).
     assert re.fullmatch(r"Plateau since Round \d+", items[0]["word"]) and \
-        items[1]["word"] == "Predicts"
+        items[1]["word"] == "Predicts:"
     # Persona fixes: 'Flat · best 99.2 of 100' (the start stays on the chart).
     assert re.fullmatch(r"· best \d+\.\d of 100", items[0]["line"]), items[0]
     assert re.fullmatch(r"[A-Z][\w ]+(, [A-Z][\w ]+)?", items[1]["line"]), items[1]
     line = next(t for k, t in got[wording.LEARNED_TITLE] if k == "markdown")
     assert re.fullmatch(r"\*\*Predicts .+\.\*\*( Partly: .+\.)? Not yet: .+\.", line), line
-    line = next(t for k, t in got[wording.Q3_TITLE] if k == "markdown")
-    # Review learned 2b: no effect claim (7 ingredients, no Repeats).
-    assert re.fullmatch(r"How each (ingredient|setting|ingredient or setting) moves each result\.", line), line
-    # Review story 3: two rows moved together (|r| >= 0.7) across the 10
-    # Rounds; noted under the profiler (by pattern: no pilot names here).
-    assert any(re.fullmatch(r".+ and .+ moved together: effects mixed\.", t)
-               for k, t in got[wording.Q3_TITLE] if k == "caption"), got[wording.Q3_TITLE]
+    # Review critique (fix 4): the profiler is a closed fold.
+    assert wording.Q3_TITLE not in got
     before = cards(_open(R6), order="screen")
-    assert [c["word"] for c in before[:2]] == ["No new best", "Not yet"]
+    assert [c["word"] for c in before[:2]] == ["No new best", "Partly:"]
 
 
 # ------------------------------------------------------------------ #
@@ -506,7 +487,8 @@ def test_the_strip_has_three_items_and_the_one_primary(screens, name):
     assert [i["label"] for i in items] == [wording.CARD_PROGRESS, model, wording.CARD_NEXT]
     keys = {wording.LEARNED_STRIP_LABEL: "predictions"}
     for i in items:
-        assert i["word"] and i["help"] and "\n\n" in i["help"], i
+        # Review critique (fix 13): about 120 words, plain first.
+        assert i["word"] and i["help"] and len(i["help"].split()) <= wording.TOOLTIP_WORDS, i
         assert i["key"] == f"{U.SEE_CHART_KEY}_{keys.get(i['label'], i['label'].lower())}"
     # The page's one primary sits at the strip's right end, and nowhere else.
     assert [t for t, _ in buttons] == ["primary"], buttons
@@ -520,7 +502,8 @@ def test_no_chart_above_the_first_section_and_what_next_last(screens, name):
     at = screens[name]
     heads = [_text(el)[5:] for el, _, _ in _leaves(at.tabs[3])
              if el.type == "markdown" and _text(el).startswith("#### ")]
-    assert heads[-1] == wording.Q5_TITLE and heads[0] == wording.Q2_TITLE
+    # Review critique (fix 5): What next? straight after Are we improving?.
+    assert heads[:2] == [wording.Q2_TITLE, wording.Q5_TITLE]
     for el, _, _ in _leaves(at.tabs[3]):
         if el.type == "markdown" and _text(el).startswith("#### "):
             break
