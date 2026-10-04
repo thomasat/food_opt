@@ -545,6 +545,8 @@ def test_called_it_sits_at_the_top_as_charts(scored):
     first_heading = texts.index(f"#### {wording.Q2_TITLE}")
     # Persona fixes 2: the block's own heading, "Forecast check", first.
     title = texts.index(f"**{wording.FORECAST_CHECK_TITLE}**")
+    # Rebuilt framing: right under its title, said to be rebuilt.
+    assert texts[title + 1] == wording.REBUILT_LABEL
     called = [i for i, t in enumerate(texts)
               if re.match(r"\*\*Round 5: (scored|.+ measured) ", t)]
     assert called and title < called[0] < first_heading

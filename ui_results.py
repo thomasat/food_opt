@@ -297,7 +297,7 @@ def _round_predicted(opt):
     checks = ui_insights.cached_checks(opt)
     if not checks or last not in insights._ordered_rounds(checks):
         try:
-            with st.spinner(wording.for_project(opt, wording.RESULTS_PREDICTED_CAPTION)):
+            with st.spinner(wording.for_project(opt, wording.RESULTS_PREDICTED_SPINNER)):
                 checks = ui_insights.checks_here(opt)
         except Exception:
             return

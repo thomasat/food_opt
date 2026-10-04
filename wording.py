@@ -8935,7 +8935,7 @@ LEARNED_CHART_X = "Pairs ordered right (%)"
 LEARNED_CHANCE = "Chance"
 LEARNED_CAPTION = "Dot: share right. Bar: 95 % interval."
 LEARNED_NONE_YET = "Nothing to check yet: needs a scored Round."
-LEARNED_FORECAST_TITLE = "Forecast before tasting"
+# LEARNED_FORECAST_TITLE: see "rebuilt framing" at the end.
 LEARNED_FORECAST_NONE = "No result predictable yet."
 LEARNED_PREVIEW_TITLE = "Next suggestions"
 LEARNED_PREVIEW_SPINNER = "Previewing the next suggestions…"
@@ -9071,16 +9071,7 @@ CALLED_WORDS = {"called": "order called right", "partly": "partly", "missed": "m
 # is the ORDER): one slopegraph per result, the forecast on the left, the
 # measured value on the right, each side on its own scale.
 CALLED_CAPTION = "Grey: kept. Dashed: crossed. Faint: too close."
-CALLED_RULE = (f"Forecast before tasting, from the {FORMULATION}s scored before this Round, for "
-               "the Overall score and each measurement predictable before it. Each line joins "
-               f"a {FORMULATION}'s forecast (left) to its measured value (right), each side "
-               "placed by its own values, highest at the top. A measured value outside its "
-               "95 % range is a miss, above or below. A pair counts only when its forecasts "
-               "differ by at least one tasting noise of that result; closer pairs are too close "
-               "to call (drawn faint) and left out of every count. Tasting noise: the Repeats' "
-               "SD when they give one; else the Overall score's assumed 1 point, and for a "
-               "measurement that point in its own units through its share of the score (Range "
-               "width ÷ share). Equal measured values share a point and are not counted.")
+# CALLED_RULE: see "rebuilt framing" at the end.
 
 
 def called_record(name, right, pairs):
@@ -9170,13 +9161,7 @@ def forecast_line(name, cells, top):
     return line + (f" Highest: F{top}." if top is not None else "")
 
 
-def forecast_help(n_rows, round_no):
-    """The forecast panel's "?"."""
-    return (f"Forecast from the {n_rows} {FORMULATION}s scored before Round {round_no}: the "
-            f"same forecast the Review checks once results are saved (Forecast check). Only "
-            f"results the model has ordered right before (Predictable) are shown, the Overall "
-            f"score among them. A value "
-            f"at the top of its Range reads ≥ that top.")
+# forecast_help: see "rebuilt framing" at the end.
 
 
 PREVIEW_COLUMNS = ("#", "Role", PREDICTED_SCORE_COLUMN, "Changes vs Best so far")
@@ -9373,15 +9358,10 @@ def score_built(rows, total_text):
 # Results: the Round's forecast beside what was measured.
 RESULTS_PREDICTED_COLUMN = "Predicted (95 % range)"
 RESULTS_RESULT_COLUMN = "Result"
-RESULTS_PREDICTED_CAPTION = "Replay: forecast from earlier Rounds only."
+# RESULTS_PREDICTED_CAPTION: see "rebuilt framing" at the end.
 
 
-def results_predicted_help(round_no):
-    return (f"Each {FORMULATION} of {ROUND_CAP} {round_no} as forecast before tasting, from "
-            f"the {FORMULATION}s scored before {ROUND_CAP} {round_no} only (the Review's "
-            f"Forecast check), beside what was measured. Shown: the {OVERALL_SCORE_COLUMN} and the "
-            "measurements the model ordered right before this Round (Predictable). A value "
-            "at the top of its Range reads ≥ that top.")
+# results_predicted_help: see "rebuilt framing" at the end.
 
 
 # What next?, credible.
@@ -9681,3 +9661,42 @@ ENTERED_ROUND_CAPTION = (
     f"suggestions too, click Generate a different {ROUND_CAP}, then Generate."
 )
 ENTERED_TAIL = " (entered)"
+
+
+# --- rebuilt framing ---
+# Rebuilt framing (2026-10-03; owner: a Round's forecast is shown long after
+# the Round was made). Every forecast beside a Round's results is worked out
+# again on screen, from the formulations scored before that Round only, with
+# the model as it is today: it is what the model expected, rebuilt — never
+# a forecast kept from the time the Round was made.
+REBUILT_LABEL = "Rebuilt from earlier Rounds"
+RESULTS_PREDICTED_CAPTION = "Rebuilt from earlier Rounds: what the model expected."
+RESULTS_PREDICTED_SPINNER = "Rebuilding from earlier Rounds…"
+LEARNED_FORECAST_TITLE = "Expected from earlier Rounds"
+CALLED_RULE = (f"Rebuilt today from the {FORMULATION}s scored before this Round only: what the "
+               "model expected for the Overall score and each measurement predictable before it. "
+               f"Each line joins a {FORMULATION}'s forecast (left) to its measured value (right), "
+               "each side placed by its own values, highest at the top. A measured value outside "
+               "its 95 % range is a miss, above or below. A pair counts only when its forecasts "
+               "differ by at least one tasting noise of that result; closer pairs are too close "
+               "to call (drawn faint) and left out of every count. Tasting noise: the Repeats' "
+               "SD when they give one; else the Overall score's assumed 1 point, and for a "
+               "measurement that point in its own units through its share of the score (Range "
+               "width ÷ share). Equal measured values share a point and are not counted.")
+
+
+def forecast_help(n_rows, round_no):
+    """The forecast panel's "?"."""
+    return (f"What the model expects, from the {n_rows} {FORMULATION}s scored before "
+            f"Round {round_no}: the same forecast the Review checks once results are saved "
+            f"(Forecast check). Only results the model has ordered right before (Predictable) "
+            f"are shown, the Overall score among them. A value at the top of its Range reads "
+            f"≥ that top.")
+
+
+def results_predicted_help(round_no):
+    return (f"Each {FORMULATION} of {ROUND_CAP} {round_no} as the model expected it, rebuilt "
+            f"today from the {FORMULATION}s scored before {ROUND_CAP} {round_no} only (the "
+            f"Review's Forecast check), beside what was measured. Shown: the "
+            f"{OVERALL_SCORE_COLUMN} and the measurements the model ordered right before this "
+            f"Round (Predictable). A value at the top of its Range reads ≥ that top.")

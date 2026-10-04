@@ -5922,6 +5922,8 @@ def _called_top(opt, slot, lf):
         # Persona fixes 2: the block named plainly, in the small title style
         # of Closer to target (not a fifth question).
         st.markdown(f"**{_say(opt, wording.FORECAST_CHECK_TITLE)}**")
+        # Rebuilt framing: worked out again today, never kept from the time.
+        st.caption(_say(opt, wording.REBUILT_LABEL))
         st.markdown(line, help=called_detail(opt, lf))
         bias = check_bias_line(opt, lf)
         if bias:
@@ -6046,7 +6048,7 @@ def _how_learned(opt, computed):
 
 
 def round_forecast_lines(opt, checks, rows=None):
-    """(lines, help) for Make a round's "Forecast before tasting": one line
+    """(lines, help) for Make a round's forecast panel: one line
     per measurement Predictable on the checks so far, from the models fitted
     on the rows before the open Round; ([], None) with none."""
     rows = open_rows(opt) if rows is None else rows
