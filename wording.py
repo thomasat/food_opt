@@ -4152,7 +4152,7 @@ PREDICTED = "Predicted"
 # ingredient or process setting, and the formulation predicted to score
 # highest. Every number that is a prediction carries its likely range.
 PREDICTIONS_WORKING = "Preparing the predictions…"
-PREDICTED_SCORE_COLUMN = f"Predicted {OVERALL_SCORE_COLUMN} (95 % interval)"
+PREDICTED_SCORE_COLUMN = f"Predicted {OVERALL_SCORE_COLUMN} (95 % range)"  # critique fixes: range
 
 
 def predicted_score_help(n=None, factor_text=None):
@@ -4184,7 +4184,7 @@ def predictions_round_help():
 
 
 PREDICTIONS_ROUND_CAPTION = predictions_round_caption()
-PREDICTED_MEASUREMENTS = "Predicted measurements (95 % interval)"
+PREDICTED_MEASUREMENTS = "Predicted measurements (95 % range)"  # critique fixes: range
 # 0.8.0 review fixes §9 I13: the two sets of predictions are learned apart.
 PREDICTED_MEASUREMENTS_CAPTION = "The Overall score has its own model."
 PREDICTED_MEASUREMENTS_HELP = ("The Overall score has its own model, so it can differ "
@@ -4993,7 +4993,7 @@ def repeat_compare(ratio, sd=None, pairs=0, left_out=0):
 
 
 # Make a round (§3, non-range items; spec review M2, M11, V12–V17, V31).
-TOO_UNCERTAIN = "interval too wide"
+TOO_UNCERTAIN = "range too wide"  # critique fixes: range
 START_FROM_BEST_SO_FAR = "Start from Best so far"
 
 
@@ -8576,23 +8576,6 @@ def why_gain_greyed_said(line):
 TRIED_NEXT_BEST = "Next best"
 
 
-def tried_caption_roles():
-    """Q4's caption: what the empty space means."""
-    return f"One line per {FORMULATION_CAP}; gaps are untested."
-
-
-def tip_tried_roles(settings_only=False):
-    """Q4's caption "?": how to read a line, by its colour."""
-    what = "process setting" if settings_only else "ingredient and process setting"
-    return (f"Each line is one {FORMULATION_CAP}. It crosses one axis per {what} at its "
-            f"amount, Lowest at the bottom and Highest at the top, and ends at its "
-            f"{OVERALL_SCORE_COLUMN} on the right (0 at the bottom). Thick ink: Best so far. "
-            f"Mid-grey: the next best few. Light grey: every other tested {FORMULATION}. "
-            f"Orange: this {ROUND_CAP}'s suggestions, not yet scored, ending before the score "
-            f"axis. Grey dashed: waiting for results or {NOT_SCORED}. Empty stretches of an "
-            "axis show amounts not tried yet. The Fill to total row is not drawn: it follows "
-            "the others. BO term: parallel coordinates of the design points.")
-
 
 # Q2's x axis: Formulations in the order made, each Round's start a light rule.
 Q2_X_TITLE = f"{FORMULATION_CAP} (in order made)"
@@ -8766,9 +8749,6 @@ def story_driver_help(ref_label):
 
 # What have we tried? — the search path.
 STORY_PATH_CAPTION = f"One dot per {FORMULATION}; gaps are untested."
-STORY_SHOW_LINES = "Show as lines"
-STORY_SHOW_LINES_HELP = (f"Draw each {FORMULATION} as one line across every row, to see "
-                         "combinations.")
 STORY_PATH_TESTED = f"Tested {FORMULATION}"
 
 
@@ -9171,8 +9151,8 @@ def preview_line(k, role, score_text, changes):
 def preview_help(n, best_no):
     return (f"The {n} {FORMULATION}s Generate would make now, previewed on a copy of the project "
             f"(nothing is saved). Changes are against Best so far ({FORMULATION_CAP} {best_no}). "
-            f"Predicted {OVERALL_SCORE_COLUMN} with its 95 % interval; ≥ 99 is the top of the "
-            f"Range.")
+            f"Predicted {OVERALL_SCORE_COLUMN} with its 95 % range; ≥ 99 means it reaches the "
+            f"top score.")
 
 
 METHOD_LEARNED_TITLE = "What the model learned: definitions"
@@ -9658,7 +9638,7 @@ def forecast_help(n_rows, round_no):
     return (f"What the model expects, from the {n_rows} {FORMULATION}s scored before "
             f"Round {round_no}: the same forecast the Review checks once results are saved "
             f"(Forecast check). Only results the model has ordered right before (Predictable) "
-            f"are shown, the Overall score among them. A value at the top of its Range reads "
+            f"are shown, the Overall score among them. A value at the highest possible reads "
             f"≥ that top.")
 
 
@@ -9667,7 +9647,7 @@ def results_predicted_help(round_no):
             f"today from the {FORMULATION}s scored before {ROUND_CAP} {round_no} only (the "
             f"Review's Forecast check), beside what was measured. Shown: the "
             f"{OVERALL_SCORE_COLUMN} and the measurements the model ordered right before this "
-            f"Round (Predictable). A value at the top of its Range reads ≥ that top.")
+            f"Round (Predictable). A value at the highest possible reads ≥ it.")
 
 
 # Every Round-ahead check is the same rebuilt forecast, so the words that
@@ -9716,3 +9696,336 @@ def model_plain(predictable, partly, not_yet):
     if not_yet and (predictable or partly):
         line += f" Not yet: {', '.join(not_yet)}."
     return line
+
+
+# --- critique fixes ---
+# Review critique (prototype, 2026-10-04): three critiques of the Review
+# (clarity, statistics, confidence), one fix pass. Shared axes for the
+# Forecast check; the stop signal at the top score; an exact permutation
+# test for order; the assumed tasting noise shown wherever a verdict rests
+# on it, each measurement's share derived from the Overall score's; tooltips
+# of about 120 words at most, plain words first, "For experts:" last.
+TOOLTIP_WORDS = 120
+
+
+def brief(text, limit=TOOLTIP_WORDS):
+    """A "?" trimmed to about `limit` words: whole paragraphs in order, the
+    "For experts:" paragraph last (cut at a sentence when it alone is long);
+    paragraphs that do not fit are left to Method and definitions."""
+    if not text:
+        return text
+    paras = [p for p in str(text).split("\n\n") if p.strip()]
+    expert = [p for p in paras if p.lstrip().startswith("For experts:")]
+    plain = [p for p in paras if p not in expert]
+    words = lambda t: len(t.split())  # noqa: E731
+    out, used = [], 0
+    for p in plain:
+        if used + words(p) > limit:
+            if not out:
+                cut = []
+                for sentence in p.replace(". ", ".\n").split("\n"):
+                    if used + words(sentence) > limit:
+                        break
+                    cut.append(sentence)
+                    used += words(sentence)
+                if cut:
+                    out.append(" ".join(cut))
+            continue
+        out.append(p)
+        used += words(p)
+    for p in expert[:1]:
+        room = limit - used
+        if room < 8:
+            break
+        if words(p) <= room:
+            out.append(p)
+        else:
+            cut, n = [], 0
+            for sentence in p.replace(". ", ".\n").split("\n"):
+                if n + words(sentence) > room:
+                    break
+                cut.append(sentence)
+                n += words(sentence)
+            if len(cut) > 1 or (cut and words(cut[0]) > 3):
+                out.append(" ".join(cut).rstrip(";") + ("" if cut[-1].endswith(".") else "."))
+    return "\n\n".join(out)
+
+
+# Forecast check (fix 1): one shared axis per result.
+CHECK_SIDE = {"above": "above", "below": "below"}
+CHECK_KEY_RANGE = "Forecast 95 % range"
+CHECK_KEY_FORECAST = "Forecast"
+CHECK_KEY_IN = "Measured, in range"
+CHECK_KEY_OUT = "Measured, outside range"
+CHECK_TIP_FORECAST = "Forecast (95 % range)"
+CALLED_CAPTION = "Rows: forecast order, highest first."
+CALLED_RULE = (f"Rebuilt today from the {FORMULATION}s scored before this Round only. Bar: the "
+               "forecast's 95 % range; tick: the forecast; dot: the measured value, orange "
+               "when outside its range (a miss, above or below). Rows run in forecast order, "
+               "highest first. A pair counts only when its forecasts differ by at least one "
+               "tasting noise; closer pairs are too close to call. Equal measured values (ties) "
+               "are not counted.")
+
+
+def check_order(right, counted, close, tied=False, ties=0):
+    """The headline's order part: 'order too close to call'; 'order right
+    (1 pair; 1 too close; 1 tie)'; 'order right in 1 of 2 pairs'."""
+    if tied:
+        return "all the same"
+    tail = (f"; {close} too close" if close else "") + (
+        f"; {ties} {'tie' if ties == 1 else 'ties'}" if ties else "")
+    if not counted:
+        return "order too close to call" if close else ""
+    pairs = "pair" if counted == 1 else "pairs"
+    if right == counted:
+        return f"order right ({counted} {pairs}{tail})"
+    return f"order right in {right} of {counted} {pairs}{tail}"
+
+
+def check_noise(cells, assumed=True, k=None):
+    """The noise each order claim had to reach, in the "?": 'Tasting noise
+    assumed: Overall score 1.0; Consistency 0.3, … (the 1 point shared
+    evenly by 4 measurements). A Repeat would confirm.'"""
+    if not cells:
+        return ""
+    listed = "; ".join(f"{n} {v}" for n, v in cells)
+    if not assumed:
+        return f"Tasting noise from your Repeats: {listed}."
+    share = f" (the 1 point shared evenly by {k} measurements)" if k else ""
+    return f"Tasting noise assumed: {listed}{share}. {REPEAT_CONFIRMS}"
+
+
+REPEAT_CONFIRMS = "A Repeat would confirm."
+ASSUMED_NOISE_CLAUSE = "if tasting noise ≈ 1 point"
+
+
+# What has the model learned? (fix 3): an exact within-Round permutation test.
+LEARNED_CAPTION = "Dot past the grey range: better than chance."
+LEARNED_KEY_CHANCE = "Chance range"
+LEARNED_TOO_FEW = "too few pairs"
+LEARNED_RULE = ("Each Round is forecast from earlier Rounds only. Within a Round, a pair counts "
+                "as ordered right when the forecast put it in the measured order; pairs measured "
+                "equal, or forecast under one tasting noise apart, are not counted. Grey range: "
+                "what shuffling the measured values within each Round gives (chance). "
+                "Predictable: right more often than chance (p < 0.05, at least 5 pairs). "
+                "Partly: p < 0.20. Not yet: otherwise, too few pairs, or barely varies.")
+LEARNED_EXPERT = ("exact within-Round permutation test of concordant minus discordant pairs "
+                  "(a stratified Kendall test), one-sided.")
+
+
+def learned_multiplicity(n):
+    """'5 results are checked each Round; one may pass by chance.'"""
+    return f"{n} results are checked each Round; one may pass by chance."
+
+
+def learned_strip(predictable, partly):
+    """The strip's Model item, (word, line): ('Predicts:', 'Consistency,
+    Tangy'); ('Partly:', 'Consistency'); ('Not predictable yet', '') — the
+    section's words, in its order."""
+    names = predictable or partly
+    if not names:
+        return NOT_PREDICTABLE_YET, ""
+    shown = ", ".join(names[:2]) + (f" +{len(names) - 2}" if len(names) > 2 else "")
+    return ("Predicts:" if predictable else "Partly:"), shown
+
+
+# What next? (fix 2): the stop signal at the top score.
+CEILING_HEAD = "Within noise of the top score"
+CEILING_TAIL = "Stop, or change the target."
+CARD_CEILING = "Stop or change target"
+
+
+def ceiling_help(best_text, top_text, need_text, limits=()):
+    """The stop signal's "?" at the top score."""
+    line = (f"{BEST_SO_FAR_COLUMN}, {best_text}, is within {need_text} points of the top score "
+            f"({top_text}): no higher score could be told apart from tasting noise ({ASSUMED_NOISE_CLAUSE}"
+            f"). Stop here, or change what the score asks for (a target or a Share of score).")
+    if limits:
+        line += f" Limits the predicted best sits at: {', '.join(limits)}."
+    return f"{line} {REPEAT_CONFIRMS}"
+
+
+def binding_item(kind, name, amount_text=""):
+    """'Tap water's Highest (42 g)'; 'the Formulation total (≤ 98.7 g)'."""
+    if kind in ("lowest", "highest"):
+        end = "Lowest" if kind == "lowest" else "Highest"
+        return f"{name}'s {end}" + (f" ({amount_text})" if amount_text else "")
+    return f"the {name}" + (f" ({amount_text})" if amount_text else "")
+
+
+def widen_all(items, predicted=False, moved=()):
+    """Every limit that binds, named: 'Your best sits at Tap water's Highest
+    (42 g), Tapioca starch's Highest (2.6 g) and the Formulation total
+    (≤ 98.7 g). To go further, widen them together.' `moved`: [(ingredient,
+    partner)] — an ingredient that moved together with another, said."""
+    who = "The predicted best" if predicted else "Your best"
+    named = items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+    verb = "widen it" if len(items) == 1 else "widen them together"
+    line = f"{who} sits at {named}. To go further, {verb}."
+    for a, b in moved:
+        line += f" {a} moved together with {b} in your {ROUND_CAP}s, so its effect is mixed."
+    return line
+
+
+# Are we improving? (fix 7).
+def progress_rise_answer(before_text, best_text, rise_text, need_text, assumed=True):
+    """'Best 95.0 → 98.3 (+3.3; needs 3.0 if tasting noise ≈ 1 point)'."""
+    clause = f" {ASSUMED_NOISE_CLAUSE}" if assumed else ""
+    return f"Best {before_text} → {best_text} (+{rise_text}; needs {need_text}{clause})"
+
+
+STORY_IMPROVING_CAPTION = "Ink step: best so far, per Round."
+NOISE_BAND = "Assumed noise, ±1 point"
+NOISE_BAND_MEASURED = "Noise from Repeats"
+TOP_SCORE_LABEL = "Top"
+
+
+def story_improving_help(first_avg, last_avg, first_round, last_round, assumed=True):
+    """Chart (a)'s "?": what is drawn, the Round averages, the noise band."""
+    avg = ""
+    if first_avg is not None and last_avg is not None and first_round != last_round:
+        avg = (f" {ROUND_CAP} average: {first_avg} ({ROUND_CAP} {first_round}) → {last_avg} "
+               f"({ROUND_CAP} {last_round}).")
+    band = ("Light band: ±1 point around the best, the tasting noise assumed until Repeats "
+            f"measure it. {REPEAT_CONFIRMS}" if assumed else
+            "Light band: ±the tasting noise your Repeats measured, around the best.")
+    return (f"Grey dots: each {FORMULATION}'s measured {OVERALL_SCORE_COLUMN}. Ink step: "
+            f"{BEST_SO_FAR_COLUMN}, stepping once per {ROUND_CAP}. Short grey bars: each "
+            f"{ROUND_CAP}'s average.{avg} {band} Measured values only.")
+
+
+# Start vs best, against target (fix 6).
+STORY_TARGET_TITLE = "Start vs best, against target"
+STORY_TARGET_CAPTION = "Diamond: target. Grey: moved away."
+TARGET_KEY = "Target"
+TARGET_KEY_CLOSER = "Moved closer"
+TARGET_KEY_AWAY = "Moved away"
+TARGET_AWAY_LABEL = "moved away"
+
+
+def target_moves(onto=0, stayed=0, closer=(), away=(), level=0):
+    """The chart's answer line from the data: '2 moved onto target, 1
+    stayed on target, 1 moved 0.5 away.' `closer`, `away`: [amount text]."""
+    bits = []
+    if onto:
+        bits.append(f"{onto} moved onto target")
+    if stayed:
+        bits.append(f"{stayed} stayed on target")
+    bits += [f"1 moved {t} closer" for t in closer]
+    bits += [f"1 moved {t} away" for t in away]
+    if level:
+        bits.append(f"{level} unchanged")
+    if not bits:
+        return ""
+    text = ", ".join(bits)
+    return text[:1].upper() + text[1:] + "."
+
+
+def story_target_help(start_no, best_no, start_round):
+    """Chart (b)'s "?": what each mark is."""
+    return (f"One row per measurement, across its own Range. Hollow dot: {FORMULATION_CAP} "
+            f"{start_no}, the best of {ROUND_CAP} {start_round}. Filled dot: {BEST_SO_FAR_COLUMN}, "
+            f"{FORMULATION_CAP} {best_no}. Diamond: the target (an arrow where higher or lower "
+            "is better). The segment is ink when the best is closer to the target than the "
+            "start, grey and labelled when it moved away. Measured values only.")
+
+
+# What have we tried? (fix 8).
+def gap_untested(name, low_text, high_text):
+    """'Tapioca starch between 1.04 and 1.52 g untested'."""
+    return f"{gap_between(name, low_text, high_text)} untested"
+
+
+STORY_PATH_CAPTION = f"One dot per {FORMULATION}. Shaded: untested gap."
+PATH_AT_LIMIT = "At its Lowest or Highest"
+PATH_GAP = "Untested gap"
+
+
+def story_path_help(settings_only=False):
+    """The search path's "?": only the marks drawn."""
+    what = "process setting" if settings_only else "ingredient or process setting"
+    return (f"One small chart per {what}: across, its allowed amounts from Lowest to Highest; "
+            f"down, the {ROUND_CAP}s, the first at the top. Each dot is one {FORMULATION}; a "
+            f"square marks an amount at its Lowest or Highest. Ink ring: {BEST_SO_FAR_COLUMN}. "
+            f"Orange: this {ROUND_CAP}'s suggestions. Shaded band: the largest stretch between "
+            "tested amounts that nothing has tried.")
+
+
+# What drives each result? (fix 4): a closed fold.
+def drives_limited(name):
+    """'Single-ingredient moves are limited by the Formulation total.'"""
+    return f"Single-ingredient moves are limited by the {name}."
+
+
+PROFILER_CAPTION = "Each column: only the amounts your limits allow."
+
+
+def profiler_help(ref, ref_no, fill=None, fixed=(), gain=True, settings_only=False):
+    """The caption's "?": where each line stops and why; then the marks."""
+    what = "process setting" if settings_only else "ingredient or process setting"
+    lines = [f"Each column moves one {what} from {ref} ({FORMULATION_CAP} {ref_no}), everything "
+             "else as it is there. Its line stops where a limit stops it: the row's own Lowest "
+             "or Highest, or a limit on several rows such as the total (dashed edge, "
+             "“limit”). The axis shows only that reachable stretch.",
+             "Blue line: the predicted value; light band: its 95 % range. Vertical line: "
+             f"{ref}'s own amount; dashed line: the target. Grey: nothing tested near here. "
+             f"Grey rings: {FORMULATION}s tested near the line."]
+    if fill:
+        lines.append(f"{fill} fills to the Formulation total, so it moves with each column.")
+    if fixed:
+        lines.append("Fixed rows have no column: " + ", ".join(fixed) + ".")
+    if gain:
+        lines.append("Bottom row: the expected gain along each line.")
+    return " ".join(lines)
+
+
+# Make a round (fix 9).
+MAP_X_TITLE = "Predicted score"
+MAP_Y_TITLE = "Uncertainty (± points, tasting noise excluded)"
+MAP_GAIN_LEGEND = "Expected gain"
+TRACK_VALUES_MISS = "Measurements: more misses than expected."
+WHY_SOURCE = "Source"
+
+
+# Sensory forecasts against the Overall forecast (fix 10).
+IMPLIED_COLUMN = "Implied Overall score"
+OVERALL_MODEL_COLUMN = "Overall model"
+PREDICTED_MEASUREMENTS_CAPTION = "Implied: these forecasts put through your score."
+
+
+def implied_line(implied_text, model_text):
+    """'Implied by these measurements: 90 · Overall model: 94.'"""
+    return f"Implied by these measurements: {implied_text} · Overall model: {model_text}."
+
+
+PREDICTED_MEASUREMENTS_HELP = (
+    f"Implied: the {OVERALL_SCORE_COLUMN} these predicted measurements get by your score's own "
+    "rule (Share of score and target). "
+    f"Overall model: the {OVERALL_SCORE_COLUMN}'s own model, fitted on the scores directly. They "
+    "differ because each is learned apart. Each measurement's 95 % range is widened by its own "
+    "record from earlier Rounds, as the Overall score's is.")
+
+
+# Results (fix 11).
+RESULTS_LANDED_COLUMN = "In / Above / Below range"
+RESULTS_LANDED = {"in": "In", "above": "Above", "below": "Below"}
+
+
+def results_predicted_help(round_no):
+    return (f"Each {FORMULATION} of {ROUND_CAP} {round_no} as the model expected it, rebuilt "
+            f"today from the {FORMULATION}s scored before {ROUND_CAP} {round_no} only (the "
+            f"Review's Forecast check), beside what was measured: the {OVERALL_SCORE_COLUMN} "
+            "and every measurement, each marked In, Above or Below its 95 % range. A forecast "
+            "at the highest possible value reads ≥ it.")
+
+
+def forecast_help(n_rows, round_no):
+    """The forecast panel's "?"."""
+    return (f"What the model expects, from the {n_rows} {FORMULATION}s scored before "
+            f"Round {round_no}: the same forecast the Review checks once results are saved "
+            f"(Forecast check). Only results the model has ordered right before (Predictable) "
+            f"are shown. A forecast at the highest possible value reads ≥ it.")
+WHY_SOURCE_APP = "This app"
+WHY_COL_PREDICTED = "Predicted (95 % range)"
+WHY_COL_GAIN = "Expected gain"
+WHY_COL_CLOSEST = "Closest made"

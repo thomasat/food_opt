@@ -461,6 +461,7 @@ class Why:
     pool_sd: object
     tested_mean: object
     tested_sd: object
+    pool_value: object = None   # review critique: the acquisition over the pool (the map's colour)
 
 
 def _differences(opt, recipe, other, k=2):
@@ -553,7 +554,8 @@ def why(opt, fitted=None):
     return Why(kind, model.exact, False, out,
                None if pool_values is None else pool_values.mean,
                None if pool_values is None else pool_values.sd,
-               tested.mean, tested.sd)
+               tested.mean, tested.sd,
+               None if pool_values is None else pool_values.value)
 
 
 # ------------------------------------------------------------------ #

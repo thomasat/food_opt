@@ -1,9 +1,11 @@
 """The Insights tab. Builders here return Altair charts from computed facts
 and never call Streamlit; render() at the bottom is the only Streamlit code."""
 import contextlib
+import dataclasses
 import math
 import re
 import threading
+import types
 
 import altair as alt
 import pandas as pd
@@ -1016,14 +1018,14 @@ def _places(opt, gate=False):
         with st.container(key=f"{STRIP_KEY}_go", width="content"):
             _foot(opt)
     p.bar = st.empty()
-    # Review learned 2: Called it?, the demo's aha, right under the strip.
-    p.called = st.empty()
     p.q = {}
-    # Review story: progress first (the payoff), then trust (the profiler
-    # leans on the model), then drivers, then what was tried; review story
-    # 2: then What next?, so the story ends on the action.
+    # Review critique (fix 5): Are we improving? (with Start vs best), What
+    # next? (the stop signal), the Forecast check beside What has the model
+    # learned?, What have we tried?, the profiler in a closed fold, then
+    # Method and definitions.
     for which in SECTION_ORDER:
         p.q[which] = _section(opt, which)
+    p.called = p.q["predictions"].called
     with p.q["next"].answer.container(gap="xsmall"):
         _next_body(opt, None, None)
     with p.q["next"].body:
@@ -1120,7 +1122,13 @@ def _next_body(opt, places, facts):
             st.caption(_say(opt, _PLACEHOLDERS["next"]))
             return
         step = getattr(facts, "next", None) if facts is not None else None
-        if step is not None and step.kind == "close" and card.tone != "off":
+        if (step is not None and step.kind in ("close", "explore") and card.tone != "off"
+                and at_ceiling(opt, facts)):
+            # Review critique (fix 2): the stop signal at the top score.
+            st.markdown(_say(opt, wording.answer_line(wording.CEILING_HEAD,
+                                                      wording.CEILING_TAIL)),
+                        help=wording.brief(ceiling_tip(opt, facts)))
+        elif step is not None and step.kind == "close" and card.tone != "off":
             # Persona fixes: the stop signal is the headline.
             y = getattr(facts, "yardstick", None)
             tip = (wording.stop_help(wording.points_text(f"{y.value:.1f}"))
@@ -1135,6 +1143,19 @@ def _next_body(opt, places, facts):
             st.markdown(word, help=card.help)
         for text, warn in card.lines + repeat_asks(opt, facts, card):
             st.markdown(f":red[**{text}**]" if warn else text)
+
+
+def ceiling_tip(opt, facts):
+    """The stop signal's "?" at the top score: the best, the threshold and
+    the limits that bind (said here only)."""
+    need = tie_need(facts.yardstick)
+    try:
+        limits = binding_texts(opt, getattr(facts.next, "bindings", None) or [])
+    except Exception:
+        limits = []
+    return _say(opt, wording.ceiling_help(one_decimal(facts.best.score),
+                                          f"{float(opt.utility_ceiling()):g}",
+                                          f"{need:.1f}", limits))
 
 
 def stop_headline(opt, facts):
@@ -1167,12 +1188,29 @@ def repeat_asks(opt, facts, next_card):
 
 def _section(opt, which):
     """A question: its heading (one style for the four), its answer line's
-    place and its body, in a keyed place a link lands on."""
+    place and its body, in a keyed place a link lands on. Review critique:
+    the Forecast check's place sits at the top of the model's section, and
+    What drives each result? is a closed fold (its answer first inside)."""
     with st.container(key=SECTION_KEYS[which], gap="small"):
+        if which == "drives":
+            with st.expander(_say(opt, _QUESTIONS[which]), expanded=False,
+                             key=DRIVES_FOLD_KEY, on_change="rerun") as fold:
+                answer = st.empty()
+                body = st.container(gap="small")
+            slot = _Slot(answer, body)
+            # Worked out only while open (the profiler is the slowest part).
+            slot.open = bool(getattr(fold, "open", True))
+            return slot
+        called = st.empty() if which == "predictions" else None
         st.markdown(f"#### {_say(opt, _QUESTIONS[which])}")
         answer = st.empty()
         body = st.container(gap="small")
-    return _Slot(answer, body)
+    slot = _Slot(answer, body)
+    slot.called = called
+    return slot
+
+
+DRIVES_FOLD_KEY = "insights_drives_fold"
 
 
 def _answer(opt, slot, facts, which, text=None, help=None):
@@ -1232,6 +1270,8 @@ def _finish(opt, places, facts):
         checks = checks_for(opt, "trust")
         rounds = insights.headline(opt, checks).rounds if checks else None
         _, change = next_step_text(opt, facts.next, rounds, amounts_shown(facts))
+        if facts.next.kind in ("close", "explore") and at_ceiling(opt, facts):
+            change = None       # review critique: no widening advice at the top score
     with places.change.container():
         _setup_button(change)
     if not places.why:
@@ -1327,7 +1367,7 @@ _PLACEHOLDERS = {"predictions": wording.CHECKING_PREDICTIONS,
                  "progress": wording.CHECKING_PROGRESS, "next": wording.PREPARING_NEXT_STEP}
 # Review story: Progress first (the payoff), then Predictions; Next last.
 _STATUS_ORDER = ("progress", "predictions", "next")
-SECTION_ORDER = ("progress", "predictions", "drives", "tried", "next")
+SECTION_ORDER = ("progress", "next", "predictions", "tried", "drives")
 
 
 def _wide_clause_names(names):
@@ -1637,6 +1677,70 @@ def widen_reason_text(opt, b):
     return _say(opt, wording.widen_reason(b.kind, b.name, amount, predicted=not ours))
 
 
+def at_ceiling(opt, facts):
+    """Review critique (fix 2): whether Best so far is within the tie
+    threshold of the top score (best ≥ top − rise_threshold(noise, 1)): no
+    higher score could be told apart from tasting noise. False without a
+    best or a noise threshold."""
+    best = getattr(facts, "best", None) if facts is not None else None
+    need = tie_need(getattr(facts, "yardstick", None)) if facts is not None else None
+    if best is None or need is None:
+        return False
+    top = float(opt.utility_ceiling())
+    return round(top - float(best.score), 2) < round(need, 2)
+
+
+def binding_texts(opt, bindings):
+    """['Tap water's Highest (42 g)', 'the Batch total (at most 98.7 g)']:
+    every limit in `bindings`, with its amount."""
+    out = []
+    for b in bindings or ():
+        if b.kind in ("lowest", "highest"):
+            var = opt._by_name().get(b.name)
+            amount = ""
+            if var is not None and var.get('type') == 'continuous':
+                value = float(var['bounds'][0 if b.kind == "lowest" else 1])
+                unit = opt.unit_of(b.name)
+                amount = (fmt_setting(value, unit) if insights.is_setting(opt, b.name)
+                          else join_unit(f"{value:.0f}" if value == round(value)
+                                         else _num(value), unit))
+            out.append(wording.binding_item(b.kind, b.name, amount))
+        else:
+            name, _, rest = str(b.text).partition(":")
+            name = re.sub(r"\s*\(.*?\)", "", name).strip() or b.text
+            out.append(wording.binding_item("limit", name, rest.strip().replace(
+                "at least ", "≥ ").replace(" and at most ", ", ≤ ").replace("at most ", "≤ ")))
+    return out
+
+
+def widen_all_text(opt, step):
+    """The close row's widen advice naming EVERY limit the predicted best
+    sits at (review critique, fix 2), and any ingredient among them that
+    moved together with another (insights.moved_pairs); None with none."""
+    bindings = list(getattr(step, "bindings", None) or
+                    ([step.binding] if step.binding is not None else []))
+    if not bindings:
+        return None
+    items = binding_texts(opt, bindings)
+    named = {b.name for b in bindings if b.kind in ("lowest", "highest")}
+    try:
+        pairs = insights.moved_pairs(opt)
+    except Exception:
+        pairs = []
+    moved = []
+    for a, b, _r in pairs:
+        if a in named:
+            moved.append((a, b))
+        elif b in named:
+            moved.append((b, a))
+    best = opt._best_recipe_index()
+    ours = False
+    if best is not None:
+        here = {(x.kind, x.name) for x in insights.binding_limits(opt, insights.start_recipe(opt, best))}
+        ours = all((x.kind, x.name) in here for x in bindings)
+    return _say(opt, wording.widen_all(items, predicted=not ours, moved=moved))
+
+
 def _close_change(b):
     """The close row's change in its words: raise a Highest, lower a Lowest,
     widen a limit; '' when nothing binds."""
@@ -1756,8 +1860,11 @@ def progress_answer_text(opt, facts):
             or facts.progress not in ("rising", "within_noise"):
         return None
     rise, need = rise_and_need(a)
+    # Review critique (owner's decision on noise): the assumption shown
+    # wherever the verdict rests on it.
+    assumed = bool(getattr(getattr(facts, "yardstick", None), "assumed", True))
     return wording.progress_rise_answer(one_decimal(f.score - a.rise), one_decimal(f.score),
-                                        rise, need)
+                                        rise, need, assumed=assumed)
 
 
 def score_built_text(opt):
@@ -2294,7 +2401,7 @@ def range_text(low, high, fmt=None):
 
 def score_text(p, top=100.0):
     """An Overall-score prediction: whole numbers, "78 (70–85)"; never 100
-    (review learned): "≥ 99 (95–≥ 99)"."""
+    (review learned): "≥ 99 (95–100)"."""
     return capped_range(p, top, 0)
 
 
@@ -2595,7 +2702,10 @@ def standing_text(opt, standing, yard, withheld=None):
     why (polish round)."""
     p = standing.best.score
     top = float(opt.utility_ceiling())
-    mean, low, high = capped(p.mean, top, 0), capped(p.low, top, 0), capped(p.high, top, 0)
+    # Review critique (fix 12): never a top below the point.
+    mean = capped(min(p.mean, top), top, 0)
+    low = f"{min(p.low, top):.0f}"
+    high = f"{top:g}" if p.high >= top - 0.5 else f"{p.high:.0f}"
     if withheld:
         return wording.stand_withheld(mean, low, high, withheld, standing.close_no,
                                       values=not opt.has_ingredients())
@@ -3077,7 +3187,7 @@ def _gap_text(opt, gap, strip, d=None):
         return wording.gap_above(gap.name, _strip_number(opt, strip, gap.low, True, d))
     if gap.kind == "below":
         return wording.gap_below(gap.name, _strip_number(opt, strip, gap.high, True, d))
-    return wording.gap_between(gap.name, _strip_number(opt, strip, gap.low, False, d),
+    return wording.gap_untested(gap.name, _strip_number(opt, strip, gap.low, False, d),
                                _strip_number(opt, strip, gap.high, True, d))
 
 
@@ -3126,7 +3236,7 @@ def limit_hit_lines(opt, hits=None):
     return out
 
 
-def explore_map_chart(pool_mean, pool_sd, tested, picks, ref=None, opt=None):
+def explore_map_chart(pool_mean, pool_sd, tested, picks, ref=None, opt=None, gain=None):
     """W3 (review R-I16): the mean × model-sd map both folds draw (Insights'
     Explored and unexplored, Make a round's Why these suggestions, whose
     ui_batch.why_chart is a thin caller): every sampled allowed formulation
@@ -3139,13 +3249,27 @@ def explore_map_chart(pool_mean, pool_sd, tested, picks, ref=None, opt=None):
         return None
     pool = pd.DataFrame({"mean": list(map(float, pool_mean.tolist())),
                          "sd": list(map(float, pool_sd.tolist()))})
+    if gain is not None:
+        pool["gain"] = list(map(float, gain.tolist()))
     tested = pd.DataFrame(list(tested), columns=None if tested else ["mean", "sd"])
     mine = pd.DataFrame(list(picks), columns=None if picks else ["mean", "sd", "no"])
     say = (lambda t: t) if opt is None else (lambda t: _say(opt, t))
-    x = alt.X("mean:Q", title=wording.WHY_AXIS_MEAN, scale=alt.Scale(zero=False))
+    # Review critique (fix 9): x zoomed to the scores that matter — the
+    # upper three quarters of the cloud, the tested, the picks and the
+    # reference — the rest clipped at the left edge.
+    keep = [float(pool["mean"].quantile(0.75))]
+    keep += list(mine["mean"]) if len(mine) else []
+    if len(tested):
+        keep.append(float(tested["mean"].max()))
+    keep += [ref] if ref is not None else []
+    x_lo = min(keep)
+    x_hi = max([float(pool["mean"].max())] + keep)
+    pad = 0.04 * max(x_hi - x_lo, 1.0)
+    x = alt.X("mean:Q", title=say(wording.MAP_X_TITLE),
+              scale=alt.Scale(zero=False, domain=[x_lo - pad, x_hi + pad], nice=False))
     # From 0: the model's sd is a size, and a zoomed sd axis made a small
     # difference in certainty look large (review plots).
-    y = alt.Y("sd:Q", title=wording.MODEL_SD, scale=alt.Scale(zero=True))
+    y = alt.Y("sd:Q", title=say(wording.MAP_Y_TITLE), scale=alt.Scale(zero=True))
     word = say(wording.FORMULATION_CAP)
     ring_c, ring_o = mark("neutral")
     ink, _ = mark("bar_latest")
@@ -3176,14 +3300,33 @@ def explore_map_chart(pool_mean, pool_sd, tested, picks, ref=None, opt=None):
                              alt.Tooltip("sd:Q", title=wording.MODEL_SD, format=".2f"),
                              bo_tip()]}
                 if numbered else {})
+    if "gain" in pool.columns:
+        # Review critique (fix 9): the cloud coloured by expected gain, a
+        # blue ramp with its own legend; light where there is little to gain.
+        lo_b, hi_b = _BLUES_EXTENT[theme()]
+        cloud = (alt.Chart(pool.sort_values("gain")).mark_circle(size=16, opacity=0.75,
+                                                                  tooltip=False, clip=True)
+                 .encode(x=x, y=y, color=alt.Color(
+                     "gain:Q", title=say(wording.MAP_GAIN_LEGEND),
+                     scale=alt.Scale(scheme=alt.SchemeParams("blues", extent=[0.15, hi_b])),
+                     legend=alt.Legend(orient="bottom", direction="horizontal",
+                                       titleFontSize=FONT_AXIS_TITLE, gradientLength=160,
+                                       format=".2f"))))
+    else:
+        cloud = (alt.Chart(pool).mark_point(size=12, opacity=0.6, tooltip=False, clip=True)
+                 .encode(x=x, y=y, stroke=alt.Stroke("what:N", scale=kind_colour, legend=legend),
+                         fill=alt.Fill("what:N", scale=kind_fill, legend=legend),
+                         shape=alt.Shape("what:N", scale=kind_shape, legend=legend)))
+    if "gain" in pool.columns:
+        kinds = kinds[1:]
+        kind_colour = alt.Scale(domain=kinds, range=[ring_c, outline_colour()])
+        kind_fill = alt.Scale(domain=kinds, range=["transparent", outline_colour()])
+        kind_shape = alt.Scale(domain=kinds, range=["circle", "diamond"])
     layers = [
-        alt.Chart(pool).mark_point(size=12, opacity=0.6, tooltip=False)
-        .encode(x=x, y=y, stroke=alt.Stroke("what:N", scale=kind_colour, legend=legend),
-                fill=alt.Fill("what:N", scale=kind_fill, legend=legend),
-                shape=alt.Shape("what:N", scale=kind_shape, legend=legend)),
+        cloud,
         # The neutral token (polish round): gray at Vega's default 0.7 was
         # 2.94:1 on the dark page.
-        alt.Chart(tested).mark_point(size=40, opacity=ring_o, strokeWidth=1.5,
+        alt.Chart(tested).mark_point(size=40, opacity=ring_o, strokeWidth=1.5, clip=True,
                                      **({} if numbered else {"tooltip": False}))
         .encode(x=x, y=y, stroke=alt.Stroke("what:N", scale=kind_colour, legend=legend),
                 fill=alt.Fill("what:N", scale=kind_fill, legend=legend),
@@ -3412,181 +3555,6 @@ def _wrap(text, width=14):
 # grey) per theme: light #cfd3d9 / #7d838e on white; dark #444a54 / #9aa0aa
 # on #0e1117 — the mid-grey and the ink reach 3:1, the context lines need not.
 _TRIED_GREYS = {"light": ("#cfd3d9", "#7d838e"), "dark": ("#444a54", "#9aa0aa")}
-
-
-def next_best_count(scored):
-    """How many tested lines after Best so far are drawn mid-grey: 3 to 5,
-    about one in six of the tested ones."""
-    return max(3, min(5, scored // 6))
-
-
-def _next_best(lines):
-    """The formulation numbers of the next best few tested lines, by score
-    (Best so far itself left out)."""
-    tested = sorted((l for l in lines if l.state == "tested" and not l.best
-                     and l.score is not None), key=lambda l: -l.score)
-    return {l.formulation for l in tested[:next_best_count(len(tested) + 1)]}
-
-
-def _line_kind(line, nexts=()):
-    if line.state == "suggested":
-        return wording.TRIED_SUGGESTED
-    if line.state != "tested":
-        return wording.TRIED_WAITING
-    if line.best:
-        return wording.TRIED_BEST
-    return wording.TRIED_NEXT_BEST if line.formulation in nexts else wording.TRIED_SCORED
-
-
-def _line_score_text(opt, line):
-    if line.state == "tested":
-        return f"{line.score:.2f}"
-    if line.state == "suggested":
-        return wording.TRIED_SUGGESTED
-    if line.state == "not_scored":
-        return wording.NOT_SCORED
-    i = opt.index_of_formulation(line.formulation)
-    return wording.waiting_for(number_list(opt.waiting_on(i) if i is not None else []))
-
-
-def tried_frame(opt, axes, lines):
-    """(long frame, axis frame): one row per line per axis it crosses, at
-    its share of that axis (0 Lowest, 1 Highest; the Overall score's axis
-    0 to the ceiling) — a line without a score stops at the last row's
-    axis; one row per axis for its rule and its end labels."""
-    ceiling = float(opt.utility_ceiling())
-    score_label = _say(opt, wording.OVERALL_SCORE_COLUMN)
-    labels = [_wrap(_axis_label(a)) for a in axes] + [score_label]
-    rows = []
-    nexts = _next_best(lines)
-    # Review story, honesty guard: the team's own formulations in the open
-    # Round are not the app's suggestions (drawn as waiting, grey dashed).
-    generated = set(suggested_numbers(opt))
-    for order, line in enumerate(lines):
-        amounts = "; ".join(
-            f"{a.name} {line.values[a.name]}" if a.options is not None
-            else f"{a.name} {_axis_end(opt, a, line.values[a.name])}" for a in axes)
-        role = _line_kind(line, nexts)
-        if line.state == "suggested" and line.formulation not in generated:
-            role = wording.TRIED_WAITING
-        common = {"no": line.formulation, "round": _round_label(line.round),
-                  "role": role, "best": line.best,
-                  "score": None if line.score is None else round(line.score, 2),
-                  "score_text": _line_score_text(opt, line), "amounts": amounts,
-                  "order": order}
-        for k, a in enumerate(axes):
-            t = insights.axis_share(a, line.values[a.name])
-            if t is not None:
-                rows.append({**common, "axis": labels[k], "k": k, "t": t})
-        if line.score is not None:
-            rows.append({**common, "axis": score_label, "k": len(axes),
-                         "t": line.score / ceiling if ceiling else 0.0})
-    ends = []
-    for k, a in enumerate(axes):
-        if a.options is not None:
-            for o in a.options:
-                ends.append({"axis": labels[k], "t": insights.axis_share(a, o), "text": o,
-                             "where": "option"})
-            continue
-        d = _shared_decimals([a.low, a.high])
-        ends += [{"axis": labels[k], "t": 0.0, "text": _axis_end(opt, a, a.low, d),
-                  "where": "low"},
-                 {"axis": labels[k], "t": 1.0, "text": _axis_end(opt, a, a.high, d),
-                  "where": "high"}]
-    ends += [{"axis": score_label, "t": 0.0, "text": "0", "where": "low"},
-             {"axis": score_label, "t": 1.0, "text": _whole(ceiling), "where": "high"}]
-    # Review plots (the yogurt pilot: water at its 42 g Highest, tapioca at
-    # 2.6 g): an axis whose lines mostly sit at one end collapses into a
-    # bundle there; its end label says how many, so the bundle reads.
-    total = len(lines)
-    for e in ends:
-        if e["where"] not in ("low", "high") or e["axis"] == score_label or total < 4:
-            continue
-        at = sum(1 for r in rows if r["axis"] == e["axis"] and abs(r["t"] - e["t"]) <= 0.01)
-        if at * 2 >= total:
-            e["text"] = wording.plot_at_end(e["text"], at, total)
-    cols = ["no", "round", "role", "best", "score", "score_text", "amounts", "order", "axis",
-            "k", "t"]
-    return pd.DataFrame(rows, columns=cols), pd.DataFrame(ends), labels
-
-
-def tried_chart(opt, axes, lines):
-    """What you've tried: parallel coordinates. One vertical axis per
-    varying ingredient and process setting, its Lowest at the bottom and
-    its Highest at the top (written at the ends, with the unit), a choice's
-    options spaced evenly; the last axis the Overall score, 0 to the
-    ceiling. Coloured by role (review four polish): every tested line thin
-    light grey, the next best few mid-grey, Best so far thick ink; waiting or
-    Not scored, grey dashed; this Round's suggestions, orange, ending before
-    the score. None without an axis or a line."""
-    if not axes or not lines:
-        return None
-    df, ends, labels = tried_frame(opt, axes, lines)
-    many = len(lines) > _MANY_LINES
-    x = alt.X("axis:N", sort=labels, title=None,
-              scale=alt.Scale(type="point", padding=0.25),
-              # Review plots: a two-line name stacks upward from its
-              # baseline, clear of the Highest written under it (the second
-              # line used to sit on that number).
-              axis=alt.Axis(orient="top", labelAngle=0, ticks=False,
-                            labelPadding=24 + 14 * (max(l.count("\n") for l in labels)),
-                            domain=False, labelLimit=0, labelFontSize=FONT_LABEL,
-                            labelLineHeight=14,
-                            labelExpr="split(datum.label, '\\n')"))
-    lo = min([0.0] + list(df["t"])) if len(df) else 0.0
-    hi = max([1.0] + list(df["t"])) if len(df) else 1.0
-    t_scale = alt.Scale(domain=[lo, hi], nice=False, zero=False)
-    y = alt.Y("t:Q", axis=None, scale=t_scale)
-    word = _say(opt, wording.FORMULATION_CAP)
-    tips = [alt.Tooltip("no:Q", title=word, format="d"),
-            alt.Tooltip("round:N", title=wording.ROUND_CAP),
-            alt.Tooltip("score_text:N", title=_say(opt, wording.OVERALL_SCORE_COLUMN)),
-            alt.Tooltip("amounts:N", title=_say(opt, wording.tried_amounts_title(
-                not opt.has_ingredients())))]
-    grey, grey_o = mark("neutral")
-    ink, _ = mark("bar_latest")
-    light, mid = _TRIED_GREYS[theme()]
-    text_c = muted()
-    # Review four polish: one legend, by role — ink, greys and orange; no
-    # score colours (the last axis carries the score).
-    order = (wording.TRIED_BEST, wording.TRIED_NEXT_BEST, wording.TRIED_SCORED,
-             wording.TRIED_SUGGESTED, wording.TRIED_WAITING)
-    look = {wording.TRIED_BEST: (ink, [1, 0], 4, 1.0),
-            wording.TRIED_NEXT_BEST: (mid, [1, 0], 2, 1.0),
-            wording.TRIED_SCORED: (light, [1, 0], 1 if many else 1.3, 1.0),
-            wording.TRIED_SUGGESTED: (outline_colour(), [1, 0], 3, 1.0),
-            wording.TRIED_WAITING: (grey, [4, 3], 1.5, 1.0)}
-    kinds = [k for k in order if k in set(df["role"])]
-    stroke = alt.Scale(domain=kinds or [""], range=[look[k][0] for k in kinds] or [grey])
-    dash = alt.Scale(domain=kinds or [""], range=[look[k][1] for k in kinds] or [[1, 0]])
-    kind_legend = alt.Legend(title=None, orient="bottom", labelLimit=0, symbolStrokeWidth=3,
-                             symbolType="stroke", offset=26)
-    axes_df = pd.DataFrame({"axis": labels, "t0": 0.0, "t1": 1.0})
-    layers = [
-        alt.Chart(axes_df).mark_rule(color=grey, opacity=grey_o, strokeWidth=1.5, tooltip=False)
-        .encode(x=x, y=alt.Y("t0:Q", scale=t_scale, axis=None), y2="t1:Q"),
-    ]
-    # Drawn light to strong, Best so far on top.
-    for k in (wording.TRIED_SCORED, wording.TRIED_WAITING, wording.TRIED_NEXT_BEST,
-              wording.TRIED_SUGGESTED, wording.TRIED_BEST):
-        if k not in kinds:
-            continue
-        _, _, width, opacity = look[k]
-        layers.append(
-            alt.Chart(df).mark_line(strokeWidth=width, opacity=opacity)
-            .encode(x=x, y=y, detail="no:N", order=alt.Order("k:Q"), tooltip=tips,
-                    stroke=alt.Stroke("role:N", scale=stroke, legend=kind_legend),
-                    strokeDash=alt.StrokeDash("role:N", scale=dash, legend=kind_legend))
-            .transform_filter(alt.FieldEqualPredicate(field="role", equal=k)))
-    text = lambda where, **kw: (alt.Chart(ends[ends["where"] == where])
-                                .mark_text(color=text_c, fontSize=FONT_SMALL, tooltip=False, **kw)
-                                .encode(x=x, y=alt.Y("t:Q", scale=t_scale, axis=None),
-                                        text="text:N"))
-    layers += [text("low", baseline="top", dy=6), text("high", baseline="bottom", dy=-6)]
-    if (ends["where"] == "option").any():
-        layers.append(text("option", align="left", dx=5, baseline="middle"))
-    heading = wording.PLOT_TRIED_SETTINGS if not opt.has_ingredients() else wording.PLOT_TRIED
-    return readable(titled(alt.layer(*layers).properties(height=280), _say(opt, heading)))
 
 
 # ---- How the app chooses ------------------------------------------ #
@@ -4497,11 +4465,16 @@ def next_card(opt, facts):
     elif kind == "untested":
         word = wording.CARD_TRY_BEST
         lines = [(wording.card_add_to(no if opt.pending_batch else None), False)]
+    elif kind in ("close", "explore") and at_ceiling(opt, facts):
+        # Review critique (fix 2): within noise of the top score, the stop
+        # signal leads; no widening advice (the limits are in its "?").
+        word = wording.CARD_CEILING
+        lines = []
     elif kind == "close":
         word = wording.CARD_CLOSE if step.binding is not None else wording.CARD_CLOSE_TOP
         reason = None
         try:
-            reason = widen_reason_text(opt, step.binding)
+            reason = widen_all_text(opt, step)
         except Exception:
             reason = None
         lines = [(reason or wording.card_close_line(
@@ -4529,7 +4502,19 @@ def card_for(opt, facts, which):
     card = _CARD_BUILDERS[which](opt, facts)
     card.word = _say(opt, card.word)
     card.lines = [(_say(opt, t), w) for t, w in card.lines]
-    card.help = status_help(opt, facts, which)
+    help_ = status_help(opt, facts, which)
+    y = getattr(facts, "yardstick", None)
+    if (which == "progress" and help_ and getattr(y, "assumed", False)
+            and facts.progress in ("rising", "within_noise", "flat")):
+        # Review critique: the assumed noise, and what would confirm it.
+        head, _, rest = help_.partition("\n\n")
+        help_ = f"{head} {wording.REPEAT_CONFIRMS}" + (f"\n\n{rest}" if rest else "")
+    card.help = wording.brief(help_)
+    step = getattr(facts, "next", None)
+    if (which == "next" and step is not None and step.kind in ("close", "explore")
+            and card.tone != "off" and at_ceiling(opt, facts)):
+        # Review critique (fix 2): the strip's "?" says the stop signal too.
+        card.help = wording.brief(ceiling_tip(opt, facts))
     return card
 
 
@@ -4569,7 +4554,7 @@ def review_status(opt):
         ords = lf.orderings if lf is not None else learned.orderings(opt, every)
         pick = lambda v: model_names(opt, ords, v)
         word, _ = wording.learned_strip(pick(learned.PREDICTABLE), pick(learned.PARTLY))
-        text = wording.review_status_learned(word, prog.word,
+        text = wording.review_status_learned(word.rstrip(":"), prog.word,
                                              nxt.word if nxt.tone == "off" else None)
     return _say(opt, text), warn
 
@@ -4853,7 +4838,7 @@ def profile_data(opt, fitted, recipe, ref_label, ref_no, is_pick=False, reason=N
         if path.start_breaks or not path.recipes:
             failed.append(name)
             continue
-        paths.append(path)
+        paths.append(_refined(opt, path, recipe, points))
     recipes = [r for p in paths for r in p.recipes]
     X = [opt._encode(r) for r in recipes]
     # One posterior call per display model over every column's points.
@@ -4881,7 +4866,8 @@ def profile_data(opt, fitted, recipe, ref_label, ref_no, is_pick=False, reason=N
             None if gain is None else gain[k:k + n], near, rings, lo, hi,
             limit_end(opt, path.name, path.start_amount)))
         k += n
-    columns.sort(key=lambda c: (-c.near_effect, -c.effect))
+    # Review critique (fix 4): Set up's order (ranking by the swing over
+    # each column's own stretch favoured the columns with the most room).
     rows = [insights.SCORE] + [o['name'] for o in opt.measurements_by_importance()
                                if o['name'] in allp]
     if insights.SCORE not in allp:
@@ -4890,6 +4876,27 @@ def profile_data(opt, fitted, recipe, ref_label, ref_no, is_pick=False, reason=N
                    reason if gain is not None else (reason or wording.CHOOSES_REASON_COLD),
                    opt.balance_row_name(), [v['name'] for v in opt.fixed_variables()], failed,
                    gain_drawn=gain is not None)
+
+
+def _refined(opt, path, start, points=PROFILE_POINTS):
+    """Review critique (fix 4): `path` with `points` evenly spaced amounts
+    over its reachable stretch (low end to high end) added, so a column
+    zoomed to that stretch draws a curve, not two points."""
+    lo, hi = path.low_end.amount, path.high_end.amount
+    if hi - lo <= 1e-12 or len([t for t in path.amounts if lo <= t <= hi]) >= points:
+        return path
+    extra = [lo + (hi - lo) * k / (points - 1) for k in range(points)]
+    have = dict(zip(path.amounts, path.recipes))
+    amounts, recipes = [], []
+    for t in sorted(set(path.amounts) | set(extra)):
+        r = have.get(t)
+        if r is None:
+            r = insights._recipe_at(opt, path.name, start, path.mode, t)
+        if r is None:
+            continue
+        amounts.append(t)
+        recipes.append(r)
+    return dataclasses.replace(path, amounts=amounts, recipes=recipes)
 
 
 def gain_greyable(reason):
@@ -4985,7 +4992,10 @@ def _profile_row_frame(opt, cols, kind, name, labels, texts):
         for lo, hi in insights.untested_runs(path, c.near):
             recs.append({"col": col, "mark": "grey", "x": lo, "x2": hi, "region": untested_name})
         recs.append({"col": col, "mark": "ref", "x": path.start_amount, "role": ref_name})
-        recs += [{"col": col, "mark": "ends", "x": e} for e in (c.lo, c.hi)]
+        # Review critique (fix 4): each column's x zoomed to its reachable
+        # stretch (where its line runs), not the row's whole Lowest–Highest.
+        recs += [{"col": col, "mark": "ends", "x": e}
+                 for e in (min(path.amounts), max(path.amounts))]
         if target is not None:
             recs.append({"col": col, "mark": "target", "target": target, "role": target_name})
         if kind == "score" and c.end is not None:
@@ -4998,7 +5008,7 @@ def _profile_row_frame(opt, cols, kind, name, labels, texts):
                 if e.reason:
                     recs.append({"col": col, "mark": "stop", "x": e.amount,
                                  "note": wording.PROFILER_STOPPED, "why": e.reason,
-                                 "align": "left" if side == "Highest" else "right"})
+                                 "side": side})
         if kind == "score":
             recs += [{"col": col, "mark": "ring", "x": a, "score": round(sc, 2),
                       "no": int(opt.formulation_ids[i]), "what": tested_name,
@@ -5172,12 +5182,18 @@ def _profile_block(opt, profile, cols, names, gain, n_all):
         if (df["mark"] == "stop").any():
             stop_c, stop_o = mark("neutral")
             stop_tip = [alt.Tooltip("why:N", title=_say(opt, wording.PROFILER_STOPPED))]
-            layers += [base.mark_rule(strokeDash=[2, 2], color=stop_c, opacity=stop_o)
-                       .encode(x=x, tooltip=stop_tip).transform_filter(_only("stop")),
-                       base.mark_text(fontSize=FONT_SMALL, color=muted(), baseline="bottom",
-                                      dy=-2, dx=-3, align="right")
-                       .encode(x=x, y=alt.value(_PANEL_H[kind]), text="note:N", tooltip=stop_tip)
-                       .transform_filter(_only("stop"))]
+            # Review critique (fix 4): each "limit" written inside its own
+            # edge (the Lowest's to the right of it, the Highest's to the
+            # left), so the two never overlap.
+            layers.append(base.mark_rule(strokeDash=[2, 2], color=stop_c, opacity=stop_o)
+                          .encode(x=x, tooltip=stop_tip).transform_filter(_only("stop")))
+            for side, align, dx in (("Highest", "right", -3), ("Lowest", "left", 3)):
+                layers.append(base.mark_text(fontSize=FONT_SMALL, color=muted(), baseline="bottom",
+                                             dy=-2, dx=dx, align=align)
+                              .encode(x=x, y=alt.value(_PANEL_H[kind]), text="note:N",
+                                      tooltip=stop_tip)
+                              .transform_filter(_only("stop"))
+                              .transform_filter(alt.FieldEqualPredicate(field="side", equal=side)))
         # Each column named once, above the top row (a header under the
         # bottom row's tick labels overlapped them in Streamlit's renderer).
         header = (alt.Header(labelOrient="top", labelFontSize=FONT_LABEL, labelLimit=pw + 8,
@@ -5334,7 +5350,7 @@ def _profiler(opt, computed):
             # Review four: the guard's long line goes in the "?" (captions
             # at most 8 words); the columns keep Set up's order.
             how = f"{path_guard_line(guard)}\n\n{how}"
-        st.caption(_say(opt, caption), help=_say(opt, how))
+        st.caption(_say(opt, caption), help=_say(opt, wording.brief(how)))
         if profile.fill:
             st.caption(_say(opt, wording.profiler_fill_note(profile.fill)))
         if profile.greyed:
@@ -5525,9 +5541,19 @@ def capped(value, top, d=1):
 
 
 def capped_range(p, top, d=1):
-    """'13.5 (11.1–≥ 15)'; ' to ' when a bound is negative."""
-    sep = " to " if p.low < 0 or p.high < 0 else "–"
-    return f"{capped(p.mean, top, d)} ({capped(p.low, top, d)}{sep}{capped(p.high, top, d)})"
+    """Review critique (fix 12): a forecast and its 95 % range that never
+    reads a top below its point: '13.5 (11.1–15)'; at the top, the point
+    capped as before and the range ending at the highest possible value:
+    '≥ 99 (93.4–100)' (it read '99.5 (93.4–≥ 99)'). `p` a Prediction or a
+    Check. ' to ' when a bound is negative."""
+    mean = getattr(p, "mean", None)
+    mean = getattr(p, "predicted", 0.0) if mean is None else mean
+    low, high = float(p.low), float(p.high)
+    sep = " to " if low < 0 or high < 0 else "–"
+    top_text = f"{top:g}" if float(top).is_integer() else f"{top:.{d}f}"
+    hi_text = top_text if high >= top - 1e-9 or float(f"{high:.{d}f}") >= top else f"{high:.{d}f}"
+    lo_text = f"{min(low, top):.{d}f}"
+    return f"{capped(min(mean, top), top, d)} ({lo_text}{sep}{hi_text})"
 
 
 def wilson(right, n, z=insights.Z95):
@@ -5540,35 +5566,53 @@ def wilson(right, n, z=insights.Z95):
     return 100 * max(0.0, centre - half), 100 * min(1.0, centre + half)
 
 
-_VERDICT_OPACITY = {learned.PREDICTABLE: 1.0, learned.PARTLY: 0.6, learned.NOT_YET: 0.35}
+_PARTLY_BLUE = {"light": "#8fb3dc", "dark": "#4f7fb4"}
+_CHANCE_GREY = {"light": "#dfe2e7", "dark": "#3a404a"}
+
+
+def learned_rows(opt, lf):
+    """The ordering chart's rows: per result its share right, its chance
+    range from the same permutation null its verdict uses (learned.Ordering
+    .chance_share), its verdict; a result with fewer than learned.MIN_PAIRS
+    counted pairs is 'too few pairs', with no dot and no range."""
+    rows = []
+    for name, o in lf.orderings.items():
+        if not o.pairs and not o.ties and not o.close:
+            continue
+        label = f"{learned_label(opt, name)} ({o.right}/{o.pairs})"
+        few = o.pairs < learned.MIN_PAIRS
+        lo, hi = (None, None) if few else o.chance_share()
+        rows.append({"name": label, "pct": None if few else 100 * o.right / o.pairs,
+                     "lo": None if lo is None else 100 * lo,
+                     "hi": None if hi is None else 100 * hi,
+                     "verdict": wording.LEARNED_WORDS[o.verdict], "few": few,
+                     "n": f"{o.right}/{o.pairs}", "p": o.p,
+                     "chance": _say(opt, wording.LEARNED_KEY_CHANCE)})
+    return rows
 
 
 def learned_chart(opt, lf):
-    """Dot-and-bar per result: the share of within-Round pairs ordered right
-    (dot) with its 95 % interval (bar) against the 50 % chance line, n at
-    the right. Predictable reads solid blue, Partly lighter, Not yet grey."""
-    rows = []
-    for name, o in lf.orderings.items():
-        if not o.pairs:
-            continue
-        lo, hi = wilson(o.right, o.pairs)
-        rows.append({"name": f"{learned_label(opt, name)} ({o.right}/{o.pairs})",
-                     "pct": 100 * o.right / o.pairs,
-                     "lo": lo, "hi": hi, "verdict": wording.LEARNED_WORDS[o.verdict],
-                     "n": f"{o.right}/{o.pairs}",
-                     "op": _VERDICT_OPACITY[o.verdict]})
+    """Review critique (fix 3): per result, the share of within-Round pairs
+    ordered right (dot) against the range chance gives (grey bar: the exact
+    within-Round permutation null, the very test the verdict uses, so the
+    dot sits past the bar exactly when the result is Predictable). Fewer
+    than MIN_PAIRS pairs: grey 'too few pairs', no dot. A legend names the
+    colours."""
+    rows = learned_rows(opt, lf)
     if not rows:
         return None
     frame = pd.DataFrame(rows)
     order = list(frame["name"])
     blue, grey = model_blue(), muted()
-    colour = alt.Color("verdict:N", scale=alt.Scale(
-        domain=[wording.LEARNED_WORDS[k] for k in (learned.PREDICTABLE, learned.PARTLY,
-                                                   learned.NOT_YET)],
-        range=[blue, blue, grey]), legend=None)
+    words = [wording.LEARNED_WORDS[k] for k in (learned.PREDICTABLE, learned.PARTLY,
+                                                learned.NOT_YET)]
+    chance = _say(opt, wording.LEARNED_KEY_CHANCE)
+    colour = alt.Scale(domain=words + [chance],
+                       range=[blue, _PARTLY_BLUE[theme()], mark("neutral")[0],
+                              _CHANCE_GREY[theme()]])
+    legend = alt.Legend(title=None, orient="bottom", labelLimit=0, symbolSize=90)
     y = alt.Y("name:N", sort=order, title=None, axis=alt.Axis(labelLimit=260, ticks=False,
                                                                  domain=False))
-    # Review readable: 8 px of room past 0 and 100, so a dot at 100 % is drawn whole.
     x = alt.X("pct:Q", title=_say(opt, wording.LEARNED_CHART_X),
               scale=alt.Scale(domain=[0, 100], padding=8),
               axis=alt.Axis(values=[0, 25, 50, 75, 100]))
@@ -5576,19 +5620,25 @@ def learned_chart(opt, lf):
            alt.Tooltip("verdict:N", title=_say(opt, wording.LEARNED_COL_VERDICT)),
            alt.Tooltip("n:N", title=_say(opt, wording.LEARNED_COL_PAIRS)),
            alt.Tooltip("pct:Q", format=".0f", title="%")]
-    base = alt.Chart(frame)
-    chance = alt.Chart(pd.DataFrame({"x": [50]})).mark_rule(
-        strokeDash=[4, 3], color=grey).encode(x="x:Q")
-    chance_text = alt.Chart(pd.DataFrame({"x": [50], "t": [_say(opt, wording.LEARNED_CHANCE)]})
-                            ).mark_text(dy=-6, dx=3, align="left", baseline="bottom",
-                                        color=grey, fontSize=FONT_LABEL).encode(
-        x="x:Q", y=alt.value(0), text="t:N")
-    bars = base.mark_rule(strokeWidth=4, strokeCap="round").encode(
-        y=y, x="lo:Q", x2="hi:Q", color=colour, opacity=alt.Opacity("op:Q", legend=None),
-        tooltip=tip)
-    dots = base.mark_point(filled=True, size=110).encode(
-        y=y, x=x, color=colour, opacity=alt.value(1.0), tooltip=tip)
-    return readable((chance + chance_text + bars + dots).properties(
+    counted = frame[~frame["few"]]
+    few = frame[frame["few"]].assign(x=50.0, t=_say(opt, wording.LEARNED_TOO_FEW))
+    layers = []
+    if not counted.empty:
+        base = alt.Chart(counted)
+        layers += [base.mark_bar(height=14, cornerRadius=3).encode(
+                       y=y, x=alt.X("lo:Q", scale=alt.Scale(domain=[0, 100], padding=8)),
+                       x2="hi:Q", color=alt.Color("chance:N", scale=colour, legend=legend)),
+                   base.mark_point(filled=True, size=120, opacity=1).encode(
+                       y=y, x=x, color=alt.Color("verdict:N", scale=colour, legend=legend),
+                       tooltip=tip)]
+    if not few.empty:
+        layers.append(alt.Chart(few).mark_text(color=grey, fontSize=FONT_LABEL,
+                                               fontStyle="italic").encode(
+            y=y, x=alt.X("x:Q", scale=alt.Scale(domain=[0, 100], padding=8),
+                         title=_say(opt, wording.LEARNED_CHART_X),
+                         axis=alt.Axis(values=[0, 25, 50, 75, 100])),
+            text="t:N"))
+    return readable(alt.layer(*layers).properties(
         width=_LEARNED_W, height=alt.Step(LEARNED_ROW_H)))
 
 
@@ -5656,33 +5706,34 @@ def called_line(opt, lf):
     inside = sum(1 for c in cks if c.low <= c.measured <= c.high)
     above = sum(1 for c in cks if c.measured > c.high)
     below = sum(1 for c in cks if c.measured < c.low)
+    # Review critique: measured ties are counted aloud too ("1 tie").
     order = wording.check_order(call.right, call.counted, call.close,
-                                tied=bool(cks) and learned.all_tied(cks) and len(cks) > 1)
+                                tied=bool(cks) and learned.all_tied(cks) and len(cks) > 1,
+                                ties=call.ties)
     subject = None if name == insights.SCORE else learned_label(opt, name)
     return _short(opt, wording.check_line(r, inside, above, below, order, subject))
 
 
 def round_predicted_frame(opt, checks, r):
-    """Results' Round view (persona fixes): per formulation of Round `r`,
-    the Overall score and each measurement Predictable before that Round
-    (as Called it? picks them), Measured beside Predicted — the Round-ahead
-    forecast and its 95 % range. None when nothing was checked."""
+    """Results' Round view: per formulation of Round `r`, the Overall score
+    and (review critique, fix 11) every measurement, Measured beside
+    Predicted — the Round-ahead forecast and its 95 % range — and where it
+    landed: In, Above or Below that range. None when nothing was checked."""
     if not checks or r not in insights._ordered_rounds(checks):
         return None
-    earlier = learned.before(checks, r)
-    picked = [n for n, o in learned.orderings(opt, earlier, learned.pair_noise(opt, checks)).items()
-              if n != insights.SCORE and o.verdict == learned.PREDICTABLE]
     rows = []
-    for name in [insights.SCORE] + picked:
+    for name in learned.names(opt):
         _, hi = insights._range_of(opt, name)
         d = 1 if name == insights.SCORE else max(1, decimals(opt, name))
         for c in learned.round_checks(checks, name, r):
+            side = ("above" if c.measured > c.high + 1e-9 else
+                    "below" if c.measured < c.low - 1e-9 else "in")
             rows.append({
                 _say(opt, wording.RESULTS_RESULT_COLUMN): learned_label(opt, name),
                 _say(opt, wording.FORMULATION_CAP): int(c.formulation),
                 _say(opt, wording.MEASURED_COLUMN): f"{c.measured:.{d}f}",
-                _say(opt, wording.RESULTS_PREDICTED_COLUMN):
-                    f"{capped(c.predicted, hi, d)} ({capped(c.low, hi, d)}–{capped(c.high, hi, d)})"})
+                _say(opt, wording.RESULTS_PREDICTED_COLUMN): capped_range(c, hi, d),
+                _say(opt, wording.RESULTS_LANDED_COLUMN): _say(opt, wording.RESULTS_LANDED[side])})
     return pd.DataFrame(rows) if rows else None
 
 
@@ -5704,206 +5755,145 @@ def called_so_far(opt, lf):
 
 
 def called_detail(opt, lf):
-    """The Forecast check's "?": per result its order line (the pairs that
-    count; too close to call said plainly), its pairs (a ✓ or ✗ each, or
-    "too close"), the forecast values and 95 % ranges, the Overall score's
-    misses on either side; the panels left out (all measured the same);
-    the noise each claim had to reach; then the rule."""
-    out = []
+    """The Forecast check's "?" (review critique: about 120 words, plain
+    first): the chart's rule, each result's order line, the tasting noise
+    each claim had to reach (assumed, said), the experts' pairs last."""
+    lines, pairs = [], []
     for name, call, cks in lf.items:
         label = learned_label(opt, name)
         if learned.all_tied(cks):
-            out.append(wording.called_tied(label))
+            lines.append(wording.called_tied(label))
             continue
         line = wording.check_measure_line(label, call.right, call.counted, call.close,
                                           learned.order_held(call))
         if name == insights.SCORE and sum(lf.landing):
             line = line.rstrip(".") + "; " + wording.called_range(*lf.landing)
+        lines.append(line)
         bits = [wording.check_pair_close(p.high, p.low) if p.close
                 else wording.called_pair(p.high, p.low, p.right) for p in call.pairs]
         top = ("" if _is_target(opt, name)
                else wording.called_top(call.top_predicted, call.top_measured, call.top_right))
         if top:
             bits.append(top)
-        _, hi = insights._range_of(opt, name)
-        cells = [f"F{c.formulation} {capped(c.predicted, hi)} ({capped(c.low, hi)}–"
-                 f"{capped(c.high, hi)})" for c in cks]
-        out.append("  \n".join(t for t in (line, " · ".join(bits),
-                                             wording.called_ranges(cells)) if t))
+        if bits:
+            pairs.append(f"{label}: " + " · ".join(bits))
     noise = [(learned_label(opt, n), f"{lf.noise[n]:.1f}") for n, _, _ in lf.items
              if lf.noise.get(n)]
     try:
         assumed = learned.overall_noise(opt)[1]
     except Exception:
         assumed = True
-    out.append(wording.check_noise(noise, assumed))
-    out.append(wording.CALLED_RULE)
-    return _short(opt, "\n\n".join(t for t in out if t))
+    k = len(learned.scored_measurements(opt)) if any(n != insights.SCORE for n, _, _ in lf.items) \
+        else None
+    out = [wording.CALLED_RULE, " ".join(lines), wording.check_noise(noise, assumed, k)]
+    if pairs:
+        out.append(wording.for_experts("; ".join(pairs) + "."))
+    return _short(opt, wording.brief("\n\n".join(t for t in out if t)))
 
 
-# Review readable: a slopegraph's y runs over _SLOPE_Y (data units) in
-# CALLED_H px; two end labels (12 px text) sit at least 17 px apart, so
-# near-equal values (13.5 and 13.4) never overlap.
-_SLOPE_Y = (-0.16, 1.34)
-_SLOPE_HEADS = 1.27         # the Forecast / Measured heads
-_SLOPE_GAP = 17 * (_SLOPE_Y[1] - _SLOPE_Y[0]) / CALLED_H
-_SLOPE_LABELS = (-0.08, 1.08)   # where end labels may sit (under the heads)
-
-
-def _spread(ys, gap=_SLOPE_GAP, lo=_SLOPE_LABELS[0], hi=_SLOPE_LABELS[1]):
-    """Label heights for points at `ys` (0–1), in the same order, at least
-    `gap` apart: labels closer than that are moved apart as a block centred
-    on their points' mean (so neither label drifts far), kept within
-    [lo, hi]. The points themselves stay put."""
-    order = sorted(range(len(ys)), key=lambda k: ys[k])
-    blocks = []                    # [members, centre]
-
-    def centre(members):
-        half = (len(members) - 1) * gap / 2
-        mean = sum(ys[k] for k in members) / len(members)
-        return min(max(mean, lo + half), hi - half) if hi - lo >= 2 * half else (lo + hi) / 2
-
-    for k in order:
-        blocks.append([[k], centre([k])])
-        while len(blocks) > 1:
-            (a, ca), (b, cb) = blocks[-2], blocks[-1]
-            if (cb - (len(b) - 1) * gap / 2) - (ca + (len(a) - 1) * gap / 2) >= gap - 1e-12:
-                break
-            members = a + b
-            blocks[-2:] = [[members, centre(members)]]
-    out = list(ys)
-    for members, c in blocks:
-        for i, k in enumerate(members):
-            out[k] = c + (i - (len(members) - 1) / 2) * gap
-    return out
-
-
-def _side(values):
-    """Each value's height on its own side, 0 (lowest) to 1 (highest); all
-    equal: 0.5."""
-    lo, hi = min(values), max(values)
-    return [0.5 if hi <= lo else (v - lo) / (hi - lo) for v in values]
-
-
-def slope_frames(opt, name, call, cks):
-    """(lines, labels) for one slopegraph: a row per formulation per side
-    (x 0: forecast, 1: measured) with its height and whether its line
-    crossed another (in a pair measured apart against the forecast); one
-    label per distinct point per side, equal values sharing it."""
+def check_frame(opt, name, cks):
+    """Review critique (fix 1): one Forecast check panel's rows, one per
+    formulation, highest forecast first (row order is the forecast order):
+    its forecast, 95 % range and measured value on the result's own values
+    (one shared axis), and where the measured value landed — "in", "above"
+    or "below" its range."""
     _, top = insights._range_of(opt, name)
     d = 1 if name == insights.SCORE else max(1, decimals(opt, name))
-    crossed, counted, close = set(), set(), set()
-    for p in call.pairs:
-        if p.right is False:
-            crossed |= {p.high, p.low}
-        if p.right is not None:
-            counted |= {p.high, p.low}
-        if p.close:
-            close |= {p.high, p.low}
-    # Persona fixes 2: a formulation in no pair that counts, only in pairs
-    # too close to call, is drawn faint.
-    faint = close - counted
-    rank = {c.formulation: learned._rank_value(c) for c in cks}
-    rows, labels = [], []
-    for x, values, shown in ((0, [rank[c.formulation] for c in cks],
-                              [capped(c.predicted, top, d) for c in cks]),
-                             (1, [c.measured for c in cks],
-                              [f"{c.measured:.{d}f}" for c in cks])):
-        ys = _side(values)
-        for c, y in zip(cks, ys):
-            rows.append({"f": int(c.formulation), "x": x, "y": y,
-                         "crossed": c.formulation in crossed,
-                         "state": ("crossed" if c.formulation in crossed else
-                                   "close" if c.formulation in faint else "kept"),
-                         "op": 0.3 if c.formulation in faint and c.formulation not in crossed
-                         else 1.0,
-                         "value": shown[cks.index(c)]})
-        groups = {}
-        for c, y, v in zip(cks, ys, shown):
-            groups.setdefault(round(y, 9), []).append((c.formulation, v))
-        keys = sorted(groups)
-        lab_y = _spread(keys)
-        for k, ly in zip(keys, lab_y):
-            nos = ", ".join(_short(opt, f"F{n}") for n, _ in sorted(groups[k]))
-            v = groups[k][0][1]
-            # "dot": the point's own height; lx–lx2 a short leader's span.
-            labels.append({"x": x, "y": ly, "dot": k,
-                           "faint": all(n in faint for n, _ in groups[k]),
-                           "lx": x - 0.04 if x == 0 else x + 0.04,
-                           "lx2": x - 0.1 if x == 0 else x + 0.1,
-                           "text": f"{nos}  {v}" if x == 0 else f"{v}  {nos}"})
-    return pd.DataFrame(rows), pd.DataFrame(labels)
+    ranked = sorted(cks, key=lambda c: (-learned._rank_value(c), c.formulation))
+    rows = []
+    for k, c in enumerate(ranked):
+        side = ("above" if c.measured > c.high + 1e-9 else
+                "below" if c.measured < c.low - 1e-9 else "in")
+        rows.append({"f": _short(opt, f"F{int(c.formulation)}"), "k": k,
+                     "predicted": float(min(c.predicted, top)), "low": float(c.low),
+                     "high": float(c.high), "measured": float(c.measured), "side": side,
+                     "miss": "" if side == "in" else _say(opt, wording.CHECK_SIDE[side]),
+                     "range": capped_range(c, top, d),
+                     "value": f"{c.measured:.{d}f}"})
+    return pd.DataFrame(rows)
+
+
+def _check_domain(frame, lo_bound, hi_bound):
+    """A panel's x domain: its ranges and measured values, padded, room
+    for an "above" / "below" label on the side a miss sits, within the
+    result's own possible values."""
+    vals = list(frame["low"]) + list(frame["high"]) + list(frame["measured"])
+    lo, hi = min(vals), max(vals)
+    span = max(hi - lo, 1e-6)
+    left = lo - 0.06 * span - (0.28 * span if (frame["side"] == "below").any() else 0)
+    right = hi + 0.06 * span + (0.28 * span if (frame["side"] == "above").any() else 0)
+    return [max(left, lo_bound - 0.02 * span), min(right, hi_bound + 0.3 * span)]
+
+
+_CHECK_BAND = {"light": "#c9dbef", "dark": "#2c4a6e"}   # the forecast range, light
 
 
 def called_chart(opt, lf):
-    """Called it?'s slopegraphs side by side, at most 1 + CALLED_PANELS,
-    each about CALLED_W px: per result, a line per formulation from its
-    forecast (left) to its measured value (right), each side on its own
-    scale, values printed at the ends; grey where the order held, ink and
-    dashed where it crossed. A result measured all the same is left out
-    (said in the "?"). None with nothing to draw."""
+    """The Forecast check (review critique, fix 1: the own-scale
+    slopegraphs read as ranks, not values): per result drawn — the Overall
+    score, then the measurements Predictable before the Round — one row per
+    formulation, highest forecast first, on one shared axis: the forecast's
+    95 % range a light bar, the forecast a tick, the measured value a dot,
+    a miss (outside its range, either side) in the one accent colour and
+    labelled "above" or "below". None with nothing to draw."""
     drawn = learned.shown(lf.items)
     if not drawn:
         return None
-    # Kept order: the neutral grey (3:1); crossed: ink, dashed (no red).
-    grey, ink = mark("neutral")[0], mark("bar_latest")[0]
-    panels = []
-    # Review readable: one panel alone still MIN_CHART_W wide.
+    ink, _ = mark("bar_latest")
+    blue, band = model_blue(), _CHECK_BAND[theme()]
+    accent = outline_colour()
+    names = [_say(opt, t) for t in (wording.CHECK_KEY_RANGE, wording.CHECK_KEY_FORECAST,
+                                     wording.CHECK_KEY_IN, wording.CHECK_KEY_OUT)]
+    colour = alt.Scale(domain=names, range=[band, blue, ink, accent])
+    legend = alt.Legend(title=None, orient="bottom", labelLimit=0, symbolSize=90)
     width = max(CALLED_W, (MIN_CHART_W - _CALLED_SPACING * (len(drawn) - 1)) // len(drawn))
+    panels = []
     for name, call, cks in drawn:
-        lines, labels = slope_frames(opt, name, call, cks)
-        # Review readable: about 85 px each side for the end labels at 12 px.
-        xs = alt.Scale(domain=[-1.3, 2.3], nice=False)
-        ys = alt.Scale(domain=list(_SLOPE_Y), nice=False)
-        x, y = alt.X("x:Q", axis=None, scale=xs), alt.Y("y:Q", axis=None, scale=ys)
-        # Persona fixes 2: too close to call drawn faint (grey, light).
-        states = ["kept", "crossed", "close"]
-        colour = alt.Color("state:N", legend=None,
-                           scale=alt.Scale(domain=states, range=[grey, ink, grey]))
-        dash = alt.StrokeDash("state:N", legend=None,
-                              scale=alt.Scale(domain=states, range=[[1, 0], [5, 3], [1, 0]]))
-        # The opacity as given ("op": 1, or 0.3 when too close to call).
-        fade = alt.Opacity("op:Q", legend=None, scale=None)
+        frame = check_frame(opt, name, cks)
+        if frame.empty:
+            continue
+        frame["k_range"], frame["k_fc"] = names[0], names[1]
+        frame["k_dot"] = [names[3] if s != "in" else names[2] for s in frame["side"]]
+        lo_b, hi_b = insights._range_of(opt, name)
+        xs = alt.Scale(domain=_check_domain(frame, lo_b, hi_b), nice=False, zero=False)
+        rows = list(frame["f"])
+        y = alt.Y("f:N", sort=rows, title=None,
+                  axis=alt.Axis(ticks=False, domain=False, labelFontSize=FONT_LABEL,
+                                labelPadding=6))
+        x = alt.X("measured:Q", scale=xs, title=None,
+                  axis=alt.Axis(tickCount=4, grid=True, labelFontSize=FONT_SMALL,
+                                labelColor=muted()))
         tip = [alt.Tooltip("f:N", title=_say(opt, wording.FORMULATION_CAP)),
+               alt.Tooltip("range:N", title=_say(opt, wording.CHECK_TIP_FORECAST)),
                alt.Tooltip("value:N", title=_say(opt, wording.CALLED_TIP_MEASURED))]
-        base = alt.Chart(lines)
-        line = base.mark_line(strokeWidth=2).encode(x=x, y=y, detail="f:N", color=colour,
-                                                    strokeDash=dash, opacity=fade)
-        dots = base.mark_point(filled=True, size=46).encode(
-            x=x, y=y, color=colour, opacity=fade, tooltip=tip)
-        lab = alt.Chart(labels)
-        # Review readable: a short leader from each dot to its label when
-        # the label was moved apart from a near-equal one.
-        lead = labels[(labels["y"] - labels["dot"]).abs() > 1e-9]
-        leaders = alt.Chart(lead).mark_rule(color=grey, strokeWidth=1, tooltip=False).encode(
-            x=alt.X("lx:Q", scale=xs, axis=None), x2="lx2:Q",
-            y=alt.Y("dot:Q", scale=ys, axis=None), y2="y:Q")
-        text_colour = alt.condition("datum.faint", alt.value(grey), alt.value(ink))
-        left = lab.transform_filter("datum.x == 0").mark_text(
-            align="right", dx=-9, fontSize=FONT_LABEL).encode(x=x, y=y, text="text:N",
-                                                              color=text_colour)
-        right = lab.transform_filter("datum.x == 1").mark_text(
-            align="left", dx=9, fontSize=FONT_LABEL).encode(x=x, y=y, text="text:N",
-                                                            color=text_colour)
-        # Persona fixes: "Forecast order" / "Measured order", each set off
-        # from the middle so the two never meet at 11 px.
-        head_frame = pd.DataFrame({
-            "x": [0.35, 0.65], "y": [_SLOPE_HEADS, _SLOPE_HEADS],
-            "t": [_say(opt, wording.CALLED_HEAD_FORECAST), _say(opt, wording.CALLED_HEAD_MEASURED)]})
-        heads_l = alt.Chart(head_frame).transform_filter("datum.x < 0.5").mark_text(
-            fontSize=FONT_SMALL, color=muted(), align="right").encode(x=x, y=y, text="t:N")
-        heads_r = alt.Chart(head_frame).transform_filter("datum.x > 0.5").mark_text(
-            fontSize=FONT_SMALL, color=muted(), align="left").encode(x=x, y=y, text="t:N")
-        layers = [line, dots, left, right, heads_l, heads_r] + ([leaders] if len(lead) else [])
-        panels.append(alt.layer(*layers).properties(
-            width=width, height=CALLED_H,
-            title=alt.TitleParams(
-                _say(opt, learned_label(opt, name)), fontSize=FONT_TITLE, anchor="middle",
-                fontWeight="bold", offset=4,
-                # Persona fixes 2: nothing to claim, said plainly.
-                **({"subtitle": _say(opt, wording.CHECK_TOO_CLOSE), "subtitleFontSize": FONT_SMALL,
-                    "subtitleColor": muted()} if not call.counted else {}))))
-    return readable(alt.hconcat(*panels, spacing=_CALLED_SPACING).configure_view(stroke=None))
+        base = alt.Chart(frame)
+        bars = base.mark_bar(height=12, cornerRadius=3).encode(
+            x=alt.X("low:Q", scale=xs, title=None), x2="high:Q", y=y,
+            color=alt.Color("k_range:N", scale=colour, legend=legend), tooltip=tip)
+        ticks = base.mark_tick(thickness=2.5, size=18, orient="vertical").encode(
+            x=alt.X("predicted:Q", scale=xs, title=None), y=y,
+            color=alt.Color("k_fc:N", scale=colour, legend=legend), tooltip=tip)
+        dots = base.mark_point(filled=True, size=90, opacity=1, stroke="white",
+                               strokeWidth=1).encode(
+            x=x, y=y, color=alt.Color("k_dot:N", scale=colour, legend=legend), tooltip=tip)
+        above = base.transform_filter("datum.side == 'above'").mark_text(
+            align="left", dx=9, fontSize=FONT_LABEL, fontWeight="bold", color=accent).encode(
+            x=alt.X("measured:Q", scale=xs, title=None), y=y, text="miss:N")
+        below = base.transform_filter("datum.side == 'below'").mark_text(
+            align="right", dx=-9, fontSize=FONT_LABEL, fontWeight="bold", color=accent).encode(
+            x=alt.X("measured:Q", scale=xs, title=None), y=y, text="miss:N")
+        title = {"text": _say(opt, learned_label(opt, name)), "fontSize": FONT_TITLE,
+                 "anchor": "start", "fontWeight": "bold", "offset": 6}
+        if not call.counted:
+            title.update(subtitle=_say(opt, wording.CHECK_TOO_CLOSE), subtitleFontSize=FONT_SMALL,
+                         subtitleColor=muted())
+        panels.append(alt.layer(bars, ticks, dots, above, below).properties(
+            width=width, height=alt.Step(30), title=alt.TitleParams(**title)))
+    if not panels:
+        return None
+    return readable(alt.hconcat(*panels, spacing=_CALLED_SPACING)
+                    .resolve_scale(color="shared", x="independent")
+                    .configure_view(stroke=None))
 
 
 _CALLED_SPACING = 16
@@ -5954,12 +5944,11 @@ def _learned_section(opt, slot, computed, facts):
     predictable = lf.model_names(opt, learned.PREDICTABLE)
     partly = lf.model_names(opt, learned.PARTLY)
     not_yet = lf.model_names(opt, learned.NOT_YET)
-    named = [(learned_label(opt, n), o) for n, o in lf.orderings.items()]
-    help_ = wording.learned_help(
-        wording.LEARNED_RULE, _expert_lines(lf),
-        "\n\n".join(t for t in (getattr(lf, "plain_line", ""), wording.learned_counts(
-            [(n, o.right, o.pairs, o.chance) for n, o in named])) if t),
-        wording.learned_tops([(n, o.top_right, o.top_rounds, o.top_chance) for n, o in named]))
+    # Review critique (fix 3, 13): plain first — the rule and the
+    # multiplicity — then the terms of art; the counts are on the chart.
+    help_ = wording.brief("\n\n".join((
+        wording.LEARNED_RULE, wording.learned_multiplicity(len(lf.orderings)),
+        wording.for_experts(wording.LEARNED_EXPERT))))
     with slot.answer.container():
         st.markdown(_say(opt, wording.learned_answer(predictable, partly, not_yet)),
                     help=_say(opt, help_))
@@ -6021,8 +6010,10 @@ def learned_card(opt, lf, card, facts=None):
         if tip:
             expert += " " + " ".join(tip.split("\n\n"))
     help_ += "\n\n" + expert
+    # Review critique (fix 13): about 120 words, plain first, experts last
+    # (it ran to about 450); the rest is in Method and definitions.
     return Card(_say(opt, word), warns + [(_say(opt, line), False)] + rest, None,
-                _say(opt, help_))
+                _say(opt, wording.brief(help_)))
 
 
 def _how_learned(opt, computed):
@@ -6076,6 +6067,11 @@ def round_forecast_lines(opt, checks, rows=None):
             if name == insights.SCORE:
                 # Widened as that Round's check will be (the Round table's range).
                 p = insights.widened(score_fit, p, factor)
+            else:
+                # Review critique (fix 10): by the measurement's own record.
+                lo_r, hi_r = insights._range_of(opt, name)
+                p = insights.widened(types.SimpleNamespace(low=lo_r, high=hi_r), p,
+                                     insights.measure_widen(checks, name, opt.pending_batch_no))
             cells.append(f"F{no} {capped_range(p, top)}")
             means[no] = p.raw_mean if p.raw_mean is not None else p.mean
         label = learned_label(opt, name)
@@ -6346,6 +6342,9 @@ def _progress_body(opt, slot):
                 chart = None
             if chart is not None:
                 st.markdown(f"**{_say(opt, wording.STORY_TARGET_TITLE)}**")
+                answer = target_answer(opt)
+                if answer:
+                    st.markdown(answer)
                 show_chart(chart)
                 s, b = story_start(opt), opt.best_index()
                 st.caption(_say(opt, wording.STORY_TARGET_CAPTION),
@@ -6368,6 +6367,8 @@ def _drives_section(opt, slot, computed, facts):
     no Repeats are too thin for any effect claim): the headline is a
     reading guide, never a finding; its "?" says why no effect is named.
     driver_finding and learned.effects stay, tested, unused here."""
+    if not getattr(slot, "open", True):
+        return      # worked out only while its fold is open
     with slot.body:
         try:
             got = _profiler(opt, computed)
@@ -6378,6 +6379,10 @@ def _drives_section(opt, slot, computed, facts):
     kind = ("ingredients" if not getattr(profile, "columns", None)
             else _more_kind(opt, [c.name for c in profile.columns]))
     line = wording.profiler_guide(kind)
+    limit = limiting_name(profile)
+    if limit:
+        # Review critique (fix 4): the fold's answer says what bounds the lines.
+        line = wording.answer_line(wording.drives_limited(limit), "")
     ev = wording.PROFILER_NO_CLAIM
     if got is not None:
         cfg = getattr(opt, "bo_config", None) or {}
@@ -6385,7 +6390,26 @@ def _drives_section(opt, slot, computed, facts):
             opt.complete_count(), profile.ref_label, profile.ref_no,
             cfg.get("acquisition", "qlognei"))])
     with slot.answer.container():
-        st.markdown(_say(opt, line), help=_say(opt, ev))
+        st.markdown(_say(opt, line), help=_say(opt, wording.brief(ev)))
+
+
+def limiting_name(profile):
+    """The limit on several rows that stops most columns' lines (their
+    paths' end reasons), its name as Set up gives it, brackets dropped:
+    'Batch total'; None when no one limit stops more than half of them."""
+    cols = getattr(profile, "columns", None) or []
+    if not cols:
+        return None
+    counts = {}
+    for c in cols:
+        for why in {c.path.low_end.reason, c.path.high_end.reason} - {None}:
+            name = re.sub(r"\s*\(.*?\)", "", str(why).partition(":")[0]).strip()
+            if name and ":" in str(why):
+                counts[name] = counts.get(name, 0) + 1
+    if not counts:
+        return None
+    name, n = max(counts.items(), key=lambda kv: kv[1])
+    return name if n * 2 > len(cols) else None
 
 
 def tried_answer(opt, strips):
@@ -6396,13 +6420,13 @@ def tried_answer(opt, strips):
         g = gaps[0]
         strip = by_name[g.name]
         if g.kind == "between":
-            # Compact: 'Textured soy protein 8.66–10.66 g' keeps the line short.
+            # Review critique (fix 8): 'Tapioca starch between 1.04 and
+            # 1.52 g untested' (the en dash read as a range of a dose).
             d = None if strip.setting else _shared_decimals(_gap_said(g))
-            stretch = wording.gap_span(g.name, _strip_number(opt, strip, g.low, False, d),
+            rest = wording.gap_untested(g.name, _strip_number(opt, strip, g.low, False, d),
                                        _strip_number(opt, strip, g.high, True, d))
         else:
-            stretch = _gap_text(opt, g, strip)
-        rest = wording.q4_gap(stretch)
+            rest = wording.q4_gap(_gap_text(opt, g, strip))
     else:
         rest = wording.Q4_NO_GAP
     return wording.answer_line(wording.q4_word(opt.complete_count()), rest)
@@ -6416,37 +6440,30 @@ def _tried_section(opt, slot):
         strips = insights.tested_strips(opt, pool)
         answer = tried_answer(opt, strips)
         lines = strip_gap_lines(opt, strips) + limit_hit_lines(opt)
+        gaps = [g for g in insights.strip_gaps(opt, strips) if g.kind == "between"]
     except Exception:
-        answer, lines = None, []
+        answer, lines, gaps = None, [], []
     if answer is not None and opt.complete_count():
         ev = wording.evidence([wording.ev_tried(opt.complete_count())])
         with slot.answer.container():
             st.markdown(_say(opt, answer),
-                        help=_say(opt, "\n\n".join([*lines, ev, tooltip_for(opt, "gaps")])))
+                        help=_say(opt, wording.brief("\n\n".join(
+                            [*lines, ev, tooltip_for(opt, "gaps")]))))
     with slot.body:
         settings_only = not opt.has_ingredients()
-        # Review story: the search path by default; the parallel
-        # coordinates on a small toggle, for seeing combinations.
-        as_lines = st.toggle(_say(opt, wording.STORY_SHOW_LINES), key=PATH_SHOW_LINES_KEY,
-                             help=_say(opt, wording.STORY_SHOW_LINES_HELP),
-                             disabled=confirmation_open())
+        # Review critique (fix 5): the search path only ("Show as lines"
+        # and its parallel coordinates cut).
         axes, lines = insights.tried_axes(opt), insights.tried_lines(opt)
         try:
-            chart = (tried_chart(opt, axes, lines) if as_lines
-                     else search_path_chart(opt, axes, lines))
+            chart = search_path_chart(opt, axes, lines, gaps)
         except Exception:
             chart = None
         if chart is None:
             st.caption(_say(opt, wording.TRIED_NOTHING))
             return
-        if as_lines:
-            show_chart(_untitled(chart))
-            st.caption(_say(opt, wording.tried_caption_roles()),
-                       help=_say(opt, wording.tip_tried_roles(settings_only)))
-        else:
-            show_chart(chart, width="content")
-            st.caption(_say(opt, wording.STORY_PATH_CAPTION),
-                       help=_say(opt, wording.story_path_help(settings_only)))
+        show_chart(chart, width="content")
+        st.caption(_say(opt, wording.STORY_PATH_CAPTION),
+                   help=_say(opt, wording.brief(wording.story_path_help(settings_only))))
 
 
 # ------------------------------------------------------------------ #
@@ -6466,7 +6483,6 @@ STORY_Q_HEIGHT = 290         # the forecast chart's plot height (less 30)
 IMPROVING_HEIGHT = 240
 _IMPROVING_LANES = 48        # px above the data for the Best and Start labels
 TARGET_ROW_H = 56            # px per Closer to target row
-PATH_SHOW_LINES_KEY = "insights_path_lines"
 PATH_COLUMNS = 4             # search path panels per row
 _PATH_PANEL_W = 160          # review readable: was 150
 _PATH_ROW_H = 22             # px per Round in a search path panel (was 16: rows touched)
@@ -6555,6 +6571,22 @@ def _halo_text(data, x, y, text, color, **kw):
     return [under, over]
 
 
+def best_steps(opt):
+    """Review critique (fix 7): Best so far as a step that moves only at
+    Round boundaries: [(x from, x to, best through that Round, Round)], each
+    Round spanning its Formulations ± 0.5, from round_averages' Rounds."""
+    pool = set(opt.best_candidates())
+    out, best = [], None
+    for r, a, b, _m, _n in round_averages(opt):
+        mine = [float(opt.Y_history[i]) for i in pool
+                if i < len(opt.batch_history) and opt.batch_history[i] == r]
+        if mine:
+            best = max(mine) if best is None else max(best, max(mine))
+        if best is not None:
+            out.append((a - 0.5, b + 0.5, best, r))
+    return out
+
+
 def improving_chart(opt):
     """Are we improving? (a): each formulation's measured Overall score
     (grey dots), Best so far (an ink step), each Round's average (a short
@@ -6580,11 +6612,17 @@ def improving_chart(opt):
         return None
     nums = story_numbers(opt)
     lo, hi = min(values), max(values)
+    ceiling = float(opt.utility_ceiling())
+    steps = best_steps(opt)
+    noise = leader_noise(opt)
+    # Review critique (fix 7): the top of the score drawn (a rule and its
+    # tick) when it is near the data.
+    show_top = ceiling >= hi and ceiling - hi <= max(hi - lo, 4.0)
     # Review readable: the Start and Best labels sit in two lanes above
     # every mark (_IMPROVING_LANES px), each joined to its point by a thin
     # leader, so neither label lands on a line or a dot.
     bottom = lo - 0.04 * max(hi - lo, 4.0)
-    data_top = hi + 0.03 * max(hi - lo, 4.0)
+    data_top = (ceiling if show_top else hi) + 0.03 * max(hi - lo, 4.0)
     lanes = _IMPROVING_LANES if nums is not None else 0
     top = data_top + (data_top - bottom) * lanes / (IMPROVING_HEIGHT - lanes)
     y_scale = alt.Scale(domain=[bottom, top], nice=False, zero=False)
@@ -6602,7 +6640,6 @@ def improving_chart(opt):
     light, mid = _TRIED_GREYS[theme()]
     # The legend names the two lines; the grey dots are each formulation
     # (their tooltip and the caption's "?" say so).
-    kinds = alt.Scale(domain=[best_name, avg_name], range=[ink, mid])
     legend = alt.Legend(title=None, orient="top", labelLimit=0, symbolType="stroke",
                         symbolStrokeWidth=3)
     no_tip = alt.Tooltip(f"{formulation}:Q", title=_say(opt, wording.FORMULATION_CAP),
@@ -6612,8 +6649,28 @@ def improving_chart(opt):
     step = 5 if span <= 30 else 10 if span <= 60 else 20
     first = math.ceil(bottom / step) * step
     ticks = [first + step * k for k in range(int((data_top - first) // step) + 1)]
+    if show_top and all(abs(t - ceiling) > 1e-9 for t in ticks):
+        ticks.append(ceiling)
     y = alt.Y(f"{score}:Q", title=y_title, scale=y_scale, axis=alt.Axis(values=ticks))
     layers = []
+    band_name = _say(opt, wording.NOISE_BAND if getattr(
+        insights.noise_yardstick(opt), "assumed", True) else wording.NOISE_BAND_MEASURED)
+    kinds = alt.Scale(domain=[best_name, avg_name, band_name],
+                      range=[ink, mid, _BAND_FILL[theme()][0]])
+    if steps:
+        # The ±noise band around the best step, light, under everything.
+        sdf = pd.DataFrame([{"x": x, "lo": v - noise, "hi": v + noise, "v": v, "what": band_name,
+                             best_name: v, "round": wording.round_tick(r)}
+                            for a, b, v, r in steps for x in (a, b)])
+        layers.append(alt.Chart(sdf).mark_area(opacity=0.25, tooltip=False).encode(
+            x=alt.X("x:Q", scale=x_scale), y=alt.Y("lo:Q", scale=y_scale, title=y_title),
+            y2="hi:Q", color=alt.Color("what:N", scale=kinds, legend=legend)))
+    if show_top:
+        tdf = pd.DataFrame([{"y": ceiling, "t": f"{_say(opt, wording.TOP_SCORE_LABEL)} "
+                                                f"{ceiling:g}"}])
+        layers.append(alt.Chart(tdf).mark_rule(color=grey, strokeDash=[2, 3], strokeWidth=1,
+                                               tooltip=False)
+                      .encode(y=alt.Y("y:Q", scale=y_scale, title=y_title)))
     if avgs:
         adf = pd.DataFrame([{"x0": a - 0.4, "x1": b + 0.4, "avg": m, "what": avg_name,
                              "round": wording.round_tick(r), "n": n,
@@ -6632,10 +6689,16 @@ def improving_chart(opt):
         tooltip=[no_tip, alt.Tooltip("round:N", title=_say(opt, wording.ROUND_CAP)),
                  alt.Tooltip(f"{score}:Q", title=score, format=".1f"), bo_tip()])
         .transform_filter(alt.FieldValidPredicate(field=score, valid=True)))
-    layers.append(alt.Chart(frame).mark_line(strokeWidth=2.5, interpolate="step-after").encode(
-        x=x, y=alt.Y(f"{best}:Q", scale=y_scale, title=y_title),
-        color=alt.Color("best_series:N", scale=kinds, legend=legend),
-        tooltip=[no_tip, alt.Tooltip(f"{best}:Q", title=best, format=".1f")]))
+    if steps:
+        # Review critique (fix 7): the best moves only at Round boundaries.
+        bdf = pd.DataFrame([{"x": x, "v": v, "best_series": best_name,
+                             "round": wording.round_tick(r), "text": one_decimal(v)}
+                            for a, b, v, r in steps for x in (a, b)])
+        layers.append(alt.Chart(bdf).mark_line(strokeWidth=2.5).encode(
+            x=alt.X("x:Q", scale=x_scale), y=alt.Y("v:Q", scale=y_scale, title=y_title),
+            color=alt.Color("best_series:N", scale=kinds, legend=legend),
+            tooltip=[alt.Tooltip("round:N", title=_say(opt, wording.ROUND_CAP)),
+                     alt.Tooltip("text:N", title=best)]))
     if nums is not None:
         s, r0, b, rb, bno = nums
         sno = int(opt.formulation_ids[story_start(opt)[0]])
@@ -6706,21 +6769,83 @@ def _share(row, v):
     return 0.5 if span <= 0 else (float(v) - row["low"]) / span
 
 
+ON_TARGET = 0.01        # within this share of its Range: on target
+
+
+def target_move(r):
+    """Review critique (fix 6): how one measurement moved from the start to
+    Best so far against its aim — ("onto" | "stayed" | "closer" | "away" |
+    "level", distance moved toward (+) or away (−) from the target, in the
+    measurement's units); None without both values."""
+    if r["start"] is None or r["best"] is None:
+        return None
+    span = max(r["high"] - r["low"], 1e-9)
+    if r["target"] is not None:
+        d0, d1 = abs(r["start"] - r["target"]), abs(r["best"] - r["target"])
+        on0, on1 = d0 <= ON_TARGET * span, d1 <= ON_TARGET * span
+        if on0 and on1:
+            return "stayed", 0.0
+        if on1:
+            return "onto", d0 - d1
+        gain = d0 - d1
+    else:
+        sign = -1.0 if r["goal"] == "min" else 1.0
+        gain = sign * (r["best"] - r["start"])
+    if abs(gain) <= ON_TARGET * span:
+        return "level", 0.0
+    return ("closer" if gain > 0 else "away"), gain
+
+
+def _move_text(v, span):
+    d = 0 if span >= 100 else 1
+    text = f"{abs(v):.{d}f}"
+    return text[:-2] if text.endswith(".0") else text
+
+
+def target_answer(opt):
+    """The chart's answer line, from the data: '2 moved onto target, 1
+    stayed on target, 1 moved 0.5 away.'; '' with nothing to say."""
+    onto = stayed = level = 0
+    closer, away = [], []
+    for r in target_rows(opt):
+        m = target_move(r)
+        if m is None:
+            continue
+        kind, v = m
+        span = r["high"] - r["low"]
+        if kind == "onto":
+            onto += 1
+        elif kind == "stayed":
+            stayed += 1
+        elif kind == "closer":
+            closer.append(_move_text(v, span))
+        elif kind == "away":
+            away.append(_move_text(v, span))
+        else:
+            level += 1
+    return _say(opt, wording.target_moves(onto, stayed, closer, away, level))
+
+
 def target_chart(opt):
-    """Are we improving? (b), "Closer to target": one row per measurement
-    on its own Range (drawn 0 to 1 across, its ends written): the first
-    Round's best (hollow grey), Best so far (ink) joined by a grey line, the
-    target as a dashed tick, or an arrow at the better end for a 'higher' or
-    'lower' measurement. Model-free. None with nothing to draw."""
+    """Start vs best, against target (review critique, fix 6): one row per
+    measurement on its own Range (0 to 1 across, its ends written): the
+    target the strongest mark, a large ink diamond (an arrow at the better
+    end for a 'higher' or 'lower' measurement); the first Round's best a
+    hollow grey ring, never hidden under the best; Best so far a filled ink
+    dot; the segment between them ink when the best is closer to the aim,
+    grey and labelled "moved away" when farther. Model-free. None with
+    nothing to draw."""
     rows = target_rows(opt)
     if not rows:
         return None
     s, b = story_start(opt), opt.best_index()
     start_name = _say(opt, wording.story_target_start(s[1]))
     best_name = _say(opt, wording.STORY_TARGET_BEST)
+    target_name = _say(opt, wording.TARGET_KEY)
+    closer_name, away_name = (_say(opt, wording.TARGET_KEY_CLOSER),
+                              _say(opt, wording.TARGET_KEY_AWAY))
     grey, _ = mark("neutral")
     ink, _ = mark("bar_latest")
-    ref, _ = mark("reference")
     light, _ = _TRIED_GREYS[theme()]
     labels = [wording.story_target_row(r["name"], r["goal"], r["target"]) for r in rows]
     track, points, joins, ends, arrows, texts, targets = [], [], [], [], [], [], []
@@ -6733,13 +6858,18 @@ def target_chart(opt):
         tip = f"{r['name']}: " + " → ".join(
             fmt(v) for v in (r["start"], r["best"]) if v is not None)
         if r["target"] is not None:
-            # The dashed tick only: its row's label names the target.
-            targets.append({"t": _share(r, r["target"]), "y0": k - 0.34, "y1": k + 0.34})
+            targets.append({"k": k, "t": _share(r, r["target"]), "what": target_name,
+                            "value": fmt(r["target"]), "tip": tip})
         elif r["goal"] in ("max", "min"):
             arrows.append({"k": k, "t": 1.0 if r["goal"] == "max" else 0.0,
                            "shape": "triangle-right" if r["goal"] == "max" else "triangle-left"})
-        if r["start"] is not None and r["best"] is not None:
-            joins.append({"k": k, "t0": _share(r, r["start"]), "t1": _share(r, r["best"])})
+        move = target_move(r)
+        if move is not None and move[0] in ("onto", "closer", "away"):
+            joins.append({"k": k, "t0": _share(r, r["start"]), "t1": _share(r, r["best"]),
+                          "what": away_name if move[0] == "away" else closer_name,
+                          "mid": (_share(r, r["start"]) + _share(r, r["best"])) / 2,
+                          "note": _say(opt, wording.TARGET_AWAY_LABEL) if move[0] == "away"
+                          else ""})
         for v, kind in ((r["start"], start_name), (r["best"], best_name)):
             if v is not None:
                 points.append({"k": k, "t": _share(r, v), "what": kind, "value": fmt(v),
@@ -6747,8 +6877,6 @@ def target_chart(opt):
         if r["best"] is not None:
             texts.append({"k": k, "t": _share(r, r["best"]), "text": fmt(r["best"]),
                           "who": "best"})
-        # The start's value under its dot, the best's above: both always
-        # written, so a start that already sat on the target says so.
         if r["start"] is not None and (r["best"] is None
                                        or abs(_share(r, r["start"]) - _share(r, r["best"]))
                                        > 0.005):
@@ -6757,7 +6885,6 @@ def target_chart(opt):
     n = len(rows)
     y_scale = alt.Scale(domain=[-0.7, n - 0.3], reverse=True, nice=False, zero=False)
     expr = " : ".join(f"datum.value == {k} ? '{_esc(l)}'" for k, l in enumerate(labels)) + " : ''"
-    # Review readable: the row labels clear of the Range's low end ("0").
     pad = 14 + 7 * max(len(e["text"]) for e in ends)
     y_axis = alt.Axis(values=list(range(n)), labelExpr=expr, title=None, ticks=False,
                       domain=False, grid=False, labelFontSize=FONT_LABEL, labelLimit=260,
@@ -6765,10 +6892,12 @@ def target_chart(opt):
     y = alt.Y("k:Q", scale=y_scale, axis=y_axis)
     x_scale = alt.Scale(domain=[-0.02, 1.02], nice=False)
     x = alt.X("t:Q", scale=x_scale, axis=None)
-    kinds = [start_name, best_name]
-    colour = alt.Scale(domain=kinds, range=[grey, ink])
-    fill = alt.Scale(domain=kinds, range=["transparent", ink])
+    kinds = [target_name, start_name, best_name, closer_name, away_name]
+    colour = alt.Scale(domain=kinds, range=[ink, grey, ink, ink, grey])
     legend = alt.Legend(title=None, orient="bottom", labelLimit=0, symbolStrokeWidth=2)
+    # One legend: each entry drawn as on the chart (diamond, ring, dot, line).
+    shapes = alt.Scale(domain=kinds, range=["diamond", "circle", "circle", "stroke", "stroke"])
+    shape = alt.Shape("what:N", scale=shapes, legend=legend)
     layers = [
         alt.Chart(pd.DataFrame(track)).mark_rule(color=light, strokeWidth=4, tooltip=False)
         .encode(x=alt.X("t0:Q", scale=x_scale, axis=None), x2="t1:Q", y=y),
@@ -6780,35 +6909,46 @@ def target_chart(opt):
         .encode(x=x, y=y, text="text:N").transform_filter("datum.align == 'left'"),
     ]
     if joins:
-        layers.append(alt.Chart(pd.DataFrame(joins)).mark_rule(color=grey, strokeWidth=1.5,
-                                                               tooltip=False)
-                      .encode(x=alt.X("t0:Q", scale=x_scale, axis=None), x2="t1:Q", y=y))
+        jdf = pd.DataFrame(joins)
+        layers.append(alt.Chart(jdf).mark_rule(strokeWidth=3, tooltip=False)
+                      .encode(x=alt.X("t0:Q", scale=x_scale, axis=None), x2="t1:Q", y=y,
+                              color=alt.Color("what:N", scale=colour, legend=legend)))
+        away = jdf[jdf["note"] != ""].assign(left=lambda d: d[["t0", "t1"]].min(axis=1))
+        if not away.empty:
+            # Left of the segment, clear of the values above and below it.
+            layers += _halo_text(away, alt.X("left:Q", scale=x_scale, axis=None), y, "note:N",
+                                 muted(), fontSize=FONT_SMALL, dx=-14, align="right",
+                                 baseline="middle", fontStyle="italic")
     if targets:
-        # Taller than the dots, so a target hit exactly still shows above
-        # and below the ink dot.
-        layers.append(alt.Chart(pd.DataFrame(targets)).mark_rule(
-            color=ref, strokeWidth=1.6, strokeDash=[3, 2], tooltip=False)
-            .encode(x=x, y=alt.Y("y0:Q", scale=y_scale, axis=y_axis), y2="y1:Q"))
+        # The strongest mark: a large ink diamond, hollow, so a dot on the
+        # target still shows inside it.
+        layers.append(alt.Chart(pd.DataFrame(targets)).mark_point(
+            shape="diamond", size=420, strokeWidth=2.4, filled=False, opacity=1)
+            .encode(x=x, y=y, color=alt.Color("what:N", scale=colour, legend=legend),
+                    shape=shape, tooltip=[alt.Tooltip("value:N", title=target_name)]))
     if arrows:
         layers.append(alt.Chart(pd.DataFrame(arrows)).mark_point(
-            filled=True, size=70, color=ref, tooltip=False)
+            filled=True, size=90, color=ink, tooltip=False)
             .encode(x=x, y=y, shape=alt.Shape("shape:N", scale=None)))
     pdf = pd.DataFrame(points)
     tips = [alt.Tooltip("what:N", title=" "), alt.Tooltip("value:N", title=wording.STORY_VALUE),
             alt.Tooltip("tip:N", title=_say(opt, wording.STORY_TARGET_TITLE))]
-    layers.append(alt.Chart(pdf).mark_point(size=110, strokeWidth=2, opacity=1)
-                  .encode(x=x, y=y, color=alt.Color("what:N", scale=colour, legend=legend),
-                          fill=alt.Fill("what:N", scale=fill, legend=legend),
-                          tooltip=tips))
+    # The start a ring wider than the best's dot: never hidden under it.
+    layers.append(alt.Chart(pdf[pdf["what"] == start_name]).mark_point(
+        size=190, strokeWidth=2, filled=False, opacity=1)
+        .encode(x=x, y=y, color=alt.Color("what:N", scale=colour, legend=legend), shape=shape,
+                tooltip=tips))
+    layers.append(alt.Chart(pdf[pdf["what"] == best_name]).mark_point(
+        size=70, filled=True, opacity=1)
+        .encode(x=x, y=y, color=alt.Color("what:N", scale=colour, legend=legend), shape=shape,
+                tooltip=tips))
     if texts:
         tdf = pd.DataFrame(texts)
         layers += _halo_text(tdf[tdf["who"] == "best"], x, y, "text:N", ink,
-                             fontSize=FONT_LABEL, fontWeight="bold", dy=-10, baseline="bottom")
+                             fontSize=FONT_LABEL, fontWeight="bold", dy=-13, baseline="bottom")
         if (tdf["who"] == "start").any():
             layers += _halo_text(tdf[tdf["who"] == "start"], x, y, "text:N", muted(),
-                                 fontSize=FONT_LABEL, dy=10, baseline="top")
-    # Review readable: TARGET_ROW_H px a row, so one row's value under its
-    # dot never meets the next row's value above its own.
+                                 fontSize=FONT_LABEL, dy=13, baseline="top")
     return readable(alt.layer(*layers).properties(height=TARGET_ROW_H * n))
 
 
@@ -6968,7 +7108,7 @@ def path_frame(opt, axes, lines):
                                        "score", "text"])
 
 
-def search_path_chart(opt, axes, lines):
+def search_path_chart(opt, axes, lines, gaps=()):
     """What have we tried? — the search path: one small panel per
     ingredient or process setting; across, its allowed amounts (Lowest to
     Highest); down, the Rounds, the first at the top. One grey dot per
@@ -6990,6 +7130,17 @@ def search_path_chart(opt, axes, lines):
     order = [wording.STORY_PATH_TESTED, wording.TRIED_BEST, wording.TRIED_SUGGESTED,
              wording.TRIED_WAITING]
     kinds = [k for k in order if k in set(df["role"])]
+    # Review critique (fix 8): an amount at its row's Lowest or Highest
+    # marked (a square), and the named untested gap shaded.
+    at_limit, gap_name = _say(opt, wording.PATH_AT_LIMIT), _say(opt, wording.PATH_GAP)
+    spans = {a.name: (a.low, a.high) for a in axes if a.options is None}
+    df["limit"] = [a in spans and (abs(v - spans[a][0]) <= insights.BINDING * (spans[a][1] - spans[a][0])
+                                   or abs(v - spans[a][1]) <= insights.BINDING * (spans[a][1] - spans[a][0]))
+                   if not isinstance(v, str) else False
+                   for a, v in zip(df["axis"], df["value"])]
+    gap_by = {}
+    for g in gaps or ():
+        gap_by.setdefault(g.name, []).append(g)
     look = {wording.STORY_PATH_TESTED: mid, wording.TRIED_BEST: ink,
             wording.TRIED_SUGGESTED: orange, wording.TRIED_WAITING: grey}
     colour = alt.Scale(domain=kinds, range=[look[k] for k in kinds])
@@ -7029,13 +7180,13 @@ def search_path_chart(opt, axes, lines):
                alt.Tooltip("score:N", title=_say(opt, wording.OVERALL_SCORE_COLUMN))]
         base = alt.Chart(mine)
         layers = []
-        if a.options is None:
-            layers.append(
-                base.transform_filter(f"datum.role != '{_esc(wording.TRIED_SUGGESTED)}'")
-                .transform_aggregate(lo="min(value)", hi="max(value)", groupby=["rlabel"])
-                .mark_rule(color=light, strokeWidth=5, strokeCap="round", tooltip=False)
-                .encode(x=alt.X("lo:Q", scale=x_scale, title=None, axis=x_axis), x2="hi:Q",
-                        y=y))
+        if a.options is None and a.name in gap_by:
+            gdf = pd.DataFrame([{"lo": g.low, "hi": g.high, "what": gap_name}
+                                for g in gap_by[a.name]])
+            layers.append(alt.Chart(gdf).mark_rect(opacity=0.55, tooltip=False).encode(
+                x=alt.X("lo:Q", scale=x_scale, title=None, axis=x_axis), x2="hi:Q",
+                fill=alt.Fill("what:N", scale=alt.Scale(domain=[gap_name], range=[light]),
+                              legend=legend)))
         layers.append(base.mark_point(size=40, filled=True, opacity=0.95).encode(
             x=x, y=y, color=alt.Color("role:N", scale=colour, legend=legend), tooltip=tip)
             .transform_filter(f"datum.role != '{_esc(wording.TRIED_BEST)}' && "
@@ -7050,12 +7201,20 @@ def search_path_chart(opt, axes, lines):
         layers.append(base.mark_point(size=40, filled=True).encode(
             x=x, y=y, color=alt.Color("role:N", scale=colour, legend=legend), tooltip=tip)
             .transform_filter(f"datum.role == '{_esc(wording.TRIED_BEST)}'"))
+        if a.options is None and mine["limit"].any():
+            layers.append(base.mark_point(size=70, strokeWidth=1.6, filled=False, color=ink)
+                          .encode(x=x, y=y, tooltip=tip,
+                                  shape=alt.Shape("lim:N", scale=alt.Scale(
+                                      domain=[at_limit], range=["square"]), legend=legend))
+                          .transform_filter("datum.limit")
+                          .transform_calculate(lim=f"'{_esc(at_limit)}'"))
         title = alt.TitleParams(_axis_label(a), fontSize=FONT_LABEL, fontWeight="normal",
                                 anchor="start", color=None, limit=width + 20, offset=6)
         panels.append(alt.layer(*layers).properties(width=width, height=height,
                                                      title=title))
     return readable(alt.concat(*panels, columns=PATH_COLUMNS, spacing=_PATH_SPACING)
-                    .resolve_scale(color="shared", x="independent")
+                    .resolve_scale(color="shared", x="independent", shape="shared",
+                                   fill="shared")
                     .configure_view(strokeWidth=0))
 
 

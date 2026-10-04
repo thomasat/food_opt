@@ -842,8 +842,16 @@ def _round_predictions(opt):
         preds = insights.round_predictions(opt, fitted, rows)
     except Exception:   # the table stands without the column
         return None
+    checks = ui_insights.cached_checks(opt) or ()
+    widen = {o['name']: insights.measure_widen(checks, o['name'], opt.pending_batch_no)
+             for o in opt.objectives}
     for per in preds.values():
         per[insights.SCORE] = insights.widened(score, per[insights.SCORE], factor)
+        # Review critique (fix 10): each measurement's range widened by its
+        # own record from earlier Rounds, as the Overall score's is.
+        for name, f in widen.items():
+            if name in per and fitted.get(name) is not None:
+                per[name] = insights.widened(fitted[name], per[name], f)
     return preds or None
 
 
@@ -905,6 +913,15 @@ def _measurement_cells(opt, preds):
                 item[column], tip[column] = wording.TOO_UNCERTAIN, text
             else:
                 item[column], tip[column] = text, ""
+        # Review critique (fix 10): the Overall score these forecasts imply
+        # by the score recipe, beside the Overall model's own forecast.
+        means = {o['name']: per[o['name']].mean for o in opt.objectives if o['name'] in per}
+        if len(means) == len(opt.objectives) and insights.SCORE in per:
+            implied = opt._compute_utility(means)
+            item[wording.IMPLIED_COLUMN] = f"{implied:.0f}"
+            item[wording.OVERALL_MODEL_COLUMN] = ui_insights.capped(
+                min(per[insights.SCORE].mean, opt.utility_ceiling()), opt.utility_ceiling(), 0)
+            tip[wording.IMPLIED_COLUMN] = tip[wording.OVERALL_MODEL_COLUMN] = ""
         rows.append(item)
         tips.append(tip)
     return pd.DataFrame(rows), pd.DataFrame(tips)
@@ -1253,16 +1270,23 @@ def why_frame(opt, why, preds, hide=False):
                  else wording.EXPECTED_GAIN)
     say = lambda text: wording.for_project(opt, text)
     rows = []
+    made = {int(row['formulation']): row for row in opt.pending_batch or []}
     for r in why.rows:
         p = (preds or {}).get(r.formulation, {}).get(insights.SCORE)
         label = wording.why_row_label(r.formulation, r.own, r.edited)
-        if r.own and r.role != wording.OWN_FORMULATION_KIND:
-            # Persona fixes 2: its note is its source (the Role column).
-            label = wording.why_row_label(r.formulation) + wording.ENTERED_TAIL
+        row = made.get(int(r.formulation)) or {}
+        note = str(row.get('note') or "").strip()
+        # Review critique (fix 9): Role holds the role (the distance rule,
+        # for every row); the note, where the row came from, is its Source.
+        try:
+            role = opt.suggestion_role(row['recipe']) if row.get('recipe') else r.role
+        except Exception:
+            role = r.role
         item = {wording.FORMULATION_CAP: say(label)}
-        item[wording.ROLE] = say(r.role)
+        item[wording.ROLE] = say(role)
+        item[wording.WHY_SOURCE] = say(wording.own_source(note) if note
+                                       else wording.WHY_SOURCE_APP)
         item[wording.PREDICTED_SCORE_COLUMN] = "" if p is None else ui_insights.score_text(p)
-        item[wording.MODEL_SD] = f"{r.sd:.2f}"
         if not hide:
             item[value_col] = f"{r.value:.2f}" + (f" {wording.PENDING_MARK}" if r.pending else "")
         item[wording.CLOSEST_MADE] = ("" if r.nearest is None
@@ -1290,16 +1314,19 @@ def why_columns(opt, value_col, help_text):
         wording.FORMULATION_CAP: col(say(wording.FORMULATION_CAP), width="small"),
         wording.ROLE: col(wording.ROLE, width="small",
                           help=say(f"{wording.role_help()} {term(wording.TIP_ROLES)}")),
+        wording.WHY_SOURCE: col(wording.WHY_SOURCE, width="medium"),
+        # Review critique (fix 9): short headers that fit at 1280 px; the
+        # full name in each "?". The model sd is the map's y axis.
         wording.PREDICTED_SCORE_COLUMN: col(
-            wording.PREDICTED_SCORE_COLUMN, width="small",
-            help=say(f"{wording.tip_predicted_score(values)} {wording.TIP_INTERVAL}")),
-        wording.MODEL_SD: col(wording.MODEL_SD, width="small", help=say(wording.TIP_MODEL_SD)),
+            wording.WHY_COL_PREDICTED, width="small",
+            help=say(f"{wording.PREDICTED_SCORE_COLUMN}. {wording.tip_predicted_score(values)}")),
         # The gain's own tooltip carries its BO term (ftue fix C); qUCB's
         # optimistic score keeps the shared one.
-        value_col: col(say(value_col), width="small",
+        value_col: col(say(wording.WHY_COL_GAIN if value_col == wording.EXPECTED_GAIN
+                           else value_col), width="small",
                        help=say(help_text if value_col == wording.EXPECTED_GAIN
                                 else f"{help_text} {term(wording.TIP_EXPECTED_IMPROVEMENT)}")),
-        wording.CLOSEST_MADE: col(say(wording.CLOSEST_MADE), width="small",
+        wording.CLOSEST_MADE: col(say(wording.WHY_COL_CLOSEST), width="small",
                                   help=say(wording.TIP_CLOSEST_MADE)),
         wording.LARGEST_DIFFERENCES: col(wording.LARGEST_DIFFERENCES, width="medium",
                                          help=say(wording.LARGEST_DIFFERENCES_FROM_CLOSEST)),
@@ -1325,7 +1352,8 @@ def why_chart(opt, why, ref=None):
     tested = [{"mean": m, "sd": s}
               for m, s in zip(why.tested_mean.tolist(), why.tested_sd.tolist())]
     picks = [{"mean": r.mean, "sd": r.sd, "no": str(r.formulation)} for r in why.rows]
-    return ui_insights.explore_map_chart(why.pool_mean, why.pool_sd, tested, picks, ref, opt)
+    return ui_insights.explore_map_chart(why.pool_mean, why.pool_sd, tested, picks, ref, opt,
+                                         gain=getattr(why, "pool_value", None))
 
 
 def _why_these(opt, preds):
@@ -1384,11 +1412,19 @@ def _why_fold(opt, preds):
         frame, value_col = why_frame(opt, why, preds)
         help_text = (wording.OPTIMISTIC_SCORE_HELP if why.kind == "qucb"
                      else wording.tip_expected_gain(why.kind))
-        shown = frame
-        if grey and value_col in frame.columns:
-            shown = frame.style.map(lambda _: f"color: {GREYED_GAIN}", subset=[value_col])
-        st.dataframe(shown, hide_index=True, height=table_height(len(frame)),
-                     column_config=why_columns(opt, value_col, help_text))
+        # Review critique (fix 9): a static table, so every header wraps
+        # and nothing is cut at 1280 px; short headers, the full names in
+        # the caption's "?".
+        cfg = why_columns(opt, value_col, help_text)
+        labels = {k: (v.get("label") if isinstance(v, dict) else None) or k
+                  for k, v in cfg.items()}
+        shown = frame.rename(columns=labels).set_index(labels.get(
+            wording.FORMULATION_CAP, wording.FORMULATION_CAP))
+        styled = shown.style
+        if grey and labels.get(value_col, value_col) in shown.columns:
+            styled = styled.map(lambda _: f"color: {GREYED_GAIN}",
+                                subset=[labels.get(value_col, value_col)])
+        st.table(styled)
         pending = [r.formulation for r in why.rows if r.pending]
         if pending:
             st.caption(say(wording.why_picked_after(pending)),

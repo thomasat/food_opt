@@ -1260,6 +1260,9 @@ class NextStep:
     assumed: bool = False
     # "misses" with no disagreeing Repeat: where the misses fell (display only).
     diagnosis: MissDiagnosis | None = None
+    # "close": every limit the predicted best sits at (review critique: name
+    # them all, not the first only).
+    bindings: list = dataclasses.field(default_factory=list)
 
 
 def next_step(opt, checks, standing=None, gain=None):
@@ -1316,7 +1319,7 @@ def next_step(opt, checks, standing=None, gain=None):
             if gain is not None and gain > yard.value:
                 return NextStep("explore", gain=gain, assumed=assumed)
             return NextStep("close", binding=standing.binding[0] if standing.binding else None,
-                            assumed=assumed)
+                            assumed=assumed, bindings=list(standing.binding or []))
     if answer is not None and answer.state == "yes":
         # Said with the width caution the verdict gives (answer-key
         # read-through, Line C).
@@ -2393,6 +2396,21 @@ def score_widen(checks):
     predicted best's range held 82 % of the time, 92 % widened so)."""
     z = [(c.measured - c.raw_mean) / c.sd for c in checks
          if c.name == SCORE and c.fully_measured and c.sd and c.raw_mean is not None]
+    if len(z) < SCORE_RECORD_MIN:
+        return 1.0
+    rms = math.sqrt(sum(v * v for v in z) / len(z))
+    return max(1.0, rms) if math.isfinite(rms) else 1.0
+
+
+def measure_widen(checks, name, skip_round=None):
+    """Review critique (fix 10): a measurement's own calibration, as the
+    Overall score's: the root-mean-square of its standardised Round-ahead
+    misses (measured − mean) ÷ (sd × the range's own widening), never below
+    1; 1 with fewer than SCORE_RECORD_MIN. `skip_round`: the open Round's
+    own checks left out. (Pooled, the measurements' 95 % ranges held 85 of
+    96 on the yogurt pilot.)"""
+    z = [(c.measured - c.raw_mean) / (c.sd * (c.widen or 1.0)) for c in checks or ()
+         if c.name == name and c.round != skip_round and c.sd and c.raw_mean is not None]
     if len(z) < SCORE_RECORD_MIN:
         return 1.0
     rms = math.sqrt(sum(v * v for v in z) / len(z))
