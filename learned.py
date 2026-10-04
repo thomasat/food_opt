@@ -12,12 +12,15 @@ before its Round, then compared with what was measured.
   tasting noise of the result (pair_noise: the noise Progress uses) is
   "too close to call" and not counted either, nor is "the top one" when
   the top two forecasts are that close.
-- Verdict: Predictable when the share right is clearly above chance (a
-  one-sided binomial test against 50 %, p < VERDICT_P, with at least
+- Verdict: Predictable when the share right is clearly above chance (an
+  exact within-Round permutation test, review critique: the measured
+  values shuffled among each Round's formulations independently, the
+  statistic right − wrong summed over Rounds, p < VERDICT_P, with at least
   MIN_PAIRS pairs); Partly when it leans right (share above 50 %,
   p < PARTLY_P, at least PARTLY_MIN pairs); Not yet otherwise, or when the
   measurement barely varies within Rounds (more than FLAT_TIES of its
-  pairs measured equal).
+  pairs measured equal). The chart's chance range is the same null's, so
+  its dot sits past the range exactly when the verdict is Predictable.
 - Clear effect (review learned 2, strict): moving one ingredient or setting
   from the 10th to the 90th percentile of its tested amounts, averaged
   over the tested formulations, has a 95 % posterior interval that
@@ -36,7 +39,9 @@ before its Round, then compared with what was measured.
 
 Nothing here writes to the project."""
 import copy
+import itertools
 import math
+import random
 from dataclasses import dataclass, field
 
 import torch
@@ -61,6 +66,79 @@ def chance_tail(right, pairs):
     if pairs <= 0:
         return 1.0
     return sum(math.comb(pairs, k) for k in range(right, pairs + 1)) / 2 ** pairs
+
+
+PERM_EXACT_MAX = 7      # Rounds up to this size: every ordering; larger: PERM_SAMPLES draws
+PERM_SAMPLES = 4000
+
+
+def _round_stat(mine, measured, noise):
+    """right − wrong over the counted pairs of one Round's checks `mine`
+    (by formulation), the measured values taken from `measured` in the same
+    order: a pair counts when its measured values differ and its forecasts
+    are not too close (round_call's rule)."""
+    s = 0
+    for i, a in enumerate(mine):
+        for j in range(i + 1, len(mine)):
+            b = mine[j]
+            ma, mb = measured[i], measured[j]
+            if ma == mb or too_close(a, b, noise):
+                continue
+            ra, rb = _rank_value(a), _rank_value(b)
+            if ra == rb:
+                s -= 1
+                continue
+            s += 1 if (ra > rb) == (ma > mb) else -1
+    return s
+
+
+def round_null(mine, noise=0.0):
+    """{S: probability} of right − wrong for one Round under the null: the
+    measured values shuffled among its formulations (forecasts fixed). Exact
+    up to PERM_EXACT_MAX formulations, else PERM_SAMPLES seeded draws."""
+    vals = [c.measured for c in mine]
+    out = {}
+    if len(mine) <= PERM_EXACT_MAX:
+        perms = list(itertools.permutations(range(len(vals))))
+    else:
+        rng = random.Random(len(vals))
+        perms = []
+        for _ in range(PERM_SAMPLES):
+            k = list(range(len(vals)))
+            rng.shuffle(k)
+            perms.append(k)
+    for p in perms:
+        s = _round_stat(mine, [vals[k] for k in p], noise)
+        out[s] = out.get(s, 0) + 1
+    total = float(len(perms))
+    return {k: v / total for k, v in out.items()}
+
+
+def convolve(nulls):
+    """The null of the summed statistic: the Rounds' nulls convolved."""
+    acc = {0: 1.0}
+    for d in nulls:
+        nxt = {}
+        for a, pa in acc.items():
+            for b, pb in d.items():
+                nxt[a + b] = nxt.get(a + b, 0.0) + pa * pb
+        acc = nxt
+    return acc
+
+
+def perm_tail(null, observed):
+    """P(S ≥ observed) under `null` ({S: probability})."""
+    return min(1.0, sum(p for s, p in null.items() if s >= observed - 1e-9))
+
+
+def chance_range(null, alpha=0.05):
+    """(low, high) of S that chance reaches: high the largest S with
+    P(S ≥ high) ≥ alpha, low the smallest with P(S ≤ low) ≥ alpha. The
+    observed S beats chance (p < alpha) exactly when it is above high."""
+    keys = sorted(null)
+    high = max(k for k in keys if perm_tail(null, k) >= alpha - 1e-12)
+    low = min(k for k in keys if sum(null[j] for j in keys if j <= k) >= alpha - 1e-12)
+    return low, high
 
 
 def _rank_value(c):
@@ -164,14 +242,42 @@ class Ordering:
     rounds: list = field(default_factory=list)
     verdict: str = NOT_YET
     reason: str = "few"     # "few", "flat", "chance" or "" (Predictable/Partly)
+    nulls: list = field(default_factory=list)   # per Round {S: probability}
 
     @property
     def share(self):
         return self.right / self.pairs if self.pairs else None
 
     @property
+    def stat(self):
+        """right − wrong over the counted pairs."""
+        return 2 * self.right - self.pairs
+
+    @property
+    def null(self):
+        return convolve(self.nulls)
+
+    @property
     def p(self):
-        return chance_tail(self.right, self.pairs)
+        """Review critique: the exact within-Round permutation p-value of
+        right − wrong (the binomial on pairs treated a Round's 3 pairs as
+        independent)."""
+        if not self.pairs:
+            return 1.0
+        if not self.nulls:
+            # Built by hand, with no Rounds behind it: the binomial on pairs.
+            return chance_tail(self.right, self.pairs)
+        return perm_tail(self.null, self.stat)
+
+    def chance_share(self):
+        """(low, high) of the chance range as a share right (0–1) at this
+        result's own number of pairs: what shuffling within Rounds reaches
+        (one-sided VERDICT_P each end); None without pairs."""
+        if not self.pairs or not self.nulls:
+            return None
+        lo, hi = chance_range(self.null, VERDICT_P)
+        to = lambda s: min(1.0, max(0.0, (s + self.pairs) / (2 * self.pairs)))  # noqa: E731
+        return to(lo), to(hi)
 
     @property
     def chance(self):
@@ -204,6 +310,10 @@ def ordering(checks, name, noise=0.0):
         if not call.pairs:
             continue
         o.rounds.append(r)
+        mine = sorted([c for c in checks if c.name == name and c.round == r
+                       and (name != insights.SCORE or c.fully_measured)],
+                      key=lambda c: c.formulation)
+        o.nulls.append(round_null(mine, noise))
         o.right += call.right
         o.pairs += call.counted
         o.ties += call.ties
@@ -259,24 +369,40 @@ def points_per_unit(obj):
         'target', 'max', 'min') else 0.0
 
 
+def scored_measurements(opt):
+    """The measurements that move the Overall score (points_per_unit > 0)."""
+    return [o for o in getattr(opt, "objectives", None) or () if points_per_unit(o) > 0]
+
+
+def derived_noise(opt, name, sigma=None):
+    """Review critique (owner's decision): a measurement's tasting noise
+    derived from the Overall score's, every scored measurement assumed to
+    add the same share of the Overall variance: σ_a = σ × w_a ÷ (s_a × √k),
+    w_a its Range width, s_a its Share of score, k the scored measurements.
+    The yogurt: 1 × 15 ÷ (25 × 2) = 0.3. 0 when it moves no points."""
+    sigma = overall_noise(opt)[0] if sigma is None else sigma
+    objs = {o['name']: o for o in getattr(opt, "objectives", None) or ()}
+    ppu = points_per_unit(objs[name]) if name in objs else 0.0
+    k = len(scored_measurements(opt))
+    return float(sigma) / (ppu * math.sqrt(k)) if ppu > 0 and k else 0.0
+
+
 def pair_noise(opt, checks=()):
     """{name: the tasting noise an order claim must reach} (coordinator's
     ruling, persona fixes 2: the same noise Progress uses, so the screen
     tells one story). The Overall score: overall_noise. A measurement: its
-    Repeats' SD from the same threshold; else the Overall noise in its own units
-    through its share of the score (σ × Range width ÷ share: 1 × 15 ÷ 25 =
-    0.6 for a target worth 25 points on 0-15). 0 when it moves no points.
+    Repeats' SD from the same threshold; else derived_noise (review
+    critique: 0.3 on a 0–15 target worth 25 of 4 equal measurements; it
+    read 0.6, as if one measurement carried all of the Overall noise).
     `checks` is accepted for callers and not used."""
     sigma, _ = overall_noise(opt)
     out = {insights.SCORE: float(sigma)}
-    objs = {o['name']: o for o in getattr(opt, "objectives", None) or ()}
     for n in names(opt):
         if n == insights.SCORE:
             continue
         sd = _repeat_noise(opt, n)
         if sd is None:
-            ppu = points_per_unit(objs[n]) if n in objs else 0.0
-            sd = sigma / ppu if ppu > 0 else 0.0
+            sd = derived_noise(opt, n, sigma)
         out[n] = float(sd)
     return out
 
