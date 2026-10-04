@@ -46,7 +46,7 @@ def test_evidence_numbers_are_the_cards(screens):  # noqa: F811
     ev = p["help"].split("\n\n")[1]
     # Persona fixes 2: a result with no pair far enough apart is left out
     # (Line A's Overall score).
-    assert ev.startswith("Evidence: pairs ordered right before tasting — ")
+    assert ev.startswith("Evidence: pairs ordered right from earlier Rounds — ")
     # Persona fixes: the coverage and skill figures in the experts' line.
     assert "Overall score: 13 of 15 inside the 95 % predicted range." in \
         p["help"].split("For experts:")[1]

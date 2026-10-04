@@ -1294,6 +1294,8 @@ def _limit_who(opt, qc):
     _limit_label heads the row with, in the register a sentence needs."""
     if qc.get('source') == 'formulation_total':
         return wording.FORMULATION_TOTAL_LOWER
+    if isinstance(qc.get('name'), str) and qc['name'].strip():
+        return qc['name'].strip()
     if _limit_label(opt, qc) == wording.ALL_INGREDIENTS_LABEL:
         return wording.ALL_INGREDIENTS_LOWER
     return " + ".join(qc['ingredients'])

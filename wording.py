@@ -8700,7 +8700,7 @@ STORY_FORECAST = "Predicted 95 % range"
 STORY_LANDED_IN = "Landed in range"
 STORY_LANDED_OUT = "Landed outside"
 STORY_NO_FORECAST = "No forecast yet"
-STORY_TRUST_CAPTION = "Blue: predicted before tasting. Dot: measured."
+# STORY_TRUST_CAPTION: see "rebuilt framing" at the end.
 
 
 def story_trust_answer(inside, total):
@@ -8929,7 +8929,7 @@ LEARNED_REASONS = {"flat": "barely varies", "few": "too few pairs",
                    "chance": "no better than chance"}
 LEARNED_COL_RESULT = "Result"
 LEARNED_COL_VERDICT = "Verdict"
-LEARNED_COL_PAIRS = "Ordered right before tasting"
+# LEARNED_COL_PAIRS: see "rebuilt framing" at the end.
 LEARNED_COL_TOP = "Picked the top one"
 LEARNED_CHART_X = "Pairs ordered right (%)"
 LEARNED_CHANCE = "Chance"
@@ -9016,7 +9016,7 @@ def learned_help(pairs_rule, skill_line, counts="", tops=""):
 
 
 def learned_counts(rows):
-    """'Ordered right before tasting: Overall score 10 of 11 pairs (chance
+    """'Ordered right from earlier Rounds: Overall score 10 of 11 pairs (chance
     5.5), …' from [(name, right, pairs, chance)]."""
     cells = [f"{n} {learned_pairs(r, p, c)}" for n, r, p, c in rows if p]
     return f"{LEARNED_COL_PAIRS}: {'; '.join(cells)}." if cells else ""
@@ -9029,14 +9029,7 @@ def learned_tops(rows):
     return f"{LEARNED_COL_TOP}: {'; '.join(cells)}." if cells else ""
 
 
-LEARNED_RULE = ("Each Round's formulations are forecast before tasting, from the formulations "
-                "scored before that Round. Within each Round, every pair whose measured values "
-                "differ counts as ordered right when the forecast put them in the same order; "
-                "a pair measured equal is not counted, nor one whose forecasts differ by less "
-                "than one tasting noise of the result (too close to call). Guessing gets half right. Predictable: "
-                "right clearly more often than chance (one-sided binomial test, p < 0.05, at "
-                "least 5 pairs). Partly: right in more than half, p < 0.20. Not yet: otherwise, "
-                "or when more than half of its pairs measured equal (it barely varies).")
+# LEARNED_RULE: see "rebuilt framing" at the end.
 LEARNED_TOP_RULE = ("Picked the top one: the formulation forecast highest was measured highest "
                     "(the Overall score: the Round's best), in Rounds where not all measured "
                     "equal. Chance: the share a random pick would get.")
@@ -9194,13 +9187,7 @@ def review_status_learned(model, progress, extra=None):
     return line + (f" · **{extra}**" if extra else "")
 
 
-def learned_evidence(rows, skill_line=""):
-    """The Model item's evidence: 'Evidence: pairs ordered right before
-    tasting — Overall score 14/21, Firmness 16/23. Overall score: 13 of 15
-    inside the 95 % predicted range. …'"""
-    pairs = ", ".join(f"{name} {right}/{n}" for name, right, n in rows if n)
-    line = f"Evidence: pairs ordered right before tasting — {pairs or 'none yet'}."
-    return f"{line} {skill_line}".strip()
+# learned_evidence: see "rebuilt framing" at the end.
 
 
 LEARNED_RANGE_RECORD = "The Overall score's Round-ahead record:"
@@ -9422,26 +9409,7 @@ def misses_scoped(names, inside, total):
     return line
 
 
-def model_plain(predictable, partly, not_yet):
-    """The Model "?"'s opening sentence: 'The model put Consistency and
-    Tangy in the right order before tasting, clearly more often than
-    chance. Not yet: Creaminess, Thickness uniformity.'"""
-    def _and(names):
-        names = [f"the {n}" if n == OVERALL_SCORE_COLUMN else n for n in names]
-        return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
-    if predictable:
-        line = (f"The model put {_and(predictable)} in the right order before tasting, "
-                "clearly more often than chance.")
-    elif partly:
-        line = (f"The model leans right on the order of {_and(partly)} before tasting, not "
-                "yet clearly.")
-    else:
-        line = "The model has not yet ordered any measurement right more often than chance."
-    if predictable and partly:
-        line += f" Partly: {', '.join(partly)}."
-    if not_yet and (predictable or partly):
-        line += f" Not yet: {', '.join(not_yet)}."
-    return line
+# model_plain: see "rebuilt framing" at the end.
 
 
 def _than(value):
@@ -9700,3 +9668,51 @@ def results_predicted_help(round_no):
             f"Review's Forecast check), beside what was measured. Shown: the "
             f"{OVERALL_SCORE_COLUMN} and the measurements the model ordered right before this "
             f"Round (Predictable). A value at the top of its Range reads ≥ that top.")
+
+
+# Every Round-ahead check is the same rebuilt forecast, so the words that
+# name it say what is true in a live project and in one replayed from
+# records alike: the forecast had none of that Round's results, not that it
+# was made before anyone tasted anything.
+STORY_TRUST_CAPTION = "Blue: predicted from earlier Rounds. Dot: measured."
+LEARNED_COL_PAIRS = "Ordered right from earlier Rounds"
+LEARNED_RULE = ("Each Round's formulations are forecast from the formulations scored before "
+                "that Round only. Within each Round, every pair whose measured values "
+                "differ counts as ordered right when the forecast put them in the same order; "
+                "a pair measured equal is not counted, nor one whose forecasts differ by less "
+                "than one tasting noise of the result (too close to call). Guessing gets half right. Predictable: "
+                "right clearly more often than chance (one-sided binomial test, p < 0.05, at "
+                "least 5 pairs). Partly: right in more than half, p < 0.20. Not yet: otherwise, "
+                "or when more than half of its pairs measured equal (it barely varies).")
+
+
+def learned_evidence(rows, skill_line=""):
+    """The Model item's evidence: 'Evidence: pairs ordered right from
+    earlier Rounds — Overall score 14/21, Firmness 16/23. Overall score: 13
+    of 15 inside the 95 % predicted range. …'"""
+    pairs = ", ".join(f"{name} {right}/{n}" for name, right, n in rows if n)
+    line = f"Evidence: pairs ordered right from earlier Rounds — {pairs or 'none yet'}."
+    return f"{line} {skill_line}".strip()
+
+
+def model_plain(predictable, partly, not_yet):
+    """The Model "?"'s opening sentence: 'Forecasting each Round from
+    earlier Rounds, the model put Consistency and Tangy in the right order,
+    clearly more often than chance. Not yet: Creaminess, Thickness
+    uniformity.'"""
+    def _and(names):
+        names = [f"the {n}" if n == OVERALL_SCORE_COLUMN else n for n in names]
+        return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+    if predictable:
+        line = ("Forecasting each Round from earlier Rounds, the model put "
+                f"{_and(predictable)} in the right order, clearly more often than chance.")
+    elif partly:
+        line = ("Forecasting each Round from earlier Rounds, the model leans right on the "
+                f"order of {_and(partly)}, not yet clearly.")
+    else:
+        line = "The model has not yet ordered any measurement right more often than chance."
+    if predictable and partly:
+        line += f" Partly: {', '.join(partly)}."
+    if not_yet and (predictable or partly):
+        line += f" Not yet: {', '.join(not_yet)}."
+    return line

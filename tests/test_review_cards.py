@@ -361,8 +361,10 @@ def test_predictions_tooltip_says_the_coverage_and_skill_exactly(screens):
     # Persona fixes: a plain sentence first; the skill figures in plain
     # words, the terms of art in a last "For experts:" line.
     # Persona fixes 2: too-close pairs left out; Cook loss joins Firmness.
-    assert plain.startswith("The model put the Overall score and Firmness in the right order "
-                            "before tasting")
+    # Rebuilt framing: "from earlier Rounds", not "before tasting".
+    assert plain.startswith("Forecasting each Round from earlier Rounds, the model put the "
+                            "Overall score and Firmness in the right order")
+    assert "before tasting" not in help_text
     assert "one-sided binomial test, p < 0.05, at least 5 pairs" in rule
     assert "Overall score: 13 of 15 landed in their predicted range" in plain
     expert = rule.split("\n\n")[-1]

@@ -21,7 +21,12 @@ def _texts():
     return [*_section(), wording.REBUILT_LABEL, wording.RESULTS_PREDICTED_CAPTION,
             wording.RESULTS_PREDICTED_SPINNER, wording.LEARNED_FORECAST_TITLE,
             wording.CALLED_RULE, wording.forecast_help(15, 6),
-            wording.results_predicted_help(6)]
+            wording.results_predicted_help(6), wording.STORY_TRUST_CAPTION,
+            wording.LEARNED_COL_PAIRS, wording.LEARNED_RULE,
+            wording.learned_evidence([("Overall score", 10, 11)]),
+            wording.learned_counts([("Overall score", 10, 11, 5.5)]),
+            wording.model_plain(["Overall score"], ["Tangy"], ["Creaminess"]),
+            wording.model_plain([], ["Tangy"], ["Creaminess"])]
 
 
 def test_rebuilt_strings_pass_banned():
@@ -49,3 +54,30 @@ def test_rebuilt_wording_limits():
     for label in (wording.REBUILT_LABEL, wording.LEARNED_FORECAST_TITLE,
                   wording.RESULTS_PREDICTED_SPINNER):
         assert _words(label) <= 5, label
+
+
+def test_round_ahead_words_say_from_earlier_rounds_not_before_tasting():
+    """A Round's forecast is rebuilt from the Rounds before it, so in a
+    project replayed from records "before tasting" read as a claim about
+    when it was made. The words say what is true live and replayed: the
+    forecast had none of that Round's results."""
+    for t in _texts():
+        assert "before tasting" not in t, t
+    assert wording.STORY_TRUST_CAPTION == "Blue: predicted from earlier Rounds. Dot: measured."
+    assert wording.LEARNED_COL_PAIRS == "Ordered right from earlier Rounds"
+    assert wording.LEARNED_RULE.startswith(
+        "Each Round's formulations are forecast from the formulations scored before "
+        "that Round only. ")
+    assert wording.learned_evidence([("Overall score", 10, 11)]) == (
+        "Evidence: pairs ordered right from earlier Rounds — Overall score 10/11.")
+    assert wording.model_plain(["Overall score", "Consistency"], [], ["Tangy"]) == (
+        "Forecasting each Round from earlier Rounds, the model put the Overall score and "
+        "Consistency in the right order, clearly more often than chance. Not yet: Tangy.")
+    assert wording.model_plain([], ["Tangy"], []) == (
+        "Forecasting each Round from earlier Rounds, the model leans right on the order of "
+        "Tangy, not yet clearly.")
+
+
+def test_round_ahead_words_within_limits():
+    assert _words(wording.STORY_TRUST_CAPTION) <= 8
+    assert _words(wording.LEARNED_COL_PAIRS) <= 5

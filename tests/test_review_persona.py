@@ -402,8 +402,11 @@ def test_model_tooltip_opens_plain_and_ends_for_experts(monkeypatch):
     assert got.word == "Predicts"
     tip = got.help
     # Persona fixes 2: the Overall score named when Predictable.
-    assert tip.startswith("The model put the Overall score and Consistency in the right order "
-                          "before tasting")
+    # Rebuilt framing: the forecast had none of that Round's results, which
+    # is true live and in a replay; "before tasting" read as a timing claim.
+    assert tip.startswith("Forecasting each Round from earlier Rounds, the model put the "
+                          "Overall score and Consistency in the right order")
+    assert "before tasting" not in tip
     assert "still very uncertain" not in tip
     assert "about as accurate as assuming each new formulation scores like your best" in tip
     assert "Single measurements: 27 of 36 landed in their predicted range." in tip

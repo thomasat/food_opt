@@ -5927,6 +5927,11 @@ class FoodOptimizer:
         typed into the picker below."""
         if qc.get('source') == 'formulation_total':
             return wording.FORMULATION_TOTAL_NAME
+        # A limit written with a name of its own (add_quantity_constraint's
+        # `name`) is called by it: a limit worked out from a project's past
+        # rounds says so where it is listed, not as "All ingredients".
+        if isinstance(qc.get('name'), str) and qc['name'].strip():
+            return qc['name'].strip()
         # A limit on a pre-mix weighed into each formulation is written
         # over its PARTS — they are the rows the search moves — and named
         # for the pre-mix, which is the thing the reader limited.
@@ -6336,7 +6341,8 @@ class FoodOptimizer:
         return self.add_quantity_constraint(chosen, **bounds)
 
     def add_quantity_constraint(self, ingredients, min_val=None, max_val=None,
-                                source=None, exactly=None, percent=None):
+                                source=None, exactly=None, percent=None,
+                                name=None):
         """Add a constraint on the sum of selected ingredient quantities.
         Replaces any existing constraint on the same set of ingredients that
         was written the same way.
@@ -6365,6 +6371,9 @@ class FoodOptimizer:
                 grams they come to today, so a later change of default can
                 rewrite the grams without losing what was actually asked
                 for.
+            name: What the limit is called where it is listed, in place of
+                the ingredients it sums — e.g. a limit inferred from a
+                project's past rounds. None names it by its ingredients.
         """
         # No refusal for Exactly-and-a-range: the Kind picker on screen is
         # one control for one idea and cannot produce the combination, and
@@ -6427,6 +6436,8 @@ class FoodOptimizer:
             entry['percent'] = percent_block
         if source is not None:
             entry['source'] = source
+        if name is not None and str(name).strip():
+            entry['name'] = str(name).strip()
         self.quantity_constraints.append(entry)
         if source is None:
             # The batch size's own limit is exempt: set_formulation_total
@@ -6439,7 +6450,7 @@ class FoodOptimizer:
         self.save()
 
     def add_total_mass_constraint(self, min_val=None, max_val=None,
-                                  source=None):
+                                  source=None, name=None):
         """The limit over every ingredient — what the Total of each
         formulation box writes (tagged 'formulation_total'), and what a
         project saved before 0.4.0 may already hold untagged from the days
@@ -6454,7 +6465,7 @@ class FoodOptimizer:
             if v.get('category', 'ingredient') == 'ingredient'
         ]
         self.add_quantity_constraint(all_ingredients, min_val, max_val,
-                                     source=source)
+                                     source=source, name=name)
 
     def remove_quantity_constraint(self, index):
         """Remove a quantity constraint by index. Taking out the one the
