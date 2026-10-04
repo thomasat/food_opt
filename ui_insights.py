@@ -3266,7 +3266,8 @@ def explore_map_chart(pool_mean, pool_sd, tested, picks, ref=None, opt=None, gai
     x_hi = max([float(pool["mean"].max())] + keep)
     pad = 0.04 * max(x_hi - x_lo, 1.0)
     x = alt.X("mean:Q", title=say(wording.MAP_X_TITLE),
-              scale=alt.Scale(zero=False, domain=[x_lo - pad, x_hi + pad], nice=False))
+              scale=alt.Scale(zero=False, domain=[x_lo - pad, x_hi + pad], nice=False),
+              axis=alt.Axis(tickCount=8))
     # From 0: the model's sd is a size, and a zoomed sd axis made a small
     # difference in certainty look large (review plots).
     y = alt.Y("sd:Q", title=say(wording.MAP_Y_TITLE), scale=alt.Scale(zero=True))
@@ -5820,7 +5821,7 @@ def _check_domain(frame, lo_bound, hi_bound):
     vals = list(frame["low"]) + list(frame["high"]) + list(frame["measured"])
     lo, hi = min(vals), max(vals)
     span = max(hi - lo, 1e-6)
-    left = lo - 0.06 * span - (0.28 * span if (frame["side"] == "below").any() else 0)
+    left = lo - 0.1 * span - (0.28 * span if (frame["side"] == "below").any() else 0)
     right = hi + 0.06 * span + (0.28 * span if (frame["side"] == "above").any() else 0)
     return [max(left, lo_bound - 0.02 * span), min(right, hi_bound + 0.3 * span)]
 
@@ -6274,7 +6275,8 @@ def _next_preview(opt, places, computed, facts=None):
         # Persona fixes: a static table that wraps its words, so the line
         # that sets each apart and its changes read whole at 820 px.
         st.table(frame.set_index(cols[0]))
-        if widen_beyond(opt, getattr(facts, "next", None), rows):
+        if widen_beyond(opt, getattr(facts, "next", None), rows) and not at_ceiling(opt, facts):
+            # (Review critique: no widening advice at the top score.)
             st.markdown(_say(opt, wording.WIDEN_BEYOND))
         st.caption(_say(opt, wording.LEARNED_PREVIEW_CAPTION))
 
@@ -6641,7 +6643,7 @@ def improving_chart(opt):
     # The legend names the two lines; the grey dots are each formulation
     # (their tooltip and the caption's "?" say so).
     legend = alt.Legend(title=None, orient="top", labelLimit=0, symbolType="stroke",
-                        symbolStrokeWidth=3)
+                        symbolStrokeWidth=3, symbolOpacity=1)
     no_tip = alt.Tooltip(f"{formulation}:Q", title=_say(opt, wording.FORMULATION_CAP),
                          format="d")
     # Review readable: ticks only over the data, never in the label lanes.

@@ -1282,6 +1282,9 @@ def why_frame(opt, why, preds, hide=False):
             role = opt.suggestion_role(row['recipe']) if row.get('recipe') else r.role
         except Exception:
             role = r.role
+        if r.own and note and note != wording.OWN_FORMULATION_NOTE:
+            # Persona fixes 2: an entered row (its source in Source).
+            label = wording.why_row_label(r.formulation) + wording.ENTERED_TAIL
         item = {wording.FORMULATION_CAP: say(label)}
         item[wording.ROLE] = say(role)
         item[wording.WHY_SOURCE] = say(wording.own_source(note) if note
