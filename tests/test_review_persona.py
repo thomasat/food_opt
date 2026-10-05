@@ -114,10 +114,12 @@ def plain(monkeypatch):
 
 
 def _round6(score_meas=(98.33, 98.33, 91.67), cons_meas=(12, 12, 13)):
-    """Rounds 4-5 earn Consistency Predictable (6 of 6); Round 6 as the
-    demo: Overall forecast F17 > F16 > F18, measured F16 = F17 > F18."""
+    """Rounds 3-5 earn Consistency Predictable (9 of 9; round 2: three
+    Rounds, so it stays Predictable once Holm adjusts for the 2 results);
+    Round 6 as the demo: Overall forecast F17 > F16 > F18, measured F16 =
+    F17 > F18."""
     checks = []
-    for r, base in ((4, 10), (5, 13)):
+    for r, base in ((3, 7), (4, 10), (5, 13)):
         checks += [_check(base + k, r, "Consistency", 13 - k, 13 - k) for k in range(3)]
         checks += [_check(base + k, r, insights.SCORE, 95 - k, 95 - k, low=92 - k, high=98 - k)
                    for k in range(3)]
@@ -149,14 +151,15 @@ def test_called_it_leads_with_the_overall_score(plain):
     # Persona fixes 2: led by where the scores landed (a miss above its
     # range is a miss), then the order of the pairs that count.
     # Review critique: measured ties are counted aloud.
+    # Round 2: no brackets inside the line.
     assert line == ("**Round 6: scored higher than forecast.** 2 of 3 above their range; "
-                    "order right (2 pairs; 1 tie).")
+                    "order right: 2 pairs, 1 tie.")
     # "about 4": the mean of measured − forecast over those above their range.
     above, below = U.score_landing(learned.round_checks(_round6(), insights.SCORE, 6))
     assert above == pytest.approx(((98.33 - 94.3) + (98.33 - 94.7)) / 2) and below is None
     assert "calls right" not in line and "highest" not in line
     # The cumulative record, a second short line.
-    assert U.called_so_far(opt, lf) == "So far: Overall 8 of 8 pairs, Consistency 8 of 8."
+    assert U.called_so_far(opt, lf) == "So far: Overall score 11 of 11, Consistency 11 of 11."
     assert _words(U.called_so_far(opt, lf)) <= 12   # the coordinator's line
 
 
@@ -234,8 +237,9 @@ def test_progress_strip_and_answer_words():
     assert wording.answer_line("Rising", wording.progress_rise_answer("95.0", "98.3", "3.3",
                                                                        "3.0")) == \
         "**Rising.** Best 95.0 → 98.3 (+3.3; needs 3.0 if tasting noise ≈ 1 point)."
-    need = wording.progress_need_plain("3.0")
-    assert need.startswith("3.0 is the rise needed to beat tasting noise.")
+    # Round 2 (P1 #6): what 3.0 is, in one line.
+    need = wording.progress_need_plain("3.0", q=3)
+    assert need.startswith("3.0: the best of 3 new results must beat noise by this much.")
     assert "about 1 point" in need and "no Repeats" in need
 
 
@@ -283,13 +287,13 @@ def test_results_round_view_has_predicted_beside_measured(plain):
     assert list(frame.columns) == ["Result", "Formulation", "Measured", "Predicted (95 % range)",
                                    "In / Above / Below range"]
     first = frame.iloc[0].to_dict()
-    assert first == {"Result": "Overall score", "Formulation": 16, "Measured": "98.3",
+    assert first == {"Result": "Overall score", "Formulation": "F16", "Measured": "98.3",  # round 2: F16
                      "Predicted (95 % range)": "94.3 (91.8–96.8)",
                      "In / Above / Below range": "Above"}
     assert set(frame["Result"]) == {"Overall score", "Consistency"}
     # Review critique (fix 12): a top below the point never prints.
     assert frame[frame.Result == "Consistency"].iloc[2]["Predicted (95 % range)"] == \
-        "13.6 (11.1–15)"
+        "13.6 (11.1–15.0)"  # round 2: the top with the point's decimals
     assert U.round_predicted_frame(opt, _round6(), 9) is None
 
 
@@ -422,7 +426,9 @@ def test_model_tooltip_opens_plain_and_ends_for_experts(monkeypatch):
     assert "before tasting" not in tip
     assert "still very uncertain" not in tip
     assert "about as accurate as assuming each new formulation scores like your best" in tip
-    assert "Single measurements: 27 of 36 landed in their predicted range." in tip
+    # Round 2: the window is stated.
+    assert re.search(r"Single measurements(, last \d+ Rounds?)?: 27 of 36 in their 95\u00a0% "
+                     r"range\.", tip)
     last = tip.split("\n\n")[-1]
     assert last.startswith("For experts:") and "qLogNEI" in last
     assert "posterior predictive" in last

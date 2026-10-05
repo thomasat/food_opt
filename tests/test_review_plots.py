@@ -4,6 +4,7 @@ every chart has a title (the hero's is its heading), labelled axes, a
 legend for every encoded colour, tooltips with a "BO term" row, one
 colour per meaning across charts, short captions, and a withheld chart's
 reason. One model fit for the module."""
+import json
 import re
 import types
 
@@ -210,7 +211,8 @@ def test_one_colour_per_meaning_across_charts(specs):
 
 def test_the_band_says_what_it_is(specs):
     assert "95 %" in wording.PLOT_BAND and "95 %" in wording.PLOT_INTERVAL
-    assert wording.PLOT_INTERVAL in str(specs["profile"])
+    # Round 2: "95 %" carries a non-breaking space, which str() escapes.
+    assert wording.PLOT_INTERVAL in json.dumps(specs["profile"], ensure_ascii=False)
 
 
 def test_a_zoomed_score_axis_says_so(specs):
@@ -249,7 +251,7 @@ def test_a_sparkline_under_two_rounds_is_withheld_with_its_reason():
 
 def test_sparklines_name_their_rounds_and_the_95_aim(specs):
     s = specs["spark_predictions"]
-    assert wording.PLOT_SPARK_TARGET in str(s)
+    assert wording.PLOT_SPARK_TARGET in json.dumps(s, ensure_ascii=False)   # round 2: nbsp
     xs = [u["encoding"]["x"] for u in _units(s) if "x" in u.get("encoding", {})
           and u["encoding"]["x"].get("field") == "round"]
     assert xs and all(x["axis"]["values"] for x in xs)

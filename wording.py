@@ -10404,10 +10404,8 @@ STORY_LANDED_IN = "Measured, in range"
 STORY_LANDED_OUT = "Measured, outside range"
 
 
-def repeat_link(no):
-    """The Repeat link, the one form of the request: 'Repeat Formulation
-    21 to check noise'."""
-    return card_noise_repeat(no)
+# The Repeat link stays "Repeat Formulation 21" (a button label: at most 5
+# words); every line that asks says "Repeat Formulation 21 to check noise".
 
 
 # Polish (P3 #19).
@@ -10477,7 +10475,7 @@ def called_so_far(cells):
 # drawn gone; the rise row in the screen's words; the stop added; the
 # Make a round threshold named as the cell now reads.
 _GLOSSARY_GONE = {"Where you have tested", "Every allowed formulation (map)",
-                  "Every allowed trial (map)"}
+                  _GLOSSARY_SETTINGS_FORM["Every allowed formulation (map)"][0]}
 _GLOSSARY_NEW = {
     "Rising · Within noise · Flat · Too early · No new best": (
         "Rising · Within noise · Plateau · Flat · Too early · No new best",
@@ -10517,3 +10515,11 @@ ENTERED_ROUND_CAPTION = (
 ONLY_OWN_FORMULATIONS_CAPTION = (
     f"This {ROUND_CAP} holds only your own {FORMULATION}s. For suggestions too: "
     f"{GENERATE_DIFFERENT_BATCH}.")
+
+
+def next_misses_short(repeat_no=None):
+    """Make a round's misses line above Generate, at most 10 words, with
+    the one form of the Repeat request."""
+    if repeat_no is None:
+        return "Measurements miss often: add a Repeat to check noise."
+    return f"Measurements miss often: {card_noise_repeat(repeat_no)}."

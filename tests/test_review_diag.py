@@ -244,7 +244,7 @@ def test_cv_widening_asks_for_a_repeat_not_the_panel(demos, name, line):
         # word is the Model item's, the miss line still red.
         assert p["word"] == "Predicts:" and p["lines"][0] == ":red[**4 / 16 missed**]"
         return
-    assert "to measure how much results vary" in p["help"]
+    assert "to check noise" in p["help"]     # round 2: the one form of the Repeat request
     assert ("the same values again" in p["help"]) == (name == D.PROCESS_ONLY)
 
 
@@ -332,7 +332,9 @@ def _check_without_repeat(at, name, word):
     for line in p["lines"] + n["lines"]:
         # Review critique, follow-up: Round 6 scored sits within noise of the
         # top score; the stop headline (at most 14 words) leads What next?.
-        assert _words(line) <= (14 if line == stop else 6), line
+        # Round 2 (P1 #5): the stop's concrete reason line, at most 12.
+        reason = line.startswith("On target:")
+        assert _words(line) <= (14 if line == stop else 12 if reason else 6), line
     if name == R6:
         assert stop in n["lines"]
     opt = FoodOptimizer(name)
@@ -361,7 +363,9 @@ def test_pilot_round_6_scored_never_says_panel(pilot):
     # The Overall score 10 of 12 in range, skill 0.69: Reliable (ruling 1).
     # Persona fixes 2: pairs too close to call (forecasts under one noise SD
     # apart) no longer count, so fewer verdicts reach Predicts.
-    _check_without_repeat(_score_round_6(), R6, "Predicts:")   # the Overall score
+    # Round 2 (P1 #2): Holm across the 5 results checked: the Overall
+    # score's 5 of 5 is Partly, not Predicts.
+    _check_without_repeat(_score_round_6(), R6, "Partly:")
 
 
 @needs_pilot

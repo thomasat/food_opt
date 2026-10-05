@@ -191,9 +191,11 @@ def test_a_withheld_gain_is_greyed_and_says_why(line_a):
     spec = U.profile_chart(opt, prof).to_dict()
     titles = [_y_title(r)[0] for r, _ in _rows(spec)]
     assert wording.PROFILER_GAIN_ROW in titles
+    # Round 2 (P2 #13): the Review's profiler draws no Expected gain row
+    # (Make a round's map has it), so no greyed-gain line under it.
     src = inspect.getsource(U._profiler)
-    assert "wording.GAIN_GREYED[hero_reason_key(profile.reason)]" in src
-    assert "wording.tip_gain_greyed(profile.reason)" in src
+    assert "profile_chart(opt, profile, shown, rows_shown, gain=False)" in src
+    assert "GAIN_GREYED" not in src
     assert "chooses_reason(opt, fitted)" in inspect.getsource(U.profile_cached)
     cold = _profile(opt, computed, reason=wording.CHOOSES_REASON_COLD)
     assert not cold.gain_drawn and all(c.gain is None for c in cold.columns)

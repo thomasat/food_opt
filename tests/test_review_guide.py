@@ -35,8 +35,9 @@ STATUS = {
     # Review critique: the strip's words ("Predicts:", "Partly:", "Not
     # predictable yet"); the permutation test leaves Line A leaning right.
     D.LINE_A: ("Partly:", "No new best", None),
-    D.LINE_B: ("Predicts:", "Plateau since Round 3", "Check panel first"),
-    D.LINE_C: ("Not predictable yet", "Within noise", None),
+    # Round 2: Holm (Line B's Firmness Partly); "Not yet:" the one form.
+    D.LINE_B: ("Partly:", "Plateau since Round 3", "Check panel first"),
+    D.LINE_C: ("Not yet:", "Within noise", None),
     D.PROCESS_ONLY: ("Predicts:", "Within noise", None),
 }
 RED = {D.LINE_B, D.PROCESS_ONLY}
@@ -111,11 +112,13 @@ def test_make_a_round_line_matches_the_review_cards(walked, name):
     if extra:
         assert _plain(words[2]) == extra, words
     # ... and Make a round's line says the same words, nothing new.
-    want = (wording.review_status_line(pred, prog, extra) if name == D.SNACK
-            else wording.review_status_learned(pred.rstrip(":"), prog, extra))
-    if name == D.PROCESS_ONLY:
-        want = want.replace("Formulation", "Trial")
-    assert _plain(line) == want, line
+    # Round 2 (P3 #18): the strip's own three items, in its words —
+    # 'Review: **Rising** · Predicts: Overall score · Stop, or change the target'.
+    if name == D.SNACK:
+        assert _plain(line) == wording.review_status_line(pred, prog, extra), line
+    else:
+        assert _plain(line).startswith(f"Review: **{prog}** · {pred}"), line
+        assert _plain(line).endswith(_plain(words[2])), (line, words)
     assert line.startswith(":red[") == (name in RED), line
     assert [b.label for b in links] == [wording.OPEN_REVIEW]
     assert links[0].proto.type == "tertiary"

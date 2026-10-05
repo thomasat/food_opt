@@ -2102,8 +2102,8 @@ def evidence_line(opt, facts, which):
     # Round-2 fixes (P3 #17): the rule itself in plain words, its own
     # sentence, not the rule table's name.
     rule = insights.status_rule(opt, ("next", step.kind))
-    return (wording.rule_line(rule) + " " + wording.evidence([
-        wording.ev_suggestions(cfg.get("acquisition", "qlognei")), wording.EV_METHOD]))
+    return (wording.evidence([wording.ev_suggestions(cfg.get("acquisition", "qlognei")),
+                              wording.EV_METHOD]) + " " + wording.rule_line(rule))
 
 
 def _status_line(opt, facts, which):

@@ -246,7 +246,8 @@ def test_repeat_wording_is_one_form_everywhere():
     assert wording.YARDSTICK_REPEATS == insights.YARDSTICK_DF == 3
     assert wording.REPEAT_CONFIRMS == "3 Repeats would measure the noise."
     assert wording.card_repeat_ask(16, 7) == "Repeat Formulation 16 to check noise"
-    assert wording.repeat_link(21) == "Repeat Formulation 21 to check noise"
+    # The link is a button (at most 5 words); every line says the full form.
+    assert wording.repeat_link(21) == "Repeat Formulation 21"
     assert "A Repeat would confirm" not in wording.check_noise([("Overall score", "1.0")])
     assert "A Repeat would confirm" not in wording.story_improving_help("84.2", "96.1", 1, 6)
 

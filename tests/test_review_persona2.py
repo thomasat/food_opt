@@ -153,15 +153,19 @@ def test_forecast_check_headline_order_counted(plain):
     lf = _lf(opt, _round6(score_meas=(85.0, 85.5, 83.0)), 6, NOISE)
     line = U.called_line(opt, lf)
     # F17 > F18 counts (1.0 apart); F16-F18 too close; F16-F17 too close.
-    assert line == ("**Round 6: scored as forecast.** All 3 in range; order right (1 pair; "
-                    "2 too close).")
+    # Round 2: no brackets inside the line.
+    assert line == ("**Round 6: scored as forecast.** All 3 in range; order right: 1 pair, "
+                    "2 too close.")
 
 
 def test_so_far_counts_only_pairs_that_count(plain):
     opt = _Obj()
     # Noise 1: Round 6's Overall pair F17 > F18 counts with Rounds 4-5's six.
     lf = _lf(opt, _round6(), 6, NOISE)
-    assert U.called_so_far(opt, lf) == "So far: Overall 7 of 7 pairs, Consistency 6 of 6."
+    # Round 2: "Overall score", no "pairs"; Consistency 6 of 6 alone is not
+    # Predictable before Round 6 once adjusted for the 2 results (Holm), so
+    # its panel and count are not drawn.
+    assert U.called_so_far(opt, lf) == "So far: Overall score 7 of 7."
     # Noise above every Overall gap: nothing to count, said so.
     lf = _lf(opt, _round6(), 6, {insights.SCORE: 9.0, "Consistency": 1.0})
     lf.items = lf.items[:1]
@@ -188,7 +192,7 @@ def test_forecast_check_detail_says_too_close_and_the_noise(plain):
     # kept only when it fits about 120 words.)
     # Review critique: the noise each claim had to reach, said as assumed.
     assert "Tasting noise assumed: Overall score 3.0" in detail
-    assert "A Repeat would confirm." in detail
+    assert wording.REPEAT_CONFIRMS in detail      # round 2: "3 Repeats would measure the noise."
     assert "a miss, above or below" in detail
     assert "better than forecast" not in detail and "not a miss" not in detail
 
@@ -244,7 +248,7 @@ def test_pair_noise_is_the_tasting_noise(tmp_path, monkeypatch):
     assert learned.overall_noise(opt) == (2.0, False)
     assert learned.pair_noise(opt)["Sour"] == pytest.approx(2.0 * 15 / (25 * k ** 0.5))
     assert wording.check_noise([("Overall score", "1.0")]) == (
-        "Tasting noise assumed: Overall score 1.0. A Repeat would confirm.")
+        "Tasting noise assumed: Overall score 1.0. 3 Repeats would measure the noise.")
 
 
 # ------------------------------------------------------------------ #
@@ -352,9 +356,10 @@ def test_plateau_card_and_answer(monkeypatch):
     opt = NS(utility_ceiling=lambda: 100.0, formulation_ids=[])
     card = U.progress_card(opt, facts)
     assert card.word == "Plateau since Round 4"
-    assert card.lines[0][0] == "81.5 → 88.0 of 100"
+    # Round 2: the plateau line names its best.
+    assert card.lines[0][0] == "81.5 → 88.0 of 100 · Formulation 12"
     assert wording.answer_line(card.word, card.lines[0][0]) == \
-        "**Plateau since Round 4.** 81.5 → 88.0 of 100."
+        "**Plateau since Round 4.** 81.5 → 88.0 of 100 · Formulation 12."
     assert wording.review_status_learned("Predicts", card.word) == \
         "Review: Model **Predicts** · Progress **Plateau since Round 4**"
 

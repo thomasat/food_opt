@@ -241,13 +241,14 @@ def test_forecast_chart_spec():
     opt = D.load(D.LINE_A)
     chart = U.forecast_chart(opt, _checks())
     spec = chart.to_dict()
-    text = json.dumps(spec)
+    text = json.dumps(spec, ensure_ascii=False)   # round 2: "95 %" has a non-breaking space
     rows = [r for v in spec["datasets"].values() for r in v if "measured" in r]
     # The Overall score's checks only, one row per formulation checked.
     assert sorted(r[wording.FORMULATION_CAP] for r in rows) == [7, 8, 9, 10]
     assert {r["state"] for r in rows} == {wording.STORY_LANDED_IN, wording.STORY_LANDED_OUT}
-    # The model blue bar, filled ink inside, hollow outside; no red.
-    assert U.model_blue() in text and '"transparent"' in text
+    # The model blue bar, filled ink inside, orange outside (round 2: a
+    # miss in the one accent colour, as on the Forecast check); no red.
+    assert U.model_blue() in text and U.outline_colour() in text
     assert U.mark("bar_latest")[0] in text
     assert "#d62728" not in text.lower() and '"red"' not in text
     for w in (wording.STORY_FORECAST, wording.STORY_LANDED_IN, wording.STORY_LANDED_OUT,
@@ -278,7 +279,7 @@ def test_trust_answer_on_line_a(screens):
     # Persona fixes 2: pairs under one tasting noise apart left out.
     # Review critique: the exact permutation test (and each measurement's
     # share of the noise): they lean right, not clearly.
-    assert line == "**Partly predicts Overall score, Firmness, Cook loss.** Not yet: Juiciness."
+    assert line == "**Partly: Overall score, Firmness, Cook loss.** Not yet: Juiciness."  # round 2
 
 
 # ------------------------------------------------------------------ #
@@ -452,11 +453,14 @@ def test_pilot_story(pilot):
         sum(abs(r["start"] - r["target"]) for r in rows)
     at = _open(ALL10)
     got = sections(at)
-    assert list(got) == STORY
+    # Round 2 (P2 #9): the Forecast check is its own section after What next?.
+    assert list(got) == STORY[:2] + [wording.FORECAST_CHECK_TITLE] + STORY[2:]
     line = next(t for k, t in got[wording.Q2_TITLE] if k == "markdown")
     # Review story 2: "of 100", so Flat at 96.4 reads as near the ceiling.
     # Persona fixes 2: Flat after a rise reads "Plateau since Round N".
-    assert re.fullmatch(r"\*\*Plateau since Round \d+\.\*\* \d+\.\d → \d+\.\d of 100\.", line), line
+    # Round 2: the plateau line names its best.
+    assert re.fullmatch(r"\*\*Plateau since Round \d+\.\*\* \d+\.\d → \d+\.\d of 100 · "
+                        r"Formulation \d+\.", line), line
     items, _ = strip(at)
     # The strip, by pattern only (no pilot numbers in the repository).
     # Review learned: the Model item (by pattern only: no pilot names).
@@ -466,7 +470,7 @@ def test_pilot_story(pilot):
     assert re.fullmatch(r"· best \d+\.\d of 100", items[0]["line"]), items[0]
     assert re.fullmatch(r"[A-Z][\w ]+(, [A-Z][\w ]+)?", items[1]["line"]), items[1]
     line = next(t for k, t in got[wording.LEARNED_TITLE] if k == "markdown")
-    assert re.fullmatch(r"\*\*Predicts .+\.\*\*( Partly: .+\.)? Not yet: .+\.", line), line
+    assert re.fullmatch(r"\*\*Predicts: .+\.\*\*( Partly: .+\.)? Not yet: .+\.", line), line
     # Review critique (fix 4): the profiler is a closed fold.
     assert wording.Q3_TITLE not in got
     before = cards(_open(R6), order="screen")
@@ -522,7 +526,7 @@ def test_what_next_holds_the_secondary_actions(screens):
     nxt = cards(at)[2]
     assert nxt["next_word"] == nxt["word"] == "Record Round 6"
     assert nxt["next_help"] == nxt["help"]
-    assert "Round 7: Repeat Formulation 15" in nxt["lines"]
+    assert "Repeat Formulation 15 to check noise" in nxt["lines"]   # round 2: one form
     # The Set up secondary and the one link sit here, never in the strip.
     keys = [el.key for el, _ in section(at, wording.Q5_TITLE) if el.type == "button"]
     assert keys and set(keys) <= {"insights_change_setup", "insights_why_link",

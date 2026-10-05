@@ -52,13 +52,18 @@ def sections(at):
     out, cur = {}, None
     for el, folds, _ in _leaves(at.tabs[3]):
         text = _text(el)
+        if el.type == "markdown" and text == f"#### {wording.FORECAST_CHECK_TITLE}":
+            cur = None      # round 2: the Forecast check's own section, not a question
+            continue
         if el.type == "markdown" and text.startswith("#### "):
             cur = text[5:]
             out[cur] = []
             continue
         if el.type == "expander":
             # Review critique (fix 4): What drives each result? is a fold.
-            cur = el.label if not folds and el.label != wording.FOLD_METHOD else None
+            # Round 2: Next suggestions folds under Stop, inside What next?.
+            cur = (el.label if not folds and el.label not in (
+                wording.FOLD_METHOD, wording.LEARNED_PREVIEW_TITLE) else None)
             if cur is not None:
                 out[cur] = []
             continue
@@ -106,7 +111,7 @@ def test_answer_lines_open_with_the_cards_word(screens, name):  # noqa: F811
     q1, q2, q3, q4 = (firsts[wording.for_project(opt, k)] for k in QUESTIONS)
     if name != D.SNACK:
         # Review learned: the section's answer names what the model predicts.
-        assert re.match(r"\*\*(Predicts|Partly predicts|Not predictable yet)", q1), q1
+        assert re.match(r"\*\*(Predicts|Partly|Not yet):", q1), q1   # round 2: one form
     # Review critique (fix 4): Q3's answer sits inside its closed fold.
     assert q3 is None
     assert q2.startswith(f"**{plain(g['word'])}.**")
@@ -263,7 +268,7 @@ CARDS = {
     # (Partly); the strip's words now end in a colon.
     D.LINE_A: ("Partly:", ["Overall score, Firmness +1"]),
     # Review learned 2: the section repeats no old-card line.
-    D.LINE_B: ("Predicts:", [":red[**3 / 16 missed**]"]),
+    D.LINE_B: ("Partly:", [":red[**3 / 16 missed**]"]),     # round 2: Holm
     D.PROCESS_ONLY: ("Predicts:", [":red[**4 / 16 missed**]"]),
     D.TIMING: ("Predicts:", ["Overall score, Firmness +3"]),
 }

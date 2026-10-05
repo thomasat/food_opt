@@ -102,7 +102,12 @@ def test_ordering_reads_the_unclipped_mean():
     # Both clipped to the top (15) but the model's own means differ.
     checks = [_check(1, 2, "Firm", 15.0, 14, raw=16.0), _check(2, 2, "Firm", 15.0, 12, raw=15.5)]
     call = learned.round_call(checks, "Firm", 2)
-    assert [(p.high, p.low, p.right) for p in call.pairs] == [(1, 2, True)]
+    # Round 2 (P1 #3): both forecasts read "≥ 15", so the pair is too close
+    # to call; the order inside the Range still reads the unclipped mean.
+    assert [(p.high, p.low, p.right, p.close) for p in call.pairs] == [(1, 2, None, True)]
+    inside = [_check(1, 2, "Firm", 14.0, 14, raw=14.0), _check(2, 2, "Firm", 15.0, 12, raw=15.5)]
+    call = learned.round_call(inside, "Firm", 2)
+    assert [(p.high, p.low, p.right) for p in call.pairs] == [(2, 1, False)]
 
 
 def test_overall_score_counts_fully_measured_only():
@@ -496,7 +501,8 @@ def test_section_is_one_line_one_chart_one_caption(screen):
     assert len(texts) == 2, texts            # the answer and the caption
     # Persona fixes 2: Line A's forecasts are too close to call.
     assert texts[0].startswith(("**Predicts", "**Partly", "**Not predictable yet"))
-    assert texts[1] == wording.LEARNED_CAPTION
+    # Round 2: the caption says the Holm adjustment.
+    assert texts[1].startswith(wording.LEARNED_CAPTION)
     assert sum("vega" in k or "chart" in k for k in kinds) == 1
     every = " | ".join(_text(el) for el, _, _ in _leaves(screen.tabs[3]))
     for gone in ("Learned effects", "Raised by", "Lowered by", "Picked the top one",
@@ -531,10 +537,10 @@ def test_called_it_sits_at_the_top_as_charts(scored):
     # Review critique (fix 5): the Forecast check sits right above What has
     # the model learned?, after What next?.
     first_heading = texts.index(f"#### {wording.LEARNED_TITLE}")
+    # Round 2 (P2 #9): its own section heading, as the questions are.
     assert texts.index(f"#### {wording.Q5_TITLE}") < texts.index(
-        f"**{wording.FORECAST_CHECK_TITLE}**")
-    # Persona fixes 2: the block's own heading, "Forecast check", first.
-    title = texts.index(f"**{wording.FORECAST_CHECK_TITLE}**")
+        f"#### {wording.FORECAST_CHECK_TITLE}")
+    title = texts.index(f"#### {wording.FORECAST_CHECK_TITLE}")
     # Rebuilt framing: right under its title, said to be rebuilt.
     assert texts[title + 1] == wording.REBUILT_LABEL
     called = [i for i, t in enumerate(texts)
@@ -564,15 +570,17 @@ def test_called_chart_is_at_most_three_small_panels(scored):
     assert 1 <= len(drawn) <= 1 + learned.CALLED_PANELS
     assert lf.items[0][0] == insights.SCORE
     # Review readable: taller (120 -> 160 px) so 12 px end labels clear each other.
-    assert U.CALLED_W <= 260 and U.CALLED_H <= 170
+    # Round 2 (P2 #9): one full-width panel per row, 40 px per formulation.
+    assert U.CALLED_W >= 600 and U.CALLED_ROW_H == 40
 
 
 def test_profiler_headline_names_no_effect(screen):
     # Review critique (fix 4): the profiler is a closed fold, worked out once
     # opened; its answer names what bounds the lines, never an effect.
     assert U.limiting_name(None) is None
-    assert wording.drives_limited("Formulation total") == (
-        "Single-ingredient moves are limited by the Formulation total.")
+    # Round 2: the answer line adds the period (it read "total..").
+    assert wording.answer_line(wording.drives_limited("Formulation total"), "") == (
+        "**Single-ingredient moves are limited by the Formulation total.**")
     for kind in ("ingredients", "settings", "both"):
         assert _words(wording.profiler_guide(kind)) <= 8
 

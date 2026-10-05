@@ -99,14 +99,15 @@ def test_forecast_check_rows_follow_the_forecast_and_flag_misses(plain):
     # Row order is the forecast order, highest first.
     assert list(frame["f"]) == ["F17", "F16", "F18"]
     assert dict(zip(frame["f"], frame["side"])) == {"F17": "above", "F16": "above", "F18": "in"}
-    assert set(frame["miss"]) == {"above", ""}
+    # Round 2: a miss prints its measured value ("88.0 above").
+    assert set(frame["miss"]) == {"88.0 above", ""}
 
 
 def test_forecast_check_chart_is_one_axis_per_result_with_an_accent_for_misses(plain):
     opt = _Obj()
     lf = _lf(opt, _round6(), 6, {insights.SCORE: 1.0, "Consistency": 0.3})
     spec = U.called_chart(opt, lf).to_dict()
-    panel = spec["hconcat"][0]
+    panel = spec["vconcat"][0]     # round 2: panels one under another
     marks = [layer["mark"]["type"] if isinstance(layer["mark"], dict) else layer["mark"]
              for layer in panel["layer"]]
     assert marks[:3] == ["bar", "tick", "point"] and marks.count("text") == 2
@@ -125,8 +126,9 @@ def test_the_check_line_counts_ties(plain):
     opt = _Obj()
     lf = _lf(opt, _round6(), 6, {insights.SCORE: 1.0, "Consistency": 0.3})
     line = U.called_line(opt, lf)
-    assert "order right (1 pair; 1 too close; 1 tie)" in line
-    assert wording.check_order(1, 1, 1, ties=1) == "order right (1 pair; 1 too close; 1 tie)"
+    # Round 2: no brackets inside the line (14 words at most).
+    assert "order right: 1 pair, 1 too close, 1 tie" in line
+    assert wording.check_order(1, 1, 1, ties=1) == "order right: 1 pair, 1 too close, 1 tie"
     assert wording.check_order(0, 0, 2) == "order too close to call"
 
 
@@ -158,8 +160,10 @@ def test_the_ceiling_card_says_stop_and_never_widen(monkeypatch):
     assert card.word == wording.CARD_CEILING and card.lines == []
     assert wording.answer_line(wording.CEILING_HEAD, wording.CEILING_TAIL) == (
         "**Within noise of the top score.** Stop, or change the target.")
-    tip = wording.ceiling_help("99.2", "100", "2.3", ["Water's Highest (42 g)"])
-    assert "Water's Highest (42 g)" in tip and "1 point" in tip
+    # Round 2: the gap and the threshold in numbers, and the noisy-perfect score.
+    tip = wording.ceiling_help("99.2", "100", "0.8", "2.3", "98.4", True,
+                               ["Water's Highest (42 g)"])
+    assert "Water's Highest (42 g)" in tip and "assumed noise" in tip
     assert tip.endswith(wording.REPEAT_CONFIRMS)
 
 
@@ -238,8 +242,9 @@ def test_the_ordering_chart_has_a_legend_and_the_multiplicity_line(plain):
     lf = NS(orderings={"Consistency": learned.ordering(_perfect(3), "Consistency", 0.0)})
     spec = json.dumps(U.learned_chart(opt, lf).to_dict())
     assert wording.LEARNED_KEY_CHANCE in spec and '"orient": "bottom"' in spec
+    # Round 2: Holm across the results checked.
     assert wording.learned_multiplicity(5) == (
-        "5 results are checked each Round; one may pass by chance.")
+        "Adjusted for 5 results checked: one alone could pass by chance.")
     assert "binomial" not in wording.LEARNED_RULE
 
 
@@ -312,7 +317,8 @@ def test_target_chart_colours_segments_and_never_hides_the_start(monkeypatch):
     # Tangy: start = best = target; its start point is still drawn.
     drawn = [p for v in datasets.values() for p in v
              if isinstance(p, dict) and p.get("k") == 2 and "tip" in p]
-    assert {p["what"] for p in drawn} >= {"Round 1's best", wording.BEST_SO_FAR_COLUMN}
+    # Round 2: the start's legend reads "Start (Round 1's best)".
+    assert {p["what"] for p in drawn} >= {"Start (Round 1's best)", wording.BEST_SO_FAR_COLUMN}
 
 
 # ------------------------------------------------------------------ #
@@ -321,10 +327,11 @@ def test_target_chart_colours_segments_and_never_hides_the_start(monkeypatch):
 
 def test_range_never_prints_a_top_below_its_point():
     p = insights.Prediction(99.5, 93.4, 100.0, 99.5, 3.0)
-    assert U.capped_range(p, 100.0) == "99.5 (93.4–100)"
+    # Round 2: the range's top with the point's decimals.
+    assert U.capped_range(p, 100.0) == "99.5 (93.4–100.0)"
     assert U.capped_range(p, 100.0, 0) == "≥ 99 (93–100)"
     assert U.capped_range(insights.Prediction(13.5, 11.1, 15.0, 13.5, 1.0), 15.0) == (
-        "13.5 (11.1–15)")
+        "13.5 (11.1–15.0)")
     assert U.capped_range(insights.Prediction(94.3, 91.9, 96.8, 94.3, 1.0), 100.0) == (
         "94.3 (91.9–96.8)")
     assert U.score_text(insights.Prediction(99.4, 91.0, 100.0, 99.4, 3.0)) == "99 (91–100)"
@@ -342,10 +349,11 @@ def test_results_rows_flag_in_above_below(plain):
     assert col == "In / Above / Below range"
     got = {(r[wording.RESULTS_RESULT_COLUMN], r[wording.FORMULATION_CAP]): r[col]
            for _, r in frame.iterrows()}
-    assert got[(wording.OVERALL_SCORE_COLUMN, 16)] == "Above"
-    assert got[(wording.OVERALL_SCORE_COLUMN, 18)] == "In"
-    assert got[("Consistency", 16)] == "Above"
-    assert got[("Consistency", 18)] == "Below"
+    # Round 2: F16 in the table's Formulation column.
+    assert got[(wording.OVERALL_SCORE_COLUMN, "F16")] == "Above"
+    assert got[(wording.OVERALL_SCORE_COLUMN, "F18")] == "In"
+    assert got[("Consistency", "F16")] == "Above"
+    assert got[("Consistency", "F18")] == "Below"
     # A row per measurement, not only the Predictable ones.
     assert sum(1 for k in got if k[0] == "Consistency") == 3
 
@@ -496,9 +504,10 @@ def test_the_ceiling_stop_fires_on_a_rising_round(monkeypatch):
     # The "?" says what a further Round can and cannot show.
     tip = U.ceiling_tip(opt, facts)
     assert wording.CEILING_MEASURE in tip and _words(wording.brief(tip)) <= wording.TOOLTIP_WORDS
+    # Round 2: what one new result can and cannot show, said exactly.
     assert wording.CEILING_MEASURE == (
-        "Further Rounds can't show a measurable rise in the Overall score; a single measurement "
-        "can still move (change its target or Share of score to chase it).")
+        "A single new result can't be told apart from this best in the Overall score; a "
+        "single measurement still can (change its target or Share of score to chase it).")
     # Below the threshold, Rising keeps Make Round 7.
     facts.best = NS(score=95.0, formulation=10)
     assert not U.ceiling_stop(opt, facts)

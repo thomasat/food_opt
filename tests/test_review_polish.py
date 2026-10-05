@@ -52,10 +52,11 @@ def test_evidence_numbers_are_the_cards(screens):  # noqa: F811
     # Persona fixes 2: a result with no pair far enough apart is left out
     # (Line A's Overall score).
     assert ev.startswith("Evidence: pairs ordered right from earlier Rounds — ")
-    # Persona fixes: the coverage and skill figures in the experts' line
-    # (review critique: cut at a sentence to keep about 120 words).
-    assert "Overall score: 13 of 15 inside the 95 % predicted range." in \
-        p["help"].split("For experts:")[1]
+    # Round 2 (P3 #19): the coverage is the plain line's; the experts' line
+    # keeps the skill figures and never repeats it.
+    plain_part, expert = p["help"].split("For experts:")[0], p["help"].split("For experts:")[1]
+    assert "Overall score: 13 of 15 landed in their predicted range" in plain_part
+    assert "13 of 15 inside" not in expert and "Skill over" in expert
     assert "qLogNEI" in n["help"].split("\n\n")[1]
 
 

@@ -60,7 +60,8 @@ EXPECTED = {
         # lean right (Partly), not clearly; the strip reads "Partly:".
         [("Model", "Partly:", ["Overall score, Firmness +1"]),
          ("Progress", "No new best", ["· best 90.5 of 100"]),
-         ("Next", "Record Round 6", ["4 formulations open", "Round 7: Repeat Formulation 15"])],
+         # Round 2: one form of the Repeat request.
+         ("Next", "Record Round 6", ["4 formulations open", "Repeat Formulation 15 to check noise"])],
         "How the app chose Round 6", ["Suggestions go where expected gain peaks."]),
     D.LINE_B: (
         "Review after Round 5 · 21 formulations · Round 6 open",
@@ -75,7 +76,8 @@ EXPECTED = {
         # Persona fixes 2: the too-close pairs left out, Partly; Flat after
         # a rise reads Plateau.
         # Review critique: "Predicts:" (the strip's words, with a colon).
-        [("Model", "Predicts:", [":red[**3 / 16 missed**]"]),
+        # Round 2: Holm across the results checked: Firmness is Partly.
+        [("Model", "Partly:", [":red[**3 / 16 missed**]"]),
          ("Progress", "Plateau since Round 3", ["· best 90.1 of 100"]),
          ("Next", ":red[Check panel first]", [":red[**Before Round 6**]",
                                               ":red[**Formulation 11's Repeat: 10.5 lower**]"])],
@@ -87,14 +89,15 @@ EXPECTED = {
         # evidence (Line C's one Repeat pair has 1 df); it asks for a Repeat.
         # Review learned 2: the Repeat request moved to What next?.
         # Review critique: "Not predictable yet", the section's words.
-        [("Model", "Not predictable yet", []),
+        # Round 2: "Not yet:" with the names, the strip's one form.
+        [("Model", "Not yet:", ["Overall score, Firmness +2"]),
          ("Progress", "Within noise", ["· best 89.8 (+2.5)"]),
          ("Next", "Record Round 6", ["4 formulations open", "Guided search, not a forecast",
                                      "Repeat Formulation 18 to check noise"])],
         "How the app chose Round 6", [_HIDDEN + wording.HERO_HIDDEN["noise"]]),
     D.UPGRADE: (
         "Review after Round 3 · 7 formulations · Formulation 8 waiting",
-        [("Model", "Not predictable yet", []),   # review critique: the section's words
+        [("Model", "Not yet:", ["Overall score, Firmness +2"]),   # round 2: one form
          # A warning takes the strip's line (never folded).
          ("Progress", "Too early", [":red[**Rounds 1–2 lack Cook loss**]"]),
          # Review learned: What next? previews the next suggestions.
@@ -116,7 +119,7 @@ EXPECTED = {
         # Review learned: Model's word; the red miss line kept.
         [("Model", "Predicts:", [":red[**4 / 16 missed**]"]),   # review critique: "Predicts:"
          ("Progress", "Within noise", ["· best 87.9 (+1.9)"]),
-         ("Next", "Record Round 6", ["4 trials open", "Round 7: Repeat Trial 21"])],
+         ("Next", "Record Round 6", ["4 trials open", "Repeat Trial 21 to check noise"])],
         "How the app chose Round 6", [_HIDDEN + wording.HERO_HIDDEN["skill"]]),
 }
 
@@ -361,7 +364,8 @@ def test_each_card_tooltip_holds_the_full_sentence_then_the_exact_rule(screens, 
         # first; the exact rules are in Method and definitions.
         assert _words(c["help"]) <= wording.TOOLTIP_WORDS, c
         assert not c["help"].startswith(("For experts", "Evidence"))
-    assert "Next-step rule that holds" in n["help"]
+    # Round 2: the rule in plain words, not its name (the gate keeps its line).
+    assert "Rule: " in n["help"] or "Next-step rule that holds: Not yet (gate)" in n["help"]
 
 
 def test_predictions_tooltip_says_the_coverage_and_skill_exactly(screens):
@@ -402,14 +406,14 @@ def test_off_says_check_before_the_round(screens):
     # Review four, ruling 1: the check is the Next card's, in red. Review
     # learned: the strip's Model word reads the model's verdicts (Firmness).
     # Persona fixes 2: too-close pairs left out, Firmness Partly.
-    assert p["word"] == "Predicts:"    # review critique: the strip's colon
+    assert p["word"] == "Partly:"    # round 2: Holm across the results checked
     assert ":red[**Check panel before Round 6**]" not in p["lines"]
     assert n["word"] == ":red[Check panel first]" and ":red[**Before Round 6**]" in n["lines"]
 
 
 def test_waiting_and_the_repeat_request_stay_visible(screens):
     assert "Formulation 19 waiting" in outside(screens[D.LINE_A])[0][1]
-    assert "Round 7: Repeat Formulation 15" in cards(screens[D.LINE_A])[2]["lines"]
+    assert "Repeat Formulation 15 to check noise" in cards(screens[D.LINE_A])[2]["lines"]
     timing = cards(screens[D.TIMING])[2]
     # Review polish: with no Round open the link is the request, said once.
     assert "With a Repeat of Formulation 24" not in timing["lines"]
