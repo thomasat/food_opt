@@ -10286,3 +10286,58 @@ def review_status_strip(progress, model, next_word):
     Predicts: Overall score · Stop, or change the target'."""
     return f"{REVIEW_STATUS_PREFIX}: **{progress}** · {model} · {next_word}"
 LEARNED_CAPTION = "Past the bar: Predicts"
+PREVIEW_FOLD_CAPTION = "What Generate would make now."
+
+
+# Forecast check (P2 #9, P3 #18).
+def called_shown(round_no):
+    """'Shown: results predictable before Round 10.'"""
+    return f"Shown: results predictable before {ROUND_CAP} {round_no}."
+
+
+def called_shown_help(absent, round_no):
+    """Why a result the Model names is not drawn here."""
+    names = ", ".join(absent)
+    return (f"{names}: not predictable before {ROUND_CAP} {round_no}, so not checked here. "
+            f"The check draws the {OVERALL_SCORE_COLUMN} and what the model could order before "
+            "this Round.")
+
+
+def story_target_start(round_no):
+    """Start vs best's hollow ring: 'Start (Round 1's best)'."""
+    return f"Start ({ROUND_CAP} {round_no}'s best)"
+
+
+# What drives each result? (P2 #13).
+def drives_limited(name):
+    """'Single-ingredient moves are limited by the Batch total' (the answer
+    line adds the period)."""
+    return f"Single-ingredient moves are limited by the {name}"
+
+
+def profiler_cramped(names):
+    """'Too little room to move: Tap water, Coconut cream.'"""
+    return f"Too little room to move: {', '.join(names)}."
+
+
+PROFILER_CRAMPED_HELP = ("Not drawn: with everything else as it is, your limits leave these "
+                         "less than 5 % of their Lowest–Highest to move in.")
+
+
+# Make a round's map (P2 #14).
+MAP_DIAMONDS_CAPTION = f"Diamonds: this {ROUND_CAP}'s {FORMULATION}s."
+
+
+def why_chart_caption_full(n, line=True, gain=False, grey=False):
+    """The map's "?": what each mark is, the colour, and what the zoom
+    leaves out."""
+    dots = (f"dots, {n} allowed {FORMULATION}s sampled evenly, coloured by Expected gain "
+            f"(darker: more to gain{'; grey while the gain is greyed' if grey else ''})"
+            if gain else f"grey dots, {n} allowed {FORMULATION}s sampled evenly")
+    text = (f"Predicted Overall score (across) against model sd (up): {dots}; grey rings, "
+            f"tested {FORMULATION}s; orange diamonds, this {ROUND_CAP}'s {FORMULATION}s")
+    text += f"; dashed line, {WHY_REFERENCE}." if line else "."
+    return (f"{text} Zoomed to the better scores: tested {FORMULATION}s predicted below the "
+            "left edge are not drawn.")
+OFF_BY_TITLE = "Measurements against goals"
+REVIEW_SAYS_STOP = "Review says stop."

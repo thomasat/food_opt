@@ -393,10 +393,15 @@ def _no_batch(opt, tab_open=False):
     # While a confirmation is armed its "Yes" is the one coloured button, and
     # answering it is the one thing to do; generating can wait a click.
     lit = not confirmation_open()
+    # Round-2 fixes (P2 #16): when the Review says stop, Generate still
+    # works but is not the lit button, and one line says why.
+    stop = ui_insights.review_says_stop(opt)
     if st.button(wording.for_project(opt, wording.generate_button_label(n)),
-                 type="primary" if lit else "secondary",
+                 type="primary" if lit and not stop else "secondary",
                  disabled=not lit, key="generate") and lit:
         _generate(opt, n)
+    if stop:
+        st.caption(wording.REVIEW_SAYS_STOP)
     # Under Generate, never above it (T47 review minor 8): a line that
     # lands once the checks are in must not move the lit button under
     # the pointer.
@@ -1343,7 +1348,7 @@ def why_columns(opt, value_col, help_text):
 GREYED_GAIN = "#8a9099"
 
 
-def why_chart(opt, why, ref=None):
+def why_chart(opt, why, ref=None, grey=False):
     """The explore-exploit map (01 #2, 02 §4.3): every sampled allowed
     formulation as a grey dot, predicted Overall score (the suggestion
     model's mean) across, its sd up; tested formulations as rings; this
@@ -1358,7 +1363,8 @@ def why_chart(opt, why, ref=None):
               for m, s in zip(why.tested_mean.tolist(), why.tested_sd.tolist())]
     picks = [{"mean": r.mean, "sd": r.sd, "no": str(r.formulation)} for r in why.rows]
     return ui_insights.explore_map_chart(why.pool_mean, why.pool_sd, tested, picks, ref, opt,
-                                         gain=getattr(why, "pool_value", None))
+                                         gain=getattr(why, "pool_value", None),
+                                         muted_gain=grey)
 
 
 def _why_these(opt, preds):
@@ -1441,7 +1447,7 @@ def _why_fold(opt, preds):
             # One line, about what is shown (01 O9; last-fix review R-1),
             # the reason in its tooltip (early walkthrough ruling).
             st.caption(say(wording.WHY_RECALCULATED), help=say(wording.TIP_RECALCULATED))
-        chart = why_chart(opt, why, ref)
+        chart = why_chart(opt, why, ref, grey)
         if chart is None:
             # No map without a pool; the roles above never needed one.
             return
@@ -1449,10 +1455,11 @@ def _why_fold(opt, preds):
         # Demo build: the map's one home now; its legend names the marks,
         # so the caption says how to read it (Review's copy did), the marks
         # and the sample in its "?".
-        st.caption(wording.for_project(opt, wording.PLOT_CAPTION_MAP),
+        st.caption(wording.for_project(opt, wording.MAP_DIAMONDS_CAPTION),
                    help=wording.for_project(opt, " ".join([
                        wording.MAP_READING, wording.why_chart_caption_full(
-                           f"{len(why.pool_mean):,}", line=ref is not None)])))
+                           f"{len(why.pool_mean):,}", line=ref is not None,
+                           gain=getattr(why, "pool_value", None) is not None, grey=grey)])))
 
 
 _GUARD_WORDS = {"floor": wording.GUARD_FLOOR, "noise": wording.GUARD_NOISE}

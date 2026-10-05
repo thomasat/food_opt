@@ -307,8 +307,9 @@ def _round_predicted(opt):
         frame = None
     if frame is None or frame.empty:
         return
+    # Round-2 fixes (P2 #15): every row shown, no inner scroll.
     st.dataframe(frame, hide_index=True, key="round_predicted",
-                 height=table_height(len(frame)))
+                 height=35 * (len(frame) + 1) + 3)
     st.caption(wording.for_project(opt, wording.RESULTS_PREDICTED_CAPTION),
                help=wording.for_project(opt, wording.results_predicted_help(last)))
 
@@ -467,6 +468,8 @@ def _best(opt):
         # Off by is a distance from a target, so it only appears once a
         # measurement has one: a column of dashes said nothing on every row.
         has_target = any(o['goal'] == 'target' for o in opt.objectives)
+        # Round-2 fixes (P2 #15): the table named, as every other one here.
+        st.markdown(f"**{wording.for_project(opt, wording.OFF_BY_TITLE)}**")
         st.dataframe(pd.DataFrame([
             {wording.MEASUREMENT_COLUMN: d['name'], wording.GOAL_LABEL: d['goal'],
              wording.MEASURED_COLUMN: d['measured'],
@@ -743,9 +746,14 @@ def _all_formulations(opt, said_partial=False):
     with o2:
         show_amounts = st.toggle(wording.SHOW_AMOUNTS_TOGGLE, key="show_amounts")
     frame = opt.history_frame(order=order, include_amounts=show_amounts)
+    # Round-2 fixes (P2 #15): a column as wide as its name ("Coconut cream
+    # (g)" was cut to "Coconut cr…"); the table scrolls sideways instead.
+    config = {c: st.column_config.Column(width=max(80, 8 * len(str(c)) + 24))
+              for c in frame.columns if len(str(c)) > 9}
+    config[wording.FORMULATION_CAP] = st.column_config.Column(
+        wording.for_project(opt, wording.FORMULATION_CAP))
     st.dataframe(_table_style(opt, frame),
-                     column_config={wording.FORMULATION_CAP: st.column_config.Column(
-                         wording.for_project(opt, wording.FORMULATION_CAP))},
+                     column_config=config,
                  hide_index=True, key="all_formulations",
                  height=table_height(len(frame), max_rows=20))
     # What a dash means, only while a dash is in the table (audit V9): a
@@ -1245,9 +1253,13 @@ def _foot(opt, correcting=False, typed=False, review=False):
     # Review guide: while a Round is due a Review, "Review Round N" is
     # the lit one and this waits a step, enabled.
     lit = enabled and not typed and not review
-    if st.button(label, type="primary" if lit else "secondary",
+    # Round-2 fixes (P2 #16): not lit when the Review says stop.
+    stop = not opt.pending_batch and ui_insights.review_says_stop(opt)
+    if st.button(label, type="primary" if lit and not stop else "secondary",
                  disabled=not enabled, key="foot_batch") and enabled:
         go_to_tab(TAB_BATCH)
+    if stop:
+        st.caption(wording.REVIEW_SAYS_STOP)
 
 
 def _batch_numbers(opt):
