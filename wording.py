@@ -8465,14 +8465,6 @@ def q4_word(n):
     return f"{n} tested"
 
 
-def q4_gap(stretch):
-    """'Tap water below 31 g untested'."""
-    return f"{stretch} untested"
-
-
-Q4_NO_GAP = "No large untested stretch"
-
-
 def gap_span(name, low_text, high_text):
     """'Salt 0.6–1.0 g': an interior gap, compact."""
     return f"{name} {low_text}–{high_text}"
@@ -9936,12 +9928,7 @@ def story_target_help(start_no, best_no, start_round):
             "start, grey and labelled when it moved away. Measured values only.")
 
 
-# What have we tried? (fix 8).
-def gap_untested(name, low_text, high_text):
-    """'Tapioca starch between 1.04 and 1.52 g untested'."""
-    return f"{gap_between(name, low_text, high_text)} untested"
-
-
+# What have we tried? (fix 8; its answer is in the tried-gaps block).
 STORY_PATH_CAPTION = f"One dot per {FORMULATION}. Shaded: untested gap."
 PATH_AT_LIMIT = "At its Lowest or Highest"
 PATH_GAP = "Untested gap"
@@ -9953,8 +9940,8 @@ def story_path_help(settings_only=False):
     return (f"One small chart per {what}: across, its allowed amounts from Lowest to Highest; "
             f"down, the {ROUND_CAP}s, the first at the top. Each dot is one {FORMULATION}; a "
             f"square marks an amount at its Lowest or Highest. Ink ring: {BEST_SO_FAR_COLUMN}. "
-            f"Orange: this {ROUND_CAP}'s suggestions. Shaded band: the largest stretch between "
-            "tested amounts that nothing has tried.")
+            f"Orange: this {ROUND_CAP}'s suggestions. Shaded band: an untested gap, 15 % of the "
+            "span or more; every one is shaded.")
 
 
 # What drives each result? (fix 4): a closed fold.
@@ -10035,3 +10022,50 @@ WHY_SOURCE_APP = "This app"
 WHY_COL_PREDICTED = "Predicted (95 % range)"
 WHY_COL_GAIN = "Expected gain"
 WHY_COL_CLOSEST = "Closest made"
+# --- tried gaps ---
+# What have we tried? (owner, 2026-10-05: "What about the other
+# ingredients?"): the answer counts the rows with an untested gap, then
+# names the largest; its "?" lists every gap, one line per row; the search
+# path shades them all.
+_GAP_ROWS = {"ingredient": ("ingredient", "ingredients"),
+             "setting": ("setting", "settings"),
+             "mixed": ("ingredient or setting", "ingredients/settings")}
+
+
+def tried_gaps(with_gaps, rows, kind, largest=None):
+    """'Gaps in 6 of 7 ingredients; largest: Salt 0.6–1.0 g'.
+    `kind`: "ingredient", "setting" or "mixed"; `largest`: gap_span's, or
+    None for the count alone."""
+    one, many = _GAP_ROWS[kind]
+    if rows == 1:
+        return f"Largest gap: {largest}" if largest else f"Gaps in the one {one}"
+    who = (f"both {many}" if with_gaps == rows == 2
+           else f"all {rows} {many}" if with_gaps == rows
+           else f"{with_gaps} of {rows} {many if rows > 1 else one}")
+    return f"Gaps in {who}; largest: {largest}" if largest else f"Gaps in {who}"
+
+
+def tried_no_gap(kind):
+    """The answer when no row has a gap of 15 % of its span."""
+    return f"No untested stretch in any {_GAP_ROWS[kind][0]}"
+
+
+def gap_row_line(name, spans_text, more=0):
+    """The "?": one row's gaps, low to high: 'Oil: 2.0–4.0,
+    6.5–9.0 g'; when short of room, its largest and '+2 more'."""
+    return f"- {name}: {spans_text}" + (f" +{more} more" if more else "")
+
+
+def gap_rows_more(more, kind):
+    """The list's last line when even one gap per row does not fit."""
+    one, many = _GAP_ROWS[kind]
+    return f"- +{more} more {one if more == 1 else many}"
+
+
+def tried_caveat(kind):
+    """Always in the "?": the strips are one row at a time."""
+    if kind == "setting":
+        return "One setting at a time: combinations of settings are mostly untested."
+    if kind == "mixed":
+        return "One ingredient or setting at a time: combinations are mostly untested."
+    return "One ingredient at a time: combinations of amounts are mostly untested."

@@ -2778,14 +2778,25 @@ def _stretches(strip):
     return out
 
 
+def gap_rows(strips):
+    """The strips the gap rule reads: every amount or process setting row,
+    the Fill to total row and choice rows left out."""
+    return [s for s in strips if not s.fill and s.options is None]
+
+
+def all_stretches(strips):
+    """Every untested stretch (_stretches) of every gap_rows strip, in
+    strip order, low to high within a strip. Model-free."""
+    return [g for s in gap_rows(strips) for g in _stretches(s)]
+
+
 def strip_gaps(opt, strips, k=2):
     """W3: the `k` largest untested stretches of the strips' reachable parts
     (_stretches: the 1-D rule of review R-I15, never a stretch the limits
     rule out), largest first, the Fill to total row left out; then up to
     `k` options of a choice row no formulation with all results in has
     used ("option"). Model-free."""
-    stretches = [g for s in strips if not s.fill and s.options is None for g in _stretches(s)]
-    stretches.sort(key=lambda g: -g.size)
+    stretches = sorted(all_stretches(strips), key=lambda g: -g.size)
     options = [StripGap(s.name, "option", None, None, 1.0, o)
                for s in strips if s.options is not None
                for o, n in s.options.items() if n == 0]

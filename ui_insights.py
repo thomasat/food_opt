@@ -3225,7 +3225,7 @@ def _gap_text(opt, gap, strip, d=None):
         return wording.gap_above(gap.name, _strip_number(opt, strip, gap.low, True, d))
     if gap.kind == "below":
         return wording.gap_below(gap.name, _strip_number(opt, strip, gap.high, True, d))
-    return wording.gap_untested(gap.name, _strip_number(opt, strip, gap.low, False, d),
+    return wording.gap_between(gap.name, _strip_number(opt, strip, gap.low, False, d),
                                _strip_number(opt, strip, gap.high, True, d))
 
 
@@ -6456,24 +6456,88 @@ def limiting_name(profile):
     return name if n * 2 > len(cols) else None
 
 
+def _gap_kind(rows):
+    """"ingredient", "setting" or "mixed": what the gap rows are."""
+    settings = {bool(s.setting) for s in rows}
+    return "mixed" if len(settings) > 1 else "setting" if settings == {True} else "ingredient"
+
+
+def _row_decimals(strip, gaps):
+    """One decimal rule for a row's gaps (a process setting: fmt_setting's)."""
+    return None if strip.setting else _shared_decimals(
+        [v for g in gaps for v in (g.low, g.high)])
+
+
+def _span_text(opt, strip, gap, d, unit=True):
+    """'0.6–1.0 g': a gap's two ends, the unit after the second."""
+    return (f"{_strip_number(opt, strip, gap.low, False, d)}–"
+            f"{_strip_number(opt, strip, gap.high, unit, d)}")
+
+
+def _found_gaps(strips):
+    """(the gap rows, [(strip, its gaps)] for the rows with a gap)."""
+    rows = insights.gap_rows(strips)
+    found = [(s, insights._stretches(s)) for s in rows]
+    return rows, [(s, gs) for s, gs in found if gs]
+
+
+_ANSWER_WORDS = 14            # a section answer's headline, at most
+
+
 def tried_answer(opt, strips):
-    """Q4's answer: '**30 tested.** Tap water below 31 g untested.'"""
-    gaps = [g for g in insights.strip_gaps(opt, strips) if g.kind != "option"]
-    by_name = {s.name: s for s in strips}
-    if gaps:
-        g = gaps[0]
-        strip = by_name[g.name]
-        if g.kind == "between":
-            # Review critique (fix 8): 'Tapioca starch between 1.04 and
-            # 1.52 g untested' (the en dash read as a range of a dose).
-            d = None if strip.setting else _shared_decimals(_gap_said(g))
-            rest = wording.gap_untested(g.name, _strip_number(opt, strip, g.low, False, d),
-                                       _strip_number(opt, strip, g.high, True, d))
-        else:
-            rest = wording.q4_gap(_gap_text(opt, g, strip))
-    else:
-        rest = wording.Q4_NO_GAP
-    return wording.answer_line(wording.q4_word(opt.complete_count()), rest)
+    """Q4's answer: '**30 tested.** Gaps in 6 of 7 ingredients; largest:
+    Salt 0.6–1.0 g.' (owner, 2026-10-05: the count, so the
+    other rows are never read as covered)."""
+    rows, found = _found_gaps(strips)
+    kind = _gap_kind(rows)
+    word = wording.q4_word(opt.complete_count())
+    if not found:
+        return wording.answer_line(word, wording.tried_no_gap(kind) if rows else "")
+    strip, gs = max(found, key=lambda f: max(g.size for g in f[1]))
+    gap, d = max(gs, key=lambda g: g.size), _row_decimals(strip, gs)
+    largest = wording.gap_span(strip.name, _strip_number(opt, strip, gap.low, False, d),
+                               _strip_number(opt, strip, gap.high, True, d))
+    line = wording.answer_line(word, wording.tried_gaps(len(found), len(rows), kind, largest))
+    if len(line.replace("*", "").split()) > _ANSWER_WORDS:
+        # A long name: the count alone; the "?" lists every gap.
+        line = wording.answer_line(word, wording.tried_gaps(len(found), len(rows), kind))
+    return line
+
+
+def tried_gap_lines(opt, strips):
+    """The answer's "?" first: every gap, one line per row, low to high
+    ('- Oil: 2.0–4.0, 6.5–9.0 g'), or that there is none; then
+    the one-row-at-a-time caveat. Over the "?"'s word budget, each row's
+    largest and '+N more'; then as many rows as fit and '+N more'."""
+    rows, found = _found_gaps(strips)
+    kind = _gap_kind(rows)
+    caveat = wording.tried_caveat(kind)
+    if not rows:
+        return []
+    if not found:
+        return [wording.strips_no_gap(settings_only=kind == "setting",
+                                      has_settings=kind != "ingredient"), caveat]
+    words = lambda lines: sum(len(x.split()) for x in lines)  # noqa: E731
+    room = wording.TOOLTIP_WORDS - words([caveat])
+    full, short = [], []
+    for s, gs in found:
+        d = _row_decimals(s, gs)
+        full.append(wording.gap_row_line(s.name, ", ".join(
+            _span_text(opt, s, g, d, k == len(gs) - 1) for k, g in enumerate(gs))))
+        top = max(gs, key=lambda g: g.size)
+        short.append(wording.gap_row_line(s.name, _span_text(opt, s, top, d), len(gs) - 1))
+    lines = full if words(full) <= room else short
+    if words(lines) > room:
+        kept = []
+        for k, line in enumerate(lines):
+            left = len(lines) - k - 1
+            tail = [wording.gap_rows_more(left, kind)] if left else []
+            if words(kept + [line] + tail) > room:
+                kept.append(wording.gap_rows_more(len(lines) - k, kind))
+                break
+            kept.append(line)
+        lines = kept
+    return ["\n".join(lines), caveat]
 
 
 def _tried_section(opt, slot):
@@ -6483,8 +6547,11 @@ def _tried_section(opt, slot):
         pool = bo_views.feasible_pool(opt)
         strips = insights.tested_strips(opt, pool)
         answer = tried_answer(opt, strips)
-        lines = strip_gap_lines(opt, strips) + limit_hit_lines(opt)
-        gaps = [g for g in insights.strip_gaps(opt, strips) if g.kind == "between"]
+        options = [wording.option_never_tested(g.name, g.option)
+                   for g in insights.strip_gaps(opt, strips) if g.kind == "option"]
+        lines = tried_gap_lines(opt, strips) + options + limit_hit_lines(opt)
+        # The tried gaps: every gap the answer counts is shaded.
+        gaps = insights.all_stretches(strips)
     except Exception:
         answer, lines, gaps = None, [], []
     if answer is not None and opt.complete_count():

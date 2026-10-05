@@ -378,8 +378,10 @@ def test_the_new_rules_fit():
         assert _words(caption) <= 10, caption
     assert _words(wording.answer_line(wording.CEILING_HEAD, wording.CEILING_TAIL)) <= 14
     assert wording.TRACK_VALUES_MISS == "Measurements: more misses than expected."
-    assert wording.gap_untested("Tapioca starch", "1.04", "1.52 g") == (
-        "Tapioca starch between 1.04 and 1.52 g untested")
+    # The tried gaps (owner, 2026-10-05): the count first, then the largest.
+    assert wording.tried_gaps(7, 7, "ingredient", wording.gap_span(
+        "Salt", "0.6", "1.0 g")) == (
+        "Gaps in all 7 ingredients; largest: Salt 0.6–1.0 g")
 
 
 def _critique_strings():
