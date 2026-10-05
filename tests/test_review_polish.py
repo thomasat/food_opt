@@ -54,7 +54,7 @@ def test_evidence_numbers_are_the_cards(screens):  # noqa: F811
     assert ev.startswith("Evidence: pairs ordered right from earlier Rounds — ")
     # Persona fixes: the coverage and skill figures in the experts' line
     # (review critique: cut at a sentence to keep about 120 words).
-    assert "Overall score: 13 of 15 inside the 95 % predicted range." in \
+    assert "Overall score: 13 of 15 inside the 95 % predicted range." in \
         p["help"].split("For experts:")[1]
     assert "qLogNEI" in n["help"].split("\n\n")[1]
 

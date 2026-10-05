@@ -179,7 +179,7 @@ def test_exact_texts_from_the_audit():
         "Calibration factor: the root-mean-square of standardised errors (measured − "
         "predicted, ÷ predictive SD) in 5-fold cross-validation of the current model, the folds "
         "grouped by Round (a formulation and its Repeats in one fold), floored "
-        "at 1. Every 95 % interval is multiplied by it. ×1.0: not widened; ×2.5: errors 2.5 "
+        "at 1. Every 95 % interval is multiplied by it. ×1.0: not widened; ×2.5: errors 2.5 "
         "times the model's own SD.")
     assert f"{insights.FOLDS}-fold" in W.HOW_WIDENED
     # T0 review I-1: the Formulation total is named only where there is one.
@@ -204,31 +204,31 @@ def test_exact_texts_from_the_audit():
         "Pea and Soy are correlated across the formulations with all results in (|r| = 0.86), "
         "so their separate effects cannot be told apart.")
     assert W.trust_within(32, 35, [3, 4, 5], allowed=3) == (
-        "Measurements, Rounds 3–5: 32 of 35 values inside their 95 % interval. As expected: "
-        "95 % intervals allow up to 3 misses in 35.")
+        "Measurements, Rounds 3–5: 32 of 35 values inside their 95 % interval. As expected: "
+        "95 % intervals allow up to 3 misses in 35.")
     assert W.trust_misses(3, [3, 4, 5], 30, 35, allowed=3) == (
-        "Measurements, Rounds 3–5: 30 of 35 values inside their 95 % interval. 5 misses; "
-        "95 % intervals allow up to 3. More misses than expected.")
+        "Measurements, Rounds 3–5: 30 of 35 values inside their 95 % interval. 5 misses; "
+        "95 % intervals allow up to 3. More misses than expected.")
     assert W.score_gap_line(11, 11, -0.4) == (
-        "Overall score, same Rounds: 11 of 11 inside their 95 % interval; mean error −0.4 "
+        "Overall score, same Rounds: 11 of 11 inside their 95 % interval; mean error −0.4 "
         "points (measured minus predicted).")
     assert W.score_gap_line(10, 10, -1.2, W.beat_by()) == (
-        "Overall score, same Rounds: 10 of 10 inside their 95 % interval; mean error −1.2 "
+        "Overall score, same Rounds: 10 of 10 inside their 95 % interval; mean error −1.2 "
         "points (n = 10). This exceeds the 1-point noise threshold and 2 standard errors: "
         "Overall scores have come in about 1.2 points below the predictions.")    # polish round 8
     assert W.repeat_disagrees(21, 11, "10.5", half_text="7.4") == (
-        "Formulation 21, a Repeat of Formulation 11, scored 10.5 points lower. The 95 % "
+        "Formulation 21, a Repeat of Formulation 11, scored 10.5 points lower. The 95 % "
         "interval for the difference of two results is ±7.4 points. If something changed "
         "(panel, supplier, equipment), check it before relying on the next suggestions.")
     assert W.stand_barely("0.2", "1.2") == (
         "Within noise: up 0.2 points in the last Round, under the noise threshold (Repeat SD "
         "1.2 points).")
     assert W.stand_not_higher(W.beat_by(), "90", "86", "94", 18) == (
-        "Predicted best: 90 (95 % interval 86–94), near Formulation 18. Predicted gain over "
+        "Predicted best: 90 (95 % interval 86–94), near Formulation 18. Predicted gain over "
         "Best so far: none beyond the 1-point noise threshold.")
     assert W.near_line("Coconut oil", "1.4", "Best so far") == (
         "Largest local effect from Best so far: Coconut oil, 1.4 points.")
-    assert W.PREDICTED_SCORE_COLUMN == "Predicted Overall score (95 % range)"
+    assert W.PREDICTED_SCORE_COLUMN == "Predicted Overall score (95 % range)"
     assert W.predictions_round_caption() == "Exploring suggestions can predict below Best so far."
     assert W.predictions_round_help() == (
         "Suggestions favour formulations the model is unsure about as well as ones it predicts "
@@ -237,7 +237,7 @@ def test_exact_texts_from_the_audit():
     assert W.tie_line(22, "90.65", "0.20", 15, "2.3") == (
         "Tied with Formulation 15: 0.20 apart, under the 2.3 points needed to differ.")
     assert W.round_track_holding(11, 11, rounds=[3, 4, 5]) == (
-        "Overall score, Rounds 3–5: 11 of 11 inside their 95 % interval.")
+        "Overall score, Rounds 3–5: 11 of 11 inside their 95 % interval.")
     assert W.HOW_NO_P.endswith("R² on formulations chosen this way is misleading, so skill "
                                "uses the Round-ahead baseline instead.")
 
@@ -339,7 +339,7 @@ def test_the_t0_review_minors():
     many = W.trust_misses(3, [3, 4, 5], 26, 36, many=True, allowed=4)
     assert many.endswith("the intervals are too narrow for these results.")
     assert "recent" not in many
-    assert "more often than 95 % intervals allow:" in W.next_misses([3, 4, 5])
+    assert "more often than 95 % intervals allow:" in W.next_misses([3, 4, 5])
     assert W.details_window([2, 3, 4, 5], 1, [5]).endswith("Verdict: the last Round (Round 5).")
     assert "±7.4 points." in W.repeat_disagrees(21, 11, "10.5", half_text="7.4")
     assert "3 degrees of freedom and is at least 0.05" in W.HOW_NOISE_THRESHOLD

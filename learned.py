@@ -23,7 +23,7 @@ before its Round, then compared with what was measured.
   its dot sits past the range exactly when the verdict is Predictable.
 - Clear effect (review learned 2, strict): moving one ingredient or setting
   from the 10th to the 90th percentile of its tested amounts, averaged
-  over the tested formulations, has a 95 % posterior interval that
+  over the tested formulations, has a 95 % posterior interval that
   excludes 0, with the same sign, under EACH of the last STABLE_REFITS
   Round-ahead refits (fitted through Rounds k-3 … k); the row did not move
   together with another (|r| >= insights.MOVED_R); and the latest change is
@@ -530,7 +530,7 @@ class CalledSummary:
     left out (all measured the same), `lead` the name the headline leads
     with (the first measurement drawn, else the Overall score) and `top`
     its formulation forecast highest; `above` the Overall scores measured
-    above their 95 % range (misses, like those below); `close` the names
+    above their 95 % range (misses, like those below); `close` the names
     drawn whose every pair was too close to call (persona fixes 2)."""
     verdict: str
     drawn: list
@@ -628,7 +628,7 @@ class Effect:
     lo: float           # the tested stretch, 10th to 90th percentile
     hi: float
     mean: float         # the predicted change from lo to hi, latest model
-    low: float          # its 95 % interval
+    low: float          # its 95 % interval
     high: float
     signs: list         # the sign of the mean under each refit, oldest first
     stable: bool        # all three parts of the clear-effect rule hold
@@ -668,7 +668,7 @@ def effect_of(opt, fitted, rows, col):
     output when column `col` moves from the 10th to the 90th percentile of
     its tested amounts, every other amount as tested; None when it hardly
     varied. The mean and sd are of the model's own posterior (no
-    observation noise, no widening): the 95 % posterior interval."""
+    observation noise, no widening): the 95 % posterior interval."""
     use = [i for i in rows if insights.measured(opt, fitted.name, i) is not None]
     if fitted.model is None or len(use) < insights.MIN_ROWS:
         return None

@@ -557,7 +557,7 @@ def nest_measure_widen(opt, checks):
     measure_widen of that measurement's checks in the Rounds before it, as
     nest_score_widen does for the Overall score. Make a round widens its
     Predicted measurements by measure_widen of every Round but the open
-    one, so the 95 % range on Make a round, the Forecast check and Results'
+    one, so the 95 % range on Make a round, the Forecast check and Results'
     In / Above / Below is one range for one forecast. Widened about the
     model's own mean, clipped to the measurement's Range; `inside` follows."""
     ranges = {n: (lo, hi) for n, lo, hi in outputs(opt) if n != SCORE}
@@ -1001,7 +1001,7 @@ class Disagreement:
     repeat_sd: float | None = None
     # Fix A follow-up (owner, decision 2): while that Repeat SD has fewer
     # than YARDSTICK_DF df, the pair must also beat √2 × the later one's own
-    # Round-ahead 95 % half-width (the earlier rule); that limit, in points.
+    # Round-ahead 95 % half-width (the earlier rule); that limit, in points.
     # None from YARDSTICK_DF df, when the Repeat SD alone sets the limit.
     predictive: float | None = None
 
@@ -1042,7 +1042,7 @@ def disagreeing_repeat(opt, checks, matches=None):
     - Before: |d| over BOTH √2 × 1.96 × σ, σ the larger of the later one's
       Round-ahead model's fitted noise SD and the assumed 1 point
       (repeat_sigma; ftue fix A, cold read I7), AND √2 × the later one's
-      own Round-ahead 95 % half-width (the earlier rule). 03 clean's
+      own Round-ahead 95 % half-width (the earlier rule). 03 clean's
       ordinary Repeat (2.84 points, true noise about 1.3) no longer reads
       as a disagreement on the assumed 1 point alone.
 
@@ -1127,7 +1127,7 @@ def verdict_state(opt, h, checks):
 
 def median_z(h, checks):
     """The median |standardised error| of the measurements in the
-    verdict's Rounds (0.67 when the 95 % intervals are right), or None:
+    verdict's Rounds (0.67 when the 95 % intervals are right), or None:
     the over-wide rule's basis, said with it (03 §5.2)."""
     window = [c for c in checks if c.round in h.rounds]
     z = [abs((c.measured - c.raw_mean) / c.sd) for c in window
@@ -1480,7 +1480,7 @@ def score_verdict_state(opt, h, checks):
     """The Overall score's verdict: "none" (no Round checked), "early"
     (fewer than SKILL_MIN Overall-score checks), "unreliable" or "caution"
     (the binomial tail of its misses under 0.01 or 0.10, as the
-    measurements' verdict), "wide" (its own 95 % ranges wide in the
+    measurements' verdict), "wide" (its own 95 % ranges wide in the
     verdict's Rounds), else "within"."""
     record = getattr(h, "score", None)
     if h.state == "none" and record is None:
@@ -2212,7 +2212,7 @@ def spreads(opt, fitted, start, name=SCORE):
 # in 55-70 % of the trust audit's misses when the second was within 20 %.
 NEAR_TIE = 0.8
 # Amounts that moved together this closely are named (§4.3).
-TOGETHER = 0.8
+TOGETHER = 0.7     # round-2 fixes: one |r| threshold on screen (MOVED_R's)
 # A row whose amounts span less than this share of its Lowest-Highest never
 # varied: float noise from a spreadsheet round-trip or a unit conversion
 # is not a change anybody made (Task 8 review, Minor 2).
@@ -3659,7 +3659,39 @@ def _rule_rows(opt, checks=None):
     cut = fact.cut if fact is not None else skill_cut(SKILL_MIN)
     rows = wording.status_rule_rows(wording.signed(cut, 2).lstrip("+"),
                                     settings_only=not opt.has_ingredients())
-    return list(zip(RULE_KEYS, rows))
+    out = list(zip(RULE_KEYS, rows))
+    # Round-2 fixes (P3 #17): Rising's rule in the screen's own words and
+    # number, and rows for Plateau and the stop at the top score.
+    need = _rise_need_text(opt)
+    fixed = []
+    for key, (line, status, rule) in out:
+        if key == ("progress", "rising"):
+            rule = wording.method_rising(need)
+        elif key == ("progress", "within_noise"):
+            rule = wording.METHOD_WITHIN_NOISE
+        fixed.append((key, (line, status, rule)))
+        if key == ("progress", "flat"):
+            fixed.append((("progress", "plateau"),
+                          (line, wording.METHOD_PLATEAU_WORD, wording.PLATEAU_RULE)))
+    fixed.append((("next", "stop"), (wording.STATUS_NEXT, wording.CARD_CEILING,
+                                     wording.METHOD_STOP)))
+    return fixed
+
+
+def _rise_need_text(opt):
+    """'3.0': the rise the latest scored Round needed to read Rising
+    (rise_threshold of the noise yardstick and that Round's size); None
+    with no Round scored."""
+    try:
+        pool = opt.best_candidates()
+        rounds = [opt.batch_history[i] for i in pool if i < len(opt.batch_history)
+                  and opt.batch_history[i] is not None]
+        if not rounds:
+            return None
+        q = sum(1 for r in rounds if r == max(rounds))
+        return f"{rise_threshold(noise_yardstick(opt), max(1, q)):.1f}"
+    except Exception:
+        return None
 
 
 def status_rule(opt, key, checks=None):

@@ -362,7 +362,7 @@ def test_the_status_tooltip_is_the_reviews_exact_rule():
                     W.tip_skill([2, 3, 4, 5], "0.36", 15), W.TIP_REFITTED])
     assert tip == (
         "Measurements (Firmness, Juiciness, Cook loss), Rounds 3–5: 32 of 35 Round-ahead values "
-        "inside their 95 % posterior predictive intervals (5-fold cross-validation widening); a "
+        "inside their 95 % posterior predictive intervals (5-fold cross-validation widening); a "
         "binomial count at 5 % per value allows up to 3 misses in 35 at the 1-in-10 level. "
         "Overall score, Rounds 2–5: out-of-sample skill 1 − SSE/SSE(mean of the rows before "
         "each Round) = 0.36 over 15 formulations, at least 0.20 over at least 10 needed. Each "

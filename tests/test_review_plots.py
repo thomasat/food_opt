@@ -209,7 +209,7 @@ def test_one_colour_per_meaning_across_charts(specs):
 
 
 def test_the_band_says_what_it_is(specs):
-    assert "95 %" in wording.PLOT_BAND and "95 %" in wording.PLOT_INTERVAL
+    assert "95 %" in wording.PLOT_BAND and "95 %" in wording.PLOT_INTERVAL
     assert wording.PLOT_INTERVAL in str(specs["profile"])
 
 

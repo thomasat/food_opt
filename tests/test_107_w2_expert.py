@@ -253,7 +253,7 @@ def test_at_the_gate_only_what_applies(project):
 LINE_A_TIP = (
     # 33 of 35 since ftue fix A's Round-grouped folds (cold read I9); 32 before.
     "Measurements (Firmness, Juiciness, Cook loss), Rounds 3–5: 33 of 35 Round-ahead values "
-    "inside their 95 % posterior predictive intervals (5-fold cross-validation widening); a "
+    "inside their 95 % posterior predictive intervals (5-fold cross-validation widening); a "
     "binomial count at 5 % per value allows up to 3 misses in 35 at the 1-in-10 level. "
     "Overall score, Rounds 2–5: out-of-sample skill 1 − SSE/SSE(mean of the rows before "
     "each Round) = 0.36 over 15 formulations, at least 0.20 over at least 10 needed. Each "
@@ -509,7 +509,7 @@ def test_the_predicted_score_column_names_its_statistics():
     tip = ui_batch._score_help(opt)
     assert tip.startswith(W.predicted_score_help(20))
     assert "posterior mean of the Gaussian process" in tip
-    assert "95 % posterior predictive interval" in tip
+    assert "95 % posterior predictive interval" in tip
 
 
 def test_the_track_line_help(project, monkeypatch):
@@ -519,7 +519,7 @@ def test_the_track_line_help(project, monkeypatch):
     opt, checks = project(D.LINE_B)
     t = insights.round_track(opt, checks)
     tip = ui_batch.track_help(opt, t)
-    for needle in ("rolling-origin", "95 % posterior predictive interval",
+    for needle in ("rolling-origin", "95 % posterior predictive interval",
                    "mean prediction error", "out-of-sample skill score"):
         assert needle in tip, needle
     a, checks = project(D.LINE_A)

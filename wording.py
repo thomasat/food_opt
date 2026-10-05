@@ -3962,14 +3962,14 @@ def rounds_not_checked(rounds):
             f"{FORMULATION}s were recorded before {'it' if one else 'them'}.")
 
 
-WIDE_EVERY = ("Every 95 % interval is wide (median half-width over 25 % of the Range): "
+WIDE_EVERY = ("Every 95 % interval is wide (median half-width over 25 % of the Range): "
               "values fall inside easily, so this check says little yet.")
 
 
 def wide_line(names_text):
-    """The 95 % intervals of some outputs are wide (§9 I8; 03 §5.2):
+    """The 95 % intervals of some outputs are wide (§9 I8; 03 §5.2):
     `names_text` names them, 'Cook loss and the Overall score'."""
-    return (f"Wide 95 % intervals for {names_text} (median half-width over 25 % of the "
+    return (f"Wide 95 % intervals for {names_text} (median half-width over 25 % of the "
             "Range): values fall inside easily, so this check says little yet.")
 
 
@@ -4052,7 +4052,7 @@ def how_models(kernel=None, noise=None):
 HOW_MODELS = how_models()
 
 
-# Fix round B (statistician I2): what the 95 % intervals aim for, and how
+# Fix round B (statistician I2): what the 95 % intervals aim for, and how
 # often they held on the app's simulated projects — one constant, set from
 # fix A's re-run (fix-a-report.md, I9: Round-grouped folds): the 48
 # simulated projects, all Rounds, 90.6 % of measured values and 90.0 % of
@@ -4062,20 +4062,20 @@ SIMULATED_COVERAGE = {"measurements": 91, "score": 90}
 
 
 def coverage_reading():
-    """'Aims for 95 %; measured about 91 % (measurements) / 89 % (Overall
-    score) on simulated projects.' The plain reading of a 95 % interval
+    """'Aims for 95 %; measured about 91 % (measurements) / 89 % (Overall
+    score) on simulated projects.' The plain reading of a 95 % interval
     (never "about 19 in 20", which the record does not bear out)."""
     c = SIMULATED_COVERAGE
-    return (f"Aims for 95 %; measured about {c['measurements']} % (measurements) / "
+    return (f"Aims for 95 %; measured about {c['measurements']} % (measurements) / "
             f"{c['score']} % ({OVERALL_SCORE_COLUMN}) on simulated projects.")
 
 
-HOW_RANGE = ("95 % interval: the model's 95 % prediction interval for one new measured value, "
+HOW_RANGE = ("95 % interval: the model's 95 % prediction interval for one new measured value, "
              "mean ± 1.96 × predictive SD × calibration factor. The predictive SD includes Repeat "
              "noise, so the interval covers a single result, not the long-run mean. Its ends are "
              "cut at the measurement's Range (0–100 for the Overall score). Plain reading: "
              + coverage_reading())
-HOW_RANGE_FIXED_TINY = ("95 % interval: your model settings fix Repeat noise near zero, so the "
+HOW_RANGE_FIXED_TINY = ("95 % interval: your model settings fix Repeat noise near zero, so the "
                         "interval reflects model uncertainty only, times the calibration factor.")
 
 
@@ -4086,7 +4086,7 @@ def how_verdict(n=35, allowed=3):
     verdict's Rounds, `allowed` = insights.allowed_misses(n)."""
     misses = "1 miss" if allowed == 1 else f"{allowed} misses"
     return ("Verdict rule: misses are counted as a binomial count at 5 % per value. As "
-            "expected: no more misses than correct 95 % intervals give at least 1 time in 10 "
+            "expected: no more misses than correct 95 % intervals give at least 1 time in 10 "
             f"(for {n} values, up to {misses}). More misses than expected: rarer than 1 time "
             "in 10. Many more: rarer than 1 time in 100. No p-value is shown.")
 
@@ -4142,8 +4142,8 @@ DETAILS_NONE = f"This table fills in once a {ROUND_CAP} has been checked."
 
 TRACK_PREDICTED = "Round-ahead prediction"
 TRACK_MEASURED = "Measured"
-TRACK_LOW = "95 % interval, lower end"
-TRACK_HIGH = "95 % interval, upper end"
+TRACK_LOW = "95 % interval, lower end"
+TRACK_HIGH = "95 % interval, upper end"
 # The path chart's own prediction is the current model's, not Round-ahead.
 PREDICTED = "Predicted"
 
@@ -4152,7 +4152,7 @@ PREDICTED = "Predicted"
 # ingredient or process setting, and the formulation predicted to score
 # highest. Every number that is a prediction carries its likely range.
 PREDICTIONS_WORKING = "Preparing the predictions…"
-PREDICTED_SCORE_COLUMN = f"Predicted {OVERALL_SCORE_COLUMN} (95 % range)"  # critique fixes: range
+PREDICTED_SCORE_COLUMN = f"Predicted {OVERALL_SCORE_COLUMN} (95 % range)"  # critique fixes: range
 
 
 def predicted_score_help(n=None, factor_text=None):
@@ -4160,7 +4160,7 @@ def predicted_score_help(n=None, factor_text=None):
     scored formulations) and the Round-ahead widening when they are known."""
     fitted = (f"the {n} scored {FORMULATION}s" if n is not None
               else f"the scored {FORMULATION}s")
-    line = ("Model mean and 95 % prediction interval for one measured Overall score, from a "
+    line = ("Model mean and 95 % prediction interval for one measured Overall score, from a "
             f"Gaussian process fitted to {fitted}.")
     if factor_text is not None:
         line += f" Intervals widened ×{factor_text} by the project's Round-ahead record."
@@ -4184,7 +4184,7 @@ def predictions_round_help():
 
 
 PREDICTIONS_ROUND_CAPTION = predictions_round_caption()
-PREDICTED_MEASUREMENTS = "Predicted measurements (95 % range)"  # critique fixes: range
+PREDICTED_MEASUREMENTS = "Predicted measurements (95 % range)"  # critique fixes: range
 # 0.8.0 review fixes §9 I13: the two sets of predictions are learned apart.
 PREDICTED_MEASUREMENTS_CAPTION = "The Overall score has its own model."
 PREDICTED_MEASUREMENTS_HELP = ("The Overall score has its own model, so it can differ "
@@ -4239,7 +4239,7 @@ def best_luck(n, mean_text, low_text, high_text, measured_text=None):
     words on the main screen; the term is in Method and details
     (HOW_REGRESSION; answer-key refresh item 7)."""
     below = f", below its measured {measured_text}" if measured_text is not None else ""
-    return (f"A Repeat of {FORMULATION_CAP} {n} is predicted at {mean_text} (95 % interval "
+    return (f"A Repeat of {FORMULATION_CAP} {n} is predicted at {mean_text} (95 % interval "
             f"{low_text}–{high_text}){below}. Best so far's measured score is partly chance, so "
             "its Repeat is predicted lower.")
 
@@ -4422,9 +4422,9 @@ def _values(n):
 
 
 def _allow(allowed, total):
-    """'95 % intervals allow up to 3 misses in 35'."""
+    """'95 % intervals allow up to 3 misses in 35'."""
     misses = "1 miss" if allowed == 1 else f"{allowed} misses"
-    return f"95 % intervals allow up to {misses} in {total}"
+    return f"95 % intervals allow up to {misses} in {total}"
 
 
 def trust_within(inside, total, rounds, measurements=False, allowed=None):
@@ -4433,7 +4433,7 @@ def trust_within(inside, total, rounds, measurements=False, allowed=None):
     (insights.allowed_misses). `measurements` is kept for callers: the
     line always names the measurements."""
     line = (f"Measurements, {rounds_span(rounds)}: {inside} of {total} values inside their "
-            "95 % interval. As expected")
+            "95 % interval. As expected")
     return f"{line}: {_allow(allowed, total)}." if allowed is not None else f"{line}."
 
 
@@ -4469,11 +4469,11 @@ def trust_over_wide(total, rounds, median_z=None):
     0.67 (03 §5.2): `median_z` is that median."""
     basis = (f", with a median absolute standardised error of {median_z:.2f} (0.67 expected)"
              if median_z is not None else "")
-    return (f"Measurements, {rounds_span(rounds)}: {total} of {total} values inside their 95 % "
+    return (f"Measurements, {rounds_span(rounds)}: {total} of {total} values inside their 95 % "
             f"interval{basis}: the intervals are wider than needed.")
 
 
-TRUST_WIDE = ("Not judged yet: every 95 % interval is wide (median half-width over 25 % of the "
+TRUST_WIDE = ("Not judged yet: every 95 % interval is wide (median half-width over 25 % of the "
               "Range), so nearly any value falls inside.")
 
 
@@ -4482,10 +4482,10 @@ def trust_misses(k, rounds, inside, total, many=False, allowed=None):
     trust_within; `k` is kept for callers."""
     misses = total - inside
     line = (f"Measurements, {rounds_span(rounds)}: {inside} of {total} values inside their "
-            "95 % interval.")
+            "95 % interval.")
     if allowed is not None:
         count = "1 miss" if misses == 1 else f"{misses} misses"
-        line += f" {count}; 95 % intervals allow up to {allowed}."
+        line += f" {count}; 95 % intervals allow up to {allowed}."
     if many:
         return (f"{line} Many more misses than expected: the intervals are too narrow for "
                 "these results.")
@@ -4502,7 +4502,7 @@ TRUST_BEFOREHAND = f"Round-ahead check: each {ROUND_CAP} predicted from earlier 
 
 
 def score_gap_line(inside, total, gap, beyond="", n=None, rounds=None):
-    """The Overall score's own line (03 §5.2): its 95 % intervals and its
+    """The Overall score's own line (03 §5.2): its 95 % intervals and its
     mean error (measured minus predicted). `rounds` (0.8.0 e2e fixes,
     review I1): the line's own Rounds, every Round checked, named; without
     them it says "same Rounds". `beyond` (beat_by's text) says it is a
@@ -4512,7 +4512,7 @@ def score_gap_line(inside, total, gap, beyond="", n=None, rounds=None):
     # The 0.8.0 callers' words for the threshold, until they pass beat_by's.
     beyond = {"1 point": beat_by(), "Repeats differ": "the noise threshold"}.get(beyond, beyond)
     where = rounds_span(rounds) if rounds else f"same {ROUND_CAP}s"
-    head = (f"{OVERALL_SCORE_COLUMN}, {where}: {inside} of {total} inside their 95 % "
+    head = (f"{OVERALL_SCORE_COLUMN}, {where}: {inside} of {total} inside their 95 % "
             "interval; mean error")
     size = f"{abs(gap):.1f}"
     if size == "0.0":
@@ -4525,19 +4525,19 @@ def score_gap_line(inside, total, gap, beyond="", n=None, rounds=None):
 
 def repeat_disagrees(later, earlier, diff_text, lower=True, half_text=None):
     """A Repeat that disagrees with its original (§2.2, spec review I4; 03
-    §5.2): `half_text`, the 95 % interval for the difference of two
+    §5.2): `half_text`, the 95 % interval for the difference of two
     results (√2 × the half-width), when known."""
     line = (f"{FORMULATION_CAP} {later}, a Repeat of {FORMULATION_CAP} {earlier}, scored "
             f"{points_text(diff_text)} {'lower' if lower else 'higher'}.")
     if half_text is not None:
-        line += (f" The 95 % interval for the difference of two results is ±{half_text} "
+        line += (f" The 95 % interval for the difference of two results is ±{half_text} "
                  "points.")
     return f"{line} {CHECK_IF_CHANGED}"
 
 
 # Measured against predicted (§2.2, M4; 03 §5.2).
 MVP_CAPTION = (f"One dot per {FORMULATION}: Round-ahead prediction (across) against measured value "
-               "(up). Dashed diagonal: measured = predicted. Bar: 95 % interval; filled dot "
+               "(up). Dashed diagonal: measured = predicted. Bar: 95 % interval; filled dot "
                f"inside it, hollow outside. The latest {ROUND_CAP}'s bars are highlighted.")
 
 
@@ -4625,7 +4625,7 @@ def _where_best(close_no, values=False):
 def stand_not_higher(by_text, mean_text, low_text, high_text, close_no=None, values=False):
     """No predicted gain beyond the noise threshold (spec review I7 a, b;
     03 §5.3): `by_text` is beat_by's name for it."""
-    return (f"Predicted best: {mean_text} (95 % interval {low_text}–{high_text}), "
+    return (f"Predicted best: {mean_text} (95 % interval {low_text}–{high_text}), "
             f"{_where_best(close_no, values)}. Predicted gain over Best so far: none beyond "
             f"{by_text}.")
 
@@ -4634,7 +4634,7 @@ def stand_withheld(mean_text, low_text, high_text, reason, close_no=None, values
     """The predicted best while the model's gains are withheld (polish
     round: the A3 gate, the verdict or the noise guard, as for the expected
     improvement): no gain is claimed either way, and `reason` says why."""
-    return (f"Predicted best: {mean_text} (95 % interval {low_text}–{high_text}), "
+    return (f"Predicted best: {mean_text} (95 % interval {low_text}–{high_text}), "
             f"{_where_best(close_no, values)}. Its gain over Best so far is not reported: "
             f"{reason}.")
 
@@ -4646,7 +4646,7 @@ def stand_higher(mean_text, low_text, high_text, close_no=None, close_score_text
     where = _where_best(close_no, values)
     if close_no is not None and close_score_text:
         where += f" (measured {close_score_text})"
-    line = f"Predicted best: {mean_text} (95 % interval {low_text}–{high_text}), {where}."
+    line = f"Predicted best: {mean_text} (95 % interval {low_text}–{high_text}), {where}."
     if gain_text is not None:
         line += (f" Predicted gain over a Repeat of Best so far: {gain_text} points, above "
                  f"{by_text or beat_by()}.")
@@ -4712,8 +4712,8 @@ def next_misses(rounds=None, bias_text=""):
     """Next step's `unreliable` row (review I2): the intervals are too
     narrow, with no advice to check the bench. `bias_text`: next_bias's
     sentence when a steady bias holds."""
-    line = (f"Measured values in {_in_rounds(rounds)} fell outside their 95 % interval more "
-            "often than 95 % intervals allow: the intervals are too narrow here, so new "
+    line = (f"Measured values in {_in_rounds(rounds)} fell outside their 95 % interval more "
+            "often than 95 % intervals allow: the intervals are too narrow here, so new "
             "predictions carry more error than their intervals show.")
     return f"{line} {bias_text}" if bias_text else line
 
@@ -4792,11 +4792,11 @@ def next_too_early_open(no, n):
 
 def next_rising(wide_text="", no=None, n=0):
     """"Best so far is rising", with the width caution when some outputs'
-    95 % intervals are still wide, then what to do: record the open Round
+    95 % intervals are still wide, then what to do: record the open Round
     first when there is one."""
     head = "Best so far is rising"
     if wide_text:
-        head += f"; 95 % intervals for {wide_text} are still wide"
+        head += f"; 95 % intervals for {wide_text} are still wide"
     tail = (f"{record_open_round(no, n)}, then make the next {ROUND_CAP}." if n
             else f"Make the next {ROUND_CAP}.")
     return f"{head}. {tail}"
@@ -4904,7 +4904,7 @@ def path_what(head, stops=(), fixed=()):
 def path_key(n, grey=False, targets=False):
     """The path's second caption: 'Grey: not tested near here. Dotted:
     Formulation 15; dashed: target.'"""
-    head = "Band: 95 % interval. " + ("Grey: not tested near here. " if grey else "")
+    head = "Band: 95 % interval. " + ("Grey: not tested near here. " if grey else "")
     tail = "; dashed: target" if targets else ""
     return f"{head}Dotted: {FORMULATION_CAP} {n}{tail}."
 
@@ -4929,7 +4929,7 @@ def details_window(all_rounds, k, verdict_rounds=None):
             f"Verdict: {last}{verdict}.")
 
 
-DETAILS_COLUMNS_2 = ("Measurement", "Values checked", "Inside 95 % interval",
+DETAILS_COLUMNS_2 = ("Measurement", "Values checked", "Inside 95 % interval",
                      "Median half-width (±)", "Median absolute error", "Calibration factor",
                      "Error ÷ Repeat noise")
 # The details table's last column, from the BO-views wave (review I2).
@@ -4943,7 +4943,7 @@ def widen_text(factor):
 HOW_WIDENED = ("Calibration factor: the root-mean-square of standardised errors (measured − "
                "predicted, ÷ predictive SD) in 5-fold cross-validation of the current model, "
                "the folds grouped by Round (a formulation and its Repeats in one fold), "
-               "floored at 1. Every 95 % interval is multiplied by it. ×1.0: not widened; ×2.5: "
+               "floored at 1. Every 95 % interval is multiplied by it. ×1.0: not widened; ×2.5: "
                "errors 2.5 times the model's own SD.")
 
 
@@ -4968,7 +4968,7 @@ HOW_REPEATS_COMPARED = ("Error ÷ Repeat noise: the median absolute error divide
                         "give. Near 1: the model misses by about as much as measurement noise. "
                         "Above about 1.5: it misses by more than noise explains (lack of fit). "
                         "Shown from 3 Repeat pairs.")
-HOW_THRESHOLDS = ("Wide: the median half-width of the 95 % intervals is over 25 % of the "
+HOW_THRESHOLDS = ("Wide: the median half-width of the 95 % intervals is over 25 % of the "
                   "measurement's Range (0–100 for the Overall score). On "
                   f"{TAB_BATCH_NAME}, a predicted measurement reads “interval too wide” when "
                   "its interval covers more than 75 % of the Range.")
@@ -5175,7 +5175,7 @@ _MEASURED_MORE = "; measured values: many more misses than expected"
 
 def _track_head(inside, total, rounds):
     where = rounds_span(rounds) if rounds else f"the verdict's {ROUND_CAP}s"
-    return (f"{OVERALL_SCORE_COLUMN}, {where}: {inside} of {total} inside their 95 % "
+    return (f"{OVERALL_SCORE_COLUMN}, {where}: {inside} of {total} inside their 95 % "
             "interval")
 
 
@@ -5198,7 +5198,7 @@ def round_track_bias(inside, total, gap_text, below=True, see_insights=False, ro
 def round_track_rough(inside, total, gap_text=None, below=True, see_insights=False,
                       rounds=None, allowed=None):
     """The same line when the record is rough (review I16; 03 §5.8): the
-    mean error when it is a bias, else the misses the 95 % rule allows."""
+    mean error when it is a bias, else the misses the 95 % rule allows."""
     line = _track_head(inside, total, rounds)
     if gap_text is not None:
         line += f"; Overall {bias_fact(gap_text, below)}. More misses than expected"
@@ -5209,7 +5209,7 @@ def round_track_rough(inside, total, gap_text=None, below=True, see_insights=Fal
     elif allowed is not None:
         line += f"; {_allow(allowed, total)}"
     else:
-        line += "; more misses than 95 % allows"
+        line += "; more misses than 95 % allows"
     return f"{line}{_MEASURED_MORE if see_insights else ''}."
 
 
@@ -5368,7 +5368,7 @@ def why_guard_line(reasons=(), skill_only=False, verdict=False, gate_reason=None
     the A3 gate's reason in Progress's own words (gain_reason_too_few,
     gain_reason_unclear or GAIN_REASON_SKILL; integration, T0′)."""
     if verdict:
-        return ("Expected gain is not shown: the measurements miss their 95 % "
+        return ("Expected gain is not shown: the measurements miss their 95 % "
                 "intervals more often than expected.")
     if gate_reason:
         return f"Expected gain is not shown: {gate_reason}."
@@ -5409,7 +5409,7 @@ EXPECTED_IMPROVEMENT_EI_HELP = (f"The model's average gain of this one {FORMULAT
                                 "in points.")
 OPTIMISTIC_SCORE_HELP = ("Your model settings choose suggestions by an upper confidence "
                          "bound: the model mean plus 0.45 × model sd. It is not the upper end "
-                         "of the 95 % interval.")
+                         "of the 95 % interval.")
 PENDING_MARK = "·"
 # 02 M13 (review M12): a sentence, not a fragment that starts with the mark.
 WHY_PENDING = ("Picks after the first, marked ·, show what each adds to the earlier picks of "
@@ -5526,7 +5526,7 @@ HOW_EXPECTED_IMPROVEMENT = (
     "shown as the exp of a log value, so approximate) or Best so far's measured score (qLogEI), "
     f"counting no gain as zero. It is not the gain of a whole {ROUND_CAP} and not a gain in a measured "
     "result. Model sd: the suggestion model's standard deviation for the mean, narrower than "
-    "the 95 % interval.")
+    "the 95 % interval.")
 
 
 # §3.2 (review I5, I10, M8, M11): Expected gain by Round.
@@ -5591,7 +5591,7 @@ def gain_unreliable(reason):
     return f"Expected gain is not reported: {reason}."
 
 
-GAIN_REASON_VERDICT = "the measurements miss their 95 % intervals more often than expected"
+GAIN_REASON_VERDICT = "the measurements miss their 95 % intervals more often than expected"
 GAIN_REASON_SKILL = "Round-ahead predictions are no better than the average of earlier results"
 GAIN_REASON_GUARD = "the model is fitting noise in these results"
 GAIN_AXIS = "Expected gain (points)"
@@ -5617,7 +5617,7 @@ LAYER_GAIN_FORMER = "Expected improvement"   # charts proto: one name, Expected 
 # The triangle's colour under Predicted score is the model mean, not an
 # interval (02 M8, 03 M5; review I13).
 LAYER_SCORE_LEGEND = f"Predicted {OVERALL_SCORE_COLUMN} (model mean)"
-LAYER_SD_LEGEND = "Model sd (points; narrower than the 95 % interval)"
+LAYER_SD_LEGEND = "Model sd (points; narrower than the 95 % interval)"
 LAYER_GAIN_LEGEND = "Expected gain (points)"
 OVERLAY_NAME = "Predicted above Best so far"
 
@@ -5645,7 +5645,7 @@ def layer_caption(layer, anchor_text):
 
 
 def path_layer_caption(layer, anchor_text):
-    what = ("model sd, narrower than the 95 % interval"
+    what = ("model sd, narrower than the 95 % interval"
             if layer == LAYER_SD
             else "expected gain of one new formulation (model, points)")
     return f"Line: {what}, from {anchor_text}."
@@ -5735,10 +5735,10 @@ HOW_FITTED_NOISE = ("Fitted noise SD: each model's own estimate of Repeat noise,
 # with the full meaning in each column's tooltip (D2, review M8).
 DETAILS_HELP = {
     DETAILS_COLUMNS_2[1]: "Measured values in every Round checked.",
-    DETAILS_COLUMNS_2[2]: "Values inside the 95 % interval given before the Round was made.",
-    DETAILS_COLUMNS_2[3]: "Median of the 95 % intervals' half-widths.",
+    DETAILS_COLUMNS_2[2]: "Values inside the 95 % interval given before the Round was made.",
+    DETAILS_COLUMNS_2[3]: "Median of the 95 % intervals' half-widths.",
     DETAILS_COLUMNS_2[4]: "Median of |measured − predicted|.",
-    DETAILS_COLUMNS_2[5]: ("Multiplies every 95 % interval: the root-mean-square of "
+    DETAILS_COLUMNS_2[5]: ("Multiplies every 95 % interval: the root-mean-square of "
                            "cross-validated standardised errors, at least 1."),
     DETAILS_COLUMNS_2[6]: ("Median absolute error ÷ (0.674 × Repeat SD). Near 1: errors as "
                              "large as Repeat noise; above 1.5: lack of fit."),
@@ -6027,7 +6027,7 @@ def pred_caution(rounds, outside, total, allowed, clauses=()):
 
 
 def pred_wide(clauses=()):
-    """Row 6, every output's 95 % intervals wide (R-B2: "the predicted
+    """Row 6, every output's 95 % intervals wide (R-B2: "the predicted
     ranges" is refused by _BANNED, so this is the spec's own sentence)."""
     return _sentence("The app's predictions are still very uncertain, so results landing inside "
                      "them prove little yet", clauses)
@@ -6084,7 +6084,7 @@ def pred_reliable(rounds, inside, total, allowed, clauses=()):
 
 # The clauses rows 4–9 append, in this order (R-B1, R-I11).
 def clause_wide(names, cause=False, most=None):
-    """Some outputs' 95 % intervals wide, not all: names as said, the
+    """Some outputs' 95 % intervals wide, not all: names as said, the
     Overall score as "the Overall score". `cause` (fix round B, five-second
     re-test: "still very uncertain" named no cause): their models' own
     uncertainty was too small for how far results scatter (the
@@ -6445,7 +6445,7 @@ def trade_offs_fold(has_triangle=True):
 # fold labels carry no tooltip, so the help sits on these lines.
 BASIS_PREDICTIONS = (
     f"Basis: each {ROUND_CAP} predicted by models fitted only to the {ROUND_CAP}s before it, "
-    "recomputed with today's settings (rolling-origin, pseudo-prospective validation); 95 % "
+    "recomputed with today's settings (rolling-origin, pseudo-prospective validation); 95 % "
     f"posterior predictive intervals widened by 5-fold cross-validation grouped by {ROUND_CAP}; "
     "skill against the "
     f"average of the {FORMULATION}s recorded before each {ROUND_CAP}.")
@@ -6480,16 +6480,16 @@ def basis_explored(values=False, total=True):
 # names, in screen order (W2's tooltip_for). Method and definitions holds
 # every one of them too (M12: hover is hard on touch and keyboard).
 TIP_INTERVAL = (
-    "95 % interval: the range a new result should land in about 19 times in 20. BO term: 95 % "
+    "95 % interval: the range a new result should land in about 19 times in 20. BO term: 95 % "
     "posterior predictive interval of the Gaussian process (observation noise included), "
     "widened by a calibration factor from 5-fold cross-validation and cut at the Range.")
 TIP_VERDICT = (
     "As expected, More misses than expected, Many more misses than expected: whether results "
-    "land outside their 95 % intervals more often than 1 in 20. BO term: a coverage check, "
+    "land outside their 95 % intervals more often than 1 in 20. BO term: a coverage check, "
     "misses counted against a binomial at 5 % per value (as expected from 1 in 10 up, many "
     "more below 1 in 100).")
 TIP_NOT_JUDGED = (
-    "Not judged yet: fewer than 10 values checked, or every 95 % interval so wide that nearly "
+    "Not judged yet: fewer than 10 values checked, or every 95 % interval so wide that nearly "
     "any result lands inside. BO term: too small a validation sample, or uninformative "
     "intervals.")
 TIP_SKILL = (
@@ -6536,7 +6536,7 @@ def tip_predicted_score(values=False):
 TIP_MODEL_SD = (
     "Model sd: how unsure the model is about its own guess here, without the noise of one "
     "result. BO term: latent posterior standard deviation (no observation noise, no "
-    "calibration), narrower than the 95 % interval.")
+    "calibration), narrower than the 95 % interval.")
 TIP_PREDICTED_BEST = (
     f"Predicted best: the allowed {FORMULATION} the model scores highest. BO term: maximiser of "
     "the posterior mean over the feasible region, its interval widened by the Round-ahead "
@@ -6585,12 +6585,12 @@ TIP_NEAREST_TESTED = (
 # window named on its own).
 def tip_coverage(names, rounds, inside, total, allowed):
     """Line A: 'Measurements (Firmness, Juiciness, Cook loss), Rounds 3–5: 32
-    of 35 Round-ahead values inside their 95 % posterior predictive
+    of 35 Round-ahead values inside their 95 % posterior predictive
     intervals (5-fold cross-validation widening); a binomial count at 5 % per
     value allows up to 3 misses in 35 at the 1-in-10 level.'"""
     misses = "1 miss" if allowed == 1 else f"{allowed} misses"
     return (f"Measurements ({', '.join(names)}), {rounds_span(rounds)}: {inside} of {total} "
-            "Round-ahead values inside their 95 % posterior predictive intervals (5-fold "
+            "Round-ahead values inside their 95 % posterior predictive intervals (5-fold "
             f"cross-validation widening); a binomial count at 5 % per value allows up to {misses} "
             f"in {total} at the 1-in-10 level.")
 
@@ -6626,7 +6626,7 @@ TIP_RELIABLE_LIMITS = (
     f"Reliable can change between {ROUND_CAP}s by chance. In 24 simulated projects whose true "
     "skill was 0.20 or more, the skill read below 0.20 in 12.5 % of windows of 10 checks "
     "(n = 10) and 11.0 % of windows of 15 (n = 15); a model whose true skill is near 0.20 reads "
-    "below 0.20 about half the time. The 95 % intervals: " + coverage_reading())
+    "below 0.20 about half the time. The 95 % intervals: " + coverage_reading())
 
 
 def tip_repeat_off(later, earlier, diff_text, half_text):
@@ -6634,11 +6634,11 @@ def tip_repeat_off(later, earlier, diff_text, half_text):
     Repeat SD without the pair has 3 df, both limits; from 3 df, that
     Repeat SD alone. The pair stays in the reported Repeat SD."""
     return (f"{FORMULATION_CAP} {later}, a Repeat of {FORMULATION_CAP} {earlier}, differs by "
-            f"{points_text(diff_text)}: more than ±{half_text}, the 95 % limit for the "
+            f"{points_text(diff_text)}: more than ±{half_text}, the 95 % limit for the "
             "difference of two results. Until the other Repeats give 3 degrees of freedom "
             "(3 df), a pair must beat both √2 × 1.96 × the larger of the model's noise SD and "
             "the assumed 1 point, and √2 × the later one's Round-ahead half-width; from 3 df, "
-            "√2 × t (95 %, on its df) × the Repeat SD without this pair. The pair stays in the "
+            "√2 × t (95 %, on its df) × the Repeat SD without this pair. The pair stays in the "
             "Repeat SD.")
 
 
@@ -6650,7 +6650,7 @@ def tip_bias(gap_text, n, rounds):
 
 
 def tip_wide(names):
-    return (f"Very uncertain: the median 95 % half-width for {_and_join(names)} is over 25 % of "
+    return (f"Very uncertain: the median 95 % half-width for {_and_join(names)} is over 25 % of "
             "its Range.")
 
 
@@ -6678,7 +6678,7 @@ def tip_progress(threshold_text, need=None):
     TIP_THRESHOLD_ASSUMED. `need`: (threshold to the hundredth,
     rise_factor's words, the noise SD) for the latest Round, said last."""
     text = (f"Rise = Best so far minus the best before the latest scored {ROUND_CAP}, compared "
-            "to the hundredth with noise SD × √2 × the max-of-q factor: the one-sided 95 % "
+            "to the hundredth with noise SD × √2 × the max-of-q factor: the one-sided 95 % "
             f"point for the best of q new results (q: the latest {ROUND_CAP}'s scored "
             f"{FORMULATION}s; z, or t on the Repeats' df once they measure the noise SD). "
             f"Noise SD: {threshold_text}. Rising at or above it, Within noise below it, Flat "
@@ -6813,7 +6813,7 @@ def model_summary(facts):
         lines.append("Input warping: on for the suggestion model (robust), not used by the "
                      "models on this tab.")
     lines += [
-        (f"Interval calibration: each model's 95 % intervals are multiplied by the "
+        (f"Interval calibration: each model's 95 % intervals are multiplied by the "
          f"root-mean-square of {f.folds}-fold cross-validated standardised errors (at least 1), "
          f"the folds grouped by {ROUND_CAP} with a {FORMULATION} and its Repeats always in one "
          "fold, the hyperparameters refitted in each; the Overall score's are widened again by "
@@ -6831,9 +6831,9 @@ MODEL_LIMITS_HEADING = "Known limits"
 # R-I12's known limits, §7's own, R-I11's two figures and §8's reason for
 # drawing no projection of the whole space (02-chart-audit §6).
 MODEL_LIMITS = (
-    (f"Coverage: the 95 % intervals aim for 95 %; on simulated projects built by the app's "
+    (f"Coverage: the 95 % intervals aim for 95 %; on simulated projects built by the app's "
      f"suggestions they covered about {SIMULATED_COVERAGE['measurements']} % of measured values "
-     f"and {SIMULATED_COVERAGE['score']} % of Overall scores, short of 95 %."),
+     f"and {SIMULATED_COVERAGE['score']} % of Overall scores, short of 95 %."),
     # Fix round B (statistician I4): the error rates exactly, with their n.
     ("Reliable can change between Rounds by chance. In 24 simulated projects whose true skill "
      "was 0.20 or more, the skill read below 0.20 in 12.5 % of windows of 10 checks (n = 10) "
@@ -6854,7 +6854,7 @@ MODEL_LIMITS = (
      f"design, not from the model, so the first {ROUND_CAP}s show nothing of how well it "
      "chooses."),
     "Best so far is one noisy maximum, so it tends to read high.",
-    ("A noise threshold from few Repeats rests on few degrees of freedom: at 3 df its 95 % "
+    ("A noise threshold from few Repeats rests on few degrees of freedom: at 3 df its 95 % "
      "interval runs from about 0.57 to 3.7 times the estimate."),
     "No correction is made for the many comparisons on this tab.",
     (f"A change at the bench shows only through a Repeat of an earlier {FORMULATION} in each "
@@ -6882,10 +6882,10 @@ def status_rule_rows(cut_text="−0.20", settings_only=False):
     window = (f"the verdict's {ROUND_CAP}s (the last 3 checked, more until 10 measured values)")
     return [
         (p, f"{words['off']} (Repeat)",
-         f"A Repeat differs from its original by more than √2 × the later one's Round-ahead 95 % "
+         f"A Repeat differs from its original by more than √2 × the later one's Round-ahead 95 % "
          f"half-width, in {window}. Its pair is then left out of the Repeat SD."),
         (p, f"{words['off']} (coverage)",
-         f"Many more misses than expected: in {window}, as many misses outside the 95 % "
+         f"Many more misses than expected: in {window}, as many misses outside the 95 % "
          "intervals or more would happen less than 1 time in 100 under a binomial at 5 % per "
          "value, which treats misses as independent (they are not quite: see Known limits)."),
         (p, f"{words['not_yet']} (gate)", f"Fewer than 5 {FORMULATION}s with all results in."),
@@ -6896,7 +6896,7 @@ def status_rule_rows(cut_text="−0.20", settings_only=False):
          f"No {ROUND_CAP} checked, fewer than 10 measured values over every {ROUND_CAP} "
          "checked, or fewer than 10 Round-ahead checks of the Overall score for skill."),
         (p, f"{words['not_yet']} (very uncertain)",
-         f"Every output's median 95 % half-width over 25 % of its Range in {window}."),
+         f"Every output's median 95 % half-width over 25 % of its Range in {window}."),
         (p, f"{words['not_yet']} (no better than the average)",
          f"Skill at or below the cut ({cut_text}), from 10 checks."),
         (p, f"{words['not_yet']} (not clearly better)", f"Skill above {cut_text} and below 0.20."),
@@ -6906,7 +6906,7 @@ def status_rule_rows(cut_text="−0.20", settings_only=False):
          "least 20 values, median absolute standardised error at most 0.4), and skill 0.20 or "
          "more from 10 checks."),
         (p, "Clause: still very uncertain",
-         "Some outputs, not all, have a median 95 % half-width over 25 % of their Range."),
+         "Some outputs, not all, have a median 95 % half-width over 25 % of their Range."),
         (p, "Clause: scores have come in below or above the predictions",
          "The Overall score's mean error is beyond the noise threshold and 2 standard errors "
          f"(from 4 {ROUND_CAP}s checked, each {ROUND_CAP}'s mean error counts as one value)."),
@@ -6955,10 +6955,10 @@ GLOSSARY_ROUND_MEANING = ("the formulations made together; in BO texts a “batc
                           "suggestions")
 GLOSSARY_ROWS = (
     ("Reliable · Not yet · Off", "validation verdict",
-     "The Predictions status: coverage of the 95 % intervals and out-of-sample skill together. "
+     "The Predictions status: coverage of the 95 % intervals and out-of-sample skill together. "
      "Not yet covers the Prediction check's Not judged yet."),
-    ("the range the app predicted · 95 % interval",
-     "95 % posterior predictive interval (calibrated)",
+    ("the range the app predicted · 95 % interval",
+     "95 % posterior predictive interval (calibrated)",
      "Where one new measured value should land: posterior mean ± 1.96 × predictive SD × "
      "calibration factor, cut at the Range. " + coverage_reading()),
     ("score predictions beat the average · skill", "out-of-sample skill score (Q²-type, not R²)",
@@ -6997,11 +6997,11 @@ GLOSSARY_ROWS = (
      "settings."),
     ("As expected · More misses than expected · Many more misses than expected · Not judged yet",
      "coverage test (binomial at 5 % per value)",
-     "Misses outside the 95 % intervals against a binomial at 5 %: as expected from 1 in 10 up, "
+     "Misses outside the 95 % intervals against a binomial at 5 %: as expected from 1 in 10 up, "
      "many more below 1 in 100; Not judged yet under 10 values or with every interval wide."),
     ("calibration factor", "cross-validated calibration factor",
      "Root-mean-square of 5-fold cross-validated standardised errors (folds grouped by Round, "
-     "Repeats kept together), at least 1; every 95 % interval is multiplied by it."),
+     "Repeats kept together), at least 1; every 95 % interval is multiplied by it."),
     ("predicted score · model mean", "posterior mean", "The model's single best guess."),
     ("predicted best", "maximiser of the posterior mean over the feasible region",
      "The allowed formulation the model scores highest; at a Highest or Lowest it sits on an "
@@ -7013,7 +7013,7 @@ GLOSSARY_ROWS = (
      "measured score."),
     ("model sd · how unsure the model is · Uncertainty", "latent posterior standard deviation",
      "The model's own uncertainty about its mean, without observation noise or calibration; "
-     "narrower than the 95 % interval."),
+     "narrower than the 95 % interval."),
     ("tested near · untested amounts", "inside or outside an L∞ neighbourhood of the design points",
      "Within 15 % of each varying row's Lowest–Highest span, all rows at once, of a formulation "
      "with all results in."),
@@ -7021,7 +7021,7 @@ GLOSSARY_ROWS = (
      "Largest minus smallest predicted score as one ingredient changes, over the tested "
      "stretch; unsigned, not a coefficient."),
     ("correlated (|r|)", "collinear inputs (confounded effects)",
-     "|Pearson r| at least 0.8 between two ingredients across formulations with all results in."),
+     "|Pearson r| at least 0.7 between two ingredients across formulations with all results in."),
     ("Overall score", GLOSSARY_OVERALL_TERM,
      "Sum over measurements of closeness to the goal (0–1) × Share of score, 0–100."),
     ("measurement", "outcome (response)", "A measured result the Overall score is built from."),
@@ -7094,7 +7094,7 @@ _GLOSSARY_SETTINGS_FORM = {
         "tested stretch; unsigned, not a coefficient."),
     "correlated (|r|)": (
         "correlated (|r|)", "collinear inputs (confounded effects)",
-        "|Pearson r| at least 0.8 between two process settings across trials with all results "
+        "|Pearson r| at least 0.7 between two process settings across trials with all results "
         "in."),
     "ingredient · process setting": (
         "process setting", "input (factor)",
@@ -7433,7 +7433,7 @@ TRIED_NOTHING = "Nothing recorded yet."
 CHOOSES_TITLE = "How the app chooses"
 CHOOSES_CAPTION = "Suggestions go where expected gain peaks."
 CHOOSES_PREDICTED = f"Predicted {OVERALL_SCORE_COLUMN}"
-CHOOSES_BAND = "95 % interval"
+CHOOSES_BAND = "95 % interval"
 CHOOSES_GAIN = "Expected gain (points)"
 CHOOSES_TESTED = "Tested near this line"
 CHOOSES_SUGGESTION = "First suggestion"
@@ -7453,10 +7453,10 @@ def tip_chooses(best_no, settings_only=False, line=False, end=None):
                  "far's amounts. ")
     return ("The app suggests where the expected gain (bottom) is highest — either a high "
             "prediction or high uncertainty (top). " + along +
-            "Top: the suggestion model's predicted Overall score with its own 95 % band, grey "
+            "Top: the suggestion model's predicted Overall score with its own 95 % band, grey "
             f"where nothing was tested near, and the {FORMULATION}s tested near the line. "
             "Bottom: the expected gain over Best so far at each point, in points. BO term: "
-            "posterior mean and 95 % credible band (top); expected gain, the "
+            "posterior mean and 95 % credible band (top); expected gain, the "
             "acquisition value (bottom).")
 
 
@@ -7518,10 +7518,10 @@ def chooses_line_axis(end):
 
 CHOOSES_BAND_LEGEND = "Model's own band: narrower than Try one"
 TIP_CHOOSES_BAND = (
-    "The band is the suggestion model's own 95 % uncertainty about its mean: no Repeat noise "
-    "and no widening from the Prediction check. It is therefore narrower than the 95 % "
+    "The band is the suggestion model's own 95 % uncertainty about its mean: no Repeat noise "
+    "and no widening from the Prediction check. It is therefore narrower than the 95 % "
     "interval under Try one, which is for a new measured result. BO term: latent posterior "
-    "95 % credible band.")
+    "95 % credible band.")
 # One name for the gain on screen (Expected gain); the BO term in tooltips.
 GAIN_TOOLTIP_TITLE = "Expected gain (points) — expected improvement (acquisition value)"
 
@@ -7983,10 +7983,10 @@ def trust_misses_diag(rounds, inside, total, many=False, allowed=None):
     diagnosis line follows."""
     misses = total - inside
     line = (f"Measurements, {rounds_span(rounds)}: {inside} of {total} values inside their "
-            "95 % interval.")
+            "95 % interval.")
     if allowed is not None:
         count = "1 miss" if misses == 1 else f"{misses} misses"
-        line += f" {count}; 95 % intervals allow up to {allowed}."
+        line += f" {count}; 95 % intervals allow up to {allowed}."
     return f"{line} {'Many more' if many else 'More'} misses than expected."
 
 
@@ -8007,8 +8007,8 @@ def next_misses_diag(rounds, kind, repeat_no=None, bias_text=""):
     the bench."""
     ask = (f"A Repeat of {FORMULATION_CAP} {repeat_no} would measure the noise."
            if repeat_no is not None else "A Repeat would measure the noise.")
-    line = (f"Measured values in {_in_rounds(rounds)} fell outside their 95 % interval more "
-            f"often than 95 % intervals allow{_DIAG_WHERE[kind]}, so new predictions can miss "
+    line = (f"Measured values in {_in_rounds(rounds)} fell outside their 95 % interval more "
+            f"often than 95 % intervals allow{_DIAG_WHERE[kind]}, so new predictions can miss "
             f"by more than their intervals show. {ask}")
     return f"{line} {bias_text}" if bias_text else line
 
@@ -8077,7 +8077,7 @@ REVIEW_STATUS_HELP = (f"The {TAB_INSIGHTS} cards in brief. Predictions: can you 
 # and a "BO term" line in its tooltip naming the exact quantity drawn.
 PLOT_SPARK_IN_RANGE = f"In range, by {ROUND_CAP}"
 PLOT_SPARK_BEST = f"Best so far, by {ROUND_CAP}"
-PLOT_SPARK_TARGET = "95 % aim"
+PLOT_SPARK_TARGET = "95 % aim"
 PLOT_SPARK_WAIT = f"Trend appears after 2 {ROUND_CAP}s."
 PLOT_TRIED = "Which amounts have you tried?"
 PLOT_TRIED_SETTINGS = "Which settings have you tried?"
@@ -8097,8 +8097,8 @@ PLOT_SCORE_AXIS = "Predicted score (of 100)"
 PLOT_GAIN_AXIS = "Expected gain (points)"
 PLOT_MEASURED_SCORE = "Overall score (of 100)"
 # Legend entries.
-PLOT_BAND = "Likely range of the mean, 95 %"
-PLOT_INTERVAL = "Likely range of a result, 95 %"
+PLOT_BAND = "Likely range of the mean, 95 %"
+PLOT_INTERVAL = "Likely range of a result, 95 %"
 PLOT_MEAN = "Predicted (model mean)"
 PLOT_UNTESTED = "Not tested near here"
 PLOT_TESTED = f"Tested {FORMULATION}"
@@ -8108,8 +8108,8 @@ PLOT_SUGGESTION = f"This {ROUND_CAP}'s suggestion"
 PLOT_START = "Start"
 PLOT_TARGET = "Target"
 PLOT_SCORE_EACH = f"Each {FORMULATION}'s score"
-PLOT_INSIDE = "Inside its 95 % range"
-PLOT_OUTSIDE = "Outside its 95 % range"
+PLOT_INSIDE = "Inside its 95 % range"
+PLOT_OUTSIDE = "Outside its 95 % range"
 PLOT_LATEST = f"Latest {ROUND_CAP}"
 PLOT_EARLIER = f"Earlier {ROUND_CAP}s"
 PLOT_EXACT = "Measured = predicted"
@@ -8118,7 +8118,7 @@ PLOT_WHOLE = "Whole allowed stretch"
 # The tooltip's expert row title, and its lines.
 PLOT_BO = "BO term"
 PLOT_BO_MODEL_FREE = "model-free: the measured values"
-PLOT_BO_COVERAGE = ("share of Round-ahead values inside their 95 % posterior predictive "
+PLOT_BO_COVERAGE = ("share of Round-ahead values inside their 95 % posterior predictive "
                     "intervals")
 PLOT_BO_BEST = "incumbent: highest measured Overall score so far"
 
@@ -8130,7 +8130,7 @@ def plot_bo_curve(mean, sd, gain=None):
 
 
 def plot_bo_interval(mean, low, high):
-    return (f"posterior mean {mean:.2f}; 95 % posterior predictive interval "
+    return (f"posterior mean {mean:.2f}; 95 % posterior predictive interval "
             f"{low:.2f} to {high:.2f}, calibrated")
 
 
@@ -8142,7 +8142,7 @@ PLOT_BO_GAIN = "qLogNEI value of the Round's first suggestion (exp of the log va
 PLOT_BO_HIGHEST = "maximum of the GP posterior mean over the allowed region"
 PLOT_BO_CHANGE = "range of the GP posterior mean along a one-factor trace"
 PLOT_BO_TRIANGLE = "GP posterior mean on a simplex slice, other inputs fixed"
-PLOT_BO_ROUND_AHEAD = "rolling-origin posterior predictive mean and 95 % interval"
+PLOT_BO_ROUND_AHEAD = "rolling-origin posterior predictive mean and 95 % interval"
 # Captions under the charts: at most 8 words each.
 PLOT_CAPTION_PROGRESS = "Flat line: no higher score yet."
 PLOT_CAPTION_GAIN = "Bars near zero: little left to gain."
@@ -8232,7 +8232,7 @@ def ev_values(total, rounds):
     return f"n = {total} measured values, {rounds_span(rounds)}"
 
 
-EV_ROUND_AHEAD = ("each predicted from earlier Rounds only (Round-ahead 95 % posterior "
+EV_ROUND_AHEAD = ("each predicted from earlier Rounds only (Round-ahead 95 % posterior "
                   "predictive coverage)")
 
 
@@ -8316,9 +8316,9 @@ HERO_HIDDEN = {
 
 
 TIP_HERO_TOP = ("The line runs straight from Best so far, every row moving together. Line: the "
-                "suggestion model's predicted Overall score; band: its own 95 % range; grey: "
+                "suggestion model's predicted Overall score; band: its own 95 % range; grey: "
                 f"nothing tested near; rings: {FORMULATION}s tested near the line. BO term: "
-                "posterior mean and 95 % credible band.")
+                "posterior mean and 95 % credible band.")
 
 
 def tip_hero_hidden(reason):
@@ -8400,7 +8400,7 @@ def profiler_help(ref, ref_no, fill=None, fixed=(), gain=True, settings_only=Fal
     lines = [f"Each column moves one {what} from its Lowest to its Highest, starting from "
              f"{ref} ({FORMULATION_CAP} {ref_no}); everything else stays as it is there.",
              "Each row is one result: the blue line is the predicted value, the light band "
-             "its 95 % likely range of a result. A steep line means that row matters; a flat "
+             "its 95 % likely range of a result. A steep line means that row matters; a flat "
              "one, that it hardly does here.",
              f"The vertical line marks {ref}'s own amount; a dashed line, the measurement's "
              "target. Grey: nothing tested near here, so the line is a guess there. Grey "
@@ -8418,7 +8418,7 @@ def profiler_help(ref, ref_no, fill=None, fixed=(), gain=True, settings_only=Fal
 
 def profiler_bo(mean, low, high):
     """The tooltip's expert line at one point of a panel."""
-    return (f"GP posterior mean {mean:.2f}, 95 % posterior predictive interval "
+    return (f"GP posterior mean {mean:.2f}, 95 % posterior predictive interval "
             f"{low:.2f} to {high:.2f} (calibrated); one-factor slice")
 
 
@@ -8517,7 +8517,7 @@ GAIN_GREYED = {
     "off": "Expected gain greyed: predictions are Off.",
 }
 GAIN_REASON_NOT_YET = "the Predictions card does not read Reliable yet"
-GAIN_REASON_OFF = ("the Predictions card reads Off: the Overall score misses its 95 % range "
+GAIN_REASON_OFF = ("the Predictions card reads Off: the Overall score misses its 95 % range "
                    "more often than expected")
 
 
@@ -8544,7 +8544,7 @@ def ev_profiler(n, ref, ref_no, acquisition="qlognei"):
     """Q3's evidence: the models, the slice and the acquisition."""
     name = _ACQ_SHORT.get(acquisition, acquisition)
     return (f"n = {n} {FORMULATION}s with all results; one Gaussian process per result "
-            f"(posterior mean, 95 % predictive interval); one-factor slices through {ref} "
+            f"(posterior mean, 95 % predictive interval); one-factor slices through {ref} "
             f"({FORMULATION_CAP} {ref_no}); Expected gain is the suggestion model's {name} "
             "value along each slice")
 
@@ -8671,7 +8671,7 @@ def story_target_help(start_no, best_no, start_round):
 
 
 # Can we trust the predictions? — forecast against actual, over time.
-STORY_FORECAST = "Predicted 95 % range"
+STORY_FORECAST = "Predicted 95 % range"
 STORY_LANDED_IN = "Landed in range"
 STORY_LANDED_OUT = "Landed outside"
 STORY_NO_FORECAST = "No forecast yet"
@@ -8704,7 +8704,7 @@ def story_misses(above, below):
 
 def story_trust_help(inside, total, misses_text=""):
     """The forecast chart's "?": how to read it, then the BO term."""
-    return (f"Each light blue bar is the 95 % range the model predicted for a {FORMULATION}'s "
+    return (f"Each light blue bar is the 95 % range the model predicted for a {FORMULATION}'s "
             f"{OVERALL_SCORE_COLUMN} before it was made, from the earlier {ROUND_CAP}s only; the "
             "blue tick, the predicted value. The "
             f"dot is what was measured: filled inside the range, hollow outside. {inside} of "
@@ -8801,7 +8801,7 @@ EV_METHOD = "Kernel, priors and every check: How the app knows, top right."
 REVIEW_STATUS_HELP = (f"The {TAB_INSIGHTS} status line in brief. Predictions: can you trust "
                       "them? Progress: is Best so far still rising?")
 GAIN_REASON_NOT_YET = "Predictions do not read Reliable yet"
-GAIN_REASON_OFF = ("Predictions read Off: the Overall score misses its 95 % range more often "
+GAIN_REASON_OFF = ("Predictions read Off: the Overall score misses its 95 % range more often "
                    "than expected")
 
 
@@ -8905,7 +8905,7 @@ LEARNED_COL_VERDICT = "Verdict"
 LEARNED_COL_TOP = "Picked the top one"
 LEARNED_CHART_X = "Pairs ordered right (%)"
 LEARNED_CHANCE = "Chance"
-LEARNED_CAPTION = "Dot: share right. Bar: 95 % interval."
+LEARNED_CAPTION = "Dot: share right. Bar: 95 % interval."
 LEARNED_NONE_YET = "Nothing to check yet: needs a scored Round."
 # LEARNED_FORECAST_TITLE: see "rebuilt framing" at the end.
 LEARNED_FORECAST_NONE = "No result predictable yet."
@@ -8967,7 +8967,7 @@ def learned_effect_tip(var, name, lo, hi, mean, low, high):
     """One effect's numbers, for the "?"."""
     sign = lambda v: f"{v:+.2f}".replace("-", "−")
     return (f"{var} from {lo} to {hi} (its tested stretch): {name} {sign(mean)} "
-            f"(95 % interval {sign(low)} to {sign(high)}).")
+            f"(95 % interval {sign(low)} to {sign(high)}).")
 
 
 def learned_headline(var, name, up):
@@ -9012,7 +9012,7 @@ def learned_skill_line(inside, total, vs_mean, vs_best, n):
     baselines."""
     if not total:
         return ""
-    line = f"{OVERALL_SCORE_COLUMN}: {inside} of {total} inside the 95 % predicted range."
+    line = f"{OVERALL_SCORE_COLUMN}: {inside} of {total} inside the 95 % predicted range."
     if vs_mean is not None and vs_best is not None:
         line += (f" Skill over {n} checks: {vs_mean:+.2f} against the average of earlier "
                  f"scores, {vs_best:+.2f} against Best so far (1 − squared forecast error ÷ "
@@ -9081,8 +9081,8 @@ def called_tied(name):
 
 
 def called_ranges(cells):
-    """'Forecast (95 % range): F16 13.5 (11.1–≥ 15), F17 ….'"""
-    return f"Forecast (95 % range): {', '.join(cells)}." if cells else ""
+    """'Forecast (95 % range): F16 13.5 (11.1–≥ 15), F17 ….'"""
+    return f"Forecast (95 % range): {', '.join(cells)}." if cells else ""
 
 
 def called_pairs(name, right, counted, total):
@@ -9143,7 +9143,7 @@ def preview_line(k, role, score_text, changes):
 def preview_help(n, best_no):
     return (f"The {n} {FORMULATION}s Generate would make now, previewed on a copy of the project "
             f"(nothing is saved). Changes are against Best so far ({FORMULATION_CAP} {best_no}). "
-            f"Predicted {OVERALL_SCORE_COLUMN} with its 95 % range; ≥ 99 means it reaches the "
+            f"Predicted {OVERALL_SCORE_COLUMN} with its 95 % range; ≥ 99 means it reaches the "
             f"top score.")
 
 
@@ -9206,7 +9206,7 @@ def _about(x):
 def called_landing(above_gap=None, below_gap=None):
     """Where the Overall scores landed against their forecast: 'scored about
     4 above forecast' (the mean of measured − forecast over those
-    above their 95 % range); 'scored about 2 below forecast'; 'scored as
+    above their 95 % range); 'scored about 2 below forecast'; 'scored as
     forecast' when every one landed in its range."""
     if above_gap is not None:
         return f"scored {_about(above_gap)} above forecast"
@@ -9315,7 +9315,7 @@ def score_built(rows, total_text):
 
 
 # Results: the Round's forecast beside what was measured.
-RESULTS_PREDICTED_COLUMN = "Predicted (95 % range)"
+RESULTS_PREDICTED_COLUMN = "Predicted (95 % range)"
 RESULTS_RESULT_COLUMN = "Result"
 # RESULTS_PREDICTED_CAPTION: see "rebuilt framing" at the end.
 
@@ -9416,7 +9416,7 @@ def for_experts(text):
     return f"For experts: {text}" if text else ""
 
 
-EXPERT_TERMS = ("Round-ahead (rolling-origin) checks; 95 % posterior predictive intervals; "
+EXPERT_TERMS = ("Round-ahead (rolling-origin) checks; 95 % posterior predictive intervals; "
                 "suggestions by qLogNEI on a Gaussian process.")
 
 
@@ -9617,7 +9617,7 @@ CALLED_RULE = (f"Rebuilt today from the {FORMULATION}s scored before this Round 
                "model expected for the Overall score and each measurement predictable before it. "
                f"Each line joins a {FORMULATION}'s forecast (left) to its measured value (right), "
                "each side placed by its own values, highest at the top. A measured value outside "
-               "its 95 % range is a miss, above or below. A pair counts only when its forecasts "
+               "its 95 % range is a miss, above or below. A pair counts only when its forecasts "
                "differ by at least one tasting noise of that result; closer pairs are too close "
                "to call (drawn faint) and left out of every count. Tasting noise: the Repeats' "
                "SD when they give one; else the Overall score's assumed 1 point, and for a "
@@ -9661,7 +9661,7 @@ LEARNED_RULE = ("Each Round's formulations are forecast from the formulations sc
 def learned_evidence(rows, skill_line=""):
     """The Model item's evidence: 'Evidence: pairs ordered right from
     earlier Rounds — Overall score 14/21, Firmness 16/23. Overall score: 13
-    of 15 inside the 95 % predicted range. …'"""
+    of 15 inside the 95 % predicted range. …'"""
     pairs = ", ".join(f"{name} {right}/{n}" for name, right, n in rows if n)
     line = f"Evidence: pairs ordered right from earlier Rounds — {pairs or 'none yet'}."
     return f"{line} {skill_line}".strip()
@@ -9745,14 +9745,14 @@ def brief(text, limit=TOOLTIP_WORDS):
 
 # Forecast check (fix 1): one shared axis per result.
 CHECK_SIDE = {"above": "above", "below": "below"}
-CHECK_KEY_RANGE = "Forecast 95 % range"
+CHECK_KEY_RANGE = "Forecast 95 % range"
 CHECK_KEY_FORECAST = "Forecast"
 CHECK_KEY_IN = "Measured, in range"
 CHECK_KEY_OUT = "Measured, outside range"
-CHECK_TIP_FORECAST = "Forecast (95 % range)"
+CHECK_TIP_FORECAST = "Forecast (95 % range)"
 CALLED_CAPTION = "Rows: forecast order, highest first."
 CALLED_RULE = (f"Rebuilt today from the {FORMULATION}s scored before this Round only. Bar: the "
-               "forecast's 95 % range; tick: the forecast; dot: the measured value, orange "
+               "forecast's 95 % range; tick: the forecast; dot: the measured value, orange "
                "when outside its range (a miss, above or below). Rows run in forecast order, "
                "highest first. A pair counts only when its forecasts differ by at least one "
                "tasting noise; closer pairs are too close to call. Equal measured values (ties) "
@@ -9960,7 +9960,7 @@ def profiler_help(ref, ref_no, fill=None, fixed=(), gain=True, settings_only=Fal
              "else as it is there. Its line stops where a limit stops it: the row's own Lowest "
              "or Highest, or a limit on several rows such as the total (dashed edge, "
              "“limit”). The axis shows only that reachable stretch.",
-             "Blue line: the predicted value; light band: its 95 % range. Vertical line: "
+             "Blue line: the predicted value; light band: its 95 % range. Vertical line: "
              f"{ref}'s own amount; dashed line: the target. Grey: nothing tested near here. "
              f"Grey rings: {FORMULATION}s tested near the line."]
     if fill:
@@ -9995,7 +9995,7 @@ PREDICTED_MEASUREMENTS_HELP = (
     f"Implied: the {OVERALL_SCORE_COLUMN} these predicted measurements get by your score's own "
     "rule (Share of score and target). "
     f"Overall model: the {OVERALL_SCORE_COLUMN}'s own model, fitted on the scores directly. They "
-    "differ because each is learned apart. Each measurement's 95 % range is widened by its own "
+    "differ because each is learned apart. Each measurement's 95 % range is widened by its own "
     "record from earlier Rounds, as the Overall score's is.")
 
 
@@ -10008,7 +10008,7 @@ def results_predicted_help(round_no):
     return (f"Each {FORMULATION} of {ROUND_CAP} {round_no} as the model expected it, rebuilt "
             f"today from the {FORMULATION}s scored before {ROUND_CAP} {round_no} only (the "
             f"Review's Forecast check), beside what was measured: the {OVERALL_SCORE_COLUMN} "
-            "and every measurement, each marked In, Above or Below its 95 % range. A forecast "
+            "and every measurement, each marked In, Above or Below its 95 % range. A forecast "
             "at the highest possible value reads ≥ it.")
 
 
@@ -10019,7 +10019,7 @@ def forecast_help(n_rows, round_no):
             f"(Forecast check). Only results the model has ordered right before (Predictable) "
             f"are shown. A forecast at the highest possible value reads ≥ it.")
 WHY_SOURCE_APP = "This app"
-WHY_COL_PREDICTED = "Predicted (95 % range)"
+WHY_COL_PREDICTED = "Predicted (95 % range)"
 WHY_COL_GAIN = "Expected gain"
 WHY_COL_CLOSEST = "Closest made"
 # --- tried gaps ---
@@ -10073,7 +10073,7 @@ def tried_caveat(kind):
 
 # --- round 2 fixes ---
 # Review round 2 (2026-10-05): four critics (visual, statistics, demo,
-# wording), one fix plan. One 95 % range per forecast on every screen;
+# wording), one fix plan. One 95 % range per forecast on every screen;
 # Holm across the results checked; two forecasts at the top too close to
 # call; the Implied score an expectation; the stop made concrete; one form
 # per idea. Later definitions here replace the earlier ones of one name.
@@ -10110,7 +10110,7 @@ TOO_UNCERTAIN = "—"
 
 def too_uncertain_tip(text):
     """A '—' cell's tip: its numbers and why they are not shown."""
-    return f"95 % range over ¾ of the Range: {text}."
+    return f"95 % range over ¾ of the Range: {text}."
 
 
 IMPLIED_COLUMN = "Implied (expected)"
@@ -10118,12 +10118,12 @@ OVERALL_MODEL_COLUMN = "Overall model"
 PREDICTED_MEASUREMENTS_CAPTION = "Implied: measurements scored by your targets."
 PREDICTED_MEASUREMENTS_HELP = (
     f"Implied (expected): the {OVERALL_SCORE_COLUMN} your score's rule gives these predicted "
-    "measurements, averaged over each one's 95 % range. Off target either way loses "
+    "measurements, averaged over each one's 95 % range. Off target either way loses "
     "points, so an unsure forecast lowers it. "
     f"Overall model: the {OVERALL_SCORE_COLUMN}'s own model, fitted on the scores directly. "
     "Two models, learned apart, so they can differ; each measurement's forecasts also run "
-    "high or low on their own (Forecast check). Each 95 % range here is the one the "
-    "Forecast check and Results use. —: a 95 % range over ¾ of the Range (numbers in its tip).")
+    "high or low on their own (Forecast check). Each 95 % range here is the one the "
+    "Forecast check and Results use. —: a 95 % range over ¾ of the Range (numbers in its tip).")
 
 
 # What next? at the top score (P1 #5).
@@ -10341,3 +10341,179 @@ def why_chart_caption_full(n, line=True, gain=False, grey=False):
             "left edge are not drawn.")
 OFF_BY_TITLE = "Measurements against goals"
 REVIEW_SAYS_STOP = "Review says stop."
+
+
+# Method and definitions (P3 #17).
+def method_rising(need_text=None):
+    """Rising's exact rule, in the screen's words."""
+    here = f" ({need_text} here)" if need_text else ""
+    return (f"Best so far came from the latest scored {ROUND_CAP} and beat the best before it "
+            f"by at least the rise needed{here}, to the hundredth.")
+
+
+METHOD_WITHIN_NOISE = "The same, by less than the rise needed."
+METHOD_PLATEAU_WORD = "Plateau since Round N"
+PLATEAU_RULE = f"Plateau: no rise since {ROUND_CAP} N, after rising before it."
+METHOD_STOP = ("Best so far is within the rise one new result needs (2.3 at an assumed "
+               "noise of 1 point) of the top score, and no Round is open.")
+
+
+def plateau_rule(round_no):
+    """'Plateau: no rise since Round 7, after rising before it.'"""
+    return f"Plateau: no rise since {ROUND_CAP} {round_no}, after rising before it."
+
+
+def rule_line(rule):
+    """'Rule: many more misses than expected.'"""
+    text = rule.strip().rstrip(".")
+    return f"Rule: {text[:1].lower()}{text[1:]}."
+
+
+# Make a round (P3 #17): the button the line names is the one on screen.
+ENTERED_ROUND_CAPTION = (
+    f"This {ROUND_CAP} holds entered {FORMULATION}s (sources in their notes). For suggestions "
+    f"too: {GENERATE_DIFFERENT_BATCH}.")
+ONLY_OWN_FORMULATIONS_CAPTION = (
+    f"This {ROUND_CAP} holds only your own {FORMULATION}s. For suggestions too: "
+    f"{GENERATE_DIFFERENT_BATCH}.")
+
+
+# "Tied" only for equal values; "within noise" for close ones (P3 #18).
+def tie_line(new_no, score_text, lead_text, old_no, need_text):
+    """'Formulation 19 is within noise: 0.83 lower.' (under the rise one
+    new result needs; the "?" gives that number)."""
+    return f"{FORMULATION_CAP} {old_no} is within noise: {lead_text} lower."
+
+
+def _tied_with(near_no, after_round=True):
+    """'; within noise: Formulation 18'."""
+    if near_no is None:
+        return ""
+    return f"{'; ' if after_round else ', '}within noise: {FORMULATION_CAP} {near_no}"
+
+
+def tie_runner_up(no, score_text, threshold_text):
+    """'Formulation 18 (90.12) is within noise of Best so far.'"""
+    return (f"{FORMULATION_CAP} {no}, at {score_text}, is within noise of Best so far: "
+            f"{threshold_text.rstrip('.')}.")
+
+
+# One form per idea (P3 #18): ranges and misses.
+PLOT_INTERVAL = "95 % range of a result"
+STORY_LANDED_IN = "Measured, in range"
+STORY_LANDED_OUT = "Measured, outside range"
+
+
+def repeat_link(no):
+    """The Repeat link, the one form of the request: 'Repeat Formulation
+    21 to check noise'."""
+    return card_noise_repeat(no)
+
+
+# Polish (P3 #19).
+NO_GAIN_HEAD = "No gain beyond noise within these limits."
+
+
+def next_close_to_top(change_text="", settings_only=False):
+    """'No gain beyond noise within these limits. To look further, raise
+    Tap water's Highest.'"""
+    if change_text:
+        return f"{NO_GAIN_HEAD} To look further, {change_text}."
+    new = "a new process setting" if settings_only else "a new ingredient or process setting"
+    return f"{NO_GAIN_HEAD} To look further, add {new}."
+
+
+GAIN_GREYED = {
+    "noise": "Expected gain greyed: may be noise. See Next.",
+    "not_yet": "Expected gain greyed: Overall score forecasts not yet good.",
+    "off": "Expected gain greyed: Overall score forecasts miss.",
+}
+_WHY_GAIN_SHORT = {"verdict": "Overall score forecasts miss too often",
+                   "skill": "Overall score forecasts not yet good",
+                   "noise": "the model is fitting noise"}
+
+
+def single_record(inside, total, rounds=0):
+    """'Single measurements, last 3 Rounds: 36 of 36 in their 95 % range.'"""
+    window = (f", last {rounds} {ROUND_CAP}s" if rounds > 1 else
+              f", last {ROUND_CAP}" if rounds == 1 else "")
+    return f"Single measurements{window}: {inside} of {total} in their 95 % range."
+
+
+# One workbook name (P3 #18): the Round workbook.
+STEP_PRINT_HEADING = f"##### Download the {ROUND_CAP} workbook"
+DOWNLOAD_BATCH_SHEETS = f"Download the {ROUND_CAP} workbook (Excel)"
+
+
+# The Forecast check's line, at most 14 words and no nested brackets (P3 #19).
+def check_order(right, counted, close, tied=False, ties=0):
+    """'order right: 1 pair, 1 too close, 1 tie'; 'order right in 1 of 2
+    pairs'; 'order too close to call'."""
+    if tied:
+        return "all the same"
+    tail = (f", {close} too close" if close else "") + (
+        f", {ties} {'tie' if ties == 1 else 'ties'}" if ties else "")
+    if not counted:
+        return "order too close to call" if close else ""
+    pairs = "pair" if counted == 1 else "pairs"
+    if right == counted:
+        return f"order right: {counted} {pairs}{tail}"
+    return f"order right in {right} of {counted} {pairs}{tail}"
+
+
+def back_to_batch_label(no, n):
+    """'Back to Round 6' (at most 5 words; the count is on Make a round)."""
+    return f"Back to {ROUND_CAP} {no}"
+
+
+def called_so_far(cells):
+    """'So far: Overall score 8 of 10, Consistency 11 of 11.'"""
+    out = [f"{OVERALL_SCORE_COLUMN if n == 'Overall' else n} {r} of {p}"
+           for n, r, p in cells if p]
+    return f"So far: {', '.join(out)}." if out else ""
+
+
+# Method and definitions refreshed (P3 #19): rows for what is no longer
+# drawn gone; the rise row in the screen's words; the stop added; the
+# Make a round threshold named as the cell now reads.
+_GLOSSARY_GONE = {"Where you have tested", "Every allowed formulation (map)",
+                  "Every allowed trial (map)"}
+_GLOSSARY_NEW = {
+    "Rising · Within noise · Flat · Too early · No new best": (
+        "Rising · Within noise · Plateau · Flat · Too early · No new best",
+        "improvement of the best observed value against replicate noise",
+        "The rise of Best so far in the latest Round, against the rise needed: the best of "
+        "that Round's new results must beat tasting noise by it."),
+}
+GLOSSARY_STOP_ROW = (
+    "Within noise of the top score · Stop, or change the target",
+    "stopping rule at the attainable maximum",
+    "Best so far is closer to the top score than one new result must rise to be told from "
+    "it, so the Overall score cannot show a better formulation.")
+
+
+def glossary_rows(settings_only=False):
+    """The glossary, in its canonical order, for the project's form."""
+    rows = GLOSSARY_ROWS_SETTINGS if settings_only else GLOSSARY_ROWS
+    out = []
+    for row in rows:
+        if row[0] in _GLOSSARY_GONE:
+            continue
+        out.append(_GLOSSARY_NEW.get(row[0], row))
+        if row[0].startswith("Rising"):
+            out.append(GLOSSARY_STOP_ROW)
+    return tuple(out)
+
+
+HOW_THRESHOLDS = (f"Wide: the median half-width of the 95 % intervals is over 25 % of the "
+                  f"measurement's Range (0–100 for the Overall score). On {TAB_BATCH_NAME}, a "
+                  "predicted measurement reads “—” when its 95 % range covers more than 75 % "
+                  "of the Range.")
+START_NEXT_BATCH = f"Start the next {ROUND_CAP}"
+GENERATE_DIFFERENT_BATCH = f"Discard this {ROUND_CAP} and generate again"
+ENTERED_ROUND_CAPTION = (
+    f"This {ROUND_CAP} holds entered {FORMULATION}s (sources in their notes). For suggestions "
+    f"too: {GENERATE_DIFFERENT_BATCH}.")
+ONLY_OWN_FORMULATIONS_CAPTION = (
+    f"This {ROUND_CAP} holds only your own {FORMULATION}s. For suggestions too: "
+    f"{GENERATE_DIFFERENT_BATCH}.")

@@ -158,7 +158,7 @@ def test_the_map_caption_names_the_line_only_when_it_is_drawn():
 
 def test_the_luck_line_says_it_in_plain_words():
     line = wording.best_luck(11, "84", "62", "100", "90.09")
-    assert line == ("A Repeat of Formulation 11 is predicted at 84 (95 % interval 62–100), "
+    assert line == ("A Repeat of Formulation 11 is predicted at 84 (95 % interval 62–100), "
                     "below its measured 90.09. Best so far's measured score is partly chance, "
                     "so its Repeat is predicted lower.")
     assert "regression" not in line.lower()

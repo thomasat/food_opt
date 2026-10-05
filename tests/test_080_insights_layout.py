@@ -244,17 +244,17 @@ def test_the_four_texts_of_line_two():
     one = insights.Yardstick(1.0, None, 0, False)
     repeats = insights.Yardstick(1.2, 1.2, 4, True)
     assert ui_insights.standing_text(opt, _standing(False, 3, 2), repeats) == (
-        "Predicted best: 94 (95 % interval 89–99), near Formulation 3. Predicted gain over "
+        "Predicted best: 94 (95 % interval 89–99), near Formulation 3. Predicted gain over "
         "Best so far: none beyond the noise threshold (Repeat SD 1.2 points).")
     assert ui_insights.standing_text(opt, _standing(False), one) == (
-        "Predicted best: 94 (95 % interval 89–99), in untested amounts. Predicted gain over "
+        "Predicted best: 94 (95 % interval 89–99), in untested amounts. Predicted gain over "
         "Best so far: none beyond the 1-point noise threshold.")
     gain = wording.signed(94.4 - opt.Y_history[opt.best_index()])
     assert ui_insights.standing_text(opt, _standing(True), one) == (
-        "Predicted best: 94 (95 % interval 89–99), in untested amounts. Predicted gain over a "
+        "Predicted best: 94 (95 % interval 89–99), in untested amounts. Predicted gain over a "
         f"Repeat of Best so far: {gain} points, above the 1-point noise threshold.")
     assert ui_insights.standing_text(opt, _standing(True, 3, 2), one) == (
-        f"Predicted best: 94 (95 % interval 89–99), near Formulation 3 "
+        f"Predicted best: 94 (95 % interval 89–99), near Formulation 3 "
         f"(measured {opt.Y_history[2]:.2f}). Predicted gain over a Repeat of Best so far: "
         f"{gain} points, above the 1-point noise threshold.")
 

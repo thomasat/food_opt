@@ -289,7 +289,7 @@ def _round_link(opt):
 
 def _round_predicted(opt):
     """Persona fixes: under the link, the last Round's forecast beside what
-    was measured — a Predicted column (the Round-ahead forecast and its 95 %
+    was measured — a Predicted column (the Round-ahead forecast and its 95 %
     range) next to Measured, for the Overall score and the Predictable
     measurements. Read from the Review's checks; fitted here only when they
     are not worked out yet."""

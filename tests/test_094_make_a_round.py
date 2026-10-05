@@ -199,7 +199,7 @@ def test_a_cold_round_says_why_it_has_no_values():
 
 
 def test_qucb_names_its_optimistic_score():
-    """Review I5: never "upper bound" beside a 95 % interval."""
+    """Review I5: never "upper bound" beside a 95 % interval."""
     opt = _burger(rounds=4)
     opt.set_bo_config({"acquisition": "qucb"})
     ui_batch.ask_alone(opt, n_suggestions=2)

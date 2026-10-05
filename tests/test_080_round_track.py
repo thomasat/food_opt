@@ -60,14 +60,14 @@ def test_an_unreliable_verdict_adds_see_insights():
 def test_the_lines_read_as_the_spec_says():
     """Rewritten for the BO-views wave (03 §5.8, review I7)."""
     assert wording.round_track_holding(11, 11, rounds=[3, 4, 5]) == (
-        "Overall score, Rounds 3–5: 11 of 11 inside their 95 % interval.")
+        "Overall score, Rounds 3–5: 11 of 11 inside their 95 % interval.")
     assert wording.round_track_rough(6, 12, "5.0", rounds=[3, 4, 5]) == (
-        "Overall score, Rounds 3–5: 6 of 12 inside their 95 % interval; Overall scores have "
+        "Overall score, Rounds 3–5: 6 of 12 inside their 95 % interval; Overall scores have "
         "come in about 5.0 points below the predictions. More misses than expected.")
     assert wording.round_track_rough(6, 12, "1.0", below=False).endswith(
         "scores have come in about 1 point above the predictions. More misses than expected.")
     assert wording.round_track_rough(6, 12, see_insights=True, allowed=2).endswith(
-        "95 % intervals allow up to 2 misses in 12; measured values: many more misses than "
+        "95 % intervals allow up to 2 misses in 12; measured values: many more misses than "
         "expected.")
     assert wording.insights_progress(4, 6) == (
         "Checking predictions against your results: 4 of 6 Rounds checked…")

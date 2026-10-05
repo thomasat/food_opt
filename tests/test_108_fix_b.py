@@ -369,7 +369,7 @@ def test_i2_the_coverage_aim_and_its_measured_rate_from_one_constant(monkeypatch
         assert "19 in 20" not in t and "19 times in 20" not in t, t
     reading = W.coverage_reading()
     # Ftue fix A's re-run (I9 folds): 90 % of Overall scores, was 89 %.
-    assert reading == ("Aims for 95 %; measured about 91 % (measurements) / 90 % (Overall "
+    assert reading == ("Aims for 95 %; measured about 91 % (measurements) / 90 % (Overall "
                        "score) on simulated projects.")
     assert reading in W.HOW_RANGE
     assert W.predicted_score_help(20).endswith(reading)

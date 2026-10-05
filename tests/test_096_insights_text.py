@@ -385,7 +385,7 @@ def test_measured_against_predicted_is_drawn_only_while_open(tabs):
 def test_a_disagreeing_repeat_names_its_interval():
     d = insights.Disagreement(21, 11, -10.5, 20, 7.4)
     assert ui_insights.disagreement_text(d) == (
-        "Formulation 21, a Repeat of Formulation 11, scored 10.5 points lower. The 95 % "
+        "Formulation 21, a Repeat of Formulation 11, scored 10.5 points lower. The 95 % "
         "interval for the difference of two results is ±7.4 points. If something changed "
         "(panel, supplier, equipment), check it before relying on the next suggestions.")
 

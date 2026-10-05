@@ -2,7 +2,7 @@
 critiques of the Review (clarity, statistics, confidence).
 
 - Forecast check: one shared axis per result — a row per formulation in
-  forecast order, the 95 % range a light bar, the forecast a tick, the
+  forecast order, the 95 % range a light bar, the forecast a tick, the
   measured value a dot, a miss in the accent colour labelled above/below;
   measured ties counted aloud.
 - Stop signal: within the tie threshold of the top score, "Within noise of

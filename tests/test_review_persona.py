@@ -9,7 +9,7 @@ senior food scientist and an R&D director):
   and never "highest" for a measurement with a target; the record is a
   second short line; the slopegraph heads say "Forecast order" and
   "Measured order";
-- Results: the Round's forecast (Predicted, 95 % range) next to Measured;
+- Results: the Round's forecast (Predicted, 95 % range) next to Measured;
 - What next?: a line per suggestion that sets it apart, a learning-round
   line, the widen line, the stop headline;
 - the strip, the Model "?" and the Next "?" agree with the verdicts.
@@ -280,15 +280,15 @@ def test_results_round_view_has_predicted_beside_measured(plain):
     opt = _Obj()
     frame = U.round_predicted_frame(opt, _round6(), 6)
     # Review critique (fix 11): where each landed, and every measurement.
-    assert list(frame.columns) == ["Result", "Formulation", "Measured", "Predicted (95 % range)",
+    assert list(frame.columns) == ["Result", "Formulation", "Measured", "Predicted (95 % range)",
                                    "In / Above / Below range"]
     first = frame.iloc[0].to_dict()
     assert first == {"Result": "Overall score", "Formulation": 16, "Measured": "98.3",
-                     "Predicted (95 % range)": "94.3 (91.8–96.8)",
+                     "Predicted (95 % range)": "94.3 (91.8–96.8)",
                      "In / Above / Below range": "Above"}
     assert set(frame["Result"]) == {"Overall score", "Consistency"}
     # Review critique (fix 12): a top below the point never prints.
-    assert frame[frame.Result == "Consistency"].iloc[2]["Predicted (95 % range)"] == \
+    assert frame[frame.Result == "Consistency"].iloc[2]["Predicted (95 % range)"] == \
         "13.6 (11.1–15)"
     assert U.round_predicted_frame(opt, _round6(), 9) is None
 
@@ -305,7 +305,7 @@ def test_results_round_view_on_a_real_project(tmp_path, monkeypatch):
     frame = U.round_predicted_frame(opt, checks, last)
     assert frame is not None and len(frame)
     assert (frame["Result"] == "Overall score").any()
-    assert frame["Predicted (95 % range)"].str.contains(r"\(.+–.+\)").all()
+    assert frame["Predicted (95 % range)"].str.contains(r"\(.+–.+\)").all()
 
 
 # ------------------------------------------------------------------ #

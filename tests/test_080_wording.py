@@ -143,29 +143,29 @@ def test_exact_texts_from_the_spec():
         "Based on 24 scored formulations (all results in), up to Round 6. 1 more is waiting "
         "for Cook loss and is not used yet.")
     assert w.TRUST_WIDE == (
-        "Not judged yet: every 95 % interval is wide (median half-width over 25 % of the "
+        "Not judged yet: every 95 % interval is wide (median half-width over 25 % of the "
         "Range), so nearly any value falls inside.")
     # T0 review M-7: 4 misses are allowed from 36 values (33 allow 3).
     assert insights.allowed_misses(36) == 4
     assert w.trust_within(32, 36, [4, 5, 6], allowed=4) == (
-        "Measurements, Rounds 4–6: 32 of 36 values inside their 95 % interval. As expected: "
-        "95 % intervals allow up to 4 misses in 36.")
+        "Measurements, Rounds 4–6: 32 of 36 values inside their 95 % interval. As expected: "
+        "95 % intervals allow up to 4 misses in 36.")
     assert w.score_gap_line(11, 11, -1.0) == (
-        "Overall score, same Rounds: 11 of 11 inside their 95 % interval; mean error −1.0 "
+        "Overall score, same Rounds: 11 of 11 inside their 95 % interval; mean error −1.0 "
         "points (measured minus predicted).")
     assert w.repeat_disagrees(21, 11, "10.6", half_text="7.4") == (
-        "Formulation 21, a Repeat of Formulation 11, scored 10.6 points lower. The 95 % "
+        "Formulation 21, a Repeat of Formulation 11, scored 10.6 points lower. The 95 % "
         "interval for the difference of two results is ±7.4 points. If something changed "
         "(panel, supplier, equipment), check it before relying on the next suggestions.")
     # Overrides (review I1 rows A1): the score line's window is every Round
     # checked, named; the bias and misses rows lose their "Check …".
     assert w.score_gap_line(30, 32, -4.3, rounds=[2, 3, 4, 5, 6, 7]) == (
-        "Overall score, Rounds 2–7: 30 of 32 inside their 95 % interval; mean error −4.3 "
+        "Overall score, Rounds 2–7: 30 of 32 inside their 95 % interval; mean error −4.3 "
         "points (measured minus predicted).")
     assert w.next_bias("4.1", rounds=[3, 4, 5, 6, 7]) == (
         "Overall scores have come in about 4.1 points below the predictions (Rounds 3–7).")
     assert w.next_misses([5, 6, 7]) == (
-        "Measured values in Rounds 5–7 fell outside their 95 % interval more often than 95 % "
+        "Measured values in Rounds 5–7 fell outside their 95 % interval more often than 95 % "
         "intervals allow: the intervals are too narrow here, so new predictions carry more "
         "error than their intervals show.")
     # Overrides (review I1 row A4, ruled by B2): the threshold rule is
@@ -186,10 +186,10 @@ def test_exact_texts_from_the_spec():
     assert w.stand_best("90.65", 15, 4) == (
         "Best so far: Overall score 90.65, Formulation 15 (Round 4).")
     assert w.stand_not_higher(w.beat_by("1.2"), "90", "86", "94", 18) == (
-        "Predicted best: 90 (95 % interval 86–94), near Formulation 18. Predicted gain over "
+        "Predicted best: 90 (95 % interval 86–94), near Formulation 18. Predicted gain over "
         "Best so far: none beyond the noise threshold (Repeat SD 1.2 points).")
     assert w.stand_higher("94", "89", "99", 18, "90.12") == (
-        "Predicted best: 94 (95 % interval 89–99), near Formulation 18 (measured 90.12).")
+        "Predicted best: 94 (95 % interval 89–99), near Formulation 18 (measured 90.12).")
     # Insights for a first-time user (review R-I5, M11; T0): Show its
     # amounts moves below, into Progress figures.
     assert w.next_untested(round_no=6) == (
@@ -201,7 +201,7 @@ def test_exact_texts_from_the_spec():
         "More Coconut oil in place of Water; stops at 8.04 g (Fat per 100 g). "
         "Salt fixed at 1.5 g.")
     assert w.path_key(15, grey=True, targets=True) == (
-        "Band: 95 % interval. Grey: not tested near here. Dotted: Formulation 15; dashed: "
+        "Band: 95 % interval. Grey: not tested near here. Dotted: Formulation 15; dashed: "
         "target.")
     assert w.details_window([2, 3, 4, 5], 3, [3, 4, 5]) == (
         "Table: all Rounds checked (Rounds 2–5). Verdict: the last 3 (Rounds 3–5).")

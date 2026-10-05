@@ -112,7 +112,7 @@ def test_a_steady_gap_is_said_the_same_way_on_both_screens():
     line = ui_insights.score_line(opt, checks)
     # 0.8.0 e2e fixes (review B1, I1): the line names its Rounds; the bias
     # is said once, as a fact, on the steady-bias line.
-    assert line == ("Overall score, Round 2: 11 of 11 inside their 95 % interval; mean "
+    assert line == ("Overall score, Round 2: 11 of 11 inside their 95 % interval; mean "
                     "error −1.5 points (measured minus predicted).")
     # (Firmness's constant +0.1 is steady too: a measurement has no floor
     # without 3 Repeat pairs, review I2.)
@@ -121,7 +121,7 @@ def test_a_steady_gap_is_said_the_same_way_on_both_screens():
     t = insights.round_track(opt, checks)
     assert not t.rough and t.gap == pytest.approx(-1.5)
     assert ui_insights.track_text(t) == (
-        "Overall score, Round 2: 11 of 11 inside their 95 % interval; Overall scores have "
+        "Overall score, Round 2: 11 of 11 inside their 95 % interval; Overall scores have "
         "come in about 1.5 points below the predictions.")      # one fact (polish round)
     _clean(verdict, line, ui_insights.track_text(t))
 
@@ -144,7 +144,7 @@ def test_rough_only_when_too_few_land_inside():
     checks = _values(2) + _scores(2, 6, 3.0, no=500) + _scores(2, 6, -3.0, no=600)
     t = insights.round_track(opt, checks)
     assert t.rough
-    assert "95 % intervals allow up to 2 misses in 12" in ui_insights.track_text(t)
+    assert "95 % intervals allow up to 2 misses in 12" in ui_insights.track_text(t)
 
 
 def test_make_a_rounds_column_help_reads_as_insights_score_line():
@@ -152,7 +152,7 @@ def test_make_a_rounds_column_help_reads_as_insights_score_line():
     opt = _patty(rows=6)
     checks = _values(2) + _scores(2, 11, -0.4)
     assert ui_insights.score_line(opt, checks) == (
-        "Overall score, Round 2: 11 of 11 inside their 95 % interval; mean error −0.4 "
+        "Overall score, Round 2: 11 of 11 inside their 95 % interval; mean error −0.4 "
         "points (measured minus predicted).")
 
 
@@ -233,17 +233,17 @@ def test_rising_names_the_outputs_whose_range_is_still_wide(monkeypatch):
     text, _ = ui_insights.next_step_text(opt, step)
     # 0.8.0 e2e fixes (review B2): no Repeats, so the 1 point is assumed and
     # the row asks for a Repeat of Best so far.
-    assert text == ("Best so far is rising; 95 % intervals for Firmness are still wide. "
+    assert text == ("Best so far is rising; 95 % intervals for Firmness are still wide. "
                     "Make the next Round. " + wording.NEXT_REPEAT_TO_MEASURE)
     opt.set_pending_batch([dict(opt.recipe_history[0])])
     text, _ = ui_insights.next_step_text(opt, step)
-    assert text == ("Best so far is rising; 95 % intervals for Firmness are still wide. "
+    assert text == ("Best so far is rising; 95 % intervals for Firmness are still wide. "
                     f"Record the formulation still open in Round {opt.pending_batch_no}, "
                     "then make the next Round. " + wording.NEXT_REPEAT_TO_MEASURE)
     three = SimpleNamespace(kind="rising", gap=None, disagreement=None, binding=None,
                             wide=["Firmness", "Juiciness", insights.SCORE])
     text, _ = ui_insights.next_step_text(opt, three)
-    assert "95 % intervals for Firmness, Juiciness and the Overall score are still wide" in text
+    assert "95 % intervals for Firmness, Juiciness and the Overall score are still wide" in text
     assert "ranges" not in text
     _clean(text)
 

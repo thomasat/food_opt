@@ -76,7 +76,7 @@ def mark(name):
 
 
 # Fills under the marks: visible as a region, kept light enough that the
-# line and its 95 % interval drawn over them still read, so not held to the
+# line and its 95 % interval drawn over them still read, so not held to the
 # marks' 3:1 (the band's edge rules carry that). 01 O16: grey at 0.12 was
 # 1.14:1 on the dark page; #8b919c at 0.35 is 1.8:1 there.
 _FILLS = {
@@ -165,7 +165,7 @@ def readable(chart):
 #                        another start (Try one) the dotted reference token
 #   this Round's picks   orange (outline_colour())
 #   tested formulations  neutral grey rings (mark("neutral"))
-#   the model            blue (model_blue(); its 95 % band in _BAND_FILL)
+#   the model            blue (model_blue(); its 95 % band in _BAND_FILL)
 #   an Overall score     the score ramp (score_scale), measured or predicted,
 #                        the legend says which
 # Every chart has a title (wording.PLOT_*), every colour a legend entry, and
@@ -240,7 +240,7 @@ def measured_vs_predicted_chart(opt, checks, height=None):
     inside_name, outside_name = _say(opt, wording.PLOT_INSIDE), _say(opt, wording.PLOT_OUTSIDE)
     latest_name, earlier_name = _say(opt, wording.PLOT_LATEST), _say(opt, wording.PLOT_EARLIER)
     ink, _ = mark("bar_latest")
-    # Review plots: one legend for the whole figure — filled inside its 95 %
+    # Review plots: one legend for the whole figure — filled inside its 95 %
     # range, hollow outside; the latest Round dark, earlier ones lighter.
     fills = alt.Scale(domain=[inside_name, outside_name], range=[ink, "transparent"])
     whens = alt.Scale(domain=[latest_name, earlier_name], range=[1.0, 0.45])
@@ -1638,7 +1638,7 @@ def progress_sentence(opt, facts):
     if f is None:
         return wording.NO_COMPLETE_FORMULATION
     ceiling = opt.utility_ceiling()
-    score = f"{f.score:.2f}"
+    score = f"{f.score:.1f}"     # round-2 fixes (P3 #19): 1 decimal on the plain layer
     tie = None if facts.tie is None else int(opt.formulation_ids[facts.tie])
     # Fix round B (walkthrough ruling): a runner-up within the noise
     # threshold is named too ("tied with Formulation 18"); one at an equal
@@ -2016,7 +2016,7 @@ def progress_plain(opt, facts):
         sd = "1" if (a.sd is None or assumed) else f"{a.sd:.1f}"
         out.append(wording.progress_need_plain(need, sd, assumed, max(1, a.q or 1)))
     if plateau_round(opt, facts) is not None:
-        out.append(wording.PLATEAU_RULE)
+        out.append(wording.plateau_rule(plateau_round(opt, facts)))
     try:
         out.append(score_built_text(opt))
     except Exception:
@@ -2099,10 +2099,11 @@ def evidence_line(opt, facts, which):
         return None
     cfg = getattr(opt, "bo_config", None) or {}
     # The row's name as the rule table and the rule paragraph name it.
-    name = insights.status_label(opt, ("next", step.kind))
-    return wording.evidence([wording.ev_rule(name),
-                             wording.ev_suggestions(cfg.get("acquisition", "qlognei")),
-                             wording.EV_METHOD])
+    # Round-2 fixes (P3 #17): the rule itself in plain words, its own
+    # sentence, not the rule table's name.
+    rule = insights.status_rule(opt, ("next", step.kind))
+    return (wording.rule_line(rule) + " " + wording.evidence([
+        wording.ev_suggestions(cfg.get("acquisition", "qlognei")), wording.EV_METHOD]))
 
 
 def _status_line(opt, facts, which):
@@ -2153,11 +2154,11 @@ def progress_short(opt, facts):
         return wording.NO_COMPLETE_FORMULATION
     ceiling = opt.utility_ceiling()
     tie = None if facts.tie is None else int(opt.formulation_ids[facts.tie])
-    best = wording.short_best(f"{f.score:.2f}", ceiling, f.formulation, tie)
+    best = wording.short_best(f"{f.score:.1f}", ceiling, f.formulation, tie)
     a = facts.improvement
     if facts.progress in ("rising", "within_noise"):
         rise, need = rise_and_need(a)
-        short = wording.short_rise_best(f"{f.score:.2f}", f.formulation, tie)
+        short = wording.short_rise_best(f"{f.score:.1f}", f.formulation, tie)
         return f"{wording.short_rise(rise, need, rising=facts.progress == 'rising')} {short}"
     if facts.progress == "flat":
         return f"{wording.short_flat(a.rounds)} {best}"
@@ -2271,7 +2272,7 @@ def score_record_help(opt):
 
 def score_line(opt, checks, h=None, yard=None):
     """The Overall score's line, in one wording for Insights' answer 1 and
-    Make a round's column help (spec §0.3): its 95 % intervals and mean
+    Make a round's column help (spec §0.3): its 95 % intervals and mean
     error over every Round checked, naming them (0.8.0 e2e fixes, review
     I1). A steady bias is said once, by steady_bias_text, so this line
     never says it. '' without a record. `yard` is not read (kept for
@@ -2387,7 +2388,7 @@ def _wide_names(names):
 
 def verdict_text(opt, h, state, bias=None, checks=()):
     """Prediction check in one line per state (§2.2, review I6, M9; 03
-    §5.2): the measurements' values inside their 95 % intervals with the
+    §5.2): the measurements' values inside their 95 % intervals with the
     miss count the rule allows; some outputs wide adds the wide line. The
     verdict names the measurements, and the Overall score's line under it
     says its mean error, so nothing is added for a bias (`bias` is kept for
@@ -3134,13 +3135,22 @@ def _next_step_text(opt, step, rounds=None, amounts_shown=True):
         b = step.binding
         if b is None:
             return wording.next_close_to_top(settings_only=settings_only), None
+        setup = (wording.CHANGE_LIMITS_ON_SETUP if b.kind == "limit"
+                 else wording.change_on_setup(b.name, highest=b.kind == "highest"))
+        # Round-2 fixes (P3 #18): every binding limit named, as What next?
+        # names them, so Make a round's "?" and the Review agree.
+        try:
+            every = widen_all_text(opt, step)
+        except Exception:
+            every = None
+        if every:
+            return f"{wording.NO_GAIN_HEAD} {every}", setup
         if b.kind == "limit":
             return (wording.next_close_to_top(wording.widen_limit(b.text), settings_only),
-                    wording.CHANGE_LIMITS_ON_SETUP)
+                    setup)
         change = (wording.raise_highest(b.name) if b.kind == "highest"
                   else wording.lower_lowest(b.name))
-        return (wording.next_close_to_top(change, settings_only),
-                wording.change_on_setup(b.name, highest=b.kind == "highest"))
+        return wording.next_close_to_top(change, settings_only), setup
     if step.kind == "rising":
         return wording.next_rising(_wide_names(getattr(step, "wide", None) or []), no, left), None
     return (wording.next_see_open(no, left) if left else wording.NEXT_SEE), None
@@ -3611,7 +3621,7 @@ _SCORE_RAMP = {
     "light": ["#21918c", "#2a788e", "#355f8d", "#414487", "#482475", "#440154"],
     "dark": ["#2a788e", "#21918c", "#22a884", "#44bf70", "#7ad151", "#bddf26"],
 }
-# The model's 95 % band (a region: not held to 3:1, as _FILLS) and the
+# The model's 95 % band (a region: not held to 3:1, as _FILLS) and the
 # expected gain's line and area. Blue means "the model's uncertainty or
 # gain" on every chart here (the triangle's Uncertainty and Expected
 # improvement layers use blues()). Light #2f6db5 is 5.2:1 on white; dark
@@ -4522,7 +4532,9 @@ def progress_card(opt, facts):
                 else wording.card_rise(rise, need))
     elif facts.progress == "flat":
         # Persona fixes 2: "Plateau since Round 7" already says how long.
-        tail = None if plateau_round(opt, facts) is not None else wording.card_flat(a.rounds)
+        # Round-2 fixes (P3 #18): the plateau line names the best.
+        tail = (wording.card_best_who(f.formulation, tie) if plateau_round(opt, facts) is not None
+                else wording.card_flat(a.rounds))
     else:
         tail = wording.card_best_who(f.formulation, tie)
     # Review story: the line goes from the start (the first scored Round's
@@ -4562,6 +4574,10 @@ def next_card(opt, facts):
     step = facts.next
     word = wording.card_record(no) if left else wording.card_make(opt.next_batch_no())
     lines = [(wording.card_open(left) if left else wording.CARD_NONE_OPEN, False)]
+    if left and getattr(facts, "measures_miss", False):
+        # Round-2 fixes (P3 #17): the measurements' miss warning Make a round
+        # shows stays with "Record Round 6" here too.
+        lines.append((wording.TRACK_VALUES_MISS, False))
     tone = None
     ask = (facts.best.formulation if step is not None and getattr(step, "assumed", False)
            and facts.best is not None else None)
@@ -4700,7 +4716,7 @@ def review_status(opt):
 
 def predictions_spark_frame(opt, checks):
     """Per checked Round: the share of its Round-ahead results inside their
-    95 % intervals (the verdict's values: the measurements)."""
+    95 % intervals (the verdict's values: the measurements)."""
     rows = []
     values = [c for c in (checks or ()) if c.name != insights.SCORE]
     for r in insights._ordered_rounds(values):
@@ -4726,7 +4742,7 @@ def progress_spark_frame(opt):
 def spark_chart(opt, facts, which):
     """A small trend line under a card, titled, its first and last Round
     named on the x axis (review plots): Predictions, the share of
-    Round-ahead results in range per Round, 0-100 %, against the 95 % a
+    Round-ahead results in range per Round, 0-100 %, against the 95 % a
     calibrated model aims for (dashed, labelled); Progress, Best so far by
     Round, on at least a 10-point span so a small rise never fills the
     card. None for Next, or with under two Rounds to draw (the card then
@@ -4749,7 +4765,7 @@ def spark_chart(opt, facts, which):
     df = df.assign(bo=bo)
     ink, _ = mark("bar_latest")
     if which == "predictions":
-        # The whole 0-100 %: a drop from 95 % to 60 % reads as the fall it is.
+        # The whole 0-100 %: a drop from 95 % to 60 % reads as the fall it is.
         domain = [0.0, 1.0]
     else:
         lo, hi = float(df[field].min()), float(df[field].max())
@@ -5165,7 +5181,7 @@ def profile_chart(opt, profile, columns=None, rows=None, gain=True):
     """The prediction profiler: a grid of small panels, one row per result
     (shared y within a row), one column per ingredient or process setting
     (its own Lowest-Highest on x, named under the bottom row). In each: the
-    display model's mean (blue) and its 95 % likely range of a result; the
+    display model's mean (blue) and its 95 % likely range of a result; the
     measurement's target dashed; grey where nothing was tested near; the
     reference's own amount as a vertical line (ink for Best so far, orange
     for a suggestion); on the Overall row, grey rings at the tested
@@ -5705,7 +5721,7 @@ def capped(value, top, d=1):
 
 
 def capped_range(p, top, d=1):
-    """Review critique (fix 12): a forecast and its 95 % range that never
+    """Review critique (fix 12): a forecast and its 95 % range that never
     reads a top below its point: '13.5 (11.1–15)'; at the top, the point
     capped as before and the range ending at the highest possible value:
     '≥ 99 (93.4–100)' (it read '99.5 (93.4–≥ 99)'). `p` a Prediction or a
@@ -5714,14 +5730,15 @@ def capped_range(p, top, d=1):
     mean = getattr(p, "predicted", 0.0) if mean is None else mean
     low, high = float(p.low), float(p.high)
     sep = " to " if low < 0 or high < 0 else "–"
-    top_text = f"{top:g}" if float(top).is_integer() else f"{top:.{d}f}"
+    # Round-2 fixes (P3 #19): the range's top with the point's decimals.
+    top_text = f"{top:.{d}f}"
     hi_text = top_text if high >= top - 1e-9 or float(f"{high:.{d}f}") >= top else f"{high:.{d}f}"
     lo_text = f"{min(low, top):.{d}f}"
     return f"{capped(min(mean, top), top, d)} ({lo_text}{sep}{hi_text})"
 
 
 def wilson(right, n, z=insights.Z95):
-    """The 95 % Wilson interval of right / n, in percent."""
+    """The 95 % Wilson interval of right / n, in percent."""
     if not n:
         return None, None
     p = right / n
@@ -5839,7 +5856,7 @@ def measured_groups(cks):
 def score_landing(cks):
     """Persona fixes: where the Overall scores landed against their
     forecast, as called_landing's arguments: the mean of measured −
-    forecast over those above their 95 % range; else over those below."""
+    forecast over those above their 95 % range; else over those below."""
     above = [c.measured - c.predicted for c in cks if c.measured > c.high]
     below = [c.measured - c.predicted for c in cks if c.measured < c.low]
     if above:
@@ -5877,7 +5894,7 @@ def check_bias_line(opt, lf):
 
 def called_line(opt, lf):
     """The Forecast check's headline from the facts (persona fixes 2):
-    where the Overall scores landed against their 95 % ranges (a miss on
+    where the Overall scores landed against their 95 % ranges (a miss on
     either side), then the order of the pairs that count — '**Round 6:
     scored higher than forecast.** 2 of 3 above their range; order too
     close to call.' A measurement leads when the Overall score is not
@@ -5901,7 +5918,7 @@ def called_line(opt, lf):
 def round_predicted_frame(opt, checks, r):
     """Results' Round view: per formulation of Round `r`, the Overall score
     and (review critique, fix 11) every measurement, Measured beside
-    Predicted — the Round-ahead forecast and its 95 % range — and where it
+    Predicted — the Round-ahead forecast and its 95 % range — and where it
     landed: In, Above or Below that range. None when nothing was checked."""
     if not checks or r not in insights._ordered_rounds(checks):
         return None
@@ -5979,7 +5996,7 @@ def called_detail(opt, lf):
 def check_frame(opt, name, cks):
     """Review critique (fix 1): one Forecast check panel's rows, one per
     formulation, highest forecast first (row order is the forecast order):
-    its forecast, 95 % range and measured value on the result's own values
+    its forecast, 95 % range and measured value on the result's own values
     (one shared axis), and where the measured value landed — "in", "above"
     or "below" its range."""
     _, top = insights._range_of(opt, name)
@@ -6020,7 +6037,7 @@ def called_chart(opt, lf):
     slopegraphs read as ranks, not values): per result drawn — the Overall
     score, then the measurements Predictable before the Round — one row per
     formulation, highest forecast first, on one shared axis: the forecast's
-    95 % range a light bar, the forecast a tick, the measured value a dot,
+    95 % range a light bar, the forecast a tick, the measured value a dot,
     a miss (outside its range, either side) in the one accent colour and
     labelled "above" or "below". None with nothing to draw."""
     drawn = learned.shown(lf.items)
@@ -6199,17 +6216,22 @@ def learned_card(opt, lf, card, facts=None):
     record = getattr(lf, "plain_line", "")
     h = getattr(facts, "headline", None) if facts is not None else None
     if h is not None and getattr(h, "total", 0):
-        record = (record + " " + wording.single_record(h.inside, h.total)).strip()
+        record = (record + " " + wording.single_record(
+            h.inside, h.total, len(getattr(h, "rounds", None) or ()))).strip()
     if rest and facts is not None and getattr(facts, "best", None) is not None:
         # The card's Repeat request, said plainly (it sits in What next?).
-        record += " " + wording.next_plain_repeat_ask(facts.best.formulation,
-                                                      values=not opt.has_ingredients())
+        # Round-2 fixes (P3 #18): the one form of the Repeat request.
+        record += " " + wording.card_noise_repeat(facts.best.formulation) + "."
     # As every strip "?": plain first (one paragraph), the evidence, the rule.
     help_ = "\n\n".join(t for t in (f"{plain} {record}".strip(), ev, wording.LEARNED_RULE) if t)
     if card is not None and card.help and warns:
         # A warning stays explained, as before.
         help_ += f"\n\n{wording.LEARNED_RANGE_RECORD}\n\n{card.help}"
     expert = _expert_lines(lf)
+    if record:
+        # Round-2 fixes (P3 #19): no experts' line repeating the plain one.
+        expert = re.sub(r" +", " ", re.sub(
+            r"[^.:]*: \d+ of \d+ inside the 95\u00a0% predicted range\.", " ", expert))
     if card is not None and card.help and not warns and facts is not None:
         # The old card's exact rule and diagnosis stay, in the experts'
         # line; its plain sentence (it read "still very uncertain" beside
@@ -6542,7 +6564,7 @@ def _preview_body(opt, computed, facts, binding, title=True):
 
 def _trust_section(opt, slot, computed, facts):
     """"Can we trust the predictions?" (review story): forecast against
-    actual over time — each checked formulation's Round-ahead 95 % range
+    actual over time — each checked formulation's Round-ahead 95 % range
     for its Overall score, and the score measured; the answer counts how
     many landed in range. The scatter's numbers stay in the "?"."""
     checks = [c for c in computed["checks"] or () if c.name == insights.SCORE]
@@ -7376,7 +7398,7 @@ def _esc(text):
 
 def forecast_chart(opt, checks):
     """Can we trust the predictions? — forecast against actual, over time:
-    for each checked formulation, the 95 % range the model predicted for
+    for each checked formulation, the 95 % range the model predicted for
     its Overall score before it was made (a light blue bar, from the
     earlier Rounds only) and the score measured (a dot: filled ink inside,
     hollow ink outside). x: Formulations in the order made, as the
@@ -7418,9 +7440,10 @@ def forecast_chart(opt, checks):
         x=x, y=alt.Y("low:Q", scale=y_scale, title=y_title), y2="high:Q",
         color=alt.Color("band:N", scale=alt.Scale(domain=[band_name], range=[blue]),
                         legend=legend), tooltip=tip)
-    fills = alt.Scale(domain=[inside_name, outside_name], range=[ink, "transparent"])
-    dots = alt.Chart(df).mark_point(size=46, strokeWidth=1.6, color=ink, opacity=1).encode(
-        x=x, y=y, fill=alt.Fill("state:N", scale=fills, legend=legend), tooltip=tip)
+    # Round-2 fixes (P3 #18): a miss in orange, as on the Forecast check.
+    fills = alt.Scale(domain=[inside_name, outside_name], range=[ink, outline_colour()])
+    dots = alt.Chart(df).mark_point(size=46, strokeWidth=1.6, filled=True, opacity=1).encode(
+        x=x, y=y, color=alt.Color("state:N", scale=fills, legend=legend), tooltip=tip)
     # The predicted value itself: a short blue tick across its bar.
     ticks = alt.Chart(df).mark_tick(color=blue, thickness=2, size=11, opacity=1, orient="horizontal").encode(
         x=x, y=alt.Y("predicted:Q", scale=y_scale, title=y_title), tooltip=tip)

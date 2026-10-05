@@ -86,10 +86,10 @@ def test_a_wide_range_is_named_per_output():
 
 def test_the_wide_line_wording():
     assert wording.WIDE_EVERY == (
-        "Every 95 % interval is wide (median half-width over 25 % of the Range): values fall "
+        "Every 95 % interval is wide (median half-width over 25 % of the Range): values fall "
         "inside easily, so this check says little yet.")
     assert wording.wide_line("Cook loss and the Overall score") == (
-        "Wide 95 % intervals for Cook loss and the Overall score (median half-width over 25 % "
+        "Wide 95 % intervals for Cook loss and the Overall score (median half-width over 25 % "
         "of the Range): values fall inside easily, so this check says little yet.")
     opt = _burger(rounds=1)
     h = insights.Headline("verdict", [3], 10, 10, "holding", None,

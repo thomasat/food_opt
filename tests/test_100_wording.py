@@ -202,7 +202,7 @@ def test_exact_texts_from_the_rulings():
         "Make a Repeat of Best so far in the next Round to measure the noise.")
     # I2: the unreliable row, with the bias appended.
     assert W.next_misses([5, 6, 7], W.next_bias("4.1")) == (
-        "Measured values in Rounds 5–7 fell outside their 95 % interval more often than 95 % "
+        "Measured values in Rounds 5–7 fell outside their 95 % interval more often than 95 % "
         "intervals allow: the intervals are too narrow here, so new predictions carry more "
         "error than their intervals show. Overall scores have come in about 4.1 points below "
         "the predictions.")

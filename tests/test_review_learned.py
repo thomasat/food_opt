@@ -8,7 +8,7 @@ checkable evidence, right after "Are we improving?".
 - Verdict: Predictable at a one-sided binomial p < 0.05 with at least 5
   pairs; Partly when it leans right (p < 0.20); Not yet otherwise or when
   it barely varies.
-- Clear effect (review learned 2, strict): a 95 % posterior interval over
+- Clear effect (review learned 2, strict): a 95 % posterior interval over
   the tested stretch that excludes 0, with one sign, in EACH of the last 4
   Round-ahead refits; not in a moved-together pair; at least one noise SD.
   Anything less names no effect; the section has no effects column.

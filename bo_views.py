@@ -263,7 +263,7 @@ def answer(request):
 @dataclass
 class Values:
     mean: object        # tensor: the suggestion model's mean, points
-    sd: object          # its own sd (narrower than the 95 % interval)
+    sd: object          # its own sd (narrower than the 95 % interval)
     value: object       # expected improvement (or qUCB's optimistic score), points
     exact: bool
 

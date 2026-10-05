@@ -2,7 +2,7 @@
 re-test: clearer, but not yet trusted):
 
 - the "Called it?" block is an honest "Forecast check": a measured value
-  outside its 95 % range is a miss on either side; a pair counts only when
+  outside its 95 % range is a miss on either side; a pair counts only when
   its forecasts differ by at least one noise SD of that result (else "too
   close to call", left out of every count, drawn faint); a steady bias is
   said in one line;

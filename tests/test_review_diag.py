@@ -34,7 +34,7 @@ from tests.test_app_ui import APP_PATH
 from tests.test_review_cards import _install, _leaves, _open, _text, _words, cards
 
 BENCH = re.compile(r"panel|supplier|equipment", re.I)
-CONTRADICTION = ("too narrow", "Wide 95 %", "fall inside easily")
+CONTRADICTION = ("too narrow", "Wide 95 %", "fall inside easily")
 
 def _pilot_dir():
     """The pilot's folder: FOODOPT_PILOT_DIR, this checkout's data/pilot/demo,

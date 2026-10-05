@@ -177,7 +177,7 @@ def test_move_to_not_scored_help_counts_the_results():
 def test_the_holding_line_after_an_unreliable_verdict_is_not_good_news():
     """M-8."""
     assert wording.round_track_holding(11, 11, True, rounds=[3, 4, 5]) == (
-        "Overall score, Rounds 3–5: 11 of 11 inside their 95 % interval; measured values: "
+        "Overall score, Rounds 3–5: 11 of 11 inside their 95 % interval; measured values: "
         "many more misses than expected.")
 
 

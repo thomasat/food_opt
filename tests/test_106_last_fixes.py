@@ -290,7 +290,7 @@ def test_03_clean_bias_line_reads_points_not_score(standing_of, monkeypatch):
 def test_the_rough_track_line_says_more_misses_once():
     line = wording.round_track_rough(13, 16, "5.5", see_insights=True, rounds=[2, 3, 4, 5])
     # The bias as one fact (polish round 8).
-    assert line == ("Overall score, Rounds 2–5: 13 of 16 inside their 95 % interval; "
+    assert line == ("Overall score, Rounds 2–5: 13 of 16 inside their 95 % interval; "
                     "Overall scores have come in about 5.5 points below the predictions. More "
                     "misses than expected; many more in the measured values.")
     assert line.lower().count("misses than expected") == 1
@@ -682,7 +682,7 @@ def test_the_upgrade_files_predicted_gain_is_withheld(upgrade):
     # 87–100 since ftue fix A's Round-grouped folds (cold read I9); 93–100
     # before. Review learned: no prediction reads 100 (the ceiling reads
     # "≥ 99").
-    assert line.startswith("Predicted best: ≥ 99 (95 % interval 87–≥ 99), in untested amounts.")
+    assert line.startswith("Predicted best: ≥ 99 (95 % interval 87–≥ 99), in untested amounts.")
     assert line.endswith("Its gain over Best so far is not reported: fewer than 10 "
                          "Round-ahead checks of the Overall score so far (2).")
 

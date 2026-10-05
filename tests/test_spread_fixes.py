@@ -147,7 +147,7 @@ def test_untested_runs_cover_each_stretch_without_gaps():
 
 def test_the_grey_caption_uses_the_near_rule():
     assert wording.path_key(9, grey=True) == (
-        "Band: 95 % interval. Grey: not tested near here. Dotted: Formulation 9.")
+        "Band: 95 % interval. Grey: not tested near here. Dotted: Formulation 9.")
 
 
 def test_the_new_strings_pass_the_vocabulary_guard():

@@ -285,7 +285,7 @@ def test_the_predictions_card(screens, name):  # noqa: F811
     assert len(p["help"].split()) <= wording.TOOLTIP_WORDS
     # The Overall score's record, in plain words (its expert line may not fit).
     assert "Overall score: " in p["help"] and ("landed in their predicted range" in p["help"]
-                                               or "inside the 95 % predicted range" in p["help"])
+                                               or "inside the 95 % predicted range" in p["help"])
 
 
 def test_a_disagreeing_repeat_stays_red_on_next(screens):  # noqa: F811

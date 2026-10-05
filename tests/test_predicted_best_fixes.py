@@ -69,7 +69,7 @@ def test_the_predicted_best_and_its_repeat_are_widened_by_the_record():
 
 def test_best_luck_wording():
     assert wording.best_luck(30, "84", "79", "89") == (
-        "A Repeat of Formulation 30 is predicted at 84 (95 % interval 79–89). Best so far's "
+        "A Repeat of Formulation 30 is predicted at 84 (95 % interval 79–89). Best so far's "
         "measured score is partly chance, so its Repeat is predicted lower.")
 
 
@@ -123,7 +123,7 @@ def test_make_a_round_shows_the_record_only_from_matching_checks(warm_round):
     # read-through: one wording for one fact); five equal gaps are a steady
     # bias, said as Insights says it (0.8.0 e2e fixes, review B1, I1).
     # Two ASCII fragments (the help's proto escapes the minus sign).
-    line = "Overall score, Round 3: 5 of 5 inside their 95 % interval; mean error"
+    line = "Overall score, Round 3: 5 of 5 inside their 95 % interval; mean error"
     action = "Results have come in below the predictions: Overall score by about 2.0 points (Round 3)"
     assert line in str(_batch_table(at).proto)
     assert action.rstrip(".") in str(_batch_table(at).proto)
@@ -134,10 +134,10 @@ def test_make_a_round_shows_the_record_only_from_matching_checks(warm_round):
 
 def test_the_help_says_fall_inside():
     # Ledger, statistician cold read I2 (fix round B): no "19 in 20" claim; the
-    # plain reading gives the 95 % aim and the coverage measured on simulated projects.
+    # plain reading gives the 95 % aim and the coverage measured on simulated projects.
     # Ftue fix A's re-run (I9 folds): 90 % of Overall scores (was 89 %).
     assert "About 19 in 20" not in wording.PREDICTED_SCORE_HELP
-    assert ("Aims for 95 %; measured about 91 % (measurements) / 90 % (Overall score) on "
+    assert ("Aims for 95 %; measured about 91 % (measurements) / 90 % (Overall score) on "
             "simulated projects.") in wording.PREDICTED_SCORE_HELP
 
 

@@ -8,7 +8,7 @@ the same order (Progress · Predictions · Next).
   target, one row per measurement (the first Round's best hollow, Best so
   far in ink, the target dashed or an arrow at the better end).
 - Can we trust the predictions?: forecast against actual over time — each
-  checked formulation's Round-ahead 95 % range (light blue) and the score
+  checked formulation's Round-ahead 95 % range (light blue) and the score
   measured (filled inside, hollow outside); the answer counts the landings.
 - What drives each result?: a finding, not the Next card's word.
 - What have we tried?: the search path (one dot plot per row, Rounds down),

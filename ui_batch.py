@@ -1112,7 +1112,7 @@ def _score_help(opt):
     the scored formulations it was fitted to and, once the checks are
     worked out, the Round-ahead widening it carries; then the standard
     terms of the two statistics it shows (spec 2026-10-01 §3, R-I6): the
-    posterior mean and the 95 % posterior predictive interval."""
+    posterior mean and the 95 % posterior predictive interval."""
     checks = ui_insights.checks_for(opt, "column")
     factor = None if not checks else insights.column_factor(opt, checks)
     widened = factor is not None and f"{factor:.2f}" != "1.00"
@@ -1182,7 +1182,7 @@ def _track(opt):
 def track_help(opt, t):
     """The track line's "?" (spec 2026-10-01 §3, R-I6): every statistic the
     line names, plain reading first, then the BO term: the Round-ahead
-    check and its 95 % intervals, the mean error when it says a bias, the
+    check and its 95 % intervals, the mean error when it says a bias, the
     skill when it says no skill."""
     tips = [wording.TIP_ROUND_AHEAD]
     if t.record:
@@ -1265,7 +1265,7 @@ def own_round_caption(rows):
 def why_frame(opt, why, preds, hide=False):
     """One row per formulation of the open Round (review I12): its role
     (M5) straight after its number, so it is on screen at 1366 px (T47
-    review minor 6), its predicted Overall score with its 95 % interval
+    review minor 6), its predicted Overall score with its 95 % interval
     (the table's own column), the suggestion model's sd, its expected
     improvement in points — "·" when valued with the earlier picks counted
     — the nearest tested formulation and the two largest differences from
@@ -1318,7 +1318,7 @@ def why_columns(opt, value_col, help_text):
     term = ui_insights.bo_term
     # Spec 2026-10-01 §3, §7 (R-I6): each header names its statistic, the
     # plain reading first, then the standard term: posterior mean and the
-    # 95 % interval, latent posterior sd, the acquisition value, the
+    # 95 % interval, latent posterior sd, the acquisition value, the
     # distance labels and the nearest design point.
     return {
         wording.FORMULATION_CAP: col(say(wording.FORMULATION_CAP), width="small"),

@@ -705,7 +705,7 @@ def test_setting_choice_is_known():
 def test_likely_range_holds_about_19_in_20_at_realistic_noise():
     """Noise sd 0.4 on a 0-10 Range (4 % of it), 4 per Round: the point-fitted
     noise alone left Round-ahead coverage near 78 % and called good models
-    "not reliable". Widening by the cross-validated misses brings it to ~95 %."""
+    "not reliable". Widening by the cross-validated misses brings it to ~95 %."""
     rates, unreliable = [], 0
     for seed in range(8):
         opt = _burger(rounds=6 if seed % 2 else 5, per_round=4, noise=0.4, seed=seed)
