@@ -87,7 +87,8 @@ def test_a_likely_range_over_three_quarters_of_the_range_is_too_uncertain():
                  "Cook loss": insights.Prediction(20.0, 0.0, 30.0)}}    # 30 of 40: not over
     cells, tips = ui_batch._measurement_cells(opt, preds)
     assert cells["Firmness"].iloc[0] == wording.TOO_UNCERTAIN
-    assert tips["Firmness"].iloc[0] == "5.0 (1.0–9.0)"
+    # Round 2: the cell reads "—"; its tip keeps the numbers and says why.
+    assert tips["Firmness"].iloc[0] == "95\u00a0% range over ¾ of the Range: 5.0 (1.0–9.0)."
     assert cells["Juiciness"].iloc[0] == "5.0 (3.0–7.0)" and tips["Juiciness"].iloc[0] == ""
     assert cells["Cook loss"].iloc[0] != wording.TOO_UNCERTAIN
     assert cells.shape == tips.shape and list(cells.columns) == list(tips.columns)
@@ -106,7 +107,7 @@ def test_a_too_uncertain_cell_keeps_its_numbers_in_the_tooltip(four, monkeypatch
     table = fold.table[0]
     column = four._measurement_column(four.objectives[0])
     assert table.value[column].iloc[0] == wording.TOO_UNCERTAIN
-    assert 'content: "5.0 (1.0–9.0)"' in table.proto.arrow_data.styler.styles
+    assert '5.0 (1.0–9.0)."' in table.proto.arrow_data.styler.styles   # round 2: with its reason
 
 
 # ------------------------------------------------------------------ #

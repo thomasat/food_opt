@@ -10487,7 +10487,7 @@ GLOSSARY_STOP_ROW = (
     "Within noise of the top score · Stop, or change the target",
     "stopping rule at the attainable maximum",
     "Best so far is closer to the top score than one new result must rise to be told from "
-    "it, so the Overall score cannot show a better formulation.")
+    "it, so the Overall score cannot show a better one.")
 
 
 def glossary_rows(settings_only=False):
@@ -10507,8 +10507,8 @@ HOW_THRESHOLDS = (f"Wide: the median half-width of the 95 % intervals is over 2
                   f"measurement's Range (0–100 for the Overall score). On {TAB_BATCH_NAME}, a "
                   "predicted measurement reads “—” when its 95 % range covers more than 75 % "
                   "of the Range.")
-START_NEXT_BATCH = f"Start the next {ROUND_CAP}"
-GENERATE_DIFFERENT_BATCH = f"Discard this {ROUND_CAP} and generate again"
+# START_NEXT_BATCH and GENERATE_DIFFERENT_BATCH stay as the owner froze
+# them ("Start the next round"; tests/test_080_wording).
 ENTERED_ROUND_CAPTION = (
     f"This {ROUND_CAP} holds entered {FORMULATION}s (sources in their notes). For suggestions "
     f"too: {GENERATE_DIFFERENT_BATCH}.")

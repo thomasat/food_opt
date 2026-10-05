@@ -98,8 +98,15 @@ def test_check_rounds_widens_each_round_from_the_ones_before():
         mine = [c for c in nested if c.round == r and c.name == insights.SCORE]
         assert [c.widen for c in mine] == pytest.approx(
             [insights.score_widen(earlier)] * len(mine))
-    assert [c for c in nested if c.name != insights.SCORE] == [
-        c for c in raw if c.name != insights.SCORE]
+    # Round 2 (P1 #1): each measurement is widened the same way, by its own
+    # record from the Rounds before (nest_measure_widen), so Make a round,
+    # the Forecast check and Results read one range.
+    for r, _ in insights.round_order(opt):
+        for name in {c.name for c in raw} - {insights.SCORE}:
+            earlier = [c for c in raw if c.round < r and c.name == name]
+            mine = [c for c in nested if c.round == r and c.name == name]
+            assert [c.widen for c in mine] == pytest.approx(
+                [insights.measure_widen(earlier, name)] * len(mine))
 
 
 def test_only_works_out_the_pairs_asked_for_and_keeps_nothing():

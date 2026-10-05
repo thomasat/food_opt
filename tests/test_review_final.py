@@ -533,7 +533,7 @@ def test_one_form_per_idea():
     assert wording.check_order(1, 1, 1, ties=1) == "order right: 1 pair, 1 too close, 1 tie"
     assert wording.called_so_far([("Overall", 8, 10)]) == "So far: Overall score 8 of 10."
     assert wording.ENTERED_ROUND_CAPTION.endswith(
-        "For suggestions too: Discard this Round and generate again.")
+        "For suggestions too: Discard this round and generate again.")
     assert wording.plateau_rule(7) == "Plateau: no rise since Round 7, after rising before it."
     assert wording.rule_line("Many more misses than expected.") == (
         "Rule: many more misses than expected.")

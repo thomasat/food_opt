@@ -115,7 +115,7 @@ def test_the_fill_a_setting_and_a_row_that_never_moved_are_left_out():
 
 def test_fewer_than_three_formulations_say_nothing():
     assert insights.moved_together(_three([(4.0, 2.0, 1.0, 150), (5.0, 3.0, 0.2, 200)])) is None
-    assert insights.TOGETHER == 0.8
+    assert insights.TOGETHER == 0.7     # round 2: one |r| threshold on screen (MOVED_R's)
 
 
 # ------------------------------------------------------------------ #

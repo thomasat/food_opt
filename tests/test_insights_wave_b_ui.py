@@ -87,7 +87,8 @@ def test_the_column_explains_itself_in_its_tooltip(warm_round):
     # Ledger, statistician cold read I2 (fix round B): no "19 in 20" claim; the
     # plain reading gives the 95 % aim and the coverage measured on simulated projects.
     # Ftue fix A's re-run (I9 folds): 90 % of Overall scores (was 89 %).
-    assert ("Aims for 95 %; measured about 91 % (measurements) / 90 % (Overall score) on "
+    # Round 2: "95 %" has a non-breaking space, escaped in the proto.
+    assert ("measured about 91 % (measurements) / 90 % (Overall score) on "
             "simulated projects.") in str(_batch_table(at).proto)
 
 

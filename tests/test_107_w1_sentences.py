@@ -105,9 +105,10 @@ def test_within_noise_says_less_than_the_threshold(opt):
     f = _best(opt)
     facts = _facts("reliable", progress="within_noise", best=f,
                    improvement=insights.Improvement("barely", 0.4, None, 0, 2.326, 1))
+    # Round 2 (P3 #19): one decimal for scores on the plain layer.
     # Fix A follow-up (decision 4): the threshold itself (√2 × 1.645 × 1).
     assert ui_insights.progress_sentence(opt, facts) == wording.progress_within_noise(
-        f.round, "0.4", f"{f.score:.2f}", 100, f.formulation, "2.3")
+        f.round, "0.4", f"{f.score:.1f}", 100, f.formulation, "2.3")
 
 
 def test_a_measured_threshold_is_said_with_its_size(opt):
@@ -116,7 +117,7 @@ def test_a_measured_threshold_is_said_with_its_size(opt):
                    improvement=insights.Improvement("yes", 4.5, 1.2, 0, 3.99, 1, 3))
     # Fix A follow-up (decisions 3, 4): 1.2 × √2 × t_{3}⁻¹(0.95) = 3.99.
     assert ui_insights.progress_sentence(opt, facts) == wording.progress_rising(
-        f.round, "4.5", f"{f.score:.2f}", 100, f.formulation, "4.0")
+        f.round, "4.5", f"{f.score:.1f}", 100, f.formulation, "4.0")
 
 
 def test_a_rise_that_would_read_as_the_threshold_gets_hundredths(opt):
@@ -135,7 +136,7 @@ def test_flat_with_luck_and_a_tie(opt):
     facts = _facts("reliable", progress="flat", best=f, tie=other, luck=True,
                    luck_repeat=88.4, improvement=insights.Improvement("not_lately", None, None, 3))
     assert ui_insights.progress_sentence(opt, facts) == wording.progress_flat(
-        3, f"{f.score:.2f}", 100, f.formulation, f.round, luck_text="88",
+        3, f"{f.score:.1f}", 100, f.formulation, f.round, luck_text="88",
         tie_no=int(opt.formulation_ids[other]))
 
 
@@ -149,7 +150,7 @@ def test_of_100_is_the_projects_ceiling(opt, monkeypatch):
     f = _best(opt, rounds_since=1, latest=False)
     monkeypatch.setattr(opt, "utility_ceiling", lambda: 80.0)
     facts = _facts("reliable", progress="no_new_best", best=f)
-    assert f"{f.score:.2f} of 80 " in ui_insights.progress_sentence(opt, facts)
+    assert f"{f.score:.1f} of 80 " in ui_insights.progress_sentence(opt, facts)
 
 
 # ------------------------------------------------------------------ #

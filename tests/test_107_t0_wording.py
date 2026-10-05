@@ -205,6 +205,7 @@ def test_the_settings_only_forms_name_no_ingredient_or_amount():
 # 3.2 points (1 × √2 × z_4 = 3.16) the rise is judged against (decision 4);
 # Line B's Repeat limit is 8.2, the larger of 2.8 and its own predictive
 # limit while Repeats have under 3 df (decision 2).
+# Round 2: "tied" for equal values only; a close runner-up is "within noise".
 _EXACT = {
     "Snack bar": (
         "The app starts checking its predictions once 5 formulations have results; 3 have so far.",
@@ -214,7 +215,7 @@ _EXACT = {
     "Line A": (
         "In Rounds 3–5, 33 of 35 results landed inside the range the app predicted (up to 3 "
         "misses are normal), and score predictions beat the average of earlier results.",
-        "Round 5 did not beat Best so far, 90.45 of 100 (Formulation 15, Round 4; tied with "
+        "Round 5 did not beat Best so far, 90.45 of 100 (Formulation 15, Round 4; within noise: "
         "Formulation 18). The app expects little more inside your current limits; the best it "
         "predicts sits at the most Textured pea protein and the least Beet juice powder allowed.",
         "Record the 4 formulations still open in Round 6. In the next Round, include a Repeat of "
@@ -222,8 +223,8 @@ _EXACT = {
     "Line B": (
         "In Rounds 3–5, 8 of 36 results fell outside the range the app predicted, where up to 4 "
         "are normal.",
-        "No higher score in 2 Rounds. Best so far is 90.09 of 100 (Formulation 11, Round 3; tied "
-        "with Formulation 10).",
+        "No higher score in 2 Rounds. Best so far is 90.09 of 100 (Formulation 11, Round 3; within "
+        "noise: Formulation 10).",
         "Check what changed before you make Round 6. Formulation 21, a Repeat of Formulation 11, "
         "scored 10.5 points lower, more than two makes of one formulation should differ (up to "
         "8.2 points). Look at the panel, suppliers and equipment."),
@@ -233,7 +234,7 @@ _EXACT = {
         "Cook loss are still very uncertain, because results vary more from one formulation to "
         "the next than the app can explain, most for Cook loss. If the panel or method is new, "
         "check how consistently it measures.",
-        "Round 5 raised Best so far by 2.5 points, to 89.84 of 100 (Formulation 18, tied with "
+        "Round 5 raised Best so far by 2.5 points, to 89.84 of 100 (Formulation 18, within noise: "
         "Formulation 20), less than the 3.2 points needed to count as a rise.",
         # The review: "…treat the suggestions as a guided search…" (style
         # guide rule 7 retires "treat … as"; t0-report).
@@ -248,8 +249,8 @@ _EXACT = {
     "Timing check": (
         "In Rounds 10–12, 58 of 60 results landed inside the range the app predicted (up to 5 "
         "misses are normal), and score predictions beat the average of earlier results.",
-        "No higher score in 7 Rounds. Best so far is 92.50 of 100 (Formulation 24, Round 5; tied "
-        "with Formulation 3), probably helped by luck: a Repeat of it is predicted near 90.",
+        "No higher score in 7 Rounds. Best so far is 92.50 of 100 (Formulation 24, Round 5; within "
+        "noise: Formulation 3), probably helped by luck: a Repeat of it is predicted near 90.",
         "Make the next Round. The app still expects about 1.1 points of gain on average from "
         "amounts it has not tried, more than results are assumed to vary. Include a Repeat of "
         "Formulation 24 to measure how much they vary."),
@@ -334,9 +335,10 @@ def test_the_in_place_edits():
         "Overall score, Rounds 2–5: skill −0.47 (n = 16; 0 = as good as the average, 1 = "
         "perfect), no better than the average of earlier results.")
     assert "(Show its settings, under Progress figures)" in W.next_untested(values=True)
+    # Round 2: "tied" for equal values only; close ones are within noise.
     assert W.tie_runner_up(18, "90.12", W.beat_by()) == (
-        "Formulation 18 (90.12) is within the 1-point noise threshold of Best so far, so the "
-        "two are tied.")
+        "Formulation 18, at 90.12, is within noise of Best so far: the 1-point noise "
+        "threshold.")
 
 
 def test_the_fold_labels_and_links():

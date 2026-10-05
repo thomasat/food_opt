@@ -123,7 +123,8 @@ def test_make_a_round_shows_the_record_only_from_matching_checks(warm_round):
     # read-through: one wording for one fact); five equal gaps are a steady
     # bias, said as Insights says it (0.8.0 e2e fixes, review B1, I1).
     # Two ASCII fragments (the help's proto escapes the minus sign).
-    line = "Overall score, Round 3: 5 of 5 inside their 95 % interval; mean error"
+    # Round 2: "95 %" carries a non-breaking space, escaped in the proto.
+    line = "Overall score, Round 3: 5 of 5 inside their 95"
     action = "Results have come in below the predictions: Overall score by about 2.0 points (Round 3)"
     assert line in str(_batch_table(at).proto)
     assert action.rstrip(".") in str(_batch_table(at).proto)
