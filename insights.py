@@ -549,7 +549,38 @@ def check_rounds(opt, cache=None, checking=None, only=None):
     if cache is not None and only is None:
         for gone in set(cache) - set(keys.values()):
             del cache[gone]
-    return nest_score_widen(opt, checks)
+    return nest_score_widen(opt, nest_measure_widen(opt, checks))
+
+
+def nest_measure_widen(opt, checks):
+    """Round-2 fixes (P1 #1): each measurement's checks widened by
+    measure_widen of that measurement's checks in the Rounds before it, as
+    nest_score_widen does for the Overall score. Make a round widens its
+    Predicted measurements by measure_widen of every Round but the open
+    one, so the 95 % range on Make a round, the Forecast check and Results'
+    In / Above / Below is one range for one forecast. Widened about the
+    model's own mean, clipped to the measurement's Range; `inside` follows."""
+    ranges = {n: (lo, hi) for n, lo, hi in outputs(opt) if n != SCORE}
+    factor = {}
+    for name in ranges:
+        mine = [c for c in checks if c.name == name]
+        earlier = []
+        for r in _ordered_rounds(mine):
+            factor[(name, r)] = measure_widen(earlier, name)
+            earlier.extend(c for c in mine if c.round == r)
+    out = []
+    for c in checks:
+        f = factor.get((c.name, c.round), 1.0)
+        if f == 1.0 or c.sd is None or c.raw_mean is None:
+            out.append(c)
+            continue
+        lo_r, hi_r = ranges[c.name]
+        half = Z95 * c.sd * f
+        low = min(hi_r, max(lo_r, c.raw_mean - half))
+        high = min(hi_r, max(lo_r, c.raw_mean + half))
+        out.append(dataclasses.replace(c, low=low, high=high,
+                                       inside=low <= c.measured <= high, widen=f))
+    return out
 
 
 def nest_score_widen(opt, checks):
@@ -2405,16 +2436,50 @@ def score_widen(checks):
 def measure_widen(checks, name, skip_round=None):
     """Review critique (fix 10): a measurement's own calibration, as the
     Overall score's: the root-mean-square of its standardised Round-ahead
-    misses (measured − mean) ÷ (sd × the range's own widening), never below
-    1; 1 with fewer than SCORE_RECORD_MIN. `skip_round`: the open Round's
-    own checks left out. (Pooled, the measurements' 95 % ranges held 85 of
-    96 on the yogurt pilot.)"""
-    z = [(c.measured - c.raw_mean) / (c.sd * (c.widen or 1.0)) for c in checks or ()
+    misses (measured − mean) ÷ sd — the model's own sd, before any
+    widening (round-2 fixes: the checks now carry their nested widening,
+    nest_measure_widen) — never below 1; 1 with fewer than
+    SCORE_RECORD_MIN. `skip_round`: the open Round's own checks left out."""
+    z = [(c.measured - c.raw_mean) / c.sd for c in checks or ()
          if c.name == name and c.round != skip_round and c.sd and c.raw_mean is not None]
     if len(z) < SCORE_RECORD_MIN:
         return 1.0
     rms = math.sqrt(sum(v * v for v in z) / len(z))
     return max(1.0, rms) if math.isfinite(rms) else 1.0
+
+
+IMPLIED_POINTS = 401     # normal quantiles per measurement for expected_score
+
+
+def expected_score(opt, per):
+    """Round-2 fixes (P1 #4): the Overall score a formulation is expected
+    to get from its predicted measurements `per` ({name: Prediction}):
+    E[U] over each measurement's forecast, Normal(model mean, sd), not the
+    score of the means. The score is a sum over measurements, so each
+    measurement's expectation is taken alone (IMPLIED_POINTS normal
+    quantiles, the others at their means) and the gains added. A target's
+    score falls either side of it, so E[U] sits below U(means) whenever a
+    forecast is unsure. None when a measurement has no forecast."""
+    names = [o['name'] for o in opt.objectives]
+    if not names or any(per.get(n) is None for n in names):
+        return None
+    centre = lambda p: p.raw_mean if p.raw_mean is not None else p.mean  # noqa: E731
+    means = {n: centre(per[n]) for n in names}
+    base = opt._compute_utility(means)
+    qs = [statistics.NormalDist().inv_cdf((k + 0.5) / IMPLIED_POINTS)
+          for k in range(IMPLIED_POINTS)]
+    total = base
+    for n in names:
+        sd = per[n].sd
+        if not sd:
+            continue
+        mine = dict(means)
+        acc = 0.0
+        for q in qs:
+            mine[n] = means[n] + q * sd
+            acc += opt._compute_utility(mine)
+        total += acc / IMPLIED_POINTS - base
+    return total
 
 
 def widened(fitted, p, factor):

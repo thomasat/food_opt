@@ -895,8 +895,8 @@ TOO_UNCERTAIN = 0.75
 def _measurement_cells(opt, preds):
     """(cells, tips), two frames of one shape: each row's predicted
     measurements in Results' order, one number of decimals each; a likely
-    range wider than TOO_UNCERTAIN of the Range reads "too uncertain yet",
-    and its numbers go in `tips` ("" everywhere else)."""
+    range wider than TOO_UNCERTAIN of the Range reads "—", and its numbers
+    and the reason go in `tips` ("" everywhere else)."""
     rows, tips = [], []
     formulation = wording.for_project(opt, wording.FORMULATION_CAP)
     for no, per in preds.items():
@@ -910,14 +910,16 @@ def _measurement_cells(opt, preds):
             text = ui_insights.value_text(p, ui_insights.decimals(opt, obj['name']))
             span = float(obj['max_val']) - float(obj['min_val'])
             if span > 0 and p.high - p.low > TOO_UNCERTAIN * span:
-                item[column], tip[column] = wording.TOO_UNCERTAIN, text
+                # Round-2 fixes: a dash, never words, in a numeric cell;
+                # the numbers and the reason in its tip.
+                item[column], tip[column] = wording.TOO_UNCERTAIN, wording.too_uncertain_tip(text)
             else:
                 item[column], tip[column] = text, ""
-        # Review critique (fix 10): the Overall score these forecasts imply
-        # by the score recipe, beside the Overall model's own forecast.
-        means = {o['name']: per[o['name']].mean for o in opt.objectives if o['name'] in per}
-        if len(means) == len(opt.objectives) and insights.SCORE in per:
-            implied = opt._compute_utility(means)
+        # Review critique (fix 10), round-2 fixes (P1 #4): the Overall score
+        # these forecasts imply by the score recipe, as an expectation over
+        # each one's (widened) forecast, beside the Overall model's own.
+        implied = insights.expected_score(opt, per)
+        if implied is not None and insights.SCORE in per:
             item[wording.IMPLIED_COLUMN] = f"{implied:.0f}"
             item[wording.OVERALL_MODEL_COLUMN] = ui_insights.capped(
                 min(per[insights.SCORE].mean, opt.utility_ceiling()), opt.utility_ceiling(), 0)

@@ -10069,3 +10069,220 @@ def tried_caveat(kind):
     if kind == "mixed":
         return "One ingredient or setting at a time: combinations are mostly untested."
     return "One ingredient at a time: combinations of amounts are mostly untested."
+
+
+# --- round 2 fixes ---
+# Review round 2 (2026-10-05): four critics (visual, statistics, demo,
+# wording), one fix plan. One 95 % range per forecast on every screen;
+# Holm across the results checked; two forecasts at the top too close to
+# call; the Implied score an expectation; the stop made concrete; one form
+# per idea. Later definitions here replace the earlier ones of one name.
+YARDSTICK_REPEATS = 3   # insights.YARDSTICK_DF (a test pins the two equal)
+REPEAT_CONFIRMS = f"{YARDSTICK_REPEATS} Repeats would measure the noise."
+
+
+def card_repeat_ask(repeat_no, round_no=None):
+    """One form for the Repeat request: 'Repeat Formulation 16 to check
+    noise' (it read 'Round 7: Repeat Formulation 15' and 'With a Repeat of
+    Formulation 24' elsewhere)."""
+    return card_noise_repeat(repeat_no)
+
+
+def check_noise(cells, assumed=True, k=None):
+    """The noise each order claim had to reach, in the "?": 'Tasting noise
+    assumed: Overall score 1.0; Consistency 0.3. 0.3: 1 score point in
+    Consistency's units, split over 4 measurements.'"""
+    if not cells:
+        return ""
+    listed = "; ".join(f"{n} {v}" for n, v in cells)
+    if not assumed:
+        return f"Tasting noise from your Repeats: {listed}."
+    share = ""
+    if k and len(cells) > 1:
+        name, value = cells[1]
+        share = f" {value}: 1 score point in {name}'s units, split over {k} measurements."
+    return f"Tasting noise assumed: {listed}.{share} {REPEAT_CONFIRMS}"
+
+
+# Make a round's Predicted measurements (P1 #1, #4).
+TOO_UNCERTAIN = "—"
+
+
+def too_uncertain_tip(text):
+    """A '—' cell's tip: its numbers and why they are not shown."""
+    return f"95 % range over ¾ of the Range: {text}."
+
+
+IMPLIED_COLUMN = "Implied (expected)"
+OVERALL_MODEL_COLUMN = "Overall model"
+PREDICTED_MEASUREMENTS_CAPTION = "Implied: measurements scored by your targets."
+PREDICTED_MEASUREMENTS_HELP = (
+    f"Implied (expected): the {OVERALL_SCORE_COLUMN} your score's rule gives these predicted "
+    "measurements, averaged over each one's 95 % range. Off target either way loses "
+    "points, so an unsure forecast lowers it. "
+    f"Overall model: the {OVERALL_SCORE_COLUMN}'s own model, fitted on the scores directly. "
+    "Two models, learned apart, so they can differ; each measurement's forecasts also run "
+    "high or low on their own (Forecast check). Each 95 % range here is the one the "
+    "Forecast check and Results use. —: a 95 % range over ¾ of the Range (numbers in its tip).")
+
+
+# What next? at the top score (P1 #5).
+CEILING_TAIL = "Stop, or change the target."
+CARD_CEILING = "Stop, or change the target"
+CEILING_MEASURE = ("A single new result can't be told apart from this best in the Overall "
+                   "score; a single measurement still can (change its target or Share of score "
+                   "to chase it).")
+
+
+def ceiling_reason(on, n, offs, targets=True):
+    """The concrete line under the stop: 'On target: 3 of 4. Tangy 1.0
+    under target.' `offs`: ['Tangy 1.0 under target'], largest first, at
+    most two said."""
+    head = f"On target: {on} of {n}." if targets else f"At their best: {on} of {n}."
+    if not offs:
+        return head
+    return f"{head} {', '.join(offs[:2])}."
+
+
+def off_target(name, amount_text, under):
+    """'Tangy 1.0 under target'."""
+    return f"{name} {amount_text} {'under' if under else 'over'} target"
+
+
+def off_best(name, amount_text):
+    """A higher- or lower-is-better measurement short of its Range's end."""
+    return f"{name} {amount_text} short of its best"
+
+
+def ceiling_help(best_text, top_text, gap_text, need_text, perfect_text=None, assumed=True,
+                 limits=()):
+    """The stop signal's "?": the gap and the threshold in numbers, the
+    basis (a formulation on every target, scored with tasting noise), what
+    can still move, the limits that bind, and what would measure the
+    noise."""
+    lines = [f"{BEST_SO_FAR_COLUMN} {best_text} is {gap_text} below the top ({top_text}); "
+             f"{need_text} is needed to tell two single results apart."]
+    if perfect_text is not None:
+        basis = "assumed noise" if assumed else "noise from your Repeats"
+        lines.append(f"A {FORMULATION} exactly on every target would score about {perfect_text} "
+                     f"here, because tasting noise only pulls the score down ({basis}).")
+    lines.append(CEILING_MEASURE)
+    if limits:
+        lines.append(f"Limits the predicted best sits at: {', '.join(limits)}.")
+    if assumed:
+        lines.append(REPEAT_CONFIRMS)
+    return " ".join(lines)
+
+
+# Are we improving? (P1 #6, P2 #7).
+def progress_need_plain(need_text, sd_text="1", assumed=True, q=1):
+    """The "?"'s plain line on the rise needed: '3.0: the best of 3 new
+    results must beat noise by this much. Noise is assumed at about 1
+    point, because there are no Repeats yet.'"""
+    who = "a new result" if q <= 1 else f"the best of {q} new results"
+    if assumed:
+        why = (f"Noise is assumed at about {points_text(sd_text)}, because there are no "
+               "Repeats yet.")
+    else:
+        why = f"Noise measured from your Repeats: about {points_text(sd_text)}."
+    return f"{need_text}: {who} must beat noise by this much. {why}"
+
+
+NOISE_BAND = "±1 point: assumed noise (1 SD)"
+NOISE_BAND_MEASURED = "Noise from Repeats (1 SD)"
+TOP_ZONE = "Within noise of top"
+STORY_IMPROVING_CAPTION = "Line: best so far. Bars: Round average."
+
+
+def top_score_label(top_text):
+    """'Top score 100'."""
+    return f"Top score {top_text}"
+
+
+def story_improving_help(first_avg, last_avg, first_round, last_round, assumed=True,
+                         need_text=None):
+    """Are we improving?'s "?": what is drawn, the Round averages, the noise
+    band, the top zone."""
+    avg = ""
+    if first_avg is not None and last_avg is not None and first_round != last_round:
+        avg = (f" {ROUND_CAP} average: {first_avg} ({ROUND_CAP} {first_round}) → {last_avg} "
+               f"({ROUND_CAP} {last_round}).")
+    band = ("Blue band: ±1 point around the best, the tasting noise assumed until Repeats "
+            "measure it." if assumed else
+            "Blue band: ±the tasting noise your Repeats measured, around the best.")
+    zone = (f" Grey zone: within {need_text} of the top score, where a higher result can't be "
+            "told from this best." if need_text else "")
+    tail = f" {REPEAT_CONFIRMS}" if assumed else ""
+    return (f"Grey dots: each {FORMULATION}'s measured {OVERALL_SCORE_COLUMN}. Line: "
+            f"{BEST_SO_FAR_COLUMN}, stepping once per {ROUND_CAP}. Short grey bars: each "
+            f"{ROUND_CAP}'s average, printed under it.{avg} {band}{zone}{tail} Measured values "
+            "only.")
+
+
+# One form per verdict (P3 #18): "Predicts: X", "Partly: Y", "Not yet: Z"
+# in the strip, the headline, the legend and the profiler.
+LEARNED_WORDS = {"predictable": "Predicts", "partly": "Partly", "not_yet": "Not yet"}
+NOT_PREDICTABLE_YET = "Not yet:"
+
+
+def learned_strip(predictable, partly, not_yet=()):
+    """The strip's Model item, (word, line): ('Predicts:', 'Consistency');
+    ('Partly:', 'Overall score, Tangy'); ('Not yet:', 'Overall score +3')."""
+    names = predictable or partly or list(not_yet)
+    if not names:
+        return NOT_PREDICTABLE_YET, ""
+    shown = ", ".join(names[:2]) + (f" +{len(names) - 2}" if len(names) > 2 else "")
+    return ("Predicts:" if predictable else "Partly:" if partly else "Not yet:"), shown
+
+
+def learned_answer(predictable, partly, not_yet):
+    """The section's answer: '**Predicts: Consistency.** Partly: Overall
+    score, Tangy. Not yet: Creaminess.'"""
+    if predictable:
+        head = f"Predicts: {', '.join(predictable)}"
+    elif partly:
+        head = f"Partly: {', '.join(partly)}"
+    else:
+        head = f"Not yet: {', '.join(not_yet)}" if not_yet else "Not yet"
+    rest = []
+    if predictable and partly:
+        rest.append(f"Partly: {', '.join(partly)}")
+    if not_yet and (predictable or partly):
+        rest.append(f"Not yet: {', '.join(not_yet)}")
+    return f"**{head}.**" + (" " + ". ".join(rest) + "." if rest else "")
+
+
+def learned_not_predictable(names):
+    """'Not yet: Creaminess, Thickness uniformity.'"""
+    return f"Not yet: {', '.join(names)}."
+
+
+# What has the model learned? (P1 #2, P2 #11): Holm across the results.
+LEARNED_RULE = ("Each Round is forecast from earlier Rounds only. Within a Round, a pair counts "
+                "as ordered right when the forecast put it in the measured order; pairs measured "
+                "equal, forecast under one tasting noise apart, or both forecast at the top, are "
+                "not counted. Grey bar: what shuffling the measured values within each Round "
+                "gives (chance), drawn at each result's adjusted level. Predicts: right more "
+                "often than chance after adjusting for every result checked (Holm, p < 0.05, at "
+                "least 5 pairs). Partly: right in more than half, p < 0.20 unadjusted. Not yet: "
+                "otherwise, too few pairs, or barely varies.")
+
+
+def learned_multiplicity(n):
+    """'Adjusted for 5 results checked: one alone could pass by chance.'"""
+    return f"Adjusted for {n} results checked: one alone could pass by chance."
+
+
+def learned_caption(n):
+    """'Past the bar: Predicts · adjusted for 5 results'."""
+    return f"Past the bar: Predicts · adjusted for {n} results"
+
+
+LEARNED_FULL_CHANCE = "chance up to 100 %: too few Rounds"
+
+
+def review_status_strip(progress, model, next_word):
+    """Make a round's Review line, the strip's own words: 'Review: Rising ·
+    Predicts: Overall score · Stop, or change the target'."""
+    return f"{REVIEW_STATUS_PREFIX}: **{progress}** · {model} · {next_word}"
+LEARNED_CAPTION = "Past the bar: Predicts"

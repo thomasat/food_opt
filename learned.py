@@ -194,9 +194,20 @@ class RoundCall:
         return {n for p in self.pairs for n in (p.high, p.low)}
 
 
+def at_cap(c):
+    """Round-2 fixes (P1 #3): whether check `c`'s forecast is at the top of
+    its Range: the model's own mean above it, the shown forecast clipped
+    there (both read "≥ 100")."""
+    return c.raw_mean is not None and c.raw_mean > c.predicted + 1e-9
+
+
 def too_close(a, b, noise):
     """Whether the forecasts of checks `a` and `b` differ by less than one
-    noise SD (`noise`; 0 or None: never)."""
+    noise SD (`noise`; 0 or None: never), or are both at the top of the
+    Range (round-2 fixes: two forecasts that both read "≥ 100" make no
+    order to call)."""
+    if at_cap(a) and at_cap(b):
+        return True
     return bool(noise) and abs(_rank_value(a) - _rank_value(b)) < noise - 1e-12
 
 
@@ -243,6 +254,13 @@ class Ordering:
     verdict: str = NOT_YET
     reason: str = "few"     # "few", "flat", "chance" or "" (Predictable/Partly)
     nulls: list = field(default_factory=list)   # per Round {S: probability}
+    # Round-2 fixes (P1 #2): Holm across the results checked (orderings):
+    # the adjusted p-value the Predictable verdict reads, and the level the
+    # chart's chance bar is drawn at, so the dot clears the bar exactly
+    # when the verdict is Predictable. One result alone: unadjusted.
+    p_holm: float | None = None
+    level: float = VERDICT_P
+    tested: int = 1         # how many results the Holm step counted
 
     @property
     def share(self):
@@ -275,7 +293,7 @@ class Ordering:
         (one-sided VERDICT_P each end); None without pairs."""
         if not self.pairs or not self.nulls:
             return None
-        lo, hi = chance_range(self.null, VERDICT_P)
+        lo, hi = chance_range(self.null, self.level)
         to = lambda s: min(1.0, max(0.0, (s + self.pairs) / (2 * self.pairs)))  # noqa: E731
         return to(lo), to(hi)
 
@@ -292,7 +310,7 @@ def judge(o):
         o.verdict, o.reason = NOT_YET, "flat"
     elif o.pairs < PARTLY_MIN:
         o.verdict, o.reason = NOT_YET, "few"
-    elif o.pairs >= MIN_PAIRS and o.p < VERDICT_P:
+    elif o.pairs >= MIN_PAIRS and (o.p if o.p_holm is None else o.p_holm) < VERDICT_P:
         o.verdict, o.reason = PREDICTABLE, ""
     elif o.right * 2 > o.pairs and o.p < PARTLY_P:
         o.verdict, o.reason = PARTLY, ""
@@ -335,7 +353,29 @@ def orderings(opt, checks, noise=None):
     """{name: Ordering}; `noise` {name: SD} (pair_noise of `checks` when
     None): a pair closer than that is too close to call."""
     noise = pair_noise(opt, checks) if noise is None else noise
-    return {n: ordering(checks, n, noise.get(n) or 0.0) for n in names(opt)}
+    return holm({n: ordering(checks, n, noise.get(n) or 0.0) for n in names(opt)})
+
+
+def holm(ords, alpha=VERDICT_P):
+    """Round-2 fixes (P1 #2): Holm's step-down adjustment of the
+    within-Round permutation p-values across the results checked (those
+    with a counted pair), then each verdict judged again: Predictable needs
+    the adjusted p below `alpha`; Partly still reads the result's own p.
+    Each result's chance bar is drawn at its Holm level, alpha ÷ (m − k)
+    for the k-th smallest p, held at the first level that fails for every
+    result after it — so a dot is past its bar exactly when the result is
+    Predictable."""
+    tested = sorted((o for o in ords.values() if o.pairs), key=lambda o: o.p)
+    m = len(tested)
+    worst, failed = 0.0, None
+    for k, o in enumerate(tested):
+        level = alpha / (m - k)
+        if failed is None and o.p >= level - 1e-15:
+            failed = level
+        worst = max(worst, min(1.0, (m - k) * o.p))
+        o.p_holm, o.level, o.tested = worst, failed if failed is not None else level, m
+        judge(o)
+    return ords
 
 
 def _repeat_noise(opt, name):

@@ -1129,6 +1129,9 @@ def _next_body(opt, places, facts):
             st.markdown(_say(opt, wording.answer_line(wording.CEILING_HEAD,
                                                       wording.CEILING_TAIL)),
                         help=wording.brief(ceiling_tip(opt, facts)))
+            reason = ceiling_reason_text(opt)
+            if reason:
+                st.markdown(reason)
         elif step is not None and step.kind == "close" and card.tone != "off":
             # Persona fixes: the stop signal is the headline.
             y = getattr(facts, "yardstick", None)
@@ -1147,16 +1150,80 @@ def _next_body(opt, places, facts):
 
 
 def ceiling_tip(opt, facts):
-    """The stop signal's "?" at the top score: the best, the threshold and
-    the limits that bind (said here only)."""
+    """The stop signal's "?" at the top score (round-2 fixes, P1 #5): the
+    gap to the top and the threshold, in numbers; the score a formulation
+    exactly on every target would get with tasting noise; what can still
+    move; the limits that bind (said here only)."""
     need = tie_need(facts.yardstick)
     try:
         limits = binding_texts(opt, getattr(facts.next, "bindings", None) or [])
     except Exception:
         limits = []
-    return _say(opt, wording.ceiling_help(one_decimal(facts.best.score),
-                                          f"{float(opt.utility_ceiling()):g}",
-                                          f"{need:.1f}", limits))
+    top = float(opt.utility_ceiling())
+    best = float(facts.best.score)
+    try:
+        perfect = perfect_noisy_score(opt)
+    except Exception:
+        perfect = None
+    assumed = getattr(facts.yardstick, "assumed", True)
+    return _say(opt, wording.ceiling_help(
+        one_decimal(best), f"{top:g}", one_decimal(top - best), f"{need:.1f}",
+        None if perfect is None else one_decimal(perfect), assumed, limits))
+
+
+def _ideal(obj):
+    """A measurement's best value: its target, else the end of its Range
+    the score rewards."""
+    if obj.get('goal') == 'target':
+        return float(obj.get('target', (float(obj['max_val']) + float(obj['min_val'])) / 2))
+    return float(obj['max_val'] if obj.get('goal') == 'max' else obj['min_val'])
+
+
+def perfect_noisy_score(opt):
+    """Round-2 fixes (P1 #5): the Overall score a formulation exactly at
+    every measurement's best would get on average, each measurement tasted
+    with its noise (learned.pair_noise: the Repeats', else the assumed 1
+    point's share): 100 − Σ points-per-unit × σ × √(2/π) for targets. Noise
+    only pulls a score on its target down. None without a scored
+    measurement."""
+    objs = list(getattr(opt, "objectives", None) or ())
+    if not objs:
+        return None
+    noise = learned.pair_noise(opt)
+    per = {}
+    for o in objs:
+        v = _ideal(o)
+        per[o['name']] = insights.Prediction(v, v, v, v, noise.get(o['name']) or 0.0)
+    return insights.expected_score(opt, per)
+
+
+def ceiling_reason_text(opt):
+    """The concrete line under the stop (round-2 fixes, P1 #5): how Best so
+    far's measurements sit against their targets — 'On target: 3 of 4.
+    Tangy 1.0 under target.' — largest miss first; '' when Best so far has
+    no results to read."""
+    best = opt.best_index()
+    if best is None or best >= len(opt.results_history or []):
+        return ""
+    res = opt.results_history[best] or {}
+    objs = [o for o in opt.objectives if res.get(o['name']) is not None]
+    if not objs:
+        return ""
+    on, offs = 0, []
+    for o in objs:
+        d = decimals(opt, o['name'])
+        v, ideal = float(res[o['name']]), _ideal(o)
+        gap = v - ideal
+        if abs(gap) < 0.5 * 10 ** -max(1, d):
+            on += 1
+            continue
+        amount = f"{abs(gap):.{max(1, d)}f}"
+        text = (wording.off_target(o['name'], amount, gap < 0) if o.get('goal') == 'target'
+                else wording.off_best(o['name'], amount))
+        offs.append((abs(gap) * learned.points_per_unit(o), text))
+    offs.sort(key=lambda t: -t[0])
+    targets = all(o.get('goal') == 'target' for o in objs)
+    return _say(opt, wording.ceiling_reason(on, len(objs), [t for _, t in offs], targets))
 
 
 def stop_headline(opt, facts):
@@ -1944,7 +2011,7 @@ def progress_plain(opt, facts):
         _, need = rise_and_need(a)
         assumed = y is None or getattr(y, "assumed", True)
         sd = "1" if (a.sd is None or assumed) else f"{a.sd:.1f}"
-        out.append(wording.progress_need_plain(need, sd, assumed))
+        out.append(wording.progress_need_plain(need, sd, assumed, max(1, a.q or 1)))
     if plateau_round(opt, facts) is not None:
         out.append(wording.PLATEAU_RULE)
     try:
@@ -3542,6 +3609,7 @@ _SCORE_RAMP = {
 # #7fb0e6 is 8.3:1 on #0e1117.
 _MODEL_BLUE = {"light": "#2f6db5", "dark": "#7fb0e6"}
 _BAND_FILL = {"light": ("#2f6db5", 0.18), "dark": ("#7fb0e6", 0.22)}
+_ZONE_FILL = {"light": "#c9ced6", "dark": "#4a515c"}   # within noise of the top
 _MANY_LINES = 30       # past this many lines, thinner and semi-transparent
 CHOOSES_KEY = "insights_chooses_axis"
 _PROTO_MODEL = "_insights_proto_model"
@@ -4596,9 +4664,11 @@ def review_status(opt):
         # (from every Round's checks, never a partial set); red as before.
         ords = lf.orderings if lf is not None else learned.orderings(opt, every)
         pick = lambda v: model_names(opt, ords, v)
-        word, _ = wording.learned_strip(pick(learned.PREDICTABLE), pick(learned.PARTLY))
-        text = wording.review_status_learned(word.rstrip(":"), prog.word,
-                                             nxt.word if nxt.tone == "off" else None)
+        word, line = wording.learned_strip(pick(learned.PREDICTABLE), pick(learned.PARTLY),
+                                           pick(learned.NOT_YET))
+        # Round-2 fixes (P3 #18): the strip's own three items, in its words:
+        # 'Review: Rising · Predicts: Overall score · Stop, or change the target'.
+        text = wording.review_status_strip(prog.word, f"{word} {line}".strip(), nxt.word)
     return _say(opt, text), warn
 
 
@@ -5625,7 +5695,12 @@ def learned_rows(opt, lf):
         label = f"{learned_label(opt, name)} ({o.right}/{o.pairs})"
         few = o.pairs < learned.MIN_PAIRS
         lo, hi = (None, None) if few else o.chance_share()
+        if hi is not None and hi >= 1.0 - 1e-9:
+            # Round-2 fixes (P2 #11): a bar to 100 % says why, on a second
+            # line of its label.
+            label += f"|({_say(opt, wording.LEARNED_FULL_CHANCE)})"
         rows.append({"name": label, "pct": None if few else 100 * o.right / o.pairs,
+                     "result": learned_label(opt, name),
                      "lo": None if lo is None else 100 * lo,
                      "hi": None if hi is None else 100 * hi,
                      "verdict": wording.LEARNED_WORDS[o.verdict], "few": few,
@@ -5654,12 +5729,16 @@ def learned_chart(opt, lf):
                        range=[blue, _PARTLY_BLUE[theme()], mark("neutral")[0],
                               _CHANCE_GREY[theme()]])
     legend = alt.Legend(title=None, orient="bottom", labelLimit=0, symbolSize=90)
-    y = alt.Y("name:N", sort=order, title=None, axis=alt.Axis(labelLimit=260, ticks=False,
-                                                                 domain=False))
+    # Round-2 fixes (P2 #11): the chance swatch is a bar, as drawn.
+    bar_legend = alt.Legend(title=None, orient="bottom", labelLimit=0, symbolSize=260,
+                            symbolType="M-1,-0.35L1,-0.35L1,0.35L-1,0.35Z", symbolStrokeWidth=0)
+    y = alt.Y("name:N", sort=order, title=None,
+              axis=alt.Axis(labelLimit=300, ticks=False, domain=False,
+                            labelExpr="split(datum.label, '|')"))
     x = alt.X("pct:Q", title=_say(opt, wording.LEARNED_CHART_X),
               scale=alt.Scale(domain=[0, 100], padding=8),
               axis=alt.Axis(values=[0, 25, 50, 75, 100]))
-    tip = [alt.Tooltip("name:N", title=_say(opt, wording.LEARNED_COL_RESULT)),
+    tip = [alt.Tooltip("result:N", title=_say(opt, wording.LEARNED_COL_RESULT)),
            alt.Tooltip("verdict:N", title=_say(opt, wording.LEARNED_COL_VERDICT)),
            alt.Tooltip("n:N", title=_say(opt, wording.LEARNED_COL_PAIRS)),
            alt.Tooltip("pct:Q", format=".0f", title="%")]
@@ -5668,11 +5747,21 @@ def learned_chart(opt, lf):
     layers = []
     if not counted.empty:
         base = alt.Chart(counted)
+        chance_scale = alt.Scale(domain=[chance], range=[_CHANCE_GREY[theme()]])
+        dot_scale = alt.Scale(domain=words, range=[blue, _PARTLY_BLUE[theme()],
+                                                   mark("neutral")[0]])
+        dark = "#e6e9ef" if theme() == "dark" else "#1f2937"
         layers += [base.mark_bar(height=14, cornerRadius=3).encode(
                        y=y, x=alt.X("lo:Q", scale=alt.Scale(domain=[0, 100], padding=8)),
-                       x2="hi:Q", color=alt.Color("chance:N", scale=colour, legend=legend)),
-                   base.mark_point(filled=True, size=120, opacity=1).encode(
-                       y=y, x=x, color=alt.Color("verdict:N", scale=colour, legend=legend),
+                       x2="hi:Q", fill=alt.Fill("chance:N", scale=chance_scale,
+                                                legend=bar_legend)),
+                   # Partly dots carry a dark outline (P2 #11), so the pale
+                   # blue never reads as Predicts.
+                   base.mark_point(filled=True, size=120, opacity=1, strokeWidth=1.5).encode(
+                       y=y, x=x, color=alt.Color("verdict:N", scale=dot_scale, legend=legend),
+                       stroke=alt.condition(
+                           alt.FieldEqualPredicate(field="verdict", equal=words[1]),
+                           alt.value(dark), alt.value("transparent")),
                        tooltip=tip)]
     if not few.empty:
         layers.append(alt.Chart(few).mark_text(color=grey, fontSize=FONT_LABEL,
@@ -5989,9 +6078,10 @@ def _learned_section(opt, slot, computed, facts):
     not_yet = lf.model_names(opt, learned.NOT_YET)
     # Review critique (fix 3, 13): plain first — the rule and the
     # multiplicity — then the terms of art; the counts are on the chart.
-    help_ = wording.brief("\n\n".join((
-        wording.LEARNED_RULE, wording.learned_multiplicity(len(lf.orderings)),
-        wording.for_experts(wording.LEARNED_EXPERT))))
+    tested = max((o.tested for o in lf.orderings.values() if o.pairs), default=0)
+    help_ = wording.brief("\n\n".join(t for t in (
+        wording.LEARNED_RULE, wording.learned_multiplicity(tested) if tested > 1 else "",
+        wording.for_experts(wording.LEARNED_EXPERT)) if t))
     with slot.answer.container():
         st.markdown(_say(opt, wording.learned_answer(predictable, partly, not_yet)),
                     help=_say(opt, help_))
@@ -6002,7 +6092,8 @@ def _learned_section(opt, slot, computed, facts):
             chart = None
         if chart is not None:
             show_chart(chart, width="content")
-            st.caption(_say(opt, wording.LEARNED_CAPTION), help=_say(opt, help_))
+            st.caption(_say(opt, wording.learned_caption(tested) if tested > 1
+                            else wording.LEARNED_CAPTION), help=_say(opt, help_))
 
 
 def _expert_lines(lf):
@@ -6017,7 +6108,8 @@ def learned_card(opt, lf, card, facts=None):
     the old Predictions card's sentence only when it warns (its "still very
     uncertain" contradicted Predicts)."""
     word, line = wording.learned_strip(lf.model_names(opt, learned.PREDICTABLE),
-                                       lf.model_names(opt, learned.PARTLY))
+                                       lf.model_names(opt, learned.PARTLY),
+                                       lf.model_names(opt, learned.NOT_YET))
     old = card.lines if card is not None else []
     warns = [(t, w) for t, w in old if w]
     # The old card's further lines (a Repeat request, the measurements'
@@ -6378,7 +6470,9 @@ def _progress_body(opt, slot):
                            help=_say(opt, wording.story_improving_help(
                                one_decimal(first[3]) if first else None,
                                one_decimal(last[3]) if last else None,
-                               first[0] if first else None, last[0] if last else None)))
+                               first[0] if first else None, last[0] if last else None,
+                               assumed=getattr(insights.noise_yardstick(opt), "assumed", True),
+                               need_text=_top_zone_need(opt))))
         with right:
             try:
                 chart = target_chart(opt)
@@ -6698,6 +6792,16 @@ def best_steps(opt):
     return out
 
 
+def _top_zone_need(opt):
+    """The top zone's depth as text ('2.3'), or None when the chart draws
+    no zone (the top score far from the data)."""
+    try:
+        need = tie_need(insights.noise_yardstick(opt))
+    except Exception:
+        return None
+    return None if not need else f"{need:.1f}"
+
+
 def improving_chart(opt):
     """Are we improving? (a): each formulation's measured Overall score
     (grey dots), Best so far (an ink step), each Round's average (a short
@@ -6762,29 +6866,52 @@ def improving_chart(opt):
     ticks = [first + step * k for k in range(int((data_top - first) // step) + 1)]
     if show_top and all(abs(t - ceiling) > 1e-9 for t in ticks):
         ticks.append(ceiling)
-    y = alt.Y(f"{score}:Q", title=y_title, scale=y_scale, axis=alt.Axis(values=ticks))
+    # Round-2 fixes (P2 #7): the dotted line at the top is named on its
+    # own tick, "Top score 100", where no mark can cover it.
+    top_tick = (f"abs(datum.value - {ceiling}) < 1e-9 ? "
+                f"'{_say(opt, wording.top_score_label(f'{ceiling:g}'))}' : datum.label")
+    y = alt.Y(f"{score}:Q", title=y_title, scale=y_scale,
+              axis=alt.Axis(values=ticks, labelExpr=top_tick if show_top else "datum.label"))
     layers = []
     band_name = _say(opt, wording.NOISE_BAND if getattr(
         insights.noise_yardstick(opt), "assumed", True) else wording.NOISE_BAND_MEASURED)
-    kinds = alt.Scale(domain=[best_name, avg_name, band_name],
-                      range=[ink, mid, _BAND_FILL[theme()][0]])
+    zone_name = _say(opt, wording.TOP_ZONE)
+    kinds = alt.Scale(domain=[best_name, avg_name], range=[ink, mid])
+    # The two shaded areas have their own legend, a pale square each.
+    zone_fill = _ZONE_FILL[theme()]
+    area_names = [band_name] + ([zone_name] if show_top else [])
+    areas = alt.Scale(domain=area_names,
+                      range=[_BAND_FILL[theme()][0]] + ([zone_fill] if show_top else []))
+    area_legend = alt.Legend(title=None, orient="top", labelLimit=0, symbolType="square",
+                             symbolOpacity=0.35, symbolStrokeWidth=0)
+    need = tie_need(insights.noise_yardstick(opt)) if show_top else None
+    if show_top and need:
+        # Round-2 fixes (P2 #7): the zone within noise of the top (top − the
+        # tie threshold to top): a best in it can't be told from the top.
+        lo_x, hi_x = _x_domain(opt)
+        zdf = pd.DataFrame([{"x": lo_x, "x2": hi_x, "lo": max(bottom, ceiling - need),
+                             "hi": ceiling, "what": zone_name}])
+        layers.append(alt.Chart(zdf).mark_rect(opacity=0.5, tooltip=False).encode(
+            x=alt.X("x:Q", scale=x_scale), x2="x2:Q",
+            y=alt.Y("lo:Q", scale=y_scale, title=y_title), y2="hi:Q",
+            fill=alt.Fill("what:N", scale=areas, legend=area_legend)))
     if steps:
-        # The ±noise band around the best step, light, under everything.
-        sdf = pd.DataFrame([{"x": x, "lo": v - noise, "hi": v + noise, "v": v, "what": band_name,
-                             best_name: v, "round": wording.round_tick(r)}
+        # The ±noise band around the best step, light, under everything;
+        # clipped at the top score (round-2 fixes, P1 #6).
+        sdf = pd.DataFrame([{"x": x, "lo": v - noise, "hi": min(ceiling, v + noise), "v": v,
+                             "what": band_name, best_name: v, "round": wording.round_tick(r)}
                             for a, b, v, r in steps for x in (a, b)])
         layers.append(alt.Chart(sdf).mark_area(opacity=0.25, tooltip=False).encode(
             x=alt.X("x:Q", scale=x_scale), y=alt.Y("lo:Q", scale=y_scale, title=y_title),
-            y2="hi:Q", color=alt.Color("what:N", scale=kinds, legend=legend)))
+            y2="hi:Q", fill=alt.Fill("what:N", scale=areas, legend=area_legend)))
     if show_top:
-        tdf = pd.DataFrame([{"y": ceiling, "t": f"{_say(opt, wording.TOP_SCORE_LABEL)} "
-                                                f"{ceiling:g}"}])
+        tdf = pd.DataFrame([{"y": ceiling}])
         layers.append(alt.Chart(tdf).mark_rule(color=grey, strokeDash=[2, 3], strokeWidth=1,
                                                tooltip=False)
                       .encode(y=alt.Y("y:Q", scale=y_scale, title=y_title)))
     if avgs:
-        adf = pd.DataFrame([{"x0": a - 0.4, "x1": b + 0.4, "avg": m, "what": avg_name,
-                             "round": wording.round_tick(r), "n": n,
+        adf = pd.DataFrame([{"x0": a - 0.4, "x1": b + 0.4, "mid": (a + b) / 2, "avg": m,
+                             "what": avg_name, "round": wording.round_tick(r), "n": n,
                              "text": one_decimal(m)} for r, a, b, m, n in avgs])
         layers.append(alt.Chart(adf).mark_rule(strokeWidth=3).encode(
             x=alt.X("x0:Q", scale=x_scale), x2="x1:Q",
@@ -6792,6 +6919,11 @@ def improving_chart(opt):
             color=alt.Color("what:N", scale=kinds, legend=legend),
             tooltip=[alt.Tooltip("round:N", title=_say(opt, wording.ROUND_CAP)),
                      alt.Tooltip("text:N", title=avg_name)]))
+        # Round-2 fixes (P2 #7): each Round's average printed under its bar,
+        # no hover needed.
+        layers += _halo_text(adf, alt.X("mid:Q", scale=x_scale),
+                             alt.Y("avg:Q", scale=y_scale, title=y_title), "text:N", mid,
+                             fontSize=FONT_SMALL, baseline="top", dy=4)
     layers.append(alt.Chart(frame).mark_point(size=30, strokeWidth=1.3, opacity=0.9,
                                               color=grey).encode(
         x=x, y=y,
