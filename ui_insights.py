@@ -1016,7 +1016,9 @@ def _places(opt, gate=False):
                 with p.item[which].container(gap=None):
                     _strip_item(opt, None, None, which)
         with st.container(key=f"{STRIP_KEY}_go", width="content"):
-            _foot(opt)
+            p.go = st.empty()
+            with p.go.container():
+                _foot(opt)
     p.bar = st.empty()
     p.q = {}
     # Review critique (fix 5): Are we improving? (with Start vs best), What
@@ -1122,8 +1124,7 @@ def _next_body(opt, places, facts):
             st.caption(_say(opt, _PLACEHOLDERS["next"]))
             return
         step = getattr(facts, "next", None) if facts is not None else None
-        if (step is not None and step.kind in ("close", "explore") and card.tone != "off"
-                and at_ceiling(opt, facts)):
+        if card.tone != "off" and ceiling_stop(opt, facts):
             # Review critique (fix 2): the stop signal at the top score.
             st.markdown(_say(opt, wording.answer_line(wording.CEILING_HEAD,
                                                       wording.CEILING_TAIL)),
@@ -1270,10 +1271,16 @@ def _finish(opt, places, facts):
         checks = checks_for(opt, "trust")
         rounds = insights.headline(opt, checks).rounds if checks else None
         _, change = next_step_text(opt, facts.next, rounds, amounts_shown(facts))
-        if facts.next.kind in ("close", "explore") and at_ceiling(opt, facts):
+        if ceiling_stop(opt, facts):
             change = None       # review critique: no widening advice at the top score
     with places.change.container():
         _setup_button(change)
+    if ceiling_stop(opt, facts) and getattr(places, "go", None) is not None:
+        # Review critique, follow-up: at the top score the strip's one
+        # primary leads to Set up (a target or a Share of score), not to
+        # another Round.
+        with places.go.container():
+            _ceiling_foot(opt)
     if not places.why:
         # R-I4's one link, by priority: Why (drawn with the places), then
         # the Repeat, then the Explored link (ftue fix C).
@@ -1688,6 +1695,37 @@ def at_ceiling(opt, facts):
         return False
     top = float(opt.utility_ceiling())
     return round(top - float(best.score), 2) < round(need, 2)
+
+
+# The Next-step rows the stop signal at the top score replaces: every row
+# that would make another Round — the ceiling is model-free (Best so far,
+# the top, the noise) — except a disagreeing Repeat (check the panel
+# first). The misses row keeps its Repeat request under the stop.
+CEILING_KINDS = ("close", "explore", "rising", "see", "misses", "no_skill", "untested", "early")
+
+
+def ceiling_stop(opt, facts):
+    """Review critique (owner, follow-up): the stop signal shows when Best
+    so far is within the tie threshold of the top score (at_ceiling) and
+    What next? would otherwise make another Round — after a rise too (the
+    Progress word stays Rising); never while a Round is open."""
+    step = getattr(facts, "next", None) if facts is not None else None
+    if step is None or step.kind not in CEILING_KINDS:
+        return False
+    if getattr(opt, "pending_batch", None) and open_rows(opt):
+        return False
+    return at_ceiling(opt, facts)
+
+
+def _ceiling_foot(opt):
+    """The strip's one primary at the top score: "Change on Set up", landing
+    on Set up's callout (a target or a Share of score)."""
+    lit = not confirmation_open()
+    if st.button(wording.SETUP_BUTTON_SHORT, type="primary" if lit else "secondary",
+                 disabled=not lit, key="insights_foot_setup",
+                 help=_say(opt, wording.CEILING_SETUP_HELP)) and lit:
+        st.session_state[SETUP_CALLOUT_KEY] = _say(opt, wording.CEILING_SETUP_HELP)
+        go_to_tab(TAB_SETUP, section=SETUP_CALLOUT_SLOT)
 
 
 def binding_texts(opt, bindings):
@@ -4457,6 +4495,11 @@ def next_card(opt, facts):
         lines = [(wording.card_before(_check_round(opt)), True),
                  (wording.card_repeat_off(d.earlier, f"{abs(d.diff):.1f}", lower=d.diff < 0),
                   True)]
+    elif kind == "misses" and ceiling_stop(opt, facts):
+        # Review critique, follow-up: the stop, its Repeat request kept.
+        word = wording.CARD_CEILING
+        lines = [(wording.card_noise_repeat(
+            facts.best.formulation if facts.best is not None else None), False)]
     elif kind == "misses":
         # Review diagnosis: a neutral data request, never "check panel".
         lines.append((wording.card_noise_repeat(
@@ -4466,7 +4509,7 @@ def next_card(opt, facts):
     elif kind == "untested":
         word = wording.CARD_TRY_BEST
         lines = [(wording.card_add_to(no if opt.pending_batch else None), False)]
-    elif kind in ("close", "explore") and at_ceiling(opt, facts):
+    elif ceiling_stop(opt, facts):
         # Review critique (fix 2): within noise of the top score, the stop
         # signal leads; no widening advice (the limits are in its "?").
         word = wording.CARD_CEILING
@@ -4512,8 +4555,7 @@ def card_for(opt, facts, which):
         help_ = f"{head} {wording.REPEAT_CONFIRMS}" + (f"\n\n{rest}" if rest else "")
     card.help = wording.brief(help_)
     step = getattr(facts, "next", None)
-    if (which == "next" and step is not None and step.kind in ("close", "explore")
-            and card.tone != "off" and at_ceiling(opt, facts)):
+    if which == "next" and card.tone != "off" and ceiling_stop(opt, facts):
         # Review critique (fix 2): the strip's "?" says the stop signal too.
         card.help = wording.brief(ceiling_tip(opt, facts))
     return card
@@ -6275,7 +6317,7 @@ def _next_preview(opt, places, computed, facts=None):
         # Persona fixes: a static table that wraps its words, so the line
         # that sets each apart and its changes read whole at 820 px.
         st.table(frame.set_index(cols[0]))
-        if widen_beyond(opt, getattr(facts, "next", None), rows) and not at_ceiling(opt, facts):
+        if widen_beyond(opt, getattr(facts, "next", None), rows) and not ceiling_stop(opt, facts):
             # (Review critique: no widening advice at the top score.)
             st.markdown(_say(opt, wording.WIDEN_BEYOND))
         st.caption(_say(opt, wording.LEARNED_PREVIEW_CAPTION))

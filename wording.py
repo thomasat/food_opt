@@ -9840,9 +9840,15 @@ def ceiling_help(best_text, top_text, need_text, limits=()):
     line = (f"{BEST_SO_FAR_COLUMN}, {best_text}, is within {need_text} points of the top score "
             f"({top_text}): no higher score could be told apart from tasting noise ({ASSUMED_NOISE_CLAUSE}"
             f"). Stop here, or change what the score asks for (a target or a Share of score).")
+    line += f" {CEILING_MEASURE}"
     if limits:
         line += f" Limits the predicted best sits at: {', '.join(limits)}."
     return f"{line} {REPEAT_CONFIRMS}"
+
+
+CEILING_MEASURE = ("Further Rounds can't show a measurable rise in the Overall score; a single "
+                   "measurement can still move (change its target or Share of score to chase it).")
+CEILING_SETUP_HELP = "Change a measurement's target or Share of score to aim somewhere new."
 
 
 def binding_item(kind, name, amount_text=""):

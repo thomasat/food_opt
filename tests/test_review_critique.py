@@ -476,3 +476,44 @@ def test_review_tooltips_are_about_120_words(line_a):
         if help_ and _words(help_) > wording.TOOLTIP_WORDS:
             long.append((_words(help_), help_[:80]))
     assert long == []
+
+
+# ------------------------------------------------------------------ #
+#  Follow-up (owner): the stop signal after a rise too
+# ------------------------------------------------------------------ #
+
+def test_the_ceiling_stop_fires_on_a_rising_round(monkeypatch):
+    monkeypatch.setattr(U, "_say", lambda o, t: t)
+    opt = NS(pending_batch=[], pending_batch_no=None, next_batch_no=lambda: 7,
+             utility_ceiling=lambda: 100.0)
+    facts = NS(next=insights.NextStep("rising", assumed=False),
+               best=NS(score=98.3, formulation=16), yardstick=_yard())
+    assert U.ceiling_stop(opt, facts)
+    card = U.next_card(opt, facts)
+    assert card.word == wording.CARD_CEILING and card.lines == []
+    # The "?" says what a further Round can and cannot show.
+    tip = U.ceiling_tip(opt, facts)
+    assert wording.CEILING_MEASURE in tip and _words(wording.brief(tip)) <= wording.TOOLTIP_WORDS
+    assert wording.CEILING_MEASURE == (
+        "Further Rounds can't show a measurable rise in the Overall score; a single measurement "
+        "can still move (change its target or Share of score to chase it).")
+    # Below the threshold, Rising keeps Make Round 7.
+    facts.best = NS(score=95.0, formulation=10)
+    assert not U.ceiling_stop(opt, facts)
+    assert U.next_card(opt, facts).word == wording.card_make(7)
+    # The misses row: the stop, its Repeat request kept under it.
+    facts.best = NS(score=99.2, formulation=21)
+    facts.next = insights.NextStep("misses")
+    card = U.next_card(opt, facts)
+    assert card.word == wording.CARD_CEILING
+    assert card.lines == [(wording.card_noise_repeat(21), False)]
+    # A disagreeing Repeat (check the panel first), or a Round still open,
+    # is never replaced.
+    facts.next = insights.NextStep("repeat")
+    assert not U.ceiling_stop(opt, facts)
+    facts.next = insights.NextStep("rising")
+    monkeypatch.setattr(U, "open_rows", lambda o: [{"formulation": 22}])
+    opt.pending_batch = [{"formulation": 22}]
+    assert not U.ceiling_stop(opt, facts)
+    for text in (wording.CEILING_MEASURE, wording.CEILING_SETUP_HELP):
+        assert not any(p.search(text) for p in _BANNED), text

@@ -328,8 +328,13 @@ def _check_without_repeat(at, name, word):
     asks = [line for line in p["lines"] + n["lines"]
             if line.startswith("Repeat Formulation ") and line.endswith("to check noise")]
     assert len(asks) == 1, (p["lines"], n["lines"])
+    stop = wording.answer_line(wording.CEILING_HEAD, wording.CEILING_TAIL)
     for line in p["lines"] + n["lines"]:
-        assert _words(line) <= 6, line
+        # Review critique, follow-up: Round 6 scored sits within noise of the
+        # top score; the stop headline (at most 14 words) leads What next?.
+        assert _words(line) <= (14 if line == stop else 6), line
+    if name == R6:
+        assert stop in n["lines"]
     opt = FoodOptimizer(name)
     checks = insights.check_rounds(opt)
     d = insights.miss_diagnosis(opt, checks)
