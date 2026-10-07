@@ -6954,6 +6954,72 @@ def _top_zone_need(opt):
     return None if not need else f"{need:.1f}"
 
 
+_AVG_GAP = 4                 # px between a Round's average bar and its label
+_AVG_CLEAR = 2               # px a label keeps clear of a dot, a ring or the best line
+_AVG_MAX_SHIFT = 16          # px a label may move past _AVG_GAP to get clear
+_DOT_R = 4                   # px: a formulation's dot (size 30) and its stroke
+_RING_R = 8                  # px: the Start and Best rings (size 150)
+_MIN_PLOT_W = 560            # px: the narrowest plot the x clearances assume
+
+
+def average_label_y(avgs, dots, steps, rings, y_domain, x_domain,
+                    height=IMPROVING_HEIGHT, width=_MIN_PLOT_W, font=FONT_SMALL):
+    """Where each Round's average label sits (presentation zoom check): the
+    centre of its text, in score units, under its bar unless a mark is
+    there, then over it, then whichever side needs the smaller nudge — so
+    no label lands on a dot, a ring or the Best so far line.
+
+    avgs: round_averages rows; dots: (x, score) per formulation; steps:
+    best_steps rows; rings: (x, score) of the Start and Best rings."""
+    y0, y1 = y_domain
+    x0, x1 = x_domain
+    ypx = height / (y1 - y0) if y1 > y0 else 1.0
+    xpx = width / (x1 - x0) if x1 > x0 else 1.0
+    out = []
+    for _r, a, b, m, _n in avgs:
+        mid, text = (a + b) / 2, one_decimal(m)
+        half_w = 0.31 * font * len(text)
+        # Every mark near the label's column, as (x px from the centre,
+        # y px above the bar, radius): dots and rings round, the best line
+        # a run of points along its step.
+        marks = [((x - mid) * xpx, (v - m) * ypx, _DOT_R) for x, v in dots]
+        marks += [((x - mid) * xpx, (v - m) * ypx, _RING_R) for x, v in rings]
+        for sa, sb, v, _sr in steps:
+            lo, hi = max(sa, mid - half_w / xpx - 1), min(sb, mid + half_w / xpx + 1)
+            k = lo
+            while k <= hi:
+                marks.append(((k - mid) * xpx, (v - m) * ypx, 1.5))
+                k += 2 / xpx
+        marks = [(dx, dy, r) for dx, dy, r in marks if abs(dx) < half_w + r + _AVG_CLEAR]
+
+        def clear(sign, gap):
+            """Whether the label's box, `gap` px over (sign 1) or under (-1)
+            the bar, keeps clear of every mark and inside the plot."""
+            near, far = gap, gap + font
+            top_px = (y1 - m) * ypx
+            bottom_px = (m - y0) * ypx
+            if (sign > 0 and far > top_px) or (sign < 0 and far > bottom_px):
+                return False
+            for _dx, dy, r in marks:
+                d = dy * sign
+                if near - r - _AVG_CLEAR < d < far + r + _AVG_CLEAR:
+                    return False
+            return True
+
+        best = None
+        for gap in range(_AVG_GAP, _AVG_GAP + _AVG_MAX_SHIFT + 1):
+            # Under first (where the label always was), then over.
+            for sign in (-1, 1):
+                if clear(sign, gap):
+                    best = (sign, gap)
+                    break
+            if best:
+                break
+        sign, gap = best or (-1, _AVG_GAP)
+        out.append(m + sign * (gap + font / 2) / ypx)
+    return out
+
+
 def improving_chart(opt):
     """Are we improving? (a): each formulation's measured Overall score
     (grey dots), Best so far (an ink step), each Round's average (a short
@@ -7071,11 +7137,19 @@ def improving_chart(opt):
             color=alt.Color("what:N", scale=kinds, legend=legend),
             tooltip=[alt.Tooltip("round:N", title=_say(opt, wording.ROUND_CAP)),
                      alt.Tooltip("text:N", title=avg_name)]))
-        # Round-2 fixes (P2 #7): each Round's average printed under its bar,
-        # no hover needed.
+        # Round-2 fixes (P2 #7): each Round's average printed by its bar,
+        # no hover needed; under it unless a mark is there (zoom check).
+        rings = []
+        if nums is not None:
+            rings = [(int(opt.formulation_ids[story_start(opt)[0]]), nums[0]),
+                     (nums[4], nums[2])]
+        dots = [(float(n), float(v)) for n, v in zip(frame[formulation], frame[score])
+                if v is not None and v == v]
+        adf["label_y"] = average_label_y(avgs, dots, steps, rings, (bottom, top),
+                                         tuple(_x_domain(opt)))
         layers += _halo_text(adf, alt.X("mid:Q", scale=x_scale),
-                             alt.Y("avg:Q", scale=y_scale, title=y_title), "text:N", mid,
-                             fontSize=FONT_SMALL, baseline="top", dy=4)
+                             alt.Y("label_y:Q", scale=y_scale, title=y_title), "text:N", mid,
+                             fontSize=FONT_SMALL, baseline="middle")
     layers.append(alt.Chart(frame).mark_point(size=30, strokeWidth=1.3, opacity=0.9,
                                               color=grey).encode(
         x=x, y=y,
