@@ -6,12 +6,18 @@
 # each element as it is produced, so the two light imports, the page config
 # and the placeholder come FIRST, and the heavy ones after: the line is on
 # screen for the whole import and is cleared at _starting.empty() below.
+import os
+
 import streamlit as st
 
 import wording
 
 # Must be the first Streamlit call of the run — before the placeholder.
-st.set_page_config(page_title=wording.APP_TITLE, layout="wide")
+# FOOD_OPT_SIDEBAR=collapsed opens the window with the sidebar folded, for a
+# presenter's screen; unset (or anything else), Streamlit's default stands.
+st.set_page_config(page_title=wording.APP_TITLE, layout="wide",
+                   **({"initial_sidebar_state": "collapsed"}
+                      if os.environ.get("FOOD_OPT_SIDEBAR") == "collapsed" else {}))
 # Only the first run of a session pays for the imports; every rerun after it
 # has them in memory, and a line promising a wait that is already over would
 # flicker on every click.
@@ -22,7 +28,6 @@ if "_imports_warmed" not in st.session_state:
     _starting.info(wording.STARTING_APP)
 
 import json                                   # noqa: E402
-import os                                     # noqa: E402
 import re as _re                              # noqa: E402
 import time                                   # noqa: E402
 from datetime import datetime, timedelta                 # noqa: E402
