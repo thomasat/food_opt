@@ -10575,7 +10575,8 @@ def changes_same(round_no):
     return f"{BEST_SO_FAR_COLUMN} is still {ROUND_CAP} {round_no}'s best."
 
 
-def changes_help(start_no, best_no, start_round, fill=None, fixed=False, settings=False):
+def changes_help(start_no, best_no, start_round, fill=None, fixed=False, settings=False,
+                 near_zero=False):
     """The caption's "?": why the table shows no cause, then how it is read."""
     out = [f"Several things changed at once between {FORMULATION_CAP} {start_no} and "
            f"{FORMULATION_CAP} {best_no}, so this table can't separate their effects. "
@@ -10583,6 +10584,8 @@ def changes_help(start_no, best_no, start_round, fill=None, fixed=False, setting
            f"Start: {FORMULATION_CAP} {start_no}, the best of {ROUND_CAP} {start_round}, as in "
            f"Start vs best. Largest change first, as a share of each row's range "
            f"(Highest − Lowest). Grey %: the change against Start."]
+    if near_zero:
+        out[-1] += " No % where the start amount was near zero."
     if settings:
         out[-1] += " Settings show no %."
     if fill:
@@ -10596,6 +10599,12 @@ def changes_end_group(end, items):
     """'the Highest of Tap water (42 g) and Tapioca starch (2.6 g)'."""
     named = items[0] if len(items) == 1 else ", ".join(items[:-1]) + AND_JOIN + items[-1]
     return f"the {end} of {named}"
+
+
+def changes_multi_item(name_text, amount_text):
+    """A limit on several rows as the limits line names it: 'the Batch
+    total limit (≤ 98.7 g)'."""
+    return f"{name_text} limit {amount_text}"
 
 
 def changes_limits(untested, tested):

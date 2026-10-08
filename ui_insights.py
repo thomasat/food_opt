@@ -7466,7 +7466,7 @@ def target_chart(opt):
 
 _CHANGE_WORDS = 12        # the answer line, at most
 _LIMIT_WORDS = 16         # the limits line, not counting the amounts in brackets
-_LIMIT_WORDS_BOTH = 21    # ...when some limits were tested beyond and some not
+_PERCENT_FROM = 0.10      # a % only from a Start of this share of the row's range
 
 
 @dataclasses.dataclass
@@ -7480,6 +7480,7 @@ class ChangeRow:
     item: str               # the answer line's words: 'Coconut cream −6.4 g'
     setting: bool = False
     changed: bool = True    # False when the change reads as nothing
+    near_zero: bool = False  # no %: Start under _PERCENT_FROM of the range
 
 
 @dataclasses.dataclass
@@ -7505,7 +7506,10 @@ def limit_words(text):
 def _change_row(opt, var, a, b):
     """One row: Start, Best so far and the change in the row's own unit and
     the Review's decimal rule (_shared_decimals over the pair; a setting by
-    fmt_setting), the % against a non-zero Start in grey."""
+    fmt_setting). The change is the shown Best minus the shown Start, so
+    the row's arithmetic reads right (57.6 → 51.3 is −6.3). The % against
+    Start in grey only from a Start of _PERCENT_FROM of the row's range: a
+    near-zero Start gives a % nobody can use."""
     name = var['name']
     if var.get('type', 'continuous') != 'continuous':
         moved = a != b
@@ -7520,24 +7524,31 @@ def _change_row(opt, var, a, b):
     setting = not insights._is_ingredient(var)
     lo, hi = (float(x) for x in var['bounds'])
     share = abs(delta) / (hi - lo) if hi > lo else 0.0
+    near_zero = False
     if setting:
         start, best = fmt_setting(a, unit), fmt_setting(b, unit)
-        size = fmt_setting(abs(delta), "")
+        shown = round(round(b, 2) - round(a, 2), 2)
+        size = fmt_setting(abs(shown), "")
         changed = size != "0"
-        change = join_unit(("+" if delta > 0 else "−") + size if changed else "0", unit)
+        change = join_unit(("+" if shown > 0 else "−") + size if changed else "0", unit)
         percent = ""
     else:
         d = _shared_decimals([a, b])
-        start, best = join_unit(f"{a:.{d}f}", unit), join_unit(f"{b:.{d}f}", unit)
-        signed = wording.signed(delta, d)
+        a_shown, b_shown = float(f"{a:.{d}f}"), float(f"{b:.{d}f}")
+        start, best = join_unit(f"{a_shown:.{d}f}", unit), join_unit(f"{b_shown:.{d}f}", unit)
+        shown = round(b_shown - a_shown, d)
+        signed = wording.signed(shown, d)
         changed = float(signed.replace("−", "-")) != 0
         change = join_unit(signed, unit)
         percent = ""
-        if changed and float(f"{a:.{d}f}") != 0:
-            pct = 100.0 * delta / a
-            percent = f"({wording.signed(pct, 0)} %)"
+        if changed:
+            if a >= _PERCENT_FROM * (hi - lo) and a_shown != 0:
+                percent = f"({wording.signed(100.0 * shown / a_shown, 0)} %)"
+            else:
+                near_zero = True
     return ChangeRow(name, start, best, change, percent, share,
-                     wording.changes_item(name, change), setting=setting, changed=changed)
+                     wording.changes_item(name, change), setting=setting, changed=changed,
+                     near_zero=near_zero)
 
 
 def _limit_amount(opt, name, value):
@@ -7631,9 +7642,12 @@ def best_limits(opt, recipe):
 
 def limits_line(opt, recipe):
     """(the limits line, its "?") — None, None when Best so far sits at no
-    limit. 'nothing tested beyond' only of the limits no recorded
-    formulation lies beyond (limits can change after a formulation is
-    made)."""
+    limit. The line names the limits on one row (an ingredient or a
+    setting); a limit on several rows (the Batch total) is named on the
+    line only when Best so far sits at no row's limit, and always in the
+    "?" with what lies beyond it. 'nothing tested beyond' only of the
+    limits no recorded formulation lies beyond (limits can change after a
+    formulation is made)."""
     ends, others = best_limits(opt, recipe)
     groups = []         # (text, every item's beyond list, [(item, beyond)])
     for kind, end in (("highest", "Highest"), ("lowest", "Lowest")):
@@ -7644,17 +7658,22 @@ def limits_line(opt, recipe):
                 groups.append((wording.changes_end_group(
                     end, [f"{n} ({a})" for n, a, _ in part]), clear,
                     [(f"{n}'s {end} ({a})", bey) for n, a, bey in part]))
+    multi = []
     for text, bey in others:
-        groups.append((text, not bey, [(text, bey)]))
-    if not groups:
+        m = re.match(r"^(.*) (\(.*\))$", text)
+        said = wording.changes_multi_item(m.group(1), m.group(2)) if m else text
+        multi.append((said, not bey, [(text, bey)]))
+    if not groups and not multi:
         return None, None
-    untested = [g[0] for g in groups if g[1]]
-    tested = [g[0] for g in groups if not g[1]]
+    shown = groups or multi
+    untested = [g[0] for g in shown if g[1]]
+    tested = [g[0] for g in shown if not g[1]]
     line = wording.changes_limits(untested, tested)
-    budget = _LIMIT_WORDS_BOTH if (untested and tested) else _LIMIT_WORDS
-    items = [it for g in groups for it in g[2]]
-    if limit_words(line) > budget:
-        line = wording.changes_limits_count(len(items), sum(1 for _, b in items if not b))
+    items = [it for g in groups + multi for it in g[2]]
+    if limit_words(line) > _LIMIT_WORDS:
+        on_line = [it for g in shown for it in g[2]]
+        line = wording.changes_limits_count(len(on_line),
+                                            sum(1 for _, b in on_line if not b))
     beyond = [wording.changes_beyond(number_list(sorted(set(b))), len(set(b)) > 1, it)
               for it, b in items if b]
     return (_say(opt, line),
@@ -7740,7 +7759,8 @@ def _changes_block(opt):
             st.markdown(ch.limits, help=ch.limits_help)
         st.caption(_say(opt, wording.CHANGES_CAPTION), help=_say(opt, wording.brief(
             wording.changes_help(ch.start_no, ch.best_no, ch.start_round, fill=ch.fill,
-                                 fixed=ch.fixed, settings=any(r.setting for r in ch.rows)))))
+                                 fixed=ch.fixed, settings=any(r.setting for r in ch.rows),
+                                 near_zero=any(r.near_zero for r in ch.rows)))))
 
 
 def _frange(a, b, step):

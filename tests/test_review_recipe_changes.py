@@ -169,10 +169,67 @@ def test_lowest_and_a_limit_on_several_rows_are_named():
     opt = _opt(rows)
     opt.add_quantity_constraint(["Oil", "Sugar"], max_val=12.0)
     ch = U.what_changed(opt)
-    # F3 (14 + 1.5 g) lies beyond the Oil + Sugar limit; nothing below the Lowests.
-    assert ch.limits == ("Best so far sits at the Lowest of Sugar (0 g) and Starch (1 g), "
-                         "nothing tested beyond; also at the Oil + Sugar (≤ 12 g).")
+    # F3 (14 + 1.5 g) lies beyond the Oil + Sugar limit; nothing below the
+    # Lowests. Follow-up 3: the line names the one-row limits only; the
+    # limit on several rows is in the "?".
+    assert ch.limits == ("Best so far sits at the Lowest of Sugar (0 g) and Starch (1 g); "
+                         "nothing tested beyond.")
+    assert "the Oil + Sugar (≤ 12 g)" in ch.limits_help
     assert "Formulation 3 lies beyond the Oil + Sugar (≤ 12 g)." in ch.limits_help
+
+
+def test_a_limit_on_several_rows_alone_is_named_on_the_line():
+    """Follow-up 3: Best so far at no row's limit, only at a limit on
+    several rows (the yogurt's state B): that limit on the line."""
+    opt = _opt()
+    opt.add_quantity_constraint(["Oil", "Sugar"], max_val=12.6)
+    ch = U.what_changed(opt)
+    # F3 (14 + 1.5 g) lies beyond it: no "nothing tested beyond".
+    assert ch.limits == "Best so far sits at the Oil + Sugar limit (≤ 12.6 g)."
+    assert "Formulation 3 lies beyond the Oil + Sugar (≤ 12.6 g)." in ch.limits_help
+    assert U.limit_words(ch.limits) <= 16
+    rows = [(1, 1, 6, 1, 3, 3), (1, 2, 10, 0, 2, 5), (1, 3, 9, 1.5, 1.5, 4), (2, 4, 12, 0.6, 4, 6)]
+    clear = _opt(rows)
+    clear.add_quantity_constraint(["Oil", "Sugar"], max_val=12.6)
+    assert U.what_changed(clear).limits == (
+        "Best so far sits at the Oil + Sugar limit (≤ 12.6 g); nothing tested beyond.")
+
+
+def test_change_is_the_shown_best_minus_the_shown_start():
+    """Follow-up 1: 57.62 → 51.27 shows 57.6 → 51.3, so the change reads
+    −6.3 (never −6.4, the unrounded −6.35), in the answer line too."""
+    rows = [(1, 1, 50.0, 1.0, 3.0, 3.0), (1, 2, 57.62, 1.0, 3.0, 5.0),
+            (2, 3, 51.27, 1.0, 3.0, 6.0)]
+    opt = FoodOptimizer(f"changes_{next(_n)}")
+    opt.set_amount_unit("g")
+    opt.add_ingredient("Coconut cream", 40, 70)
+    opt.add_ingredient("Sugar", 0, 2)
+    opt.add_ingredient("Starch", 1, 5)
+    opt.add_objective("Firmness", 100, goal="target", target=6, min_val=0, max_val=10)
+    for r, no, c, su, stch, f in rows:
+        opt.tell({"Coconut cream": c, "Sugar": su, "Starch": stch}, {"Firmness": f},
+                 formulation_no=no, batch_no=r)
+    ch = U.what_changed(opt)
+    row = _row(ch, "Coconut cream")
+    assert (row.start, row.best, row.change) == ("57.6 g", "51.3 g", "−6.3 g")
+    assert row.percent == "(−11 %)"                    # −6.3 of 57.6
+    assert U.changes_answer(opt, ch) == "**Biggest change:** Coconut cream −6.3 g."
+
+
+def test_no_percent_from_a_start_near_zero():
+    """Follow-up 2: a % only from a Start of at least 10 % of the row's
+    range; the "?" says why the others have none."""
+    rows = [(1, 1, 6, 1, 3, 3), (1, 2, 10, 0.1, 2, 5), (2, 3, 12, 1.2, 4, 6)]
+    opt = _opt(rows)
+    ch = U.what_changed(opt)
+    sugar = _row(ch, "Sugar")                          # 0.1 g of a 2 g range: 5 %
+    assert (sugar.start, sugar.change, sugar.percent) == ("0.1 g", "+1.1 g", "")
+    assert sugar.near_zero
+    assert _row(ch, "Oil").percent == "(+20 %)"        # 10 g of a 20 g range
+    help_ = wording.changes_help(2, 3, 1, near_zero=True)
+    assert "No % where the start amount was near zero." in help_
+    edge = _opt([(1, 1, 6, 1, 3, 3), (1, 2, 10, 0.2, 2, 5), (2, 3, 12, 1.2, 4, 6)])
+    assert _row(U.what_changed(edge), "Sugar").percent == "(+500 %)"   # exactly 10 %
 
 
 def test_nothing_tested_beyond_is_false_when_an_earlier_formulation_exceeds_the_limit():
@@ -235,7 +292,8 @@ def test_no_banned_word():
              wording.CHANGES_CHOICE_CHANGED, wording.CHANGES_CHOICE_SAME, wording.CHANGES_WIDEN,
              wording.changes_same(1), wording.changes_answer([]), U.changes_answer(opt, ch),
              U.changes_table(opt, ch), wording.changes_limits_count(3, 2),
-             wording.changes_help(2, 4, 1, fill="Water", fixed=True, settings=True)]
+             wording.changes_help(2, 4, 1, fill="Water", fixed=True, settings=True, near_zero=True),
+             wording.changes_multi_item("the Oil + Sugar", "(≤ 12 g)")]
     rows = ROWS[:3] + [(2, 4, 12.0, 0.0, 1.0, 6.0)]
     lim = _opt(rows)
     lim.add_quantity_constraint(["Oil", "Sugar"], max_val=12.0)
