@@ -362,20 +362,26 @@ def plan(opt):
     """Every spec the screens need, in the order they need them (review
     I15): the current Overall-score model and every Round's Overall-score
     check (Make a round's column and its widening), the measurements'
-    checks in the verdict's Rounds (answer 1), the current measurement
-    models, then every other check, latest Round first. Specs with fewer
+    checks in the verdict's Rounds (answer 1), those of the Rounds before
+    them (their widening), the current measurement models, then every
+    other check, latest Round first. Specs with fewer
     than MIN_ROWS measured rows fit nothing and are left out."""
     names = [n for n, _, _ in insights.outputs(opt)]
     measurements = [n for n in names if n != insights.SCORE]
     checked = [(r, first) for r, first in insights.round_order(opt) if first >= insights.MIN_ROWS]
     window = set(window_rounds(opt))
+    # The checks the verdict's checks are widened by (every Round before
+    # them, insights.widen_pairs): answer 1 waits for them too (2026-10-07).
+    reads = {r for r, _ in insights.widen_pairs(opt, {(r, None) for r in window})}
     every = range(len(opt.Y_history))
     wanted = [(NOW, insights.SCORE, every)]
     wanted += [(r, insights.SCORE, range(first)) for r, first in reversed(checked)]
     wanted += [(r, n, range(first)) for r, first in reversed(checked) if r in window
                for n in measurements]
+    wanted += [(r, n, range(first)) for r, first in reversed(checked)
+               if r in reads - window for n in measurements]
     wanted += [(NOW, n, every) for n in measurements]
-    wanted += [(r, n, range(first)) for r, first in reversed(checked) if r not in window
+    wanted += [(r, n, range(first)) for r, first in reversed(checked) if r not in reads
                for n in measurements]
     out = []
     for stage, name, rows in wanted:
@@ -389,17 +395,28 @@ def stage_specs(opt, specs, stage):
     """The specs one part of the screens waits for:
     "column" — Make a round's Overall-score column (the current Overall-score
     model and every Round's Overall-score check);
-    "trust"  — answer 1 and Make a round's track-record line (every Round's
-    Overall-score check and the measurements' checks in the verdict's Rounds);
+    "trust"  — answer 1, Make a round's track-record line and the
+    measurements' 95 % ranges on Results and Make a round (every Round's
+    Overall-score check, the measurements' checks in the verdict's Rounds
+    and every check their widening reads, insights.widen_pairs);
     "stand"  — answers 2 and 3 ("trust" and the current Overall-score model);
-    "now"    — the current models (Make a round's predicted measurements);
-    "all"    — everything."""
-    window = set(window_rounds(opt)) if stage in ("trust", "stand") else set()
+    "now"    — the current models (Make a round's predicted measurements,
+    shown once "trust"'s checks, their widening, are in too);
+    "all"    — everything.
+    A part never lacks a check its own checks' widening reads, so a range
+    worked out from a part is the one every check gives (2026-10-07)."""
+    pairs = set()
+    if stage in ("trust", "stand"):
+        window = set(window_rounds(opt))
+        pairs = insights.widen_pairs(opt, {(s.stage, s.name) for s in specs
+                                           if s.stage != NOW and s.stage in window})
     keep = {
         "column": lambda s: s.name == insights.SCORE,
         "now": lambda s: s.stage == NOW,
-        "trust": lambda s: s.stage != NOW and (s.name == insights.SCORE or s.stage in window),
-        "stand": lambda s: s.name == insights.SCORE or (s.stage != NOW and s.stage in window),
+        "trust": lambda s: s.stage != NOW and (s.name == insights.SCORE
+                                               or (s.stage, s.name) in pairs),
+        "stand": lambda s: s.name == insights.SCORE or (s.stage != NOW
+                                                         and (s.stage, s.name) in pairs),
         "all": lambda s: True,
     }[stage]
     return [s for s in specs if keep(s)]

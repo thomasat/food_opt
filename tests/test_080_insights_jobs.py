@@ -36,8 +36,14 @@ def test_the_plan_puts_the_overall_score_first_then_the_verdicts_rounds():
     rest = order[len(score):]
     head = [(r, n) for r in reversed(window) for n in ("Firmness", "Juiciness")]
     assert rest[:len(head)] == head
-    assert rest[len(head):len(head) + 2] == [(insights_jobs.NOW, "Firmness"),
-                                             (insights_jobs.NOW, "Juiciness")]
+    # Then the Rounds before the window, which the window's widening reads
+    # (2026-10-07), then the current measurement models.
+    before = [(r, n) for r in reversed(checked) if r < min(window)
+              for n in ("Firmness", "Juiciness")]
+    assert before
+    assert rest[len(head):len(head) + len(before)] == before
+    assert rest[len(head) + len(before):len(head) + len(before) + 2] == [
+        (insights_jobs.NOW, "Firmness"), (insights_jobs.NOW, "Juiciness")]
     assert len(set(order)) == len(order)
 
 
@@ -60,8 +66,12 @@ def test_each_part_of_the_screen_waits_for_its_own_specs():
     window = set(insights_jobs.window_rounds(opt))
     part = lambda stage: {(s.stage, s.name) for s in insights_jobs.stage_specs(opt, specs, stage)}
     score = {(s.stage, s.name) for s in specs if s.name == insights.SCORE}
+    # The verdict's Rounds and every Round before them: the checks their
+    # widening reads (2026-10-07).
     in_window = {(s.stage, s.name) for s in specs
-                 if s.name != insights.SCORE and s.stage in window}
+                 if s.name != insights.SCORE and s.stage != insights_jobs.NOW
+                 and s.stage <= max(window)}
+    assert {r for r, n in in_window} - window
     assert part("column") == score
     assert part("trust") == (score - {(insights_jobs.NOW, insights.SCORE)}) | in_window
     assert part("stand") == score | in_window

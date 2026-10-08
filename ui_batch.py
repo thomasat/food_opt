@@ -847,16 +847,25 @@ def _round_predictions(opt):
         preds = insights.round_predictions(opt, fitted, rows)
     except Exception:   # the table stands without the column
         return None
-    checks = ui_insights.cached_checks(opt) or ()
-    widen = {o['name']: insights.measure_widen(checks, o['name'], opt.pending_batch_no)
-             for o in opt.objectives}
+    # Review critique (fix 10): each measurement's range widened by its own
+    # record from earlier Rounds, as the Overall score's is: every Round's
+    # check but the open one's, which the "trust" checks hold. Until they
+    # are worked out the measurements are left out, never drawn unwidened
+    # and redrawn wider once they land (2026-10-07); Make a round never
+    # fits for them (review C I-4).
+    checks = ui_insights.checks_for(opt, "trust")
+    names = [o['name'] for o in opt.objectives]
+    widen = ({} if checks is None else
+             {n: insights.measure_widen(checks, n, opt.pending_batch_no) for n in names})
     for per in preds.values():
         per[insights.SCORE] = insights.widened(score, per[insights.SCORE], factor)
-        # Review critique (fix 10): each measurement's range widened by its
-        # own record from earlier Rounds, as the Overall score's is.
-        for name, f in widen.items():
-            if name in per and fitted.get(name) is not None:
-                per[name] = insights.widened(fitted[name], per[name], f)
+        for name in names:
+            if name not in per:
+                continue
+            if name not in widen:
+                del per[name]
+            elif fitted.get(name) is not None:
+                per[name] = insights.widened(fitted[name], per[name], widen[name])
     return preds or None
 
 
@@ -1167,7 +1176,8 @@ def _show_predictions(opt, later, linked=False):
             st.caption(wording.for_project(opt, wording.predictions_round_caption(
                 values=not opt.has_ingredients())),
                 help=wording.for_project(opt, wording.predictions_round_help()))
-        if not ui_insights.waiting(opt, "now"):
+        if not ui_insights.waiting(opt, "now") and any(
+                o["name"] in per for per in preds.values() for o in opt.objectives):
             _predicted_measurements(opt, preds)
         _why_these(opt, preds)
 

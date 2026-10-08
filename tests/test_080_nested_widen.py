@@ -116,7 +116,11 @@ def test_only_works_out_the_pairs_asked_for_and_keeps_nothing():
     cache = {}
     part = insights.check_rounds(opt, cache=cache, only=pairs)
     assert cache == {}
-    assert part == [c for c in full if (c.round, c.name) in pairs]
+    # With the checks their widening reads (2026-10-07): Round 4's
+    # Firmness is widened by Firmness in the Rounds before it.
+    need = insights.widen_pairs(opt, pairs)
+    assert need - pairs == {(r, "Firmness") for r, _ in insights.round_order(opt) if r < 4}
+    assert part == [c for c in full if (c.round, c.name) in need]
 
 
 def test_a_disagreeing_repeat_is_judged_on_the_range_shown():

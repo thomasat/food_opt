@@ -525,10 +525,14 @@ def check_rounds(opt, cache=None, checking=None, only=None):
 
     `only`, a set of (Round, output name) pairs, works out those checks
     alone, for a screen filling in while the rest are still being fitted; a
-    partial answer is never written to `cache`. The Overall score's
-    widening is final only when `only` holds every Round's Overall score."""
+    partial answer is never written to `cache`. It is taken with every
+    pair their widening reads (widen_pairs), so a check comes out the same
+    whether it is worked out alone or with every other: one 95 % range
+    per forecast, whatever is cached (2026-10-07)."""
     names = [n for n, _, _ in outputs(opt)]
     order = round_order(opt)
+    if only is not None:
+        only = widen_pairs(opt, only)
     keys = round_keys(opt) if cache is not None else {}
     checks = []
     for r, first in order:
@@ -550,6 +554,21 @@ def check_rounds(opt, cache=None, checking=None, only=None):
         for gone in set(cache) - set(keys.values()):
             del cache[gone]
     return nest_score_widen(opt, nest_measure_widen(opt, checks))
+
+
+def widen_pairs(opt, pairs):
+    """`pairs`, (Round, output name) pairs of Round-ahead checks, with
+    every pair their widening reads: a check in Round r is widened by the
+    same output's checks in every Round before r (nest_measure_widen,
+    nest_score_widen), so those are needed too. Worked out from the Rounds
+    alone; a pair whose Round has no check is harmless (nothing is fitted
+    for it)."""
+    rounds = [r for r, _ in round_order(opt)]
+    out = set(pairs)
+    for r, name in pairs:
+        if r in rounds:
+            out.update((q, name) for q in rounds[:rounds.index(r)])
+    return out
 
 
 def nest_measure_widen(opt, checks):
