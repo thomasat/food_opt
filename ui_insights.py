@@ -981,6 +981,7 @@ STRIP_STYLE = """<style>
 [data-testid="stLayoutWrapper"]:has(> .st-key-insights_strip_predictions),
 [data-testid="stLayoutWrapper"]:has(> .st-key-insights_strip_next) {
   flex: 1 1 auto !important; min-width: 0; }
+.st-key-insights_changes th, .st-key-insights_changes td { padding: 0.3rem 0.75rem !important; }
 </style>"""
 
 
@@ -6643,6 +6644,7 @@ def _progress_body(opt, slot):
                     recipe = None
                 if recipe:
                     st.caption(recipe)
+            _changes_block(opt)
 
 
 def _drives_section(opt, slot, computed, facts):
@@ -7455,6 +7457,290 @@ def target_chart(opt):
                                  fontSize=FONT_LABEL, dy=11, baseline="top")
     return readable(alt.layer(*layers).properties(
         height=int(TARGET_ROW_H * (n + (0.6 if shared else 0)))))
+
+
+# --- What changed in the formulation (review, 2026-10-08) ---
+# Start (story_start: the first scored Round's best, as Start vs best) against
+# Best so far, one row per varied ingredient or process setting. Model-free:
+# the recorded make-ups only, at the Formulation total (insights.start_recipe).
+
+_CHANGE_WORDS = 12        # the answer line, at most
+_LIMIT_WORDS = 16         # the limits line, not counting the amounts in brackets
+_LIMIT_WORDS_BOTH = 21    # ...when some limits were tested beyond and some not
+
+
+@dataclasses.dataclass
+class ChangeRow:
+    name: str
+    start: str
+    best: str
+    change: str
+    percent: str            # '(+62 %)', '' with none
+    share: float            # |change| as a share of Highest − Lowest (a choice: 0 or 1)
+    item: str               # the answer line's words: 'Coconut cream −6.4 g'
+    setting: bool = False
+    changed: bool = True    # False when the change reads as nothing
+
+
+@dataclasses.dataclass
+class Changes:
+    start_no: int
+    best_no: int
+    start_round: int
+    rows: list              # [ChangeRow], largest share first
+    same: bool              # Best so far is the start
+    fill: str | None        # the Fill to total row, left out
+    fixed: bool             # a fixed row was left out
+    limits: str | None      # the limits line, None when Best so far sits at none
+    limits_help: str | None
+
+
+def limit_words(text):
+    """Words in a line, the amounts in brackets not counted: '(42 g)' is
+    the number the name already announces."""
+    plain = re.sub(r"\([^)]*\)", "", str(text)).replace("**", "")
+    return len([w for w in plain.split() if re.search(r"\w", w)])
+
+
+def _change_row(opt, var, a, b):
+    """One row: Start, Best so far and the change in the row's own unit and
+    the Review's decimal rule (_shared_decimals over the pair; a setting by
+    fmt_setting), the % against a non-zero Start in grey."""
+    name = var['name']
+    if var.get('type', 'continuous') != 'continuous':
+        moved = a != b
+        return ChangeRow(name, str(a), str(b),
+                         wording.CHANGES_CHOICE_CHANGED if moved else wording.CHANGES_CHOICE_SAME,
+                         "", 1.0 if moved else 0.0,
+                         wording.changes_item(name, wording.changes_choice(a, b)),
+                         setting=not insights._is_ingredient(var), changed=moved)
+    a, b = float(a), float(b)
+    delta = b - a
+    unit = opt.unit_of(name)
+    setting = not insights._is_ingredient(var)
+    lo, hi = (float(x) for x in var['bounds'])
+    share = abs(delta) / (hi - lo) if hi > lo else 0.0
+    if setting:
+        start, best = fmt_setting(a, unit), fmt_setting(b, unit)
+        size = fmt_setting(abs(delta), "")
+        changed = size != "0"
+        change = join_unit(("+" if delta > 0 else "−") + size if changed else "0", unit)
+        percent = ""
+    else:
+        d = _shared_decimals([a, b])
+        start, best = join_unit(f"{a:.{d}f}", unit), join_unit(f"{b:.{d}f}", unit)
+        signed = wording.signed(delta, d)
+        changed = float(signed.replace("−", "-")) != 0
+        change = join_unit(signed, unit)
+        percent = ""
+        if changed and float(f"{a:.{d}f}") != 0:
+            pct = 100.0 * delta / a
+            percent = f"({wording.signed(pct, 0)} %)"
+    return ChangeRow(name, start, best, change, percent, share,
+                     wording.changes_item(name, change), setting=setting, changed=changed)
+
+
+def _limit_amount(opt, name, value):
+    """A row's limit as binding_texts writes it: '42 g', '2.6 g', '180 °C'."""
+    unit = opt.unit_of(name)
+    if insights.is_setting(opt, name):
+        return fmt_setting(value, unit)
+    return join_unit(f"{value:.0f}" if value == round(value) else _num(value), unit)
+
+
+def _made_recipes(opt):
+    """(formulation number, make-up at the Formulation total) of every
+    formulation recorded, scored or not, and of the open Round's rows."""
+    out = []
+    for i in range(len(opt.X_history)):
+        no = int(opt.formulation_ids[i]) if i < len(opt.formulation_ids) else None
+        out.append((no, insights.start_recipe(opt, i)))
+    for row in getattr(opt, 'pending_batch', None) or []:
+        try:
+            out.append((int(row['formulation']), insights.at_total(opt, row['recipe'])))
+        except Exception:
+            continue
+    return out
+
+
+def _qc_total(qc, recipe):
+    return sum(float(recipe.get(n, 0.0) or 0.0) for n in qc['ingredients'])
+
+
+def best_limits(opt, recipe):
+    """[(item, beyond numbers)] for every limit `recipe` sits at — the
+    app's own rule, insights.binding_limits (BINDING) — each with the
+    recorded formulations that lie beyond it. Rows first ('Highest', then
+    'Lowest'), then the limits on several rows."""
+    made = _made_recipes(opt)
+    ends = {"highest": [], "lowest": []}
+    others = []
+    bindings = insights.binding_limits(opt, recipe)
+    for b in bindings:
+        if b.kind in ("highest", "lowest"):
+            lo, hi = (float(x) for x in insights._var(opt, b.name)['bounds'])
+            tol = 1e-6 * max(hi - lo, 1e-9)
+            value = hi if b.kind == "highest" else lo
+            beyond = [no for no, r in made if r.get(b.name) is not None
+                      and not isinstance(r.get(b.name), str)
+                      and (float(r[b.name]) > hi + tol if b.kind == "highest"
+                           else float(r[b.name]) < lo - tol)]
+            ends[b.kind].append((b.name, _limit_amount(opt, b.name, value), beyond))
+    for qc in getattr(opt, 'quantity_constraints', []):
+        if qc.get('source') == 'formulation_total' or qc.get('exactly') is not None:
+            continue
+        total = _qc_total(qc, recipe)
+        for side, bound in (("min", qc.get('min')), ("max", qc.get('max'))):
+            if bound is None:
+                continue
+            bound = float(bound)
+            if abs(total - bound) > insights.BINDING * max(abs(bound), insights._EPS):
+                continue
+            tol = 1e-6 * max(abs(bound), 1.0)
+            beyond = [no for no, r in made
+                      if (_qc_total(qc, insights._numeric(r)) > bound + tol if side == "max"
+                          else _qc_total(qc, insights._numeric(r)) < bound - tol)]
+            one = dict(qc, min=bound if side == "min" else None,
+                       max=bound if side == "max" else None)
+            text = binding_texts(opt, [insights.Binding("limit", "", opt.limit_text(one))])[0]
+            others.append((text, beyond))
+    amount = max(opt.ingredient_total(recipe), insights._EPS)
+    numeric = insights._numeric(recipe)
+    for c in getattr(opt, 'constraints', []):
+        if opt.ingredients_without_property(c['metric']):
+            continue
+        for side, bound in (("min", c.get('min')), ("max", c.get('max'))):
+            if bound is None:
+                continue
+            if abs(opt._property_residual(numeric, c['metric'], bound)) > \
+                    insights.BINDING * max(abs(float(bound)), insights._EPS) * amount:
+                continue
+            beyond = []
+            for no, r in made:
+                res = opt._property_residual(insights._numeric(r), c['metric'], bound)
+                tol = 1e-6 * max(opt.ingredient_total(insights._numeric(r)), 1.0)
+                if (res > tol) if side == "max" else (res < -tol):
+                    beyond.append(no)
+            one = dict(c, min=bound if side == "min" else None,
+                       max=bound if side == "max" else None)
+            text = binding_texts(opt, [insights.Binding(
+                "limit", c['metric'], opt.property_limit_text(one))])[0]
+            others.append((text, beyond))
+    return ends, others
+
+
+def limits_line(opt, recipe):
+    """(the limits line, its "?") — None, None when Best so far sits at no
+    limit. 'nothing tested beyond' only of the limits no recorded
+    formulation lies beyond (limits can change after a formulation is
+    made)."""
+    ends, others = best_limits(opt, recipe)
+    groups = []         # (text, every item's beyond list, [(item, beyond)])
+    for kind, end in (("highest", "Highest"), ("lowest", "Lowest")):
+        rows = ends[kind]
+        for clear in (True, False):
+            part = [r for r in rows if (not r[2]) == clear]
+            if part:
+                groups.append((wording.changes_end_group(
+                    end, [f"{n} ({a})" for n, a, _ in part]), clear,
+                    [(f"{n}'s {end} ({a})", bey) for n, a, bey in part]))
+    for text, bey in others:
+        groups.append((text, not bey, [(text, bey)]))
+    if not groups:
+        return None, None
+    untested = [g[0] for g in groups if g[1]]
+    tested = [g[0] for g in groups if not g[1]]
+    line = wording.changes_limits(untested, tested)
+    budget = _LIMIT_WORDS_BOTH if (untested and tested) else _LIMIT_WORDS
+    items = [it for g in groups for it in g[2]]
+    if limit_words(line) > budget:
+        line = wording.changes_limits_count(len(items), sum(1 for _, b in items if not b))
+    beyond = [wording.changes_beyond(number_list(sorted(set(b))), len(set(b)) > 1, it)
+              for it, b in items if b]
+    return (_say(opt, line),
+            _say(opt, wording.brief(wording.changes_limits_help([i for i, _ in items], beyond))))
+
+
+def what_changed(opt):
+    """Changes from Start to Best so far, or None with no start, no best or
+    no varied row."""
+    s, b = story_start(opt), opt.best_index()
+    if s is None or b is None or b >= len(opt.X_history):
+        return None
+    i, r0 = s
+    start_no, best_no = int(opt.formulation_ids[i]), int(opt.formulation_ids[b])
+    fill = opt.balance_row_name()
+    fixed = bool(opt.fixed_variables())
+    if i == b:
+        return Changes(start_no, best_no, r0, [], True, fill, fixed, None, None)
+    a, z = insights.start_recipe(opt, i), insights.start_recipe(opt, b)
+    rows = []
+    for at, var in enumerate(opt.varying_variables()):
+        name = var['name']
+        if name == fill:
+            continue
+        absent = var.get('_absent_value', 0.0)
+        row = _change_row(opt, var, a.get(name, absent), z.get(name, absent))
+        rows.append(((-row.share, row.setting, at), row))
+    if not rows:
+        return None
+    rows = [r for _, r in sorted(rows, key=lambda t: t[0])]
+    limits, help_ = limits_line(opt, z)
+    return Changes(start_no, best_no, r0, rows, False, fill, fixed, limits, help_)
+
+
+def changes_answer(opt, ch):
+    """The answer line: the two largest changes by share of range (one
+    when two run past _CHANGE_WORDS)."""
+    if ch.same:
+        return _say(opt, wording.changes_same(ch.start_round))
+    moved = [r.item for r in ch.rows if r.changed]
+    line = wording.changes_answer(moved[:2])
+    if limit_words(line) > _CHANGE_WORDS and len(moved) > 1:
+        line = wording.changes_answer(moved[:1])
+    return _say(opt, line)
+
+
+def _md_cell(text):
+    return re.sub(r"([\\|*_`\[\]<>])", r"\\\1", str(text))
+
+
+def changes_table(opt, ch):
+    """The table as Markdown: four columns, the numbers right-aligned, the
+    % in grey after the change."""
+    kinds = {r.setting for r in ch.rows}
+    head = (wording.CHANGES_NAME_BOTH if len(kinds) > 1 else
+            wording.CHANGES_NAME_SETTING if kinds == {True} else wording.CHANGES_NAME_INGREDIENT)
+    cols = [_say(opt, head), _short(opt, wording.changes_start_column(ch.start_no)),
+            _short(opt, wording.changes_best_column(ch.best_no)), wording.CHANGES_CHANGE]
+    lines = ["| " + " | ".join(_md_cell(c) for c in cols) + " |",
+             "| :-- | --: | --: | --: |"]
+    for r in ch.rows:
+        change = _md_cell(r.change) + (f" :gray[{_md_cell(r.percent)}]" if r.percent else "")
+        lines.append(f"| {_md_cell(r.name)} | {_md_cell(r.start)} | {_md_cell(r.best)} | {change} |")
+    return "\n".join(lines)
+
+
+def _changes_block(opt):
+    """'What changed in the formulation' under Start vs best: the answer,
+    the table, the limits line, the caption."""
+    try:
+        ch = what_changed(opt)
+    except Exception:
+        ch = None
+    if ch is None:
+        return
+    with st.container(key="insights_changes"):
+        st.markdown(f"**{_say(opt, wording.CHANGES_TITLE)}**")
+        st.markdown(changes_answer(opt, ch))
+        if ch.same:
+            return
+        st.markdown(changes_table(opt, ch))
+        if ch.limits:
+            st.markdown(ch.limits, help=ch.limits_help)
+        st.caption(_say(opt, wording.CHANGES_CAPTION), help=_say(opt, wording.brief(
+            wording.changes_help(ch.start_no, ch.best_no, ch.start_round, fill=ch.fill,
+                                 fixed=ch.fixed, settings=any(r.setting for r in ch.rows)))))
 
 
 def _frange(a, b, step):

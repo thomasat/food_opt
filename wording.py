@@ -10523,3 +10523,116 @@ def next_misses_short(repeat_no=None):
     if repeat_no is None:
         return "Measurements miss often: add a Repeat to check noise."
     return f"Measurements miss often: {card_noise_repeat(repeat_no)}."
+
+
+# --- recipe changes ---
+# Review (2026-10-08): "What changed" under Start vs best, against target —
+# Start (the first Round's best, as that chart) against Best so far, one row
+# per varied ingredient or setting, model-free. A fact about amounts and
+# settings, never a cause (owner: "make sure what's said is accurate").
+# (The screen never says the old word for a formulation, so the title says formulation.)
+CHANGES_TITLE = "What changed in the formulation"
+CHANGES_CAPTION = "What changed, not proof of what caused it."
+CHANGES_NAME_INGREDIENT = "Ingredient"
+CHANGES_NAME_SETTING = "Setting"
+CHANGES_NAME_BOTH = "Ingredient or setting"
+CHANGES_CHANGE = "Change"
+CHANGES_CHOICE_CHANGED = "changed"
+CHANGES_CHOICE_SAME = "same"
+CHANGES_WIDEN = f"Widening a limit lets the next {ROUND_CAP} test beyond it."
+
+
+def changes_start_column(no):
+    """'Start (F3)'."""
+    return f"Start (F{no})"
+
+
+def changes_best_column(no):
+    """'Best so far (F16)'."""
+    return f"{BEST_SO_FAR_COLUMN} (F{no})"
+
+
+def changes_item(name, change):
+    """'Coconut cream −6.4 g'; a choice: 'Culture A → B'."""
+    return f"{name} {change}"
+
+
+def changes_choice(start, best):
+    return f"{start} → {best}"
+
+
+def changes_answer(items):
+    """At most 12 words: '**Biggest changes:** Coconut cream −6.4 g, Xanthan
+    gum +0.23 g.'"""
+    if not items:
+        return "**No change:** every amount and setting is as at Start."
+    word = "Biggest changes" if len(items) > 1 else "Biggest change"
+    return f"**{word}:** {', '.join(items)}."
+
+
+def changes_same(round_no):
+    """Best so far IS the start."""
+    return f"{BEST_SO_FAR_COLUMN} is still {ROUND_CAP} {round_no}'s best."
+
+
+def changes_help(start_no, best_no, start_round, fill=None, fixed=False, settings=False):
+    """The caption's "?": why the table shows no cause, then how it is read."""
+    out = [f"Several things changed at once between {FORMULATION_CAP} {start_no} and "
+           f"{FORMULATION_CAP} {best_no}, so this table can't separate their effects. "
+           f"Repeats, and {ROUND_CAP}s that change one thing at a time, can.",
+           f"Start: {FORMULATION_CAP} {start_no}, the best of {ROUND_CAP} {start_round}, as in "
+           f"Start vs best. Largest change first, as a share of each row's range "
+           f"(Highest − Lowest). Grey %: the change against Start."]
+    if settings:
+        out[-1] += " Settings show no %."
+    if fill:
+        out.append(f"{fill} fills to the total, so it follows the others and is left out.")
+    if fixed:
+        out.append("Rows whose Lowest is their Highest never change and are left out.")
+    return "\n\n".join(out)
+
+
+def changes_end_group(end, items):
+    """'the Highest of Tap water (42 g) and Tapioca starch (2.6 g)'."""
+    named = items[0] if len(items) == 1 else ", ".join(items[:-1]) + AND_JOIN + items[-1]
+    return f"the {end} of {named}"
+
+
+def changes_limits(untested, tested):
+    """The limits line under the table: every limit Best so far sits at;
+    'nothing tested beyond' only of the limits no recorded formulation lies
+    beyond (`untested`), the others (`tested`) named after 'also at'."""
+    def join(parts):
+        if len(parts) == 1:
+            return parts[0]
+        sep = ", and " if any(AND_JOIN in p for p in parts) else AND_JOIN
+        return ", ".join(parts[:-1]) + sep + parts[-1]
+    if untested and tested:
+        return (f"{BEST_SO_FAR_COLUMN} sits at {join(untested)}, nothing tested beyond; "
+                f"also at {join(tested)}.")
+    if untested:
+        return f"{BEST_SO_FAR_COLUMN} sits at {join(untested)}; nothing tested beyond."
+    return f"{BEST_SO_FAR_COLUMN} sits at {join(tested)}."
+
+
+def changes_limits_count(n, untested):
+    """The line when naming every limit runs long: the count; the "?"
+    names them."""
+    tail = "; nothing tested beyond" if untested == n else ""
+    return f"{BEST_SO_FAR_COLUMN} sits at {n} limits{tail}."
+
+
+def changes_beyond(numbers_text, many, limit_text):
+    """'Formulations 3 and 4 lie beyond the Oil + Starch (≤ 11 g).'"""
+    who = f"{FORMULATION_CAP}s" if many else FORMULATION_CAP
+    verb = "lie" if many else "lies"
+    return f"{who} {numbers_text} {verb} beyond {limit_text}."
+
+
+def changes_limits_help(items, beyond_lines):
+    """The limits line's "?": every limit named, what lies beyond, the widen
+    fact. Never advice."""
+    out = [f"{BEST_SO_FAR_COLUMN} sits at: " + "; ".join(items) + "."]
+    out += beyond_lines
+    out.append(CHANGES_WIDEN)
+    return "\n\n".join(out)
