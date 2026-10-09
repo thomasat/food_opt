@@ -10712,17 +10712,40 @@ def changes_limits_help(items, beyond_lines):
 SPIDER_TITLE = "Sensory profile against target"
 
 
-# Slim Review (owner, 2026-10-08): one Round slider at the top of Are we
-# improving? drives the score chart's highlight, the profile and What
-# changed; the answer line above it stays about the latest Round.
-def round_cue(round_no):
-    """'Showing Round 4' (beside the slider)."""
-    return f"Showing {ROUND_CAP} {round_no}"
+# Layout study (owner, 2026-10-09: no scrolling while stepping through
+# Rounds): one framed block holds the section's three parts at one Round,
+# its control at the top; the answer line above it and What next? stay
+# about the latest Round.
+REPLAY_PREV = "◀"
+REPLAY_NEXT = "▶"
+# The button says Play: the app never uses the re-play word on screen (it
+# would read as a claim about forecasts kept from the time, see
+# test_review_rebuilt), and panel is the tasting panel's word.
+REPLAY_PLAY = f"Play {ROUND_CAP}s"
+REPLAY_STOP = "Stop"
+REPLAY_BACK = "Back to latest"
+REPLAY_EARLIER = f"Earlier {ROUND_CAP}"
+REPLAY_LATEST = "Latest"
+REPLAY_HELP = (f"◀ ▶ step one {ROUND_CAP}; Play shows each in turn. The chart, What changed "
+               f"and the profile show that {ROUND_CAP}'s best so far; the line above and "
+               f"What next? stay about today.")
 
 
-ROUND_CUE_HELP = (f"The slider moves the three parts below: the score chart's marker, the "
-                  f"profile and What changed. The line above is about the latest {ROUND_CAP}; "
-                  f"later {ROUND_CAP}s stay on the chart.")
+def replay_label(round_no, last):
+    """'**Round 4** of 10' (the panel's control)."""
+    return f"**{ROUND_CAP} {round_no}** of {last}"
+
+
+def replay_to(round_no):
+    """A step button's "?": 'Round 3'."""
+    return f"{ROUND_CAP} {round_no}"
+
+
+def replay_play_help(first, last):
+    """Play's "?": 'Round 1 to 6, one a second.'"""
+    return f"{ROUND_CAP} {first} to {last}, one a second."
+
+
 SPIDER_CAPTION = "Measured profile of the best so far."
 SPIDER_KEY_TARGET = "Target"
 SPIDER_KEY_EARLIER = f"Earlier {ROUND_CAP}s"

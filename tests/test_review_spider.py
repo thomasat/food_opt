@@ -185,22 +185,25 @@ def test_the_review_draws_the_spider_above_what_changed():
     title = f"**{wording.SPIDER_TITLE}**"
     assert title in texts and f"**{wording.STORY_TARGET_TITLE}**" not in texts
     k = texts.index(title)
-    # Slim Review (re-pinned): What changed names the slider's Round.
-    assert texts.index(f"**{wording.changes_title(4)}**") > k
+    # Layout study (re-pinned): What changed names the panel's Round and
+    # sits beside the profile (the left column, under the score chart).
+    assert f"**{wording.changes_title(4)}**" in texts
     assert texts[k + 1] == "Round 4: on target 3 of 4; Sourness 1.0 under."
     captions = [c.value for c in at.tabs[3].caption]
     assert wording.SPIDER_CAPTION in captions
-    # The slider: Round 1 to the latest scored Round, the latest first.
-    sl = [s for s in at.tabs[3].select_slider if s.label == wording.ROUND_CAP]
-    assert len(sl) == 1
-    assert list(sl[0].options) == ["1", "2", "3", "4"] and sl[0].value == 4
-    # Moving it redraws the answer for that Round.
+    # Layout study (re-pinned): the Replay panel's control, Round 1 to the
+    # latest scored Round, the latest first; Back to latest shown only on
+    # an earlier Round.
+    assert wording.replay_label(4, 4) in texts
+    assert not [b for b in at.tabs[3].button if b.key == "insights_replay_latest"]
+    # Stepping back redraws the answer for that Round.
     # (AppTest reruns the whole script and drops the tab widget's state, so
     # the tab is set again; the browser reruns only the fragment.)
-    sl[0].set_value(1)
-    at.session_state["main_tab"] = wording.TAB_INSIGHTS
-    at.run()
-    assert not at.exception, [e.message for e in at.exception]
+    for _ in range(3):
+        at.button(key="insights_replay_prev").click()
+        at.session_state["main_tab"] = wording.TAB_INSIGHTS
+        at.run()
+        assert not at.exception, [e.message for e in at.exception]
     texts = [m.value for m in at.markdown]
     assert "Round 1: on target 2 of 4; Firmness 4.0 under." in texts
     assert "Round 4: on target 3 of 4; Sourness 1.0 under." not in texts
@@ -212,10 +215,10 @@ def test_two_measurements_keep_start_vs_best():
     texts = [m.value for m in at.tabs[3].markdown]
     assert f"**{wording.STORY_TARGET_TITLE}**" in texts
     assert f"**{wording.SPIDER_TITLE}**" not in texts
-    # Slim Review (re-pinned): the section's one slider is drawn for the
+    # Layout study (re-pinned): the Replay panel's control is drawn for the
     # score chart and What changed; the dot chart follows it too.
-    sl = [s for s in at.tabs[3].select_slider if s.label == wording.ROUND_CAP]
-    assert len(sl) == 1 and sl[0].value == 4
+    assert wording.replay_label(4, 4) in texts
+    assert at.button(key="insights_replay_prev") is not None
     _rounds, best = U.round_bests(opt)
     rows = U.target_rows(opt, best=best[1])
     assert [r["best"] for r in rows] == [8, 4]          # Round 1's best, F2
@@ -324,20 +327,19 @@ def test_cached_by_project_state():
 #  Slider and fragment
 # ------------------------------------------------------------------ #
 
-def test_slider_runs_in_a_fragment():
-    # Slim Review (re-pinned): the section's one slider, in the section's
-    # fragment (_progress_fragment), drives the profile too.
+def test_control_runs_in_a_fragment():
+    # Layout study (re-pinned): the Replay panel's control, in the
+    # section's fragment (_progress_fragment), drives the profile too.
     src = inspect.getsource(U)
     assert "@st.fragment\ndef _progress_fragment(" in src
     body = inspect.getsource(U._progress_fragment)
-    assert "st.select_slider(" in body and "value=r" in body
-    assert "rounds[-1]" in body and "_profile_part(opt, r)" in body
+    assert "shown_round(opt, rounds)" in body and "_profile_part(opt, r)" in body
 
 
-def test_one_scored_round_draws_no_slider():
+def test_one_scored_round_draws_no_control():
     rows = [r for r in ROWS if r[0] == 1]
     at = _review(_opt(rows))
-    assert not [s for s in at.tabs[3].select_slider if s.label == wording.ROUND_CAP]
+    assert not [b for b in at.tabs[3].button if (b.key or "").startswith("insights_replay")]
     texts = [m.value for m in at.tabs[3].markdown]
     assert "Round 1: on target 2 of 4; Firmness 4.0 under." in texts
 

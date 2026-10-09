@@ -317,8 +317,12 @@ def test_the_review_draws_the_block_under_start_vs_best():
     title = f"**{wording.changes_title(2)}**"
     assert title in texts
     k = texts.index(title)
-    assert texts.index(f"**{wording.STORY_TARGET_TITLE}**") < k
+    # Layout study (re-pinned): What changed sits beside the profile in the
+    # Replay panel (left, under the score chart; the profile on the right),
+    # its header wrapping only before the bracket (non-breaking spaces).
+    assert texts.index(f"**{wording.STORY_TARGET_TITLE}**") > k
     assert texts[k + 1] == "**Biggest changes:** Starch +2 g, Sugar +0.6 g."
+    nb = "\u00a0"
     assert texts[k + 2].startswith(
-        "| Ingredient | Start (F2) | Best so far (F4, Round 2) | Change |")
+        f"| Ingredient | Start (F2) | Best so far (F4,{nb}Round{nb}2) | Change |")
     assert wording.CHANGES_CAPTION in [c.value for c in at.tabs[3].caption]

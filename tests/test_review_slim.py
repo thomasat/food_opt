@@ -6,7 +6,8 @@
    changed (Best so far by that Round; its limits line judged on the
    formulations recorded by then). The section's answer line stays about
    the latest Round; a "Showing Round N" cue sits by the slider. One
-   fragment.
+   fragment. (Layout study, 2026-10-09: the slider is now the Replay
+   panel's ◀ Round N of M ▶ control; test_review_layout.)
 2. "What has the model learned?" is no section of its own: one verdict
    line in the Forecast check, merged with its "So far:" count, and the
    ordering chart in a closed fold, "Details: ordering by result".
@@ -117,37 +118,54 @@ def _band_and_marker(spec):
 #  1 · One Round slider for the section
 # ------------------------------------------------------------------ #
 
-def test_one_slider_drives_the_chart_the_profile_and_what_changed():
-    opt = _spider_opt()
-    at = _review(opt)
-    sliders = [s for s in at.tabs[3].select_slider if s.label == wording.ROUND_CAP]
-    assert len(sliders) == 1                      # one slider for the section
-    assert list(sliders[0].options) == ["1", "2", "3", "4"] and sliders[0].value == 4
-    texts = [m.value for m in at.tabs[3].markdown]
-    answer = next(t for t in texts if t.startswith("**") and "→" in t)
-    assert ":blue-badge[Showing Round 4]" in texts
-    assert "**What changed by Round 4**" in texts
-    # The slider sits above all three parts, under the section's answer line.
-    k = texts.index(":blue-badge[Showing Round 4]")
-    assert texts.index(answer) < k < texts.index(f"**{wording.SPIDER_TITLE}**") \
-        < texts.index("**What changed by Round 4**")
-    # Round 2: every part follows.
-    sliders[0].set_value(2)
+def _step(at, key):
+    """Click a Replay control (by key) and rerun, the Review kept open
+    (AppTest reruns the whole script and drops the tab widget's state; the
+    browser reruns only the fragment)."""
+    at.button(key=key).click()
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
     at.run()
     assert not at.exception, [e.message for e in at.exception]
+    return [m.value for m in at.tabs[3].markdown]
+
+
+def _label(r, last):
+    return wording.replay_label(r, last)
+
+
+def test_one_control_drives_the_chart_the_profile_and_what_changed():
+    # Layout study (re-pinned): the slider is now the Replay panel's
+    # control — ◀ Round N of M ▶, Replay Rounds — over all three parts.
+    opt = _spider_opt()
+    at = _review(opt)
+    assert not [s for s in at.tabs[3].select_slider if s.label == wording.ROUND_CAP]
+    keys = {b.key for b in at.tabs[3].button}
+    assert {"insights_replay_prev", "insights_replay_next", "insights_replay_play"} <= keys
+    assert at.button(key="insights_replay_next").disabled       # on the latest
+    assert not at.button(key="insights_replay_prev").disabled
     texts = [m.value for m in at.tabs[3].markdown]
-    assert ":blue-badge[Showing Round 2]" in texts
+    answer = next(t for t in texts if t.startswith("**") and "→" in t)
+    assert _label(4, 4) in texts
+    assert "**What changed by Round 4**" in texts
+    # The control sits above all three parts, under the section's answer line.
+    k = texts.index(_label(4, 4))
+    assert texts.index(answer) < k < texts.index("**What changed by Round 4**") \
+        < texts.index(f"**{wording.SPIDER_TITLE}**")
+    # ◀ twice: Round 2, every part follows.
+    _step(at, "insights_replay_prev")
+    texts = _step(at, "insights_replay_prev")
+    assert _label(2, 4) in texts
     assert any(t.startswith("Round 2: on target") for t in texts)
     assert "**What changed by Round 2**" in texts
     table = next(t for t in texts if t.startswith("| Ingredient"))
-    assert "| Best so far (F4, Round 2) |" in table and "| Start (F2) |" in table
+    nb = "\u00a0"
+    assert f"| Best so far (F4,{nb}Round{nb}2) |" in table and "| Start (F2) |" in table
     # The chart: Round 2's Formulations shaded, the marker on F4 itself.
     band, marker = next((b, m) for b, m in map(_band_and_marker, _specs(at)) if b)
     assert band == (3.5, 6.5)
     assert marker["v"] == pytest.approx(_score(opt, 4)) and marker["f"] == "F4"
     assert marker["x"] == 4
-    # The section's answer line is about the latest Round, whatever the slider.
+    # The section's answer line is about the latest Round, whatever the panel.
     assert answer in texts
 
 
@@ -155,22 +173,24 @@ def test_the_section_reruns_as_one_fragment():
     src = inspect.getsource(U)
     assert "@st.fragment\ndef _progress_fragment(" in src
     body = inspect.getsource(U._progress_fragment)
-    assert body.count("st.select_slider(") == 1 and "value=r" in body
+    assert "_replay_bar(" in body and "shown_round(" in body
     for part in ("_improving_part(", "_profile_part(", "_changes_block("):
         assert part in body
-    # No second slider, no fragment of the profile's own.
+    # No slider, no fragment of the profile's own.
+    assert "select_slider" not in inspect.getsource(U._replay_bar)
     assert not hasattr(U, "_spider_fragment")
     assert inspect.getsource(U._spider_block).count("select_slider") == 0
     # The answer line is drawn with the cards, outside the fragment.
     assert "progress_answer_text" not in body
 
 
-def test_one_scored_round_draws_no_slider_and_no_highlight():
+def test_one_scored_round_draws_no_control_and_no_highlight():
     opt = _spider_opt([r for r in ROWS if r[0] == 1])
     at = _review(opt)
     assert not [s for s in at.tabs[3].select_slider if s.label == wording.ROUND_CAP]
+    assert not [b for b in at.tabs[3].button if (b.key or "").startswith("insights_replay")]
     texts = [m.value for m in at.tabs[3].markdown]
-    assert not any("Showing Round" in t for t in texts)
+    assert not any(t.startswith(f"**{wording.ROUND_CAP} ") and "** of " in t for t in texts)
     assert all(_band_and_marker(s) == (None, None) for s in _specs(at))
 
 
@@ -495,11 +515,15 @@ def test_method_says_when_the_profiler_is_hidden():
 # ------------------------------------------------------------------ #
 
 def test_word_limits():
-    assert _words(wording.round_cue(10)) <= 5             # a label
+    assert _words(wording.replay_label(10, 10)) <= 5      # a label
+    for label in (wording.REPLAY_PLAY, wording.REPLAY_STOP, wording.REPLAY_BACK,
+                  wording.REPLAY_EARLIER, wording.REPLAY_LATEST):
+        assert _words(label) <= 5
+    assert _words(wording.replay_play_help(1, 10)) <= 8
     assert _words(wording.changes_title(10)) <= 5
     assert _words(wording.LEARNED_DETAILS_TITLE) <= 5
     assert _words(wording.STORY_IMPROVING_CAPTION) <= 8
-    assert _words(wording.ROUND_CUE_HELP) <= wording.TOOLTIP_WORDS
+    assert _words(wording.REPLAY_HELP) <= wording.TOOLTIP_WORDS
     assert _words(wording.learned_verdicts_help(5)) <= wording.TOOLTIP_WORDS
     assert _words(wording.profiler_hidden_rule()) <= 16
 
@@ -508,7 +532,10 @@ def test_no_banned_word():
     opt = _changes_opt()
     ch = U.what_changed(opt, 2)
     lf = _lf(score=(5, 5, learned.PARTLY), Tangy=(5, 6, learned.PARTLY))
-    texts = [wording.round_cue(4), wording.ROUND_CUE_HELP, wording.changes_title(4),
+    texts = [wording.replay_label(4, 10), wording.REPLAY_HELP, wording.REPLAY_PLAY,
+             wording.REPLAY_STOP, wording.REPLAY_BACK, wording.REPLAY_EARLIER,
+             wording.REPLAY_LATEST, wording.replay_to(3), wording.replay_play_help(1, 6),
+             wording.changes_title(4),
              wording.changes_best_column(10, 4), wording.LEARNED_DETAILS_TITLE,
              wording.learned_verdicts_help(5), wording.learned_verdicts_help(1),
              wording.profiler_hidden_rule(), wording.profiler_hidden_rule(True),
