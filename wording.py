@@ -10645,3 +10645,71 @@ def changes_limits_help(items, beyond_lines):
     out += beyond_lines
     out.append(CHANGES_WIDEN)
     return "\n\n".join(out)
+
+
+# --- sensory profile ---
+# Review (2026-10-08): "Sensory profile against target" replaces Start vs
+# best's dot chart from three measurements: one spoke per measurement, the
+# targets in ink, Best so far at a chosen Round in blue, the Start dashed
+# grey, earlier Rounds' bests faint. Measured values only: no model, no
+# forecast, nothing between Rounds.
+SPIDER_TITLE = "Sensory profile against target"
+SPIDER_CAPTION = "Measured profile of the best so far."
+SPIDER_KEY_TARGET = "Target"
+SPIDER_KEY_EARLIER = f"Earlier {ROUND_CAP}s"
+
+
+def spider_key_best(round_no, no):
+    """'Best so far (Round 6, F16)'."""
+    return f"{BEST_SO_FAR_COLUMN} ({ROUND_CAP} {round_no}, F{no})"
+
+
+def spider_key_start(no):
+    """'Start (F3)'."""
+    return f"Start (F{no})"
+
+
+def spider_off(name, amount_text, kind):
+    """'Tangy 1.0 under'; kind 'under', 'over' or 'short' (a higher- or
+    lower-is-better measurement short of its Range's end)."""
+    return f"{name} {amount_text} {kind}"
+
+
+def spider_answer(round_no, on, n, offs, targets=True):
+    """'Round 6: on target 3 of 4; Tangy 1.0 under.' `offs`: ['Tangy 1.0
+    under'], largest first. The Stop line's own count and words."""
+    head = f"{ROUND_CAP} {round_no}: " + (f"on target {on} of {n}" if targets
+                                          else f"at their best {on} of {n}")
+    return f"{head}; {', '.join(offs)}." if offs else f"{head}."
+
+
+def spider_move(name, kind, amount_text):
+    """One measurement's move from Start: 'Consistency moved onto target',
+    'Tangy moved 1 away' (kind: target_move's)."""
+    return {"onto": f"{name} moved onto target", "stayed": f"{name} stayed on target",
+            "closer": f"{name} moved {amount_text} closer",
+            "away": f"{name} moved {amount_text} away"}.get(kind, f"{name} unchanged")
+
+
+def spider_moves_help(start_no, best_no, items):
+    """The answer line's "?": how each measurement moved from Start to this
+    Round's best."""
+    return f"From Start (F{start_no}) to F{best_no}: " + "; ".join(items) + "."
+
+
+def spider_same_help(round_no, start_no):
+    return f"{ROUND_CAP} {round_no}'s best is the Start (F{start_no})."
+
+
+def spider_help(start_no, start_round, repeats=False):
+    """The caption's "?": what is drawn, how Best so far is chosen, and
+    what is not shown."""
+    noise = ("Tasting noise from your Repeats isn't drawn here." if repeats
+             else "With no Repeats, tasting noise isn't shown.")
+    return (f"{BEST_SO_FAR_COLUMN} is chosen by the {OVERALL_SCORE_COLUMN}, not per "
+            "measurement. These are the results as entered: no model, no forecast. "
+            f"{noise}\n\nInk outline and diamonds: the targets; an arrow where higher or "
+            f"lower is better. Blue: {BEST_SO_FAR_COLUMN} at the chosen {ROUND_CAP}. Dashed "
+            f"grey: Start, {FORMULATION_CAP} {start_no}, the best of {ROUND_CAP} {start_round}. "
+            f"Faint grey: earlier {ROUND_CAP}s' bests. Each spoke runs from its Range's "
+            "low end at the centre to its high end at the rim.")

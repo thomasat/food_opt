@@ -117,7 +117,11 @@ def test_improving_has_two_charts_and_tried_has_its_toggle(screens, name):
     opt = D.load(name)
     improving = got[wording.for_project(opt, wording.Q2_TITLE)]
     assert sum(t in CHART for t, _ in improving) == 2
-    assert ("markdown", f"**{wording.STORY_TARGET_TITLE}**") in improving
+    # Re-pinned (sensory profile, 2026-10-08): from U.SPIDER_MIN measurements
+    # Start vs best's dot chart is the spider, under its own title.
+    title = (wording.SPIDER_TITLE if len(opt.objectives) >= U.SPIDER_MIN
+             else wording.STORY_TARGET_TITLE)
+    assert ("markdown", f"**{wording.for_project(opt, title)}**") in improving
     tried = got[wording.for_project(opt, wording.Q4_TITLE)]
     assert sum(t in CHART for t, _ in tried) == 1
     # Review critique (fix 5): no "Show as lines" toggle any more.

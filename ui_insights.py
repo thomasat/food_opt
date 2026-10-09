@@ -145,7 +145,8 @@ def readable(chart):
     single or layered view fits the column's width only: its height is the
     plot's own (Streamlit's "fit" squeezed the plot by its legend and axes,
     so rows and lanes sized in px came out short)."""
-    if isinstance(chart, (alt.Chart, alt.LayerChart)):
+    if isinstance(chart, (alt.Chart, alt.LayerChart)) and chart.autosize is alt.Undefined:
+        # A chart that sets its own (the square sensory profile) keeps it.
         chart = chart.properties(autosize=alt.AutoSizeParams(type="fit-x", contains="padding"))
     return (chart
             .configure_axis(labelFontSize=FONT_LABEL, titleFontSize=FONT_AXIS_TITLE,
@@ -1207,25 +1208,47 @@ def ceiling_reason_text(opt):
     best = opt.best_index()
     if best is None or best >= len(opt.results_history or []):
         return ""
-    res = opt.results_history[best] or {}
+    gaps = ideal_gaps(opt, opt.results_history[best] or {})
+    if gaps is None:
+        return ""
+    on, n, offs, targets = gaps
+    texts = [wording.off_target(o['name'], amount, gap < 0) if o.get('goal') == 'target'
+             else wording.off_best(o['name'], amount) for o, amount, gap in offs]
+    return _say(opt, wording.ceiling_reason(on, n, texts, targets))
+
+
+def on_ideal(opt, name, gap):
+    """Whether a measured value `gap` from its best value (its target, or
+    its Range's better end) reads as on it: under half a step at the
+    decimals the measurement is shown with. The one rule the Stop line and
+    the sensory profile both count by."""
+    return abs(gap) < ideal_tol(opt, name)
+
+
+def ideal_tol(opt, name):
+    """on_ideal's tolerance in the measurement's units."""
+    return 0.5 * 10 ** -max(1, decimals(opt, name))
+
+
+def ideal_gaps(opt, res):
+    """(on, n, offs, targets) for one formulation's results `res`: how many
+    measurements sit on their best value (on_ideal), out of the n measured;
+    offs [(measurement, amount text, gap)] largest in score points first;
+    targets: every one measured has a target. None with nothing measured."""
     objs = [o for o in opt.objectives if res.get(o['name']) is not None]
     if not objs:
-        return ""
+        return None
     on, offs = 0, []
     for o in objs:
         d = decimals(opt, o['name'])
-        v, ideal = float(res[o['name']]), _ideal(o)
-        gap = v - ideal
-        if abs(gap) < 0.5 * 10 ** -max(1, d):
+        gap = float(res[o['name']]) - _ideal(o)
+        if on_ideal(opt, o['name'], gap):
             on += 1
             continue
-        amount = f"{abs(gap):.{max(1, d)}f}"
-        text = (wording.off_target(o['name'], amount, gap < 0) if o.get('goal') == 'target'
-                else wording.off_best(o['name'], amount))
-        offs.append((abs(gap) * learned.points_per_unit(o), text))
+        offs.append((abs(gap) * learned.points_per_unit(o), (o, f"{abs(gap):.{max(1, d)}f}", gap)))
     offs.sort(key=lambda t: -t[0])
     targets = all(o.get('goal') == 'target' for o in objs)
-    return _say(opt, wording.ceiling_reason(on, len(objs), [t for _, t in offs], targets))
+    return on, len(objs), [t for _, t in offs], targets
 
 
 def stop_headline(opt, facts):
@@ -6623,9 +6646,17 @@ def _progress_body(opt, slot):
                                need_text=_top_zone_need(opt))))
         with right:
             try:
-                chart = target_chart(opt)
+                spider = spider_data(opt)
             except Exception:
-                chart = None
+                spider = None
+            chart = None
+            if spider is not None:
+                _spider_block(opt, spider)
+            else:
+                try:
+                    chart = target_chart(opt)
+                except Exception:
+                    chart = None
             if chart is not None:
                 st.markdown(f"**{_say(opt, wording.STORY_TARGET_TITLE)}**")
                 answer = target_answer(opt)
@@ -7243,17 +7274,20 @@ def _share(row, v):
 ON_TARGET = 0.01        # within this share of its Range: on target
 
 
-def target_move(r):
+def target_move(r, tol=None):
     """Review critique (fix 6): how one measurement moved from the start to
     Best so far against its aim — ("onto" | "stayed" | "closer" | "away" |
     "level", distance moved toward (+) or away (−) from the target, in the
-    measurement's units); None without both values."""
+    measurement's units); None without both values. `tol`: the on-target
+    and unchanged tolerance in the measurement's units (the sensory profile
+    passes the Stop line's, on_ideal); None: ON_TARGET of its Range."""
     if r["start"] is None or r["best"] is None:
         return None
     span = max(r["high"] - r["low"], 1e-9)
+    near = (lambda d: d <= ON_TARGET * span) if tol is None else (lambda d: d < tol)
     if r["target"] is not None:
         d0, d1 = abs(r["start"] - r["target"]), abs(r["best"] - r["target"])
-        on0, on1 = d0 <= ON_TARGET * span, d1 <= ON_TARGET * span
+        on0, on1 = near(d0), near(d1)
         if on0 and on1:
             return "stayed", 0.0
         if on1:
@@ -7262,7 +7296,7 @@ def target_move(r):
     else:
         sign = -1.0 if r["goal"] == "min" else 1.0
         gain = sign * (r["best"] - r["start"])
-    if abs(gain) <= ON_TARGET * span:
+    if near(abs(gain)):
         return "level", 0.0
     return ("closer" if gain > 0 else "away"), gain
 
@@ -7273,13 +7307,15 @@ def _move_text(v, span):
     return text[:-2] if text.endswith(".0") else text
 
 
-def target_answer(opt):
+def target_answer(opt, rows=None, tols=None):
     """The chart's answer line, from the data: '2 moved onto target, 1
-    stayed on target, 1 moved 0.5 away.'; '' with nothing to say."""
+    stayed on target, 1 moved 0.5 away.'; '' with nothing to say. `rows`:
+    target_rows' (the default) or the sensory profile's for one Round;
+    `tols`: {measurement: tolerance} for target_move."""
     onto = stayed = level = 0
     closer, away = [], []
-    for r in target_rows(opt):
-        m = target_move(r)
+    for r in target_rows(opt) if rows is None else rows:
+        m = target_move(r, (tols or {}).get(r["name"]))
         if m is None:
             continue
         kind, v = m
@@ -7457,6 +7493,436 @@ def target_chart(opt):
                                  fontSize=FONT_LABEL, dy=11, baseline="top")
     return readable(alt.layer(*layers).properties(
         height=int(TARGET_ROW_H * (n + (0.6 if shared else 0)))))
+
+
+# --- Sensory profile against target (review, 2026-10-08) ---
+# From SPIDER_MIN measurements, Start vs best's dot chart becomes a spider:
+# one spoke per measurement (most important first, clockwise from the top),
+# each spoke its own Range from the centre (low) to the rim (high). The
+# targets in bold ink, Best so far at the chosen Round filled blue, the Start
+# (story_start, as What changed) dashed grey, the earlier Rounds' bests
+# faint. Measured values only: no model, no forecast, nothing drawn between
+# Rounds.
+
+SPIDER_MIN = 3              # measurements: from this many a spider, else the dot chart
+SPIDER_SIZE = 400           # px: the plot's square (labels and legend sit outside it)
+SPIDER_ROUND_KEY = "insights_spider_round"
+_SPIDER_PAD = 1.1           # the plot's half-width in rims: room for the marks on the rim
+_SPIDER_LABEL_AT = 1.08     # spoke labels: just past the rim
+_SPIDER_NUDGE = 0.07        # a value label's distance from its vertex, in rims
+_SPIDER_INWARD_FROM = 0.86  # a value this near the rim is labelled inside it
+_SPIDER_RING_SEGMENTS = 96
+# Earlier Rounds' bests: a faint grey, between the gridlines' and the Start's.
+_SPIDER_EARLIER = {"light": "#b8bdc5", "dark": "#5d636d"}
+_SPIDER_CACHE = {}          # spider_key -> Spider: the per-Round bests, worked once
+_SPIDER_CACHE_MAX = 16
+
+
+@dataclasses.dataclass
+class Spider:
+    spokes: list      # [{"name", "goal", "target", "band", "low", "high"}]
+    rounds: list      # the slider's Rounds: the first scored to the latest scored
+    bests: dict       # Round -> (position, number, {name: value}, Overall score)
+    start: tuple      # (position, number, Round, {name: value})
+    shared: tuple     # (low, high) when every spoke has one Range, else None
+
+
+def spider_angle(k, n):
+    """Spoke k of n: the first straight up, the rest clockwise (radians)."""
+    return math.pi / 2 - 2 * math.pi * k / n
+
+
+def spider_xy(k, n, frac):
+    """(x, y) of a point `frac` rims out along spoke k of n (y up)."""
+    a = spider_angle(k, n)
+    return frac * math.cos(a), frac * math.sin(a)
+
+
+def spider_frac(spoke, v):
+    """A value's distance from the centre in rims: linear from the Range's
+    low (0) to its high (1); a value past either end drawn at that end (its
+    label still says the value)."""
+    span = float(spoke["high"]) - float(spoke["low"])
+    if span <= 0:
+        return 0.5
+    return min(1.0, max(0.0, (float(v) - float(spoke["low"])) / span))
+
+
+def spider_spokes(opt):
+    """One spoke per measurement, the largest Share of score first: name,
+    goal, target (a point target; None for higher or lower is better),
+    band (a target range (low, high); no measurement has one today) and
+    Range."""
+    out = []
+    for obj in opt.measurements_by_importance():
+        goal = obj.get('goal', 'max')
+        out.append({"name": obj['name'], "goal": goal,
+                    "target": (float(obj['target']) if goal == 'target'
+                               and obj.get('target') is not None else None),
+                    "band": None,
+                    "low": float(obj.get('min_val', 0.0)),
+                    "high": float(obj.get('max_val', 10.0))})
+    return out
+
+
+def spider_key(opt):
+    """Everything the per-Round bests depend on."""
+    return insights._digest({
+        "name": getattr(opt, "project_name", ""), "Y": opt.Y_history,
+        "R": opt.results_history, "ids": opt.formulation_ids, "rounds": opt.batch_history,
+        "aside": [opt.is_set_aside(i) for i in range(len(opt.Y_history))],
+        "m": [(o['name'], o.get('goal'), o.get('target'), o.get('min_val'), o.get('max_val'),
+               o.get('weight'), o.get('not_for')) for o in opt.objectives]})
+
+
+def spider_data(opt):
+    """The spider's data (Spider), worked once per project state; None
+    under SPIDER_MIN measurements or without a start and a Best so far."""
+    key = spider_key(opt)
+    if key in _SPIDER_CACHE:
+        return _SPIDER_CACHE[key]
+    data = _spider_data(opt)
+    if len(_SPIDER_CACHE) >= _SPIDER_CACHE_MAX:
+        _SPIDER_CACHE.clear()
+    _SPIDER_CACHE[key] = data
+    return data
+
+
+def _spider_data(opt):
+    spokes = spider_spokes(opt)
+    s, b = story_start(opt), opt.best_index()
+    if len(spokes) < SPIDER_MIN or s is None or b is None:
+        return None
+    names = [sp["name"] for sp in spokes]
+
+    def values(i):
+        res = opt._results_at(i)
+        return {n: None if res.get(n) is None else float(res[n]) for n in names}
+
+    def round_of(i):
+        r = opt.batch_history[i] if i < len(opt.batch_history) else None
+        return None if r is None else int(r)
+
+    pool = opt.best_candidates()
+    named = sorted({round_of(i) for i in pool if round_of(i) is not None})
+    rounds = list(range(named[0], named[-1] + 1))
+    bests = {}
+    for r in rounds:
+        # Best so far by the end of Round r: best_index's rule (the highest
+        # Overall score among best_candidates, the first made on a tie) over
+        # the formulations of Rounds up to r.
+        mine = [i for i in pool if round_of(i) is not None and round_of(i) <= r]
+        i = max(mine, key=lambda j: opt.Y_history[j])
+        if r == rounds[-1] and i != b:
+            i = b       # a Best so far with no Round: the strip's own
+        bests[r] = (i, int(opt.formulation_ids[i]), values(i), float(opt.Y_history[i]))
+    i0, r0 = s
+    ranges = {(sp["low"], sp["high"]) for sp in spokes}
+    return Spider(spokes, rounds, bests, (i0, int(opt.formulation_ids[i0]), r0, values(i0)),
+                  next(iter(ranges)) if len(ranges) == 1 else None)
+
+
+def spider_ring_values(low, high):
+    """The gridline rings: round values of the Range, three or four of
+    them, the high end always (0–15: 5, 10, 15)."""
+    span = high - low
+    if span <= 0:
+        return []
+    mag = 10 ** math.floor(math.log10(span))
+    step = next(m * mag for m in (0.1, 0.2, 0.25, 0.5, 1, 2, 2.5, 5, 10) if span / (m * mag) <= 4)
+    vals = [v for v in _frange(math.ceil(low / step + 1e-9) * step, high, step) if v > low + 1e-9]
+    if not vals or abs(vals[-1] - high) > 1e-6:
+        vals.append(high)
+    return vals
+
+
+def _spider_num(spoke, v):
+    """A value as the spider writes it: '12', '12.5' (the dot chart's rule)."""
+    d = 0 if (spoke["high"] - spoke["low"]) >= 10 else 1
+    v = float(v)
+    return f"{v:g}" if v.is_integer() else f"{v:.{max(1, d)}f}"
+
+
+def _spider_anchor(dx, dy):
+    """(align, baseline) for text set off from a point in direction
+    (dx, dy): the text grows away from the point."""
+    align = "left" if dx > 0.3 else "right" if dx < -0.3 else "center"
+    baseline = "bottom" if dy > 0.3 else "top" if dy < -0.3 else "middle"
+    return align, baseline
+
+
+def spider_round_answer(opt, data, r):
+    """The answer line for Round r: 'Round 6: on target 3 of 4; Tangy 1.0
+    under.' — ideal_gaps' count and order, the Stop line's own; at most
+    SPIDER_ANSWER_WORDS (the largest miss alone when two run long)."""
+    _i, _no, vals, _score = data.bests[r]
+    gaps = ideal_gaps(opt, {k: v for k, v in vals.items() if v is not None})
+    if gaps is None:
+        return ""
+    on, n, offs, targets = gaps
+    texts = [wording.spider_off(o['name'], amount, "short" if o.get('goal') != 'target'
+                                else "under" if gap < 0 else "over") for o, amount, gap in offs]
+    for k in (2, 1, 0):
+        line = wording.spider_answer(r, on, n, texts[:k], targets)
+        if limit_words(line) <= SPIDER_ANSWER_WORDS or k == 0:
+            return _say(opt, line)
+
+
+SPIDER_ANSWER_WORDS = 12
+
+
+def spider_round_help(opt, data, r):
+    """The answer line's "?": how each measurement moved from the Start to
+    Round r's best, by the same tolerance as the answer line."""
+    i, no, vals, _score = data.bests[r]
+    s_i, s_no, s_round, s_vals = data.start
+    if i == s_i:
+        return _say(opt, wording.spider_same_help(r, s_no))
+    items = []
+    for sp in data.spokes:
+        row = dict(sp, start=s_vals.get(sp["name"]), best=vals.get(sp["name"]))
+        m = target_move(row, ideal_tol(opt, sp["name"]))
+        if m is not None:
+            items.append(wording.spider_move(sp["name"], m[0], _move_text(
+                m[1], sp["high"] - sp["low"])))
+    if not items:
+        return None
+    return _short(opt, wording.spider_moves_help(s_no, no, items))
+
+
+def spider_frames(opt, data, r):
+    """The spider's rows at Round r, one list per layer (pure: what the
+    chart draws, for the chart and its tests). Every polygon closes on its
+    first vertex (order j)."""
+    n = len(data.spokes)
+    i, no, vals, _score = data.bests[r]
+    s_i, s_no, s_round, s_vals = data.start
+    target_name = _say(opt, wording.SPIDER_KEY_TARGET)
+    best_name = _short(opt, wording.spider_key_best(r, no))
+    start_name = _short(opt, wording.spider_key_start(s_no))
+    earlier_name = _say(opt, wording.SPIDER_KEY_EARLIER)
+    rlabel = wording.round_tick
+
+    def polygon(what, series, values, number, round_no, closed=True):
+        pts = []
+        for k, sp in enumerate(data.spokes):
+            v = values.get(sp["name"])
+            if v is None:
+                continue
+            x, y = spider_xy(k, n, spider_frac(sp, v))
+            pts.append({"what": what, "series": series, "x": x, "y": y, "k": k,
+                        "name": sp["name"], "value": _spider_num(sp, v), "raw": float(v),
+                        "no": number, "round": rlabel(round_no) if round_no else ""})
+        if closed and len(pts) > 2:
+            pts.append(dict(pts[0]))
+        for j, p in enumerate(pts):
+            p["j"] = j
+        return pts
+
+    out = {"names": {"target": target_name, "best": best_name, "start": start_name,
+                     "earlier": earlier_name}}
+    # Earlier Rounds: each distinct best between the Start and Round r, once.
+    seen, earlier = {s_i, i}, []
+    for q in data.rounds:
+        if q <= s_round or q >= r:
+            continue
+        qi, qno, qvals, _ = data.bests[q]
+        if qi in seen:
+            continue
+        seen.add(qi)
+        earlier += polygon(earlier_name, f"e{qno}", qvals, qno, q)
+    out["earlier"] = earlier
+    out["best"] = polygon(best_name, "best", vals, no, r)
+    out["start"] = polygon(start_name, "start", s_vals, s_no, s_round)
+    tvals = {sp["name"]: sp["target"] for sp in data.spokes if sp["target"] is not None}
+    tpts = polygon(target_name, "target", tvals, None, None, closed=len(tvals) > 2)
+    for p in tpts:
+        p["no"] = ""
+    out["target"] = tpts
+    out["diamonds"] = [p for p in tpts if p["j"] < len(tvals)]
+    arrows, bands = [], []
+    for k, sp in enumerate(data.spokes):
+        bearing = 360.0 * k / n
+        if sp["band"] is not None:
+            (x0, y0), (x1, y1) = (spider_xy(k, n, spider_frac(sp, v)) for v in sp["band"])
+            bands.append({"x": x0, "y": y0, "x2": x1, "y2": y1, "what": target_name,
+                          "name": sp["name"],
+                          "value": f"{_spider_num(sp, sp['band'][0])}–{_spider_num(sp, sp['band'][1])}"})
+        elif sp["target"] is None and sp["goal"] in ("max", "min"):
+            up = sp["goal"] == "max"
+            x, y = spider_xy(k, n, 1.0 if up else 0.07)
+            arrows.append({"x": x, "y": y, "angle": bearing if up else (bearing + 180) % 360,
+                           "name": sp["name"]})
+    out["arrows"], out["bands"] = arrows, bands
+    # Best so far's value at each vertex: past it, away from the centre, or
+    # inside it when the target lies beyond it or the rim is near — never
+    # on the target's diamond.
+    labels = []
+    for p in out["best"][:-1] if len(out["best"]) > 2 else out["best"]:
+        sp = data.spokes[p["k"]]
+        frac = spider_frac(sp, p["raw"])
+        short_of = sp["target"] is not None and p["raw"] < sp["target"] - 1e-9
+        inward = short_of or frac > _SPIDER_INWARD_FROM
+        at = frac - _SPIDER_NUDGE if inward else frac + _SPIDER_NUDGE
+        x, y = spider_xy(p["k"], n, max(at, 0.0))
+        dx, dy = spider_xy(p["k"], n, -1.0 if inward else 1.0)
+        align, baseline = _spider_anchor(dx, dy)
+        labels.append({"x": x, "y": y, "text": p["value"], "align": align,
+                       "baseline": baseline})
+    out["labels"] = labels
+    spokes = []
+    for k, sp in enumerate(data.spokes):
+        x, y = spider_xy(k, n, _SPIDER_LABEL_AT)
+        align, baseline = _spider_anchor(*spider_xy(k, n, 1.0))
+        spokes.append({"x": x, "y": y, "x0": 0.0, "y0": 0.0,
+                       "x1": spider_xy(k, n, 1.0)[0], "y1": spider_xy(k, n, 1.0)[1],
+                       "text": wording.story_target_row(sp["name"], sp["goal"], sp["target"]),
+                       "align": align, "baseline": baseline})
+    out["spokes"] = spokes
+    rings, ring_labels = [], []
+    if data.shared is not None:
+        lo, hi = data.shared
+        values = spider_ring_values(lo, hi)
+        fracs = [(v - lo) / (hi - lo) for v in values]
+        # Labelled once, between the last spoke and the first: clear of
+        # every spoke's own labels.
+        a = spider_angle(-0.5, n)
+        for v, f in zip(values, fracs):
+            ring_labels.append({"x": f * math.cos(a), "y": f * math.sin(a), "text": f"{v:g}"})
+    else:
+        fracs = [0.25, 0.5, 0.75, 1.0]
+    for f in fracs:
+        for j in range(_SPIDER_RING_SEGMENTS + 1):
+            t = 2 * math.pi * j / _SPIDER_RING_SEGMENTS
+            rings.append({"ring": f, "j": j, "x": f * math.cos(t), "y": f * math.sin(t)})
+    out["rings"], out["ring_labels"] = rings, ring_labels
+    return out
+
+
+def spider_chart(opt, data, r):
+    """Sensory profile against target at Round r (spider_frames' layers):
+    a square SPIDER_SIZE plot, the legend under it."""
+    f = spider_frames(opt, data, r)
+    names = f["names"]
+    ink, _ = mark("bar_latest")
+    grey, _ = mark("neutral")
+    light, _ = _TRIED_GREYS[theme()]
+    blue = model_blue()
+    kinds = [names["target"], names["best"], names["start"]] + (
+        [names["earlier"]] if f["earlier"] else [])
+    colour = alt.Scale(domain=kinds, range=[ink, blue, grey, _SPIDER_EARLIER[theme()]][:len(kinds)])
+    dash = alt.Scale(domain=kinds, range=[[1, 0], [1, 0], [6, 4], [1, 0]][:len(kinds)])
+    legend = alt.Legend(title=None, orient="bottom", labelLimit=0, symbolType="stroke",
+                        symbolStrokeWidth=2.5, symbolSize=260, columns=2, columnPadding=24)
+    domain = [-_SPIDER_PAD, _SPIDER_PAD]
+    xs = alt.Scale(domain=domain, nice=False, zero=False)
+    ys = alt.Scale(domain=domain, nice=False, zero=False)
+    x, y = alt.X("x:Q", scale=xs, axis=None), alt.Y("y:Q", scale=ys, axis=None)
+    word = _say(opt, wording.FORMULATION_CAP)
+
+    def line(rows, **kw):
+        return (alt.Chart(pd.DataFrame(rows)).mark_line(interpolate="linear", **kw)
+                .encode(x=x, y=y, order="j:Q", detail="series:N",
+                        color=alt.Color("what:N", scale=colour, legend=legend),
+                        strokeDash=alt.StrokeDash("what:N", scale=dash, legend=legend)))
+
+    layers = [
+        alt.Chart(pd.DataFrame(f["rings"])).mark_line(color=light, strokeWidth=1, tooltip=False)
+        .encode(x=x, y=y, order="j:Q", detail="ring:N"),
+        alt.Chart(pd.DataFrame(f["spokes"])).mark_rule(color=light, strokeWidth=1, tooltip=False)
+        .encode(x=alt.X("x0:Q", scale=xs, axis=None),
+                y=alt.Y("y0:Q", scale=ys, axis=None), x2="x1:Q", y2="y1:Q")]
+    if f["earlier"]:
+        layers.append(line(f["earlier"], strokeWidth=1.3, tooltip=False))
+    layers.append(line(f["best"], strokeWidth=2.5, fill=blue, fillOpacity=0.25,
+                       strokeJoin="round", tooltip=False))
+    layers.append(line(f["start"], strokeWidth=2, tooltip=False))
+    if len(f["target"]) > 1:
+        layers.append(line(f["target"], strokeWidth=3, strokeJoin="round", tooltip=False))
+    if f["bands"]:
+        layers.append(alt.Chart(pd.DataFrame(f["bands"])).mark_rule(
+            color=ink, strokeWidth=8, opacity=0.5, strokeCap="round")
+            .encode(x=x, y=y, x2="x2:Q", y2="y2:Q",
+                    tooltip=[alt.Tooltip("name:N", title=" "),
+                             alt.Tooltip("value:N", title=names["target"])]))
+    if f["diamonds"]:
+        layers.append(alt.Chart(pd.DataFrame(f["diamonds"])).mark_point(
+            shape="diamond", filled=True, size=80, color=ink, opacity=1)
+            .encode(x=x, y=y, tooltip=[alt.Tooltip("name:N", title=" "),
+                                       alt.Tooltip("value:N", title=names["target"])]))
+    if f["arrows"]:
+        layers.append(alt.Chart(pd.DataFrame(f["arrows"])).mark_point(
+            shape="triangle-up", filled=True, size=120, color=ink, opacity=1, tooltip=False)
+            .encode(x=x, y=y, angle=alt.Angle("angle:Q", scale=None)))
+    if f["ring_labels"]:
+        # Over the outlines, on a halo: the Range's numbers stay readable.
+        layers += _halo_text(pd.DataFrame(f["ring_labels"]), x, y, "text:N", muted(),
+                             fontSize=FONT_SMALL, baseline="middle", align="center")
+    point_tips = [alt.Tooltip("what:N", title=" "), alt.Tooltip("name:N", title=" "),
+                  alt.Tooltip("value:N", title=wording.STORY_VALUE),
+                  alt.Tooltip("no:N", title=word), alt.Tooltip("round:N", title=_say(
+                      opt, wording.ROUND_CAP))]
+    start_pts = [p for p in f["start"] if p["j"] < len(f["start"]) - 1]
+    layers.append(alt.Chart(pd.DataFrame(start_pts)).mark_point(
+        filled=False, size=34, strokeWidth=1.5, color=grey, opacity=1)
+        .encode(x=x, y=y, tooltip=point_tips))
+    best_pts = [p for p in f["best"] if p["j"] < len(f["best"]) - 1]
+    layers.append(alt.Chart(pd.DataFrame(best_pts)).mark_point(
+        filled=True, size=40, color=blue, opacity=1).encode(x=x, y=y, tooltip=point_tips))
+    lab = pd.DataFrame(f["labels"])
+    for (align, baseline), part in lab.groupby(["align", "baseline"]):
+        layers += _halo_text(part, x, y, "text:N", blue, fontSize=FONT_LABEL,
+                             fontWeight="bold", align=align, baseline=baseline)
+    sp = pd.DataFrame(f["spokes"])
+    for (align, baseline), part in sp.groupby(["align", "baseline"]):
+        layers.append(alt.Chart(part).mark_text(color=ink, fontSize=FONT_LABEL, align=align,
+                                                baseline=baseline, tooltip=False)
+                      .encode(x=x, y=y, text="text:N"))
+    chart = alt.layer(*layers).properties(width=SPIDER_SIZE, height=SPIDER_SIZE)
+    return readable(chart.properties(autosize=alt.AutoSizeParams(type="pad"))) \
+        .configure_view(strokeWidth=0)
+
+
+def _spider_block(opt, data):
+    """Sensory profile against target: the title, the Round slider with the
+    answer line and the chart (one fragment: dragging reruns only it), the
+    caption with its "?", the score recipe."""
+    st.markdown(f"**{_say(opt, wording.SPIDER_TITLE)}**")
+    with st.container(key="insights_spider"):
+        _spider_fragment(opt, data, f"{SPIDER_ROUND_KEY}_{spider_key(opt)[:16]}")
+    s_i, s_no, s_round, _vals = data.start
+    yard = insights.noise_yardstick(opt)
+    st.caption(_say(opt, wording.SPIDER_CAPTION), help=_say(opt, wording.brief(
+        wording.spider_help(s_no, s_round, repeats=not getattr(yard, "assumed", True)))))
+    try:
+        recipe = score_recipe_text(opt)
+    except Exception:
+        recipe = None
+    if recipe:
+        st.caption(recipe)
+
+
+@st.fragment
+def _spider_fragment(opt, data, key):
+    """The Round slider (the first scored Round to the latest, the latest
+    first), the answer line for the chosen Round and the spider. Only this
+    reruns when the slider moves; each Round's best was found once
+    (spider_data)."""
+    answer = st.empty()
+    r = data.rounds[-1]
+    if len(data.rounds) > 1:
+        r = st.select_slider(_say(opt, wording.ROUND_CAP), options=data.rounds, value=r,
+                             key=key, width=SPIDER_SIZE)
+    with answer:
+        st.markdown(spider_round_answer(opt, data, r), help=spider_round_help(opt, data, r))
+    try:
+        chart = spider_chart(opt, data, r)
+    except Exception:
+        chart = None
+    if chart is None:
+        st.caption(_say(opt, wording.CHART_FAILED))
+    else:
+        show_chart(chart, width="content")
 
 
 # --- What changed in the formulation (review, 2026-10-08) ---
