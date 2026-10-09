@@ -10582,7 +10582,7 @@ def changes_help(start_no, best_no, start_round, fill=None, fixed=False, setting
            f"{FORMULATION_CAP} {best_no}, so this table can't separate their effects. "
            f"Repeats, and {ROUND_CAP}s that change one thing at a time, can.",
            f"Start: {FORMULATION_CAP} {start_no}, the best of {ROUND_CAP} {start_round}, as in "
-           f"Start vs best. Largest change first, as a share of each row's range "
+           f"the chart above. Largest change first, as a share of each row's range "
            f"(Highest − Lowest). Grey %: the change against Start."]
     if near_zero:
         out[-1] += " No % where the start amount was near zero."
