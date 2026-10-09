@@ -185,7 +185,8 @@ def test_the_review_draws_the_spider_above_what_changed():
     title = f"**{wording.SPIDER_TITLE}**"
     assert title in texts and f"**{wording.STORY_TARGET_TITLE}**" not in texts
     k = texts.index(title)
-    assert texts.index(f"**{wording.CHANGES_TITLE}**") > k
+    # Slim Review (re-pinned): What changed names the slider's Round.
+    assert texts.index(f"**{wording.changes_title(4)}**") > k
     assert texts[k + 1] == "Round 4: on target 3 of 4; Sourness 1.0 under."
     captions = [c.value for c in at.tabs[3].caption]
     assert wording.SPIDER_CAPTION in captions
@@ -206,11 +207,19 @@ def test_the_review_draws_the_spider_above_what_changed():
 
 
 def test_two_measurements_keep_start_vs_best():
-    at = _review(_opt([r[:4] for r in ROWS], MEASURES[:2]))
+    opt = _opt([r[:4] for r in ROWS], MEASURES[:2])
+    at = _review(opt)
     texts = [m.value for m in at.tabs[3].markdown]
     assert f"**{wording.STORY_TARGET_TITLE}**" in texts
     assert f"**{wording.SPIDER_TITLE}**" not in texts
-    assert not [s for s in at.tabs[3].select_slider if s.label == wording.ROUND_CAP]
+    # Slim Review (re-pinned): the section's one slider is drawn for the
+    # score chart and What changed; the dot chart follows it too.
+    sl = [s for s in at.tabs[3].select_slider if s.label == wording.ROUND_CAP]
+    assert len(sl) == 1 and sl[0].value == 4
+    _rounds, best = U.round_bests(opt)
+    rows = U.target_rows(opt, best=best[1])
+    assert [r["best"] for r in rows] == [8, 4]          # Round 1's best, F2
+    assert [r["best"] for r in U.target_rows(opt)] == [12, 5]   # today's, F7
 
 
 # ------------------------------------------------------------------ #
@@ -316,11 +325,13 @@ def test_cached_by_project_state():
 # ------------------------------------------------------------------ #
 
 def test_slider_runs_in_a_fragment():
+    # Slim Review (re-pinned): the section's one slider, in the section's
+    # fragment (_progress_fragment), drives the profile too.
     src = inspect.getsource(U)
-    assert "@st.fragment\ndef _spider_fragment(" in src
-    body = inspect.getsource(U._spider_fragment)
+    assert "@st.fragment\ndef _progress_fragment(" in src
+    body = inspect.getsource(U._progress_fragment)
     assert "st.select_slider(" in body and "value=r" in body
-    assert "data.rounds[-1]" in body
+    assert "rounds[-1]" in body and "_profile_part(opt, r)" in body
 
 
 def test_one_scored_round_draws_no_slider():

@@ -312,10 +312,13 @@ def test_the_review_draws_the_block_under_start_vs_best():
     at.run()
     assert not at.exception, [e.message for e in at.exception]
     texts = [m.value for m in at.tabs[3].markdown]
-    title = f"**{wording.CHANGES_TITLE}**"
+    # Slim Review (re-pinned): the section's Round slider (two Rounds) opens
+    # at the latest; the title and the table name it.
+    title = f"**{wording.changes_title(2)}**"
     assert title in texts
     k = texts.index(title)
     assert texts.index(f"**{wording.STORY_TARGET_TITLE}**") < k
     assert texts[k + 1] == "**Biggest changes:** Starch +2 g, Sugar +0.6 g."
-    assert texts[k + 2].startswith("| Ingredient | Start (F2) | Best so far (F4) | Change |")
+    assert texts[k + 2].startswith(
+        "| Ingredient | Start (F2) | Best so far (F4, Round 2) | Change |")
     assert wording.CHANGES_CAPTION in [c.value for c in at.tabs[3].caption]

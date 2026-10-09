@@ -42,7 +42,10 @@ from tests.test_review_diag import ALL10, PILOT, R6, needs_pilot
 # Review critique (fix 5, re-pinned): Are we improving?, What next?, What has
 # the model learned? (the Forecast check above it), What have we tried?;
 # What drives each result? is a closed fold under them (not a heading).
-STORY = [wording.Q2_TITLE, wording.Q5_TITLE, wording.LEARNED_TITLE, wording.Q4_TITLE]
+# Slim Review (owner, 2026-10-08, re-pinned): the Forecast check is the
+# model's section (its verdict line in it); What have we tried? is a closed
+# fold too, so the headings are three.
+STORY = [wording.Q2_TITLE, wording.Q5_TITLE, wording.FORECAST_CHECK_TITLE]
 CHART = ("arrow_vega_lite_chart", "vega_lite_chart")
 
 
@@ -71,7 +74,14 @@ def sections(at):
             out[cur] = []
             continue
         if el.type == "expander":
-            cur = None
+            # Slim Review: What have we tried? is a fold; the Forecast
+            # check's details fold stays in its section.
+            if el.label == wording.LEARNED_DETAILS_TITLE:
+                continue
+            cur = el.label if el.label == wording.Q4_TITLE and not folds else None
+            if cur is not None:
+                out[cur] = []
+            continue
         if cur is not None and (text or el.type in CHART or el.type == "toggle"):
             out[cur].append((el.type, text or getattr(el, "label", "")))
     return out
@@ -100,7 +110,8 @@ def screens(tmp_path_factory):
 def test_sections_and_cards_in_story_order(screens, name):
     at = screens[name]
     opt = D.load(name)
-    assert list(sections(at)) == [wording.for_project(opt, q) for q in STORY]
+    assert list(sections(at)) == [wording.for_project(opt, q) for q in STORY] + [
+        wording.for_project(opt, wording.Q4_TITLE)]
     # The cards in the same order, Next last.
     labels = [c["label"] for c in cards(at, order="screen")]
     # Review learned: Model once the model's verdicts are in (the gate
@@ -123,10 +134,10 @@ def test_improving_has_two_charts_and_tried_has_its_toggle(screens, name):
              else wording.STORY_TARGET_TITLE)
     assert ("markdown", f"**{wording.for_project(opt, title)}**") in improving
     tried = got[wording.for_project(opt, wording.Q4_TITLE)]
-    assert sum(t in CHART for t, _ in tried) == 1
+    # Slim Review (re-pinned): a closed fold, worked out only once opened.
+    assert sum(t in CHART for t, _ in tried) == 0
     # Review critique (fix 5): no "Show as lines" toggle any more.
     assert not any(t == "toggle" for t, _ in tried)
-    assert ("caption", wording.for_project(opt, wording.STORY_PATH_CAPTION)) in tried
 
 
 @pytest.mark.parametrize("name", [D.LINE_A, D.SNACK, D.PROCESS_ONLY])
@@ -278,12 +289,15 @@ def test_trust_counts_and_lines():
 
 def test_trust_answer_on_line_a(screens):
     # Review learned: the trust evidence is what the model learned.
-    line = next(t for k, t in sections(screens[D.LINE_A])[wording.LEARNED_TITLE]
-                if k == "markdown")
+    # Slim Review (re-pinned): the verdicts are one line in the Forecast
+    # check; beside the Overall score's pair count they would run past 14
+    # words, so the groups alone.
+    line = next(t for k, t in sections(screens[D.LINE_A])[wording.FORECAST_CHECK_TITLE]
+                if k == "markdown" and re.match(r"(So far|Predicts|Partly|Not yet)", t))
     # Persona fixes 2: pairs under one tasting noise apart left out.
     # Review critique: the exact permutation test (and each measurement's
     # share of the noise): they lean right, not clearly.
-    assert line == "**Partly: Overall score, Firmness, Cook loss.** Not yet: Juiciness."  # round 2
+    assert line == "Partly: Overall score, Firmness, Cook loss. Not yet: Juiciness."
 
 
 # ------------------------------------------------------------------ #
@@ -458,7 +472,7 @@ def test_pilot_story(pilot):
     at = _open(ALL10)
     got = sections(at)
     # Round 2 (P2 #9): the Forecast check is its own section after What next?.
-    assert list(got) == STORY[:2] + [wording.FORECAST_CHECK_TITLE] + STORY[2:]
+    assert list(got) == STORY + [wording.Q4_TITLE]       # slim Review
     line = next(t for k, t in got[wording.Q2_TITLE] if k == "markdown")
     # Review story 2: "of 100", so Flat at 96.4 reads as near the ceiling.
     # Persona fixes 2: Flat after a rise reads "Plateau since Round N".
@@ -473,8 +487,11 @@ def test_pilot_story(pilot):
     # Persona fixes: 'Flat · best 99.2 of 100' (the start stays on the chart).
     assert re.fullmatch(r"· best \d+\.\d of 100", items[0]["line"]), items[0]
     assert re.fullmatch(r"[A-Z][\w ]+(, [A-Z][\w ]+)?", items[1]["line"]), items[1]
-    line = next(t for k, t in got[wording.LEARNED_TITLE] if k == "markdown")
-    assert re.fullmatch(r"\*\*Predicts: .+\.\*\*( Partly: .+\.)? Not yet: .+\.", line), line
+    # Slim Review (re-pinned): the verdict line in the Forecast check.
+    line = next(t for k, t in got[wording.FORECAST_CHECK_TITLE]
+                if k == "markdown" and t.startswith("So far: "))
+    assert re.fullmatch(r"So far: Overall score \d+ of \d+ pairs ordered right\. "
+                        r"Predicts: .+\.", line), line
     # Review critique (fix 4): the profiler is a closed fold.
     assert wording.Q3_TITLE not in got
     before = cards(_open(R6), order="screen")

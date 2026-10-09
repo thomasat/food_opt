@@ -10281,6 +10281,50 @@ def learned_caption(n):
 LEARNED_FULL_CHANCE = "chance up to 100 %: too few Rounds"
 
 
+# Slim Review (owner, 2026-10-08): "What has the model learned?" folds into
+# the Forecast check — one line from the same verdicts (merged with its "So
+# far:" count), the ordering chart in a closed fold under it.
+LEARNED_LINE_WORDS = 14
+
+
+def profiler_hidden_rule(settings_only=False):
+    """Method and definitions: when What drives each result? is left out."""
+    rows = "settings" if settings_only else "ingredients"
+    return f"{Q3_TITLE} Hidden when most {rows} have too little room to move."
+LEARNED_DETAILS_TITLE = "Details: ordering by result"
+
+
+def learned_count(label, right, pairs):
+    """'Overall score 7 of 9 pairs ordered right'."""
+    return f"{label} {right} of {pairs} pairs ordered right"
+
+
+def learned_line(count, groups):
+    """The Forecast check's verdict line: 'So far: Overall score 7 of 9
+    pairs ordered right. Predicts: Consistency.' — `count` (learned_count's
+    text, or None) then each (word, names) group; no 'So far:' without a
+    count."""
+    parts = [f"{w}: {', '.join(names)}." for w, names in groups]
+    if count:
+        return " ".join([f"So far: {count}."] + parts)
+    return " ".join(parts)
+
+
+def learned_verdicts_help(n):
+    """The verdict line's "?": the three words in plain words, adjusted for
+    checking several results."""
+    out = (f"A pair is two formulations of one {ROUND_CAP}: it counts as ordered right when "
+           f"their forecasts, from earlier {ROUND_CAP}s only, put them in the order measured. "
+           f"Predicts: "
+           f"ordered right clearly more often than chance. Partly: right more than half the "
+           f"time, not yet clearly beyond chance. Not yet: no better than chance so far, too "
+           f"few pairs, or the result barely varies.")
+    if n > 1:
+        out += (f" Adjusted for checking {n} results at once, so one that passes by luck "
+                f"doesn't count as Predicts.")
+    return out
+
+
 def review_status_strip(progress, model, next_word):
     """Make a round's Review line, the strip's own words: 'Review: Rising ·
     Predicts: Overall score · Stop, or change the target'."""
@@ -10547,9 +10591,18 @@ def changes_start_column(no):
     return f"Start (F{no})"
 
 
-def changes_best_column(no):
-    """'Best so far (F16)'."""
-    return f"{BEST_SO_FAR_COLUMN} (F{no})"
+def changes_best_column(no, round_no=None):
+    """'Best so far (F16)'; at the section slider's Round: 'Best so far
+    (F10, Round 4)' — Best so far by the end of that Round."""
+    if round_no is None:
+        return f"{BEST_SO_FAR_COLUMN} (F{no})"
+    return f"{BEST_SO_FAR_COLUMN} (F{no}, {ROUND_CAP} {round_no})"
+
+
+def changes_title(round_no=None):
+    """The block's title: 'What changed by Round 4' at the slider's Round;
+    'What changed in the formulation' with no slider."""
+    return CHANGES_TITLE if round_no is None else f"What changed by {ROUND_CAP} {round_no}"
 
 
 def changes_item(name, change):
@@ -10654,6 +10707,19 @@ def changes_limits_help(items, beyond_lines):
 # grey, earlier Rounds' bests faint. Measured values only: no model, no
 # forecast, nothing between Rounds.
 SPIDER_TITLE = "Sensory profile against target"
+
+
+# Slim Review (owner, 2026-10-08): one Round slider at the top of Are we
+# improving? drives the score chart's highlight, the profile and What
+# changed; the answer line above it stays about the latest Round.
+def round_cue(round_no):
+    """'Showing Round 4' (beside the slider)."""
+    return f"Showing {ROUND_CAP} {round_no}"
+
+
+ROUND_CUE_HELP = (f"The slider moves the three parts below: the score chart's marker, the "
+                  f"profile and What changed. The line above is about the latest {ROUND_CAP}; "
+                  f"later {ROUND_CAP}s stay on the chart.")
 SPIDER_CAPTION = "Measured profile of the best so far."
 SPIDER_KEY_TARGET = "Target"
 SPIDER_KEY_EARLIER = f"Earlier {ROUND_CAP}s"

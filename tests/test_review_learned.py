@@ -481,9 +481,12 @@ def test_section_order(screen):
     # Review critique (fix 5): progress, What next?, the model, what was
     # tried; What drives each result? is a closed fold (no heading).
     assert U.SECTION_ORDER == ("progress", "next", "predictions", "tried", "drives")
-    assert U._QUESTIONS["predictions"] == wording.LEARNED_TITLE
-    assert _headings(screen) == [wording.Q2_TITLE, wording.Q5_TITLE, wording.LEARNED_TITLE,
-                                 wording.Q4_TITLE]
+    # Slim Review (owner, 2026-10-08, re-pinned): no model section of its
+    # own; the Forecast check heads the model's place; What have we tried?
+    # is a closed fold.
+    assert U._QUESTIONS["predictions"] == wording.FORECAST_CHECK_TITLE
+    assert _headings(screen) == [wording.Q2_TITLE, wording.Q5_TITLE,
+                                 wording.FORECAST_CHECK_TITLE]
     text = " | ".join(_text(el) for el, _, _ in _leaves(screen.tabs[3]))
     # The old trust section is gone from the default view.
     assert wording.Q1_TITLE not in text
@@ -494,16 +497,24 @@ def test_section_order(screen):
 
 
 def test_section_is_one_line_one_chart_one_caption(screen):
-    els = _section_leaves(screen, wording.LEARNED_TITLE)
+    # Slim Review (re-pinned): Round 6 is open, so the Forecast check draws
+    # no panels: its section is the verdict line, then the ordering chart
+    # and its caption in the closed details fold.
+    els = _section_leaves(screen, wording.FORECAST_CHECK_TITLE)
     kinds = [el.type for el in els]
     assert not any(k in ("table", "dataframe", "arrow_data_frame", "arrow_table") for k in kinds)
     texts = [_text(el) for el in els if _text(el)]
-    assert len(texts) == 2, texts            # the answer and the caption
+    texts = [t for t in texts[:texts.index(wording.Q4_TITLE)]
+             if t != wording.LEARNED_DETAILS_TITLE]
+    assert len(texts) == 2, texts            # the verdict line and the caption
     # Persona fixes 2: Line A's forecasts are too close to call.
-    assert texts[0].startswith(("**Predicts", "**Partly", "**Not predictable yet"))
+    assert texts[0].startswith(("So far: ", "Predicts:", "Partly:", "Not yet:"))
+    assert _words(texts[0]) <= 14
     # Round 2: the caption says the Holm adjustment.
     assert texts[1].startswith(wording.LEARNED_CAPTION)
     assert sum("vega" in k or "chart" in k for k in kinds) == 1
+    fold = next(e for e in screen.tabs[3].expander if e.label == wording.LEARNED_DETAILS_TITLE)
+    assert not fold.proto.expanded
     every = " | ".join(_text(el) for el, _, _ in _leaves(screen.tabs[3]))
     for gone in ("Learned effects", "Raised by", "Lowered by", "Picked the top one",
                  "Measurements miss more than expected"):
@@ -535,8 +546,11 @@ def test_called_it_sits_at_the_top_as_charts(scored):
     leaves = [(el, _text(el)) for el, _, _ in _leaves(scored.tabs[3])]
     texts = [t for _, t in leaves]
     # Review critique (fix 5): the Forecast check sits right above What has
-    # the model learned?, after What next?.
-    first_heading = texts.index(f"#### {wording.LEARNED_TITLE}")
+    # the model learned?, after What next?. Slim Review (re-pinned): that
+    # section is gone; its verdict line closes the check's lines, and the
+    # ordering chart follows in a closed fold.
+    first_heading = next(i for i, (el, _t) in enumerate(leaves) if el.type == "expander"
+                         and el.label == wording.LEARNED_DETAILS_TITLE)
     # Round 2 (P2 #9): its own section heading, as the questions are.
     assert texts.index(f"#### {wording.Q5_TITLE}") < texts.index(
         f"#### {wording.FORECAST_CHECK_TITLE}")

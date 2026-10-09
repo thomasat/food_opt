@@ -30,13 +30,17 @@ from tests.test_review_cards import _leaves, _text, cards, screens  # noqa: F401
 from tests.test_review_diag import ALL10, PILOT, R5, R6, needs_pilot
 
 # Review learned: "What has the model learned?" took Q1's place.
-QUESTIONS = [wording.LEARNED_TITLE, wording.Q2_TITLE, wording.Q3_TITLE, wording.Q4_TITLE]
+# Slim Review (owner, 2026-10-08, re-pinned): the model's verdicts folded into
+# the Forecast check, which is now the model's section.
+QUESTIONS = [wording.FORECAST_CHECK_TITLE, wording.Q2_TITLE, wording.Q3_TITLE, wording.Q4_TITLE]
 # Review story: the screen asks them as a story — improving first, then
 # trust, drivers, what was tried.
 # Review critique (fix 5, re-pinned): Are we improving?, What next? (the stop
 # signal), What has the model learned? (the Forecast check just above it),
 # What have we tried?, then What drives each result? as a closed fold.
-STORY = [wording.Q2_TITLE, wording.Q5_TITLE, wording.LEARNED_TITLE, wording.Q4_TITLE,
+# Slim Review (re-pinned): the Forecast check (with the model's verdict line)
+# in the model's place; What have we tried? a closed fold too.
+STORY = [wording.Q2_TITLE, wording.Q5_TITLE, wording.FORECAST_CHECK_TITLE, wording.Q4_TITLE,
          wording.Q3_TITLE]
 CHART = ("arrow_vega_lite_chart", "vega_lite_chart")
 
@@ -52,16 +56,17 @@ def sections(at):
     out, cur = {}, None
     for el, folds, _ in _leaves(at.tabs[3]):
         text = _text(el)
-        if el.type == "markdown" and text == f"#### {wording.FORECAST_CHECK_TITLE}":
-            cur = None      # round 2: the Forecast check's own section, not a question
-            continue
         if el.type == "markdown" and text.startswith("#### "):
+            # Slim Review: the Forecast check is the model's section now.
             cur = text[5:]
             out[cur] = []
             continue
         if el.type == "expander":
+            if el.label == wording.LEARNED_DETAILS_TITLE:
+                continue    # slim Review: the Forecast check's own details fold
             # Review critique (fix 4): What drives each result? is a fold.
             # Round 2: Next suggestions folds under Stop, inside What next?.
+            # Slim Review: What have we tried? is a fold too.
             cur = (el.label if not folds and el.label not in (
                 wording.FOLD_METHOD, wording.LEARNED_PREVIEW_TITLE) else None)
             if cur is not None:
@@ -84,12 +89,18 @@ def test_four_questions_in_order_one_chart_each(screens, name):  # noqa: F811
     gate = name == D.SNACK
     for q, items in got.items():
         charts = sum(t in CHART for t, _ in items)
-        if q == wording.for_project(D.load(name), wording.Q3_TITLE):
-            # Review critique (fix 4): closed, worked out only once opened.
+        if q in (wording.for_project(D.load(name), wording.Q3_TITLE),
+                 wording.for_project(D.load(name), wording.Q4_TITLE)):
+            # Review critique (fix 4): closed, worked out only once opened;
+            # slim Review: What have we tried? too.
             assert charts == 0, (q, items)
-        elif gate and q == wording.LEARNED_TITLE:
+        elif gate and q == wording.FORECAST_CHECK_TITLE:
             # Before 5 scored: one line, no chart.
             assert charts == 0 and ("caption", wording.Q_WAIT) in items, (q, items)
+        elif q == wording.FORECAST_CHECK_TITLE:
+            # Slim Review: the Forecast check's panels (when its latest Round
+            # was forecast) and the ordering chart in its closed fold.
+            assert 1 <= charts <= 2, (q, items)
         elif q == wording.Q2_TITLE:
             # Review story: the best so far and Closer to target, side by side.
             assert charts == 2, (q, items)
@@ -111,11 +122,15 @@ def test_answer_lines_open_with_the_cards_word(screens, name):  # noqa: F811
     q1, q2, q3, q4 = (firsts[wording.for_project(opt, k)] for k in QUESTIONS)
     if name != D.SNACK:
         # Review learned: the section's answer names what the model predicts.
-        assert re.match(r"\*\*(Predicts|Partly|Not yet):", q1), q1   # round 2: one form
-    # Review critique (fix 4): Q3's answer sits inside its closed fold.
-    assert q3 is None
+        # Slim Review (re-pinned): one verdict line in the Forecast check,
+        # merged with its "So far:" count.
+        texts = [t for k, t in got[wording.FORECAST_CHECK_TITLE] if k == "markdown"]
+        q1 = next(t for t in texts if re.match(r"(So far: |(Predicts|Partly|Not yet): )", t))
+        assert re.search(r"(Predicts|Partly|Not yet): ", q1), q1
+    # Review critique (fix 4): Q3's answer sits inside its closed fold;
+    # slim Review: What have we tried?'s too.
+    assert q3 is None and q4 is None
     assert q2.startswith(f"**{plain(g['word'])}.**")
-    assert re.match(r"\*\*\d+ tested\.\*\* ", q4), q4
     for line in (q1, q2, q3, q4):
         if line:
             # Review critique: a headline up to 14 words (the assumed noise
@@ -150,7 +165,7 @@ def test_each_card_links_to_its_question(screens, name):  # noqa: F811
     assert U.SECTION_KEYS == {"predictions": U.TRUST_SECTION, "progress": U.STAND_SECTION,
                               "drives": U.DRIVES_SECTION, "tried": U.EXPLORED_PLACE,
                               "next": U.NEXT_SECTION}
-    assert U._QUESTIONS["predictions"] == wording.LEARNED_TITLE
+    assert U._QUESTIONS["predictions"] == wording.FORECAST_CHECK_TITLE   # slim Review
     assert U._QUESTIONS["drives"] == wording.Q3_TITLE
     assert U._QUESTIONS["next"] == wording.Q5_TITLE
 
@@ -182,7 +197,12 @@ def test_one_method_link_and_one_fold(screens, name):  # noqa: F811
     at = screens[name]
     folds = [el.label for el, f, _ in _leaves(at.tabs[3]) if el.type == "expander" and not f]
     # Review critique (fix 4): the profiler's closed fold, then Method.
-    assert folds == [wording.for_project(D.load(name), wording.Q3_TITLE), wording.FOLD_METHOD]
+    # Slim Review (re-pinned): the Forecast check's details fold (once the
+    # model has verdicts), then What have we tried? closed, before them.
+    opt = D.load(name)
+    details = [] if name == D.SNACK else [wording.LEARNED_DETAILS_TITLE]
+    assert folds == details + [wording.for_project(opt, wording.Q4_TITLE),
+                               wording.for_project(opt, wording.Q3_TITLE), wording.FOLD_METHOD]
     links = [b for b in at.tabs[3].button if b.label == wording.METHOD_LINK]
     assert len(links) == 1 and links[0].proto.type == "tertiary"
 

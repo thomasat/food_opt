@@ -296,7 +296,8 @@ def test_target_moves_and_answer_line(monkeypatch):
 
 
 def test_target_chart_colours_segments_and_never_hides_the_start(monkeypatch):
-    monkeypatch.setattr(U, "target_rows", lambda opt: _rows())
+    # Slim Review (re-pinned): target_rows takes the slider Round's best.
+    monkeypatch.setattr(U, "target_rows", lambda opt, best=None: _rows())
     monkeypatch.setattr(U, "story_start", lambda opt: (0, 1))
     monkeypatch.setattr(U, "_say", lambda o, t: t)
     opt = NS(best_index=lambda: 1)
@@ -464,10 +465,12 @@ def test_the_page_reads_in_the_ruled_order(line_a):
     heads = [say(wording.Q2_TITLE), say(wording.Q5_TITLE)]
     assert seen[:2] == heads
     rest = seen[2:]
-    model = say(wording.LEARNED_TITLE)
-    assert model in rest
-    if "Forecast check" in rest:
-        assert rest.index("Forecast check") == rest.index(model) - 1
+    # Slim Review (re-pinned): no model section of its own; the Forecast
+    # check holds its verdict line and, in a closed fold, its chart; then
+    # What have we tried? and the profiler, both closed.
+    model = say(wording.FORECAST_CHECK_TITLE)
+    assert say(wording.LEARNED_TITLE) not in rest
+    assert rest[:2] == [model, say(wording.LEARNED_DETAILS_TITLE)]
     assert rest.index(say(wording.Q4_TITLE)) > rest.index(model)
     assert rest.index(say(wording.Q3_TITLE)) == rest.index(say(wording.Q4_TITLE)) + 1
     assert rest[-1] == say(wording.FOLD_METHOD)

@@ -236,7 +236,13 @@ def _extras(at, title):
     """The card's further lines under a section's answer line."""
     rows = section(at, title)
     got, seen = [], False
+    # Slim Review (re-pinned): in the Forecast check the model's answer is
+    # its verdict line, after the check's own lines.
+    verdict = title == wording.FORECAST_CHECK_TITLE
     for el, text in rows:
+        if verdict and not re.match(r"(So far: |Predicts: |Partly: |Not yet: )", text):
+            if not seen:
+                continue
         if el.type == "markdown" and el.proto.help and not seen:
             seen = True
             continue
@@ -296,9 +302,11 @@ def _title_of(at, label):
     heads = _headings(at)
     # Review learned: the Predictions/Model item lands on What has the model
     # learned?, which took Q1's place.
+    # Slim Review (re-pinned): it lands on the Forecast check, which now
+    # holds the model's verdict line.
     want = {wording.CARD_PROGRESS: wording.Q2_TITLE,
-            wording.CARD_PREDICTIONS: wording.LEARNED_TITLE,
-            wording.LEARNED_STRIP_LABEL: wording.LEARNED_TITLE}[label]
+            wording.CARD_PREDICTIONS: wording.FORECAST_CHECK_TITLE,
+            wording.LEARNED_STRIP_LABEL: wording.FORECAST_CHECK_TITLE}[label]
     return next((h for h in heads if h == want), want)
 
 
@@ -425,8 +433,13 @@ def test_one_fold_only_and_no_old_status_lines(screens, name):
     rows = outside(screens[name])
     folds = [t for k, t in rows if k == "expander"]
     # Review critique (fix 4): the profiler in its own closed fold, then
-    # Method and definitions.
-    assert folds == [wording.for_project(D.load(name), wording.Q3_TITLE), wording.FOLD_METHOD]
+    # Method and definitions. Slim Review (re-pinned): the Forecast check's
+    # details fold (once the model has verdicts) and What have we tried?,
+    # closed, before them.
+    opt = D.load(name)
+    details = [] if name == D.SNACK else [wording.LEARNED_DETAILS_TITLE]
+    assert folds == details + [wording.for_project(opt, wording.Q4_TITLE),
+                               wording.for_project(opt, wording.Q3_TITLE), wording.FOLD_METHOD]
     texts = [t for _, t in rows]
     assert not any(t.startswith(("Predictions:", "Progress:", "Next:")) for t in texts)
     assert wording.FOLD_EXPLORED not in folds

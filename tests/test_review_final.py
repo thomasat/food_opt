@@ -412,7 +412,12 @@ def test_the_forecast_check_is_a_section_with_a_wide_chart(monkeypatch):
     monkeypatch.setattr(U, "show_chart", lambda *a, **k: None)
     U._called_top(opt, fake, lf)
     marks = [c[1][0] for c in fake.calls if c[0] == "markdown"]
-    assert f"#### {wording.FORECAST_CHECK_TITLE}" in marks
+    # Slim Review (re-pinned): the heading is the section's own (_section
+    # draws it, as for every question); the check draws its lines, the
+    # model's verdict line among them ("So far: …").
+    assert f"#### {wording.FORECAST_CHECK_TITLE}" not in marks
+    assert U._QUESTIONS["predictions"] == wording.FORECAST_CHECK_TITLE
+    assert U.learned_verdict_line(opt, lf)[0] in marks
     assert U.SECTION_ORDER.index("next") + 1 == U.SECTION_ORDER.index("predictions")
 
 
@@ -434,7 +439,8 @@ def _rows():
 
 
 def test_start_vs_best_reads_one_axis_and_says_where_the_dot_moved(monkeypatch):
-    monkeypatch.setattr(U, "target_rows", lambda opt: _rows())
+    # Slim Review (re-pinned): target_rows takes the slider Round's best.
+    monkeypatch.setattr(U, "target_rows", lambda opt, best=None: _rows())
     monkeypatch.setattr(U, "story_start", lambda opt: (0, 1))
     monkeypatch.setattr(U, "_say", lambda o, t: t)
     spec = U.target_chart(NS(best_index=lambda: 1)).to_dict()

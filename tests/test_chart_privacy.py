@@ -218,6 +218,9 @@ def test_every_chart_on_the_insights_and_results_tabs_disables_its_menu(mixture_
     # Charts proto: the triangle sits in Explored and unexplored now, with
     # What you've tried, How the app chooses and the map: open it too.
     at.session_state[ui_insights.EXPLORED_KEY] = True
+    # Slim Review (re-pinned): What have we tried? is a closed fold, drawn
+    # only while open: open it too, so its chart is checked.
+    at.session_state[ui_insights.TRIED_FOLD_KEY] = True
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
     at.run()
     assert not at.exception
