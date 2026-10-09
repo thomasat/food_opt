@@ -6330,7 +6330,9 @@ def learned_verdict_line(opt, lf):
     if not _has_verdicts(lf):
         return None
     o = lf.orderings.get(insights.SCORE)
-    count = (wording.learned_count(learned_label(opt, insights.SCORE), o.right, o.pairs)
+    # Fewer counted pairs than a verdict needs: said in the line.
+    count = (wording.learned_count(learned_label(opt, insights.SCORE), o.right, o.pairs,
+                                   few=o.pairs < learned.MIN_PAIRS)
              if o is not None and o.pairs else None)
     groups = [(wording.LEARNED_WORDS[v], lf.model_names(opt, v))
               for v in (learned.PREDICTABLE, learned.PARTLY, learned.NOT_YET)]
@@ -7278,16 +7280,17 @@ def average_label_y(avgs, dots, steps, rings, y_domain, x_domain,
 def round_highlight(opt, r):
     """(band from, band to, marker x, Best so far at Round r, its
     Formulation number) for the score chart's chosen Round: the band over
-    Round r's Formulations (± 0.5), the marker on the Best so far step at
-    that Round (round_bests' best); None when Round r has no formulation."""
+    Round r's Formulations (± 0.5); the marker on Best so far by the end of
+    Round r (round_bests' best) itself, at its Formulation and score — it
+    may come from an earlier Round. None when Round r has no formulation."""
     nos = [int(opt.formulation_ids[i]) for i in range(len(opt.formulation_ids))
            if _round_of(opt, i) == r]
     _rounds, at = round_bests(opt)
     if not nos or r not in at:
         return None
-    a, b = min(nos) - 0.5, max(nos) + 0.5
     i = at[r]
-    return a, b, (a + b) / 2, float(opt.Y_history[i]), int(opt.formulation_ids[i])
+    no = int(opt.formulation_ids[i])
+    return min(nos) - 0.5, max(nos) + 0.5, float(no), float(opt.Y_history[i]), no
 
 
 _HIGHLIGHT_FILL = {"light": 0.07, "dark": 0.12}     # the chosen Round's band, opacity
@@ -7303,8 +7306,8 @@ def highlight_band(lit, x_scale=None):
 
 
 def highlight_marker(opt, lit, r, x_scale=None, y_scale=None, y_title=None):
-    """The marker: Best so far at the chosen Round, a blue diamond on its
-    step, its Round, score and Formulation in the tooltip."""
+    """The marker: Best so far at the chosen Round, a blue diamond on that
+    formulation's own dot, its Round, score and Formulation in the tooltip."""
     best = wording.BEST_SO_FAR_COLUMN
     mdf = pd.DataFrame([{"x": lit[2], "v": lit[3], "round": wording.round_tick(r),
                          "text": one_decimal(lit[3]), "f": _short(opt, f"F{lit[4]}")}])
@@ -7527,7 +7530,7 @@ def improving_chart(opt, highlight=None):
             tooltip=[alt.Tooltip("round:N", title=_say(opt, wording.ROUND_CAP)),
                      alt.Tooltip("text:N", title=best)]))
     if lit is not None:
-        # The marker: Best so far at the chosen Round, on its step.
+        # The marker: Best so far at the chosen Round, on its own dot.
         layers.append(highlight_marker(opt, lit, highlight, x_scale, y_scale, y_title))
     if nums is not None:
         s, r0, b, rb, bno = nums

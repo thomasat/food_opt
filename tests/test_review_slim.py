@@ -142,10 +142,11 @@ def test_one_slider_drives_the_chart_the_profile_and_what_changed():
     assert "**What changed by Round 2**" in texts
     table = next(t for t in texts if t.startswith("| Ingredient"))
     assert "| Best so far (F4, Round 2) |" in table and "| Start (F2) |" in table
-    # The chart: Round 2's Formulations shaded, the marker on F4's score.
+    # The chart: Round 2's Formulations shaded, the marker on F4 itself.
     band, marker = next((b, m) for b, m in map(_band_and_marker, _specs(at)) if b)
     assert band == (3.5, 6.5)
     assert marker["v"] == pytest.approx(_score(opt, 4)) and marker["f"] == "F4"
+    assert marker["x"] == 4
     # The section's answer line is about the latest Round, whatever the slider.
     assert answer in texts
 
@@ -191,7 +192,7 @@ def test_the_chart_highlights_the_round_and_keeps_every_later_round():
     marker = next(l for l in body(lit) if l["mark"].get("shape") == "diamond")
     m = lit["datasets"][marker["data"]["name"]][0]
     assert m["v"] == pytest.approx(_score(opt, 4)) and m["round"] == wording.round_tick(2)
-    assert 3.5 < m["x"] < 6.5
+    assert m["x"] == 4                  # on F4's own dot
     dots = next(l for l in body(lit) if l["mark"].get("type") == "point"
                 and l["mark"].get("size") == 30)
     assert len(lit["datasets"][dots["data"]["name"]]) == len(ROWS)
@@ -201,7 +202,12 @@ def test_the_chart_highlights_the_round_and_keeps_every_later_round():
     assert _band_and_marker(U.improving_spec(opt, None)) == (None, None)
     # Round 3: the marker on the tie's first-made formulation, F7.
     assert U.round_highlight(opt, 3)[4] == 7
-    assert U.round_highlight(opt, 4)[3] == pytest.approx(_score(opt, 7))
+    # Round 4: Best so far is still F7, made in Round 3: the band over
+    # Round 4, the marker on F7, outside it.
+    a, b, x, v, no = U.round_highlight(opt, 4)
+    assert (a, b, x, no) == (9.5, 10.5, 7.0, 7) and v == pytest.approx(_score(opt, 7))
+    band4, marker4 = _band_and_marker(U.improving_spec(opt, 4))
+    assert band4 == (9.5, 10.5) and marker4["x"] == 7 and marker4["f"] == "F7"
 
 
 def test_round_bests_follow_best_index_rule():
@@ -325,6 +331,13 @@ def test_the_verdict_line_merges_the_so_far_count():
     # The "?" says the three words plainly and the adjustment.
     for word in ("Predicts:", "Partly:", "Not yet:", "Adjusted for checking 5 results"):
         assert word in help_
+    # Fewer counted pairs than a verdict needs: said in the same line.
+    few = _lf(score=(4, 4, N), Consistency=(3, 3, N), Creaminess=(1, 2, N),
+              Tangy=(5, 6, H), Thickness_uniformity=(2, 3, N))
+    line4 = U.learned_verdict_line(opt, few)[0]
+    assert line4 == "So far: Overall score 4 of 4 pairs (too few to judge). Partly: Tangy."
+    assert _words(line4) <= 14
+    assert learned.MIN_PAIRS == 5
     # No Overall-score pairs: the groups alone, no "So far:".
     none = _lf(score=(0, 0, N), Tangy=(5, 6, H))
     assert U.learned_verdict_line(opt, none)[0] == "Partly: Tangy. Not yet: Overall score."

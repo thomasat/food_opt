@@ -10294,8 +10294,11 @@ def profiler_hidden_rule(settings_only=False):
 LEARNED_DETAILS_TITLE = "Details: ordering by result"
 
 
-def learned_count(label, right, pairs):
-    """'Overall score 7 of 9 pairs ordered right'."""
+def learned_count(label, right, pairs, few=False):
+    """'Overall score 7 of 9 pairs ordered right'; under the pairs a verdict
+    needs: 'Overall score 4 of 4 pairs (too few to judge)'."""
+    if few:
+        return f"{label} {right} of {pairs} pairs (too few to judge)"
     return f"{label} {right} of {pairs} pairs ordered right"
 
 
