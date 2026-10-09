@@ -964,6 +964,10 @@ with tab_insights:
         ui_insights.render(_opt)
         # Make a round's E3 link is not offered again for this data (04 §3).
         st.session_state[INSIGHTS_OPENED_KEY] = insights.data_key(_opt)
+    else:
+        # Layout study: leaving the Review puts Are we improving? back on
+        # the latest Round (an earlier Round never waits on another tab).
+        ui_insights.leave_review()
 
 # Review guide: a dot on the fourth tab while a Round is due a Review. Drawn
 # by CSS on the tab's button, never in its label: the tabs widget keys its

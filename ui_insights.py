@@ -4,8 +4,10 @@ import collections
 import contextlib
 import dataclasses
 import math
+import os
 import re
 import threading
+import time
 import types
 
 import altair as alt
@@ -172,11 +174,14 @@ def _spec_copy(spec):
     return out
 
 
-def show_spec(spec, **kwargs):
+def show_spec(spec, clear=False, **kwargs):
     """show_chart for a kept spec (chart_spec): the action menu stays off
-    (usermeta at the top level, as _private sets it)."""
+    (usermeta at the top level, as _private sets it). `clear`: no
+    background of its own (the Replay panel's tint shows through)."""
     out = _spec_copy(spec)
     out["usermeta"] = _NO_CHART_ACTIONS
+    if clear:
+        out["background"] = "transparent"
     st.vega_lite_chart(spec=out, **kwargs)
 
 
@@ -6798,22 +6803,201 @@ def _trust_section(opt, slot, computed, facts):
 
 PROGRESS_ROUND_PLACE = "insights_progress_round"   # the section's slider and its three parts
 
+# --- Layout study (2026-10-09; owner: "Doesn't the layout require us to
+# scroll up and down while using the slider?") — PROTOTYPES behind a flag:
+#   base  the slim Review's one slider over three stacked parts
+#   A     Replay panel: one bordered panel, the Round control at its top,
+#         a slim score chart, the profile beside What changed
+#   B     the section in two columns, a sticky neutral slider
+#   C     Today | Replay Rounds: today's parts, the panel on demand
+REVIEW_LAYOUT = os.environ.get("FOOD_OPT_REVIEW_LAYOUT", "A")
+REPLAY_STATE = "insights_replay"        # {"project", "round"}: an earlier Round on view
+REPLAY_PLAY = "insights_replay_play"    # the project while Replay steps
+REPLAY_MODE = "insights_replay_mode"    # C: Today | Replay Rounds
+REPLAY_STEP_SECS = 1.0
+REPLAY_PANEL = "insights_replay_panel"
+PANEL_CHART_H = 150                     # px: the score chart's plot in the panel
+PANEL_PLOT_W = 320                      # px: the narrowest score plot in the panel (1152 px)
+PANEL_SPLIT = [0.44, 0.56]              # the panel's columns: chart over What changed | profile
+PANEL_SPIDER = 340                      # px: the profile's square beside What changed
+
+REPLAY_STYLE = """<style>
+.st-key-insights_replay_panel_now, .st-key-insights_replay_panel_past { padding: 0.6rem 0.9rem !important; }
+.st-key-insights_replay_panel_past { background: rgba(120, 128, 140, 0.09); border: 2px solid rgba(90, 98, 110, 0.55) !important; }
+.st-key-insights_replay_bar button { min-height: 2rem; padding: 0.15rem 0.7rem; }
+.st-key-insights_replay_bar p { margin: 0; }
+.st-key-insights_changes_compact table { font-size: 0.82rem; }
+.st-key-insights_changes_compact th, .st-key-insights_changes_compact td { padding: 0.08rem 0.4rem !important; line-height: 1.35; }
+.st-key-insights_changes_compact td { white-space: nowrap; }
+.st-key-insights_changes_compact p { margin-bottom: 0.2rem; }
+[class*="st-key-insights_replay_panel"] [data-testid="stMarkdownContainer"] p { font-size: 0.94rem; }
+[data-testid="stLayoutWrapper"]:has(> .st-key-insights_progress_round_sticky) { position: sticky; top: 3.75rem; z-index: 20; }
+.st-key-insights_progress_round_sticky { background: var(--background-color, #fff); padding: 0.25rem 0 0.4rem 0; }
+.st-key-insights_progress_round_sticky [data-baseweb="slider"] [role="slider"] { background: #4b5563 !important; box-shadow: none !important; }
+.st-key-insights_progress_round_sticky [data-baseweb="slider"] > div > div > div:first-child { background: #4b5563 !important; }
+.st-key-insights_progress_round_sticky [data-testid="stSliderThumbValue"] { color: #374151 !important; }
+</style>"""
+
+
+def _replay_project(opt):
+    return getattr(opt, "project_name", None)
+
+
+def shown_round(opt, rounds):
+    """The Round on view: an earlier one chosen on this project, else the
+    latest (a new project, or none chosen, is always today's)."""
+    s = st.session_state.get(REPLAY_STATE)
+    if (rounds and isinstance(s, dict) and s.get("project") == _replay_project(opt)
+            and s.get("round") in rounds[:-1]):
+        return s["round"]
+    return rounds[-1] if rounds else None
+
+
+def show_round(opt, rounds, r):
+    """Put Round `r` on view (the latest, or None: back to today)."""
+    if r is None or not rounds or r not in rounds[:-1]:
+        st.session_state.pop(REPLAY_STATE, None)
+    else:
+        st.session_state[REPLAY_STATE] = {"project": _replay_project(opt), "round": r}
+
+
+def leave_review():
+    """The Review tab closed: back to the latest Round, any Replay stopped
+    (app.py calls this on every run the Review is not open)."""
+    for k in (REPLAY_STATE, REPLAY_PLAY):
+        st.session_state.pop(k, None)
+
+
+def replay_next(rounds, r):
+    """(the next Round, still playing): one step on; stops on the latest."""
+    i = rounds.index(r) if r in rounds else len(rounds) - 1
+    nxt = rounds[min(i + 1, len(rounds) - 1)]
+    return nxt, nxt != rounds[-1]
+
+
+def _playing(opt):
+    return st.session_state.get(REPLAY_PLAY) == _replay_project(opt)
+
+
+def _on_step(opt, rounds, by):
+    st.session_state.pop(REPLAY_PLAY, None)
+    r = shown_round(opt, rounds)
+    i = max(0, min(len(rounds) - 1, rounds.index(r) + by))
+    show_round(opt, rounds, rounds[i])
+
+
+def _on_latest(opt, rounds):
+    st.session_state.pop(REPLAY_PLAY, None)
+    show_round(opt, rounds, None)
+
+
+def _on_play(opt, rounds):
+    show_round(opt, rounds, rounds[0])
+    st.session_state[REPLAY_PLAY] = _replay_project(opt)
+
+
+def _on_stop():
+    st.session_state.pop(REPLAY_PLAY, None)
+
+
+def _fragment_rerun():
+    """True in a fragment's own rerun (st.rerun(scope="fragment") is
+    allowed only there), False in a full run."""
+    try:
+        from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx
+        ctx = get_script_run_ctx(suppress_warning=True)
+        return bool(ctx is not None and ctx.fragment_ids_this_run)
+    except Exception:
+        return False
+
+
+def _replay_tick(opt, rounds, r):
+    """After a Replay step is drawn: wait, then the next Round (a fragment
+    rerun, nothing else redrawn); stopped by any full run."""
+    if not _playing(opt):
+        return
+    if not _fragment_rerun():
+        st.session_state.pop(REPLAY_PLAY, None)
+        return
+    time.sleep(REPLAY_STEP_SECS)
+    nxt, still = replay_next(rounds, r)
+    show_round(opt, rounds, nxt)
+    if not still:
+        st.session_state.pop(REPLAY_PLAY, None)
+    st.rerun(scope="fragment")
+
+
+def _hold(n):
+    """`n` empty places: a Replay step draws as many elements as any other
+    Round, so nothing of the Round before lingers while the step waits
+    (Streamlit clears an element not drawn again only when the run ends)."""
+    for _ in range(n):
+        st.empty()
+
+
+def _replay_bar(opt, rounds, r):
+    """◀ Round 4 of 10 ▶ · Replay (Stop while it plays) · Back to latest."""
+    last = rounds[-1]
+    playing = _playing(opt)
+    with st.container(horizontal=True, vertical_alignment="center", gap="small",
+                      key="insights_replay_bar"):
+        st.button("◀", key="insights_replay_prev", disabled=r == rounds[0] or playing,
+                  on_click=_on_step, args=(opt, rounds, -1),
+                  help=_say(opt, f"{wording.ROUND_CAP} {rounds[max(0, rounds.index(r) - 1)]}"))
+        st.markdown(f"**{_say(opt, wording.ROUND_CAP)} {r}** of {last}", width="content",
+                    help=_say(opt, f"◀ ▶ step through the {wording.ROUND_CAP}s: this panel shows "
+                                   f"each {wording.ROUND_CAP}'s best so far. The line above and "
+                                   f"What next? stay about today."))
+        st.button("▶", key="insights_replay_next", disabled=r == last or playing,
+                  on_click=_on_step, args=(opt, rounds, 1),
+                  help=_say(opt, f"{wording.ROUND_CAP} {rounds[min(len(rounds) - 1, rounds.index(r) + 1)]}"))
+        if playing:
+            st.button("Stop", key="insights_replay_stop", icon=":material/stop:", on_click=_on_stop)
+        else:
+            st.button(f"Replay {wording.ROUND_CAP}s", key="insights_replay_play",
+                      icon=":material/play_arrow:", on_click=_on_play, args=(opt, rounds),
+                      help=f"{wording.ROUND_CAP} {rounds[0]} to {last}, one a second.")
+        st.space("stretch")
+        if r != last:
+            st.markdown(f":orange-badge[Earlier {wording.ROUND_CAP}]", width="content")
+            st.button("Back to latest", key="insights_replay_latest", icon=":material/undo:",
+                      on_click=_on_latest, args=(opt, rounds))
+        else:
+            st.markdown(":gray-badge[Latest]", width="content")
+            _hold(1)
+
 
 def _progress_body(opt, slot):
     """"Are we improving?" (review story; slim Review, owner 2026-10-08):
-    one Round slider at the top drives the three parts under it — the
-    score chart (the chosen Round shaded, a marker on Best so far there),
-    the sensory profile and What changed. One fragment: dragging reruns
-    only this section. The section's answer line (drawn with the cards,
-    above) stays about the latest Round. Model-free, drawn at once."""
+    one Round control drives the three parts — the score chart (the chosen
+    Round shaded, a marker on Best so far there), the sensory profile and
+    What changed. One fragment: a step reruns only this section. The
+    section's answer line (drawn with the cards, above) stays about the
+    latest Round."""
+    if not _fragment_rerun():
+        st.session_state.pop(REPLAY_PLAY, None)    # a full run stops a Replay
     with slot.body:
+        st.html(REPLAY_STYLE)
         with st.container(key=PROGRESS_ROUND_PLACE, gap="small"):
-            _progress_fragment(opt, f"{SPIDER_ROUND_KEY}_{spider_key(opt)[:16]}")
+            if REVIEW_LAYOUT == "base":
+                _progress_fragment(opt, f"{SPIDER_ROUND_KEY}_{spider_key(opt)[:16]}")
+            elif REVIEW_LAYOUT == "B":
+                _progress_fragment_b(opt, f"{SPIDER_ROUND_KEY}_{spider_key(opt)[:16]}")
+            else:
+                _replay_fragment(opt)
 
 
 def progress_cue(opt, r):
     """'Showing Round 4': what the three parts below are drawn for."""
     return _say(opt, wording.round_cue(r))
+
+
+def _section_rounds(opt):
+    try:
+        rounds, _at = round_bests(opt)
+    except Exception:
+        rounds = []
+    return rounds
 
 
 @st.fragment
@@ -6838,17 +7022,119 @@ def _progress_fragment(opt, key):
     _changes_block(opt, r if len(rounds) > 1 else None)
 
 
-def _improving_part(opt, r):
-    """The score chart, Round `r` shaded with a marker on Best so far there
-    (None: no highlight), and its caption."""
+@st.fragment
+def _progress_fragment_b(opt, key):
+    """B: a sticky neutral slider, the score chart full width, then the
+    profile beside What changed."""
+    rounds = _section_rounds(opt)
+    r = rounds[-1] if rounds else None
+    if len(rounds) > 1:
+        with st.container(horizontal=True, vertical_alignment="bottom", gap="medium",
+                          key=f"{PROGRESS_ROUND_PLACE}_sticky"):
+            r = st.select_slider(_say(opt, wording.ROUND_CAP), options=rounds, value=r,
+                                 key=key, width=SPIDER_SIZE)
+            st.markdown(f":gray-badge[{progress_cue(opt, r)}]", width="content",
+                        help=_say(opt, wording.ROUND_CUE_HELP))
+    _improving_part(opt, r if len(rounds) > 1 else None)
+    left, right = st.columns([0.6, 0.4], gap="medium")
+    with left:
+        _profile_part(opt, r, compact=True)
+    with right:
+        _changes_block(opt, r if len(rounds) > 1 else None, compact=True)
+    _panel_captions(opt)
+
+
+@st.fragment
+def _replay_fragment(opt):
+    """A and C: the Replay panel (C: under Today | Replay Rounds)."""
+    rounds = _section_rounds(opt)
+    if len(rounds) <= 1:
+        _improving_part(opt, None)
+        _profile_part(opt, rounds[-1] if rounds else None)
+        _changes_block(opt, None)
+        return
+    if REVIEW_LAYOUT == "C":
+        modes = ["Today", f"Replay {wording.ROUND_CAP}s"]
+        mode = st.segmented_control("View", modes, default=modes[0], key=REPLAY_MODE,
+                                    label_visibility="collapsed",
+                                    on_change=lambda: show_round(opt, rounds, None))
+        if mode != modes[1]:
+            st.session_state.pop(REPLAY_PLAY, None)
+            _improving_part(opt, None)
+            left, right = st.columns([0.6, 0.4], gap="medium")
+            with left:
+                _profile_part(opt, rounds[-1], compact=True)
+            with right:
+                _changes_block(opt, None, compact=True)
+            _panel_captions(opt)
+            return
+    r = shown_round(opt, rounds)
+    past = r != rounds[-1]
+    with st.container(border=True, gap="small",
+                      key=f"{REPLAY_PANEL}_{'past' if past else 'now'}"):
+        _replay_bar(opt, rounds, r)
+        left, right = st.columns(PANEL_SPLIT, gap="medium")
+        with left:
+            _improving_part(opt, r, compact=True)
+            _changes_block(opt, r, compact=True)
+        with right:
+            _profile_part(opt, r, compact=True)
+    _panel_captions(opt)
+    _replay_tick(opt, rounds, r)
+
+
+def _panel_captions(opt):
+    """The three parts' captions, one row under the panel (they never
+    change with the Round)."""
+    avgs = round_averages(opt)
+    first, last = (avgs[0], avgs[-1]) if avgs else (None, None)
+    with st.container(horizontal=True, gap="medium"):
+        st.caption(_say(opt, wording.STORY_IMPROVING_CAPTION), width="content",
+                   help=_say(opt, wording.story_improving_help(
+                       one_decimal(first[3]) if first else None,
+                       one_decimal(last[3]) if last else None,
+                       first[0] if first else None, last[0] if last else None,
+                       assumed=getattr(insights.noise_yardstick(opt), "assumed", True),
+                       need_text=_top_zone_need(opt))))
+        try:
+            spider = spider_data(opt)
+        except Exception:
+            spider = None
+        if spider is not None:
+            s_i, s_no, s_round, _vals = spider.start
+            yard = insights.noise_yardstick(opt)
+            st.caption(_say(opt, wording.SPIDER_CAPTION), width="content",
+                       help=_say(opt, wording.brief(wording.spider_help(
+                           s_no, s_round, repeats=not getattr(yard, "assumed", True)))))
+        ch = what_changed(opt, None)
+        if ch is not None and not ch.same:
+            st.caption(_say(opt, wording.CHANGES_CAPTION), width="content",
+                       help=_say(opt, wording.brief(wording.changes_help(
+                           ch.start_no, ch.best_no, ch.start_round, fill=ch.fill,
+                           fixed=ch.fixed, settings=any(x.setting for x in ch.rows),
+                           near_zero=any(x.near_zero for x in ch.rows)))))
     try:
-        spec = improving_spec(opt, r)
+        recipe = score_recipe_text(opt)
+    except Exception:
+        recipe = None
+    if recipe:
+        st.caption(recipe)
+
+
+def _improving_part(opt, r, compact=False):
+    """The score chart, Round `r` shaded with a marker on Best so far there
+    (None: no highlight), and its caption (`compact`: a slimmer chart, the
+    caption under the panel)."""
+    try:
+        spec = improving_spec(opt, r, height=PANEL_CHART_H if compact else None)
     except Exception:
         spec = None
     if spec is None:
         st.caption(_say(opt, wording.CHART_FAILED))
         return
-    show_spec(spec)
+    show_spec(spec, clear=compact)
+    if compact:
+        return
     avgs = round_averages(opt)
     first, last = (avgs[0], avgs[-1]) if avgs else (None, None)
     st.caption(_say(opt, wording.STORY_IMPROVING_CAPTION),
@@ -6860,7 +7146,7 @@ def _improving_part(opt, r):
                    need_text=_top_zone_need(opt))))
 
 
-def _profile_part(opt, r):
+def _profile_part(opt, r, compact=False):
     """Sensory profile against target at Round `r` (the spider from
     SPIDER_MIN measurements, else the Start vs best dot chart), with its
     caption and the score recipe."""
@@ -6869,7 +7155,8 @@ def _profile_part(opt, r):
     except Exception:
         spider = None
     if spider is not None:
-        _spider_block(opt, spider, r if r in spider.bests else spider.rounds[-1])
+        _spider_block(opt, spider, r if r in spider.bests else spider.rounds[-1],
+                      compact=compact)
         return
     try:
         _rounds, at = round_bests(opt)
@@ -7344,15 +7631,15 @@ def _plot_layers(spec):
     return top
 
 
-def improving_spec(opt, r=None):
+def improving_spec(opt, r=None, height=None):
     """The score chart as a kept spec, Round `r` highlighted: the chart
     without a highlight is converted once per project state and theme;
     the band (first, under every mark) and the marker (last) are added per
     Round. None when there is nothing to draw."""
     key = ("improving", insights.data_key(opt), spider_key(opt), insights.setup_key(opt),
            theme(), _say(opt, wording.ROUND_CAP), float(opt.utility_ceiling()),
-           getattr(insights.noise_yardstick(opt), "assumed", True))
-    base = chart_spec(key, lambda: improving_chart(opt))
+           getattr(insights.noise_yardstick(opt), "assumed", True), height or IMPROVING_HEIGHT)
+    base = chart_spec(key, lambda: improving_chart(opt, height=height))
     if base is None or r is None:
         return base
     lit = round_highlight(opt, r)
@@ -7374,7 +7661,7 @@ def improving_spec(opt, r=None):
     return out
 
 
-def improving_chart(opt, highlight=None):
+def improving_chart(opt, highlight=None, height=None):
     """Are we improving? (a): each formulation's measured Overall score
     (grey dots), Best so far (an ink step), each Round's average (a short
     mid-grey bar under its Formulations) and the start and the best named
@@ -7383,6 +7670,8 @@ def improving_chart(opt, highlight=None):
     `highlight`: a Round to mark (the section's slider) — a light band over
     its Formulations and a marker on Best so far there; every other mark
     stays drawn, so no later Round reads as not having happened."""
+    plot_h = height or IMPROVING_HEIGHT
+    narrow = height is not None and height < IMPROVING_HEIGHT
     frame = progress_frame(opt).reset_index()
     if frame.empty:
         return None
@@ -7414,12 +7703,12 @@ def improving_chart(opt, highlight=None):
     bottom = lo - 0.04 * max(hi - lo, 4.0)
     data_top = (ceiling if show_top else hi) + 0.03 * max(hi - lo, 4.0)
     lanes = _IMPROVING_LANES if nums is not None else 0
-    top = data_top + (data_top - bottom) * lanes / (IMPROVING_HEIGHT - lanes)
+    top = data_top + (data_top - bottom) * lanes / (plot_h - lanes)
     y_scale = alt.Scale(domain=[bottom, top], nice=False, zero=False)
 
     def at_px(px):
         """The score drawn `px` below the plot's top."""
-        return top - (top - bottom) * px / IMPROVING_HEIGHT
+        return top - (top - bottom) * px / plot_h
     y_title = zoomed(wording.PLOT_MEASURED_SCORE, lo, hi, float(opt.utility_ceiling()))
     x_scale = alt.Scale(domain=_x_domain(opt), nice=False)
     x = alt.X(f"{formulation}:Q", title=_say(opt, wording.Q2_X_TITLE), scale=x_scale,
@@ -7430,8 +7719,10 @@ def improving_chart(opt, highlight=None):
     light, mid = _TRIED_GREYS[theme()]
     # The legend names the two lines; the grey dots are each formulation
     # (their tooltip and the caption's "?" say so).
+    # In the Replay panel (a narrow column) each legend is one entry a row.
     legend = alt.Legend(title=None, orient="top", labelLimit=0, symbolType="stroke",
-                        symbolStrokeWidth=3, symbolOpacity=1)
+                        symbolStrokeWidth=3, symbolOpacity=1,
+                        **({"columns": 1} if narrow else {}))
     no_tip = alt.Tooltip(f"{formulation}:Q", title=_say(opt, wording.FORMULATION_CAP),
                          format="d")
     # Review readable: ticks only over the data, never in the label lanes.
@@ -7458,7 +7749,8 @@ def improving_chart(opt, highlight=None):
     areas = alt.Scale(domain=area_names,
                       range=[_BAND_FILL[theme()][0]] + ([zone_fill] if show_top else []))
     area_legend = alt.Legend(title=None, orient="top", labelLimit=0, symbolType="square",
-                             symbolOpacity=0.35, symbolStrokeWidth=0)
+                             symbolOpacity=0.35, symbolStrokeWidth=0,
+                             **({"columns": 1} if narrow else {}))
     need = tie_need(insights.noise_yardstick(opt)) if show_top else None
     lit = round_highlight(opt, highlight) if highlight is not None else None
     if lit is not None:
@@ -7507,7 +7799,8 @@ def improving_chart(opt, highlight=None):
         dots = [(float(n), float(v)) for n, v in zip(frame[formulation], frame[score])
                 if v is not None and v == v]
         adf["label_y"] = average_label_y(avgs, dots, steps, rings, (bottom, top),
-                                         tuple(_x_domain(opt)))
+                                         tuple(_x_domain(opt)), height=plot_h,
+                                         width=PANEL_PLOT_W if narrow else _MIN_PLOT_W)
         layers += _halo_text(adf, alt.X("mid:Q", scale=x_scale),
                              alt.Y("label_y:Q", scale=y_scale, title=y_title), "text:N", mid,
                              fontSize=FONT_SMALL, baseline="middle")
@@ -7554,7 +7847,7 @@ def improving_chart(opt, highlight=None):
             pdf = pd.DataFrame([p])
             ring_c = ink if p["who"] == "best" else grey
             # The leader: from just above the ring up to its label.
-            px = (top - bottom) / IMPROVING_HEIGHT
+            px = (top - bottom) / plot_h
             layers.append(alt.Chart(pdf.assign(foot=p["y"] + 8 * px, head=p["lane"] - 9 * px))
                           .mark_rule(color=grey, strokeWidth=1, strokeDash=[2, 2], tooltip=False)
                           .encode(x=alt.X("x:Q", scale=x_scale),
@@ -7571,7 +7864,7 @@ def improving_chart(opt, highlight=None):
     rounds = _round_layer(opt, formulation, list(frame[formulation]), x_scale)
     body = alt.layer(*layers)
     chart = alt.layer(rounds, body).resolve_axis(x="independent") if rounds else body
-    return readable(chart.properties(height=IMPROVING_HEIGHT))
+    return readable(chart.properties(height=plot_h))
 
 
 def target_rows(opt, best=None):
@@ -7838,6 +8131,7 @@ def target_chart(opt, best=None):
 
 SPIDER_MIN = 3              # measurements: from this many a spider, else the dot chart
 SPIDER_SIZE = 400           # px: the plot's square (labels and legend sit outside it)
+SPOKE_SEP = " · "           # a spoke label's name · target (wrapped at it beside What changed)
 SPIDER_ROUND_KEY = "insights_spider_round"
 _SPIDER_PAD = 1.1           # the plot's half-width in rims: room for the marks on the rim
 _SPIDER_LABEL_AT = 1.08     # spoke labels: just past the rim
@@ -8147,9 +8441,11 @@ def spider_frames(opt, data, r):
     return out
 
 
-def spider_chart(opt, data, r):
+def spider_chart(opt, data, r, size=SPIDER_SIZE, wrap=False):
     """Sensory profile against target at Round r (spider_frames' layers):
-    a square SPIDER_SIZE plot, the legend under it."""
+    a square `size` plot, the legend under it. `wrap`: a side spoke's
+    label on two lines (name, then target), so the chart stays narrow
+    beside What changed."""
     f = spider_frames(opt, data, r)
     names = f["names"]
     ink, _ = mark("bar_latest")
@@ -8222,32 +8518,39 @@ def spider_chart(opt, data, r):
         layers += _halo_text(part, x, y, "text:N", blue, fontSize=FONT_LABEL,
                              fontWeight="bold", align=align, baseline=baseline)
     sp = pd.DataFrame(f["spokes"])
+    if wrap:
+        sp["text"] = [t.replace(SPOKE_SEP, "\n", 1) if a != "center" else t
+                      for t, a in zip(sp["text"], sp["align"])]
     for (align, baseline), part in sp.groupby(["align", "baseline"]):
         layers.append(alt.Chart(part).mark_text(color=ink, fontSize=FONT_LABEL, align=align,
-                                                baseline=baseline, tooltip=False)
+                                                baseline=baseline, tooltip=False,
+                                                lineBreak="\n")
                       .encode(x=x, y=y, text="text:N"))
-    chart = alt.layer(*layers).properties(width=SPIDER_SIZE, height=SPIDER_SIZE)
+    chart = alt.layer(*layers).properties(width=size, height=size)
     return readable(chart.properties(autosize=alt.AutoSizeParams(type="pad"))) \
         .configure_view(strokeWidth=0)
 
 
-def _spider_block(opt, data, r):
+def _spider_block(opt, data, r, compact=False):
     """Sensory profile against target at Round `r`: the title, the answer
     line and the chart, the caption with its "?", the score recipe. The
     section's Round slider (_progress_fragment) chooses `r`."""
     st.markdown(f"**{_say(opt, wording.SPIDER_TITLE)}**")
     with st.container(key="insights_spider", gap="small"):
         st.markdown(spider_round_answer(opt, data, r), help=spider_round_help(opt, data, r))
+        size = PANEL_SPIDER if compact else SPIDER_SIZE
         try:
             spec = chart_spec(("spider", spider_key(opt), theme(), r,
-                               _say(opt, wording.ROUND_CAP)),
-                              lambda: spider_chart(opt, data, r))
+                               _say(opt, wording.ROUND_CAP), size, compact),
+                              lambda: spider_chart(opt, data, r, size=size, wrap=compact))
         except Exception:
             spec = None
         if spec is None:
             st.caption(_say(opt, wording.CHART_FAILED))
         else:
-            show_spec(spec, width="content")
+            show_spec(spec, width="content", clear=compact)
+    if compact:
+        return
     s_i, s_no, s_round, _vals = data.start
     yard = insights.noise_yardstick(opt)
     st.caption(_say(opt, wording.SPIDER_CAPTION), help=_say(opt, wording.brief(
@@ -8545,15 +8848,24 @@ def _md_cell(text):
     return re.sub(r"([\\|*_`\[\]<>])", r"\\\1", str(text))
 
 
-def changes_table(opt, ch):
+def _keep_together(text):
+    """'Best so far (F21, Round 10)' wrapping only before its bracket: the
+    bracket's spaces made non-breaking (a narrow column's header)."""
+    return re.sub(r"\(([^)]*)\)", lambda m: "(" + m.group(1).replace(" ", "\u00a0") + ")", text)
+
+
+def changes_table(opt, ch, compact=False):
     """The table as Markdown: four columns, the numbers right-aligned, the
-    % in grey after the change."""
+    % in grey after the change (`compact`: a header wraps only before its
+    bracket)."""
     kinds = {r.setting for r in ch.rows}
     head = (wording.CHANGES_NAME_BOTH if len(kinds) > 1 else
             wording.CHANGES_NAME_SETTING if kinds == {True} else wording.CHANGES_NAME_INGREDIENT)
     cols = [_say(opt, head), _short(opt, wording.changes_start_column(ch.start_no)),
             _short(opt, wording.changes_best_column(ch.best_no, ch.round_no)),
             wording.CHANGES_CHANGE]
+    if compact:
+        cols = [_keep_together(c) for c in cols]
     lines = ["| " + " | ".join(_md_cell(c) for c in cols) + " |",
              "| :-- | --: | --: | --: |"]
     for r in ch.rows:
@@ -8562,7 +8874,7 @@ def changes_table(opt, ch):
     return "\n".join(lines)
 
 
-def _changes_block(opt, r=None):
+def _changes_block(opt, r=None, compact=False):
     """'What changed by Round 4' under the sensory profile: the answer,
     the table, the limits line, the caption — at the section slider's
     Round `r` (None: today, no slider)."""
@@ -8572,14 +8884,20 @@ def _changes_block(opt, r=None):
         ch = None
     if ch is None:
         return
-    with st.container(key="insights_changes"):
+    with st.container(key="insights_changes" + ("_compact" if compact else "")):
         st.markdown(f"**{_say(opt, wording.changes_title(ch.round_no))}**")
         st.markdown(changes_answer(opt, ch))
         if ch.same:
+            if compact:
+                _hold(2)
             return
-        st.markdown(changes_table(opt, ch))
+        st.markdown(changes_table(opt, ch, compact=compact))
         if ch.limits:
             st.markdown(ch.limits, help=ch.limits_help)
+        elif compact:
+            _hold(1)
+        if compact:
+            return
         st.caption(_say(opt, wording.CHANGES_CAPTION), help=_say(opt, wording.brief(
             wording.changes_help(ch.start_no, ch.best_no, ch.start_round, fill=ch.fill,
                                  fixed=ch.fixed, settings=any(r.setting for r in ch.rows),
