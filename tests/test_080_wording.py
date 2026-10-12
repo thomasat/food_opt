@@ -208,8 +208,10 @@ def test_exact_texts_from_the_spec():
     assert w.overall_score_line(90.45, 100) == "Overall score 90.45 of 100."
     # Concision round (2026-10-01): short, the threshold kept. Fix A
     # follow-up (ruling on ties): the q = 1 rise threshold, 1.2 × √2 × 2.35.
+    # round 2: "tied" for equal values only; specific wording (2026-10-12),
+    # re-pinned: the rise needed, beside the lead.
     assert w.tie_line(22, "90.65", "0.20", 15, "4.0") == (
-        "Formulation 15 is within noise: 0.20 lower.")   # round 2: "tied" for equal values only
+        "Formulation 15 is within noise: 0.20 lower; 4.0 needed.")
     # Re-pinned (stale since the fourth tab became "4 · Review"): "in the
     # review", not "on Insights".
     assert w.never_coming_warning(19, "Cook loss") == (

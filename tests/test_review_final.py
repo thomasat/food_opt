@@ -526,8 +526,9 @@ def test_one_form_per_idea():
     assert wording.CEILING_TAIL == "Stop, or change the target."
     assert wording.review_status_strip("Rising", "Predicts: Overall score", wording.CARD_CEILING) == (
         "Review: **Rising** · Predicts: Overall score · Stop, or change the target")
+    # Specific wording (2026-10-12), re-pinned: the rise needed, beside the lead.
     assert wording.tie_line(21, "99.2", "0.83", 19, "2.3") == (
-        "Formulation 19 is within noise: 0.83 lower.")
+        "Formulation 19 is within noise: 0.83 lower; 2.3 needed.")
     assert "tied" not in wording._tied_with(18)
     assert wording.STORY_LANDED_OUT == wording.CHECK_KEY_OUT == "Measured, outside range"
     assert wording.single_record(36, 36, 3) == (

@@ -234,8 +234,10 @@ def test_exact_texts_from_the_audit():
         "Suggestions favour formulations the model is unsure about as well as ones it predicts "
         "high, so one can be predicted below Best so far.")
     # Fix A follow-up (ruling on ties): the q = 1 rise threshold, √2 × 1.645.
+    # round 2: "tied" for equal values only; specific wording (2026-10-12),
+    # re-pinned: the rise needed, beside the lead.
     assert W.tie_line(22, "90.65", "0.20", 15, "2.3") == (
-        "Formulation 15 is within noise: 0.20 lower.")   # round 2: "tied" for equal values only
+        "Formulation 15 is within noise: 0.20 lower; 2.3 needed.")
     assert W.round_track_holding(11, 11, rounds=[3, 4, 5]) == (
         "Overall score, Rounds 3–5: 11 of 11 inside their 95 % interval.")
     assert W.HOW_NO_P.endswith("R² on formulations chosen this way is misleading, so skill "
