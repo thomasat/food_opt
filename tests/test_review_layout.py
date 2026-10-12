@@ -137,6 +137,7 @@ def test_replay_tick_waits_then_reruns_only_the_fragment(state, monkeypatch):
     monkeypatch.setattr(U.time, "sleep", slept.append)
     monkeypatch.setattr(U.st, "rerun", rerun)
     monkeypatch.setattr(U, "_fragment_rerun", lambda: True)
+    monkeypatch.setattr(U, "_click_pending", lambda: False)
     U._on_play(a, rounds)
     r = U.shown_round(a, rounds)
     path = [r]
@@ -146,7 +147,9 @@ def test_replay_tick_waits_then_reruns_only_the_fragment(state, monkeypatch):
         r = U.shown_round(a, rounds)
         path.append(r)
     assert path == [1, 2, 3]
-    assert slept == [U.REPLAY_STEP_SECS] * 2 and U.REPLAY_STEP_SECS == 1.0
+    # Stop fix (re-pinned): each wait is 1 s in short slices.
+    assert sum(slept) == pytest.approx(2 * U.REPLAY_STEP_SECS) and U.REPLAY_STEP_SECS == 1.0
+    assert max(slept) <= U.REPLAY_SLICE_SECS <= 0.1
     assert reruns == ["fragment", "fragment"]
     assert U.shown_round(a, rounds) == 3 and U.REPLAY_STATE not in state
     U._replay_tick(a, rounds, 3)                   # stopped: nothing more
@@ -175,6 +178,66 @@ def test_a_step_or_back_to_latest_stops_a_replay(state):
     U._on_play(a, rounds)
     U._on_stop()
     assert not U.replaying() and U.shown_round(a, rounds) == 1
+
+
+# Stop fix (2026-10-11; coordinator: "Stop at Round 1 lands on 2; Stop at 3
+# lands on 4", about 1.1 s): a click in the panel waits for the running
+# step to end — Streamlit never cuts a fragment's run short for its own
+# click — so the step used to be taken first. Now the wait ends within a
+# slice of the click, no step is taken, and Stop holds the Round its button
+# was drawn with.
+
+def test_stop_mid_wait_holds_the_round_on_screen(state, monkeypatch):
+    a, rounds = _Opt("A"), [1, 2, 3, 4, 5, 6]
+    slept = []
+    clicks = iter([False, False, False, True])        # Stop lands in the 3rd slice
+    monkeypatch.setattr(U.time, "sleep", slept.append)
+    monkeypatch.setattr(U.st, "rerun", lambda scope="app": pytest.fail("no step after Stop"))
+    monkeypatch.setattr(U, "_fragment_rerun", lambda: True)
+    monkeypatch.setattr(U, "_click_pending", lambda: next(clicks, True))
+    for shown in (1, 3, 5):
+        U._on_play(a, rounds)
+        U.show_round(a, rounds, shown)
+        clicks = iter([False, False, False, True])
+        slept.clear()
+        U._replay_tick(a, rounds, shown)               # returns: no step taken
+        assert U.shown_round(a, rounds) == shown
+        assert sum(slept) <= 3 * U.REPLAY_SLICE_SECS + 1e-9     # well under 0.3 s
+        U._on_stop(a, rounds, shown)                   # the click's callback
+        assert not U.replaying() and U.shown_round(a, rounds) == shown
+
+
+def test_stop_after_a_step_began_still_holds_the_round_it_was_clicked_on(state):
+    a, rounds = _Opt("A"), [1, 2, 3, 4, 5, 6]
+    for shown in (1, 3, 5):
+        U._on_play(a, rounds)
+        U.show_round(a, rounds, shown + 1)            # the step already taken
+        U._on_stop(a, rounds, shown)                   # Stop drawn with `shown`
+        assert not U.replaying() and U.shown_round(a, rounds) == shown
+
+
+def test_the_stop_button_carries_the_round_it_is_drawn_with():
+    src = inspect.getsource(U._replay_bar)
+    i = src.index('key="insights_replay_stop"')
+    assert "on_click=_on_stop, args=(opt, rounds, r)" in src[i:i + 160]
+
+
+def test_a_click_pending_is_read_for_this_fragment_only(monkeypatch):
+    import types
+    from streamlit.runtime.scriptrunner_utils import script_run_context as C
+
+    def ctx(state, queue):
+        req = types.SimpleNamespace(_state=types.SimpleNamespace(name=state),
+                                    _rerun_data=types.SimpleNamespace(fragment_id_queue=queue))
+        return types.SimpleNamespace(script_requests=req, current_fragment_id="mine")
+
+    for state, queue, want in (("RERUN", ["mine"], True), ("RERUN", [], True),
+                               ("RERUN", ["poller"], False), ("CONTINUE", ["mine"], False)):
+        monkeypatch.setattr(C, "get_script_run_ctx", lambda suppress_warning=False:
+                            ctx(state, queue))
+        assert U._click_pending() is want, (state, queue)
+    monkeypatch.setattr(C, "get_script_run_ctx", lambda suppress_warning=False: None)
+    assert U._click_pending() is False
 
 
 def test_the_poller_never_reruns_the_page_during_a_replay():

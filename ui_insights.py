@@ -6817,6 +6817,7 @@ PROGRESS_ROUND_PLACE = "insights_progress_round"   # the section's Replay panel 
 REPLAY_STATE = "insights_replay"        # {"project", "round"}: an earlier Round on view
 REPLAY_PLAY = "insights_replay_play"    # the project while Replay steps
 REPLAY_STEP_SECS = 1.0                  # Replay: one Round a second, then stops on the latest
+REPLAY_SLICE_SECS = 0.05                # the wait's slices: a click is seen within this
 REPLAY_PANEL = "insights_replay_panel"  # + "_now" (the latest) or "_past" (framed, tinted)
 REPLAY_BAR = "insights_replay_bar"
 PANEL_CHART_H = 150                     # px: the score chart's plot in the panel
@@ -6899,8 +6900,12 @@ def _on_play(opt, rounds):
     st.session_state[REPLAY_PLAY] = _replay_project(opt)
 
 
-def _on_stop():
+def _on_stop(opt=None, rounds=None, r=None):
+    """Stop: hold on the Round that was on screen when it was clicked
+    (`r`, the Round its button was drawn with), even if a step began."""
     st.session_state.pop(REPLAY_PLAY, None)
+    if opt is not None and rounds and r in rounds:
+        show_round(opt, rounds, r)
 
 
 def _fragment_rerun():
@@ -6914,6 +6919,23 @@ def _fragment_rerun():
         return False
 
 
+def _click_pending():
+    """Whether a click in this fragment is waiting for the run to end (a
+    rerun request naming this fragment, or the whole page). Streamlit
+    internals, guarded: False when they cannot be read (Stop still lands on
+    the Round shown, _on_stop's own argument, only a step later)."""
+    try:
+        from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx
+        ctx = get_script_run_ctx(suppress_warning=True)
+        req = getattr(ctx, "script_requests", None)
+        if req is None or getattr(getattr(req, "_state", None), "name", None) != "RERUN":
+            return False
+        queue = list(getattr(getattr(req, "_rerun_data", None), "fragment_id_queue", None) or [])
+        return not queue or ctx.current_fragment_id in queue
+    except Exception:
+        return False
+
+
 def _replay_tick(opt, rounds, r):
     """After a Replay step is drawn: wait, then the next Round — a rerun of
     this fragment only, the step's values exactly (nothing drawn between
@@ -6923,7 +6945,18 @@ def _replay_tick(opt, rounds, r):
     if not _fragment_rerun():
         st.session_state.pop(REPLAY_PLAY, None)
         return
-    time.sleep(REPLAY_STEP_SECS)
+    # Wait in short slices: a click in this panel (Stop, ◀ ▶, Back to
+    # latest) waits for this run to end — Streamlit never lets a fragment's
+    # own click cut its run short — so the wait ends early and the step is
+    # not taken; the click's callback then decides the Round.
+    waited = 0.0
+    while waited < REPLAY_STEP_SECS - 1e-9:
+        if _click_pending():
+            return
+        time.sleep(min(REPLAY_SLICE_SECS, REPLAY_STEP_SECS - waited))
+        waited += REPLAY_SLICE_SECS
+    if _click_pending():
+        return
     nxt, still = replay_next(rounds, r)
     show_round(opt, rounds, nxt)
     if not still:
@@ -6956,7 +6989,7 @@ def _replay_bar(opt, rounds, r):
                   help=_say(opt, wording.replay_to(rounds[min(len(rounds) - 1, i + 1)])))
         if playing:
             st.button(wording.REPLAY_STOP, key="insights_replay_stop", icon=":material/stop:",
-                      on_click=_on_stop)
+                      on_click=_on_stop, args=(opt, rounds, r))
         else:
             st.button(_say(opt, wording.REPLAY_PLAY), key="insights_replay_play",
                       icon=":material/play_arrow:", on_click=_on_play, args=(opt, rounds),
