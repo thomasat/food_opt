@@ -297,7 +297,9 @@ def test_trust_answer_on_line_a(screens):
     # Persona fixes 2: pairs under one tasting noise apart left out.
     # Review critique: the exact permutation test (and each measurement's
     # share of the noise): they lean right, not clearly.
-    assert line == "Partly: Overall score, Firmness, Cook loss. Not yet: Juiciness."
+    # Specific wording (2026-10-12), re-pinned: each name with its pairs.
+    assert line == ("Partly: Overall score (5 of 5 pairs), Firmness (12/16), "
+                    "Cook loss (5/5).")
 
 
 # ------------------------------------------------------------------ #
@@ -486,12 +488,14 @@ def test_pilot_story(pilot):
         items[1]["word"] == "Predicts:"
     # Persona fixes: 'Flat · best 99.2 of 100' (the start stays on the chart).
     assert re.fullmatch(r"· best \d+\.\d of 100", items[0]["line"]), items[0]
-    assert re.fullmatch(r"[A-Z][\w ]+(, [A-Z][\w ]+)?", items[1]["line"]), items[1]
+    # Specific wording (2026-10-12), re-pinned: each name with its pairs.
+    assert re.fullmatch(r"[A-Z][\w ]+ \((\d+ of \d+ pairs|\d+/\d+)\)"
+                        r"(, [A-Z][\w ]+ \(\d+/\d+\))?( \+\d+)?", items[1]["line"]), items[1]
     # Slim Review (re-pinned): the verdict line in the Forecast check.
     line = next(t for k, t in got[wording.FORECAST_CHECK_TITLE]
                 if k == "markdown" and t.startswith("So far: "))
     assert re.fullmatch(r"So far: Overall score \d+ of \d+ pairs ordered right\. "
-                        r"Predicts: .+\.", line), line
+                        r"Predicts: .+ \(\d+/\d+\)\.", line), line
     # Review critique (fix 4): the profiler is a closed fold.
     assert wording.Q3_TITLE not in got
     before = cards(_open(R6), order="screen")

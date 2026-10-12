@@ -382,8 +382,8 @@ def _tie(opt, old, new):
     if f"{lead:.2f}" == "0.00":
         return wording.tie_equal(int(opt.formulation_ids[new]), int(opt.formulation_ids[old]),
                                  f"{opt.Y_history[new]:.2f}")
-    return wording.tie_line(int(opt.formulation_ids[new]), f"{opt.Y_history[new]:.2f}",
-                            f"{lead:.2f}", int(opt.formulation_ids[old]), f"{need:.1f}")
+    # Specific wording: the lead against the rise one new result needs.
+    return wording.tie_line_needed(int(opt.formulation_ids[old]), f"{lead:.2f}", f"{need:.1f}")
 
 
 def _move_sentence(opt, before, after):

@@ -150,11 +150,17 @@ def test_synthetic_cards_never_say_panel(line_a):
     n = ui_insights.next_card(line_a, facts)
     texts = [p.word, n.word] + [t for t, _ in p.lines + n.lines]
     assert not any(BENCH.search(t) for t in texts), texts
-    assert (wording.CARD_MEASURES_MISS, False) in p.lines
+    # Specific wording (2026-10-12), re-pinned: which measurements missed,
+    # how many, against the 1 in 20 a correct range gives.
+    assert (ui_insights.misses_line(facts), False) in p.lines
+    assert re.search(r": \d+ of \d+ outside range \((about \d+|under 1) expected\)\.$",
+                     ui_insights.misses_line(facts))
     assert not any(warn for _, warn in p.lines)
     assert (wording.card_noise_repeat(facts.best.formulation), False) in n.lines
     for t, _ in p.lines + n.lines:
-        assert _words(t) <= 6, t
+        # Specific wording (2026-10-12): the miss line names and counts, a
+        # card line's 10 words; every other line keeps its 6.
+        assert _words(t) <= (10 if t == ui_insights.misses_line(facts) else 6), t
 
 
 def test_synthetic_tooltip_holds_the_evidence(line_a):

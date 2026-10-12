@@ -421,8 +421,10 @@ def test_model_tooltip_opens_plain_and_ends_for_experts(monkeypatch):
     # Persona fixes 2: the Overall score named when Predictable.
     # Rebuilt framing: the forecast had none of that Round's results, which
     # is true live and in a replay; "before tasting" read as a timing claim.
+    # Specific wording (2026-10-12), re-pinned: the pairs behind Predicts.
     assert tip.startswith("Forecasting each Round from earlier Rounds, the model put the "
-                          "Overall score and Consistency in the right order")
+                          "Overall score (10 of 11 pairs) and Consistency (8/8) in the right "
+                          "order")
     assert "before tasting" not in tip
     assert "still very uncertain" not in tip
     assert "about as accurate as assuming each new formulation scores like your best" in tip

@@ -1440,6 +1440,10 @@ class StatusFacts:
     # measurements' own verdict (verdict_state) is kept here, for the
     # card's secondary line and the tooltip, which report both.
     measure_verdict: str | None = None
+    # Specific wording: which measurements missed, how often, against the
+    # 1 in 20 a correct range gives (value_misses); None while they do not
+    # miss more than expected.
+    misses: object = None
 
     @property
     def measures_miss(self):
@@ -1619,10 +1623,12 @@ def status_facts(opt, checks, standing=None, gain=None):
     # miss more than expected and no Repeat disagrees.
     diagnosis = (miss_diagnosis(opt, checks, h)
                  if measure_verdict in ("unreliable", "caution") and flagged is None else None)
+    misses = (value_misses(opt, checks, h)
+              if measure_verdict in ("unreliable", "caution") else None)
     return StatusFacts(scored, row, clauses, h, verdict, fact, flagged, bias, guard, yard,
                        progress, answer, best, tie, luck, step, checked,
                        float(standing.best.repeat.mean) if luck else None,
-                       diagnosis=diagnosis, measure_verdict=measure_verdict)
+                       diagnosis=diagnosis, measure_verdict=measure_verdict, misses=misses)
 
 
 def tie_partner(opt, best):
@@ -3240,6 +3246,9 @@ class RoundTrack:
     no_skill: object = None
     rounds: list = dataclasses.field(default_factory=list)
     record: bool = True
+    # Specific wording: the measurements' misses (value_misses) when
+    # see_insights; None otherwise.
+    misses: object = None
 
 
 def round_track(opt, checks):
@@ -3271,11 +3280,13 @@ def round_track(opt, checks):
         if no_skill is None:
             return None
         return RoundTrack(False, 0, 0, None, state == "unreliable", no_skill,
-                          list(h.rounds), record=False)
+                          list(h.rounds), record=False,
+                          misses=value_misses(opt, checks, h) if state == "unreliable" else None)
     rough = binomial_tail(record.total - record.inside, record.total) < 0.10
     # The record's own Rounds, every Round checked (0.8.0 e2e fixes, I1).
     return RoundTrack(rough, record.inside, record.total, score_bias(opt, checks, h),
-                      state == "unreliable", no_skill, list(record.rounds or h.rounds))
+                      state == "unreliable", no_skill, list(record.rounds or h.rounds),
+                      misses=value_misses(opt, checks, h) if state == "unreliable" else None)
 
 
 # ------------------------------------------------------------------ #
@@ -3936,3 +3947,45 @@ def tested_near_line(opt, path):
         if near and min(near)[0] <= CLOSE_TO_THE_BEST + _EPS:
             out.append((i, min(near)[1], float(opt.Y_history[i])))
     return out
+
+
+# --- specific wording (owner, 2026-10-12: "I don't like vague wording like
+# 'Measurements: more misses than expected.'") ---
+# A correct 95 % range misses 1 value in 20: the count a line names as
+# "expected" beside the misses it saw.
+MISS_RATE = 0.05
+
+
+@dataclass
+class ValueMisses:
+    """The measurements' misses in the verdict's Rounds (headline's window,
+    the values verdict_state counts): `items` [(name, misses, checked)] for
+    each measurement that missed, most misses first (Results' order on a
+    tie)."""
+    rounds: list
+    misses: int
+    total: int
+    items: list
+
+    @property
+    def expected(self):
+        """The misses a correct 95 % range gives on `total` values."""
+        return MISS_RATE * self.total
+
+
+def value_misses(opt, checks, h=None):
+    """ValueMisses over the headline's Rounds; None with no value checked."""
+    h = h or headline(opt, checks)
+    values = [c for c in checks if c.name != SCORE and c.round in (h.rounds or [])]
+    if not values:
+        return None
+    order = [n for n, _, _ in outputs(opt) if n != SCORE]
+    order += sorted({c.name for c in values} - set(order))
+    items = []
+    for name in order:
+        mine = [c for c in values if c.name == name]
+        missed = sum(not c.inside for c in mine)
+        if missed:
+            items.append((name, missed, len(mine)))
+    items.sort(key=lambda it: -it[1])
+    return ValueMisses(list(h.rounds or []), sum(it[1] for it in items), len(values), items)

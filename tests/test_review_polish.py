@@ -47,7 +47,8 @@ def test_evidence_numbers_are_the_cards(screens):  # noqa: F811
     # then the Overall score's coverage and skill against both baselines.
     # Persona fixes 2: too-close pairs left out; Cook loss joins Firmness.
     # Review critique: Partly under the permutation test (Cook loss too: +1).
-    assert p["lines"] == ["Overall score, Firmness +1"]
+    # Specific wording (2026-10-12), re-pinned: each name with its pairs.
+    assert p["lines"] == ["Overall score (5/5), Firmness (12/16) +1"]
     ev = p["help"].split("\n\n")[1]
     # Persona fixes 2: a result with no pair far enough apart is left out
     # (Line A's Overall score).

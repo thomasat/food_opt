@@ -286,11 +286,12 @@ CARDS = {
     # Persona fixes 2: too-close pairs left out of the counts.
     # Review critique: the exact permutation test leaves them leaning right
     # (Partly); the strip's words now end in a colon.
-    D.LINE_A: ("Partly:", ["Overall score, Firmness +1"]),
+    # Specific wording (2026-10-12), re-pinned: each name with its pairs.
+    D.LINE_A: ("Partly:", ["Overall score (5/5), Firmness (12/16) +1"]),
     # Review learned 2: the section repeats no old-card line.
     D.LINE_B: ("Partly:", [":red[**3 / 16 missed**]"]),     # round 2: Holm
     D.PROCESS_ONLY: ("Predicts:", [":red[**4 / 16 missed**]"]),
-    D.TIMING: ("Predicts:", ["Overall score, Firmness +3"]),
+    D.TIMING: ("Predicts:", ["Overall score (64/78), Firmness (65/88) +3"]),
 }
 
 

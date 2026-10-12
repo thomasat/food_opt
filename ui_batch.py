@@ -485,8 +485,11 @@ def _next_step_line(opt, linked=False):
         # Review polish: the misses row's sentence ran past 30 words; on
         # screen at most 10, the full sentence in its "?".
         best = opt.best_index()
-        short = wording.next_misses_short(None if best is None
-                                          else int(opt.formulation_ids[best]))
+        no_best = None if best is None else int(opt.formulation_ids[best])
+        m = insights.value_misses(opt, checks) if checks else None
+        # Specific wording: the measurements' count against the 1 in 20.
+        short = (wording.next_misses_said(m.misses, m.total, m.expected, no_best)
+                 if m is not None and m.misses else wording.next_misses_short(no_best))
     st.caption(wording.for_project(opt, short),
                help=wording.for_project(opt, text) if short != text else None)
     if linked or st.session_state.get(INSIGHTS_OPENED_KEY) == insights.data_key(opt):
@@ -1428,7 +1431,7 @@ def _why_fold(opt, preds):
             reason = ui_insights.gain_grey(opt, score, checks)
             grey = reason is not None
             if grey:
-                st.caption(say(wording.why_gain_greyed(reason)), help=say(
+                st.caption(say(ui_insights.gain_greyed_text(opt, checks, reason)), help=say(
                     wording.why_gain_greyed_said(why_greyed_line(opt, score, checks, reason))))
         frame, value_col = why_frame(opt, why, preds)
         help_text = (wording.OPTIMISTIC_SCORE_HELP if why.kind == "qucb"

@@ -610,7 +610,8 @@ def test_strip_reads_the_model_verdict(screen):
     # predictable yet".
     assert labels and labels[0].startswith(("**Predicts:**", "**Partly:**",
                                             "**Not predictable yet**"))
-    assert _words(labels[0]) <= 6
+    # Specific wording (2026-10-12): two names with their pairs take 7.
+    assert _words(labels[0]) <= 7
 
 
 def test_no_prediction_reads_100_on_the_review(screen):

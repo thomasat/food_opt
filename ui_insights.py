@@ -763,10 +763,16 @@ def column_models(opt):
 def track_short(t):
     """track_text, short (concision round): the record and each warning in
     a few words; track_text is its tooltip."""
-    return wording.round_track_short(
+    m = getattr(t, "misses", None)
+    line = wording.round_track_short(
         t.rounds or None, t.inside if t.record else None, t.total, rough=bool(t.rough),
         gap_text=None if t.gap is None else f"{abs(t.gap):.1f}", below=(t.gap or 0) < 0,
         see_insights=bool(t.see_insights), no_skill=t.no_skill is not None)
+    if t.see_insights and m is not None and m.total:
+        # Specific wording: the measurements' count against the 1 in 20.
+        line = line.replace(wording.TRACK_VALUES_MISS,
+                            wording.values_missed_short(m.misses, m.total, m.expected))
+    return line
 
 
 def track_text(t):
@@ -793,6 +799,12 @@ def track_text(t):
                                         rounds=rounds)
     else:
         line = wording.round_track_holding(t.inside, t.total, t.see_insights, rounds=rounds)
+    m = getattr(t, "misses", None)
+    if t.see_insights and m is not None and m.total:
+        # Specific wording: the measurements' misses counted, not "many more".
+        counted = wording.track_measured_counted(m.misses, m.total, m.expected)
+        line = line.replace(wording._MEASURED_MORE, counted).replace(
+            "; many more in the measured values", counted)
     return line + skill
 
 
@@ -2061,7 +2073,13 @@ def misses_plain(opt, facts):
     inside, total = (score.inside, score.total) if score is not None else (0, 0)
     no = opt.pending_batch_no
     left = len(open_rows(opt)) if opt.pending_batch else 0
-    line = f"{wording.misses_scoped(names, inside, total)} {wording.next_plain_tail(no, left)}"
+    scoped = wording.misses_scoped(names, inside, total)
+    said = misses_detail(facts)
+    if said:
+        # Specific wording: which measurements missed and how often.
+        scoped = said + (f" The {wording.OVERALL_SCORE_COLUMN} landed in range {inside} of "
+                         f"{total} times." if total else "")
+    line = f"{scoped} {wording.next_plain_tail(no, left)}"
     if d is not None and facts.best is not None:
         line += " " + wording.next_plain_repeat_ask(facts.best.formulation, bool(left))
     return _say(opt, line)
@@ -3225,7 +3243,10 @@ def _next_step_text(opt, step, rounds=None, amounts_shown=True):
             # measure the noise, in place of "the intervals are too narrow".
             best = opt.best_index()
             no_best = None if best is None else int(opt.formulation_ids[best])
-            return wording.next_misses_diag(rounds, d.kind, no_best, bias_text=bias), None
+            # Specific wording: the misses counted against the 1 in 20.
+            return wording.next_misses_counted(
+                rounds, d.kind, d.misses, d.checked, insights.MISS_RATE * d.checked, no_best,
+                bias_text=bias), None
         return wording.next_misses(rounds, bias_text=bias), None
     if step.kind == "repeat":
         return disagreement_text(step.disagreement), None
@@ -3839,6 +3860,31 @@ def gain_grey(opt, score, checks):
     if any(r in guard.reasons for r in insights._NOISE_TRIGGERS):
         return "noise"
     return "not_yet" if guard.fires else None
+
+
+def gain_greyed_text(opt, checks, reason):
+    """Specific wording: Make a round's greyed-gain line with the fact
+    behind the Predictions word — the Overall score's checks against the 10
+    it needs, its misses, or its skill against 0.20 — else the word's own
+    line (GAIN_GREYED)."""
+    fallback = wording.why_gain_greyed(reason)
+    if reason not in ("not_yet", "off") or not checks:
+        return fallback
+    checks = list(checks)
+    h = insights.headline(opt, checks)
+    verdict = insights.score_verdict_state(opt, h, checks)
+    fact = insights.skill(opt, checks)
+    checked = sum(1 for c in checks if c.name == insights.SCORE and c.fully_measured)
+    row = insights.score_prediction_row(opt.complete_count(), verdict, fact, checked)
+    r = h.score
+    if row in ("off_coverage", "caution") and r is not None and r.total:
+        return wording.gain_greyed_missed(r.total - r.inside, r.total)
+    if row == "too_few" and checked < insights.SKILL_MIN:
+        return wording.gain_greyed_checks(checked, insights.SKILL_MIN)
+    if row in ("unclear", "no_skill") and fact is not None:
+        return wording.gain_greyed_skill(skill_value(fact.value),
+                                         f"{insights.SKILL_SMALL:.2f}")
+    return fallback
 
 
 _GREY_REASON = {"noise": wording.GAIN_REASON_GUARD, "not_yet": wording.GAIN_REASON_NOT_YET,
@@ -4545,6 +4591,29 @@ class Card:
         self.word, self.lines, self.tone, self.help = word, lines, tone, help
 
 
+def misses_line(facts):
+    """Specific wording: the measurements' miss line, which ones, how
+    many and against the 1 in 20 a correct range misses ('Creaminess +3: 9
+    of 36 outside range (about 2 expected).'); the headline's own counts
+    when the facts carry no breakdown (an older cache)."""
+    m = getattr(facts, "misses", None)
+    if m is not None and m.total:
+        return wording.values_missed(m.items, m.misses, m.total, m.expected)
+    h = getattr(facts, "headline", None)
+    total = getattr(h, "total", 0) or 0
+    if not total:
+        return wording.TRACK_VALUES_MISS
+    return wording.values_missed_short(total - h.inside, total, insights.MISS_RATE * total)
+
+
+def misses_detail(facts):
+    """The miss line's "?" sentences (values_missed_detail), or ''."""
+    m = getattr(facts, "misses", None)
+    if m is None or not m.total:
+        return ""
+    return wording.values_missed_detail(m.rounds, m.items, m.misses, m.total, m.expected)
+
+
 def _check_round(opt):
     return opt.pending_batch_no if opt.pending_batch else opt.next_batch_no()
 
@@ -4582,7 +4651,7 @@ def predictions_card(opt, facts):
         lines.append((wording.card_score_in_range(inside, total), False))
     asked = False
     if getattr(facts, "measures_miss", False):
-        lines.append((wording.CARD_MEASURES_MISS, False))
+        lines.append((misses_line(facts), False))
     if check is not None:
         # Ruling 2: the panel is named only with Repeat evidence; without
         # it, the neutral data request.
@@ -4685,7 +4754,7 @@ def next_card(opt, facts):
     if left and getattr(facts, "measures_miss", False):
         # Round-2 fixes (P3 #17): the measurements' miss warning Make a round
         # shows stays with "Record Round 6" here too.
-        lines.append((wording.TRACK_VALUES_MISS, False))
+        lines.append((misses_line(facts), False))
     tone = None
     ask = (facts.best.formulation if step is not None and getattr(step, "assumed", False)
            and facts.best is not None else None)
@@ -4814,8 +4883,9 @@ def review_status(opt):
         # (from every Round's checks, never a partial set); red as before.
         ords = lf.orderings if lf is not None else learned.orderings(opt, every)
         pick = lambda v: model_names(opt, ords, v)
-        word, line = wording.learned_strip(pick(learned.PREDICTABLE), pick(learned.PARTLY),
-                                           pick(learned.NOT_YET))
+        word, line = wording.learned_strip_counted(pick(learned.PREDICTABLE),
+                                                   pick(learned.PARTLY), pick(learned.NOT_YET),
+                                                   pair_counts(opt, ords))
         # Round-2 fixes (P3 #18): the strip's own three items, in its words:
         # 'Review: Rising · Predicts: Overall score · Stop, or change the target'.
         text = wording.review_status_strip(prog.word, f"{word} {line}".strip(), nxt.word)
@@ -5692,7 +5762,9 @@ def _profiler(opt, computed):
         # Round-2 fixes (P2 #13): no Expected gain row here (Make a round's
         # map has it), so no line on why it is greyed.
         if cramped:
-            st.caption(_say(opt, wording.profiler_cramped(cramped)),
+            # Specific wording: the share that counts as too little room.
+            room = f"{ROOM_MIN:.0%}".replace("%", " %")
+            st.caption(_say(opt, wording.cramped_counted(cramped, room)),
                        help=_say(opt, wording.PROFILER_CRAMPED_HELP))
         note = moved_note(opt, shown)
         if note is not None:
@@ -5788,6 +5860,13 @@ class LearnedFacts:
         """The Model item's names (persona fixes 2): the Overall score too,
         first, as the screen says it."""
         return model_names(opt, self.orderings, verdict)
+
+
+def pair_counts(opt, orderings):
+    """Specific wording: {label: (right, counted pairs)} — the evidence a
+    verdict word carries wherever it shows ('Partly: Tangy (5 of 5
+    pairs)')."""
+    return {learned_label(opt, n): (o.right, o.pairs) for n, o in orderings.items()}
 
 
 def model_names(opt, orderings, verdict):
@@ -5921,7 +6000,7 @@ def learned_rows(opt, lf):
         if hi is not None and hi >= 1.0 - 1e-9 and o.right >= o.pairs:
             # Round-2 fixes (P2 #11): a bar to 100 % says why, on a second
             # line of its label.
-            label += f"|({_say(opt, wording.LEARNED_FULL_CHANCE)})"
+            label += f"|({_say(opt, wording.learned_full_chance(len(o.rounds)))})"
         rows.append({"name": label, "pct": None if few else 100 * o.right / o.pairs,
                      "result": learned_label(opt, name),
                      "lo": None if lo is None else 100 * lo,
@@ -5966,7 +6045,8 @@ def learned_chart(opt, lf):
            alt.Tooltip("n:N", title=_say(opt, wording.LEARNED_COL_PAIRS)),
            alt.Tooltip("pct:Q", format=".0f", title="%")]
     counted = frame[~frame["few"]]
-    few = frame[frame["few"]].assign(x=50.0, t=_say(opt, wording.LEARNED_TOO_FEW))
+    few = frame[frame["few"]].assign(x=50.0, t=_say(opt, wording.learned_too_few(
+        learned.MIN_PAIRS)))
     layers = []
     if not counted.empty:
         base = alt.Chart(counted)
@@ -6338,22 +6418,42 @@ def learned_verdict_line(opt, lf):
         return None
     o = lf.orderings.get(insights.SCORE)
     # Fewer counted pairs than a verdict needs: said in the line.
-    count = (wording.learned_count(learned_label(opt, insights.SCORE), o.right, o.pairs,
-                                   few=o.pairs < learned.MIN_PAIRS)
-             if o is not None and o.pairs else None)
+    # Specific wording: under the pairs a verdict needs, the count it needs.
+    score = learned_label(opt, insights.SCORE)
+    count = None
+    if o is not None and o.pairs:
+        count = (wording.learned_count_needed(score, o.right, o.pairs, learned.MIN_PAIRS)
+                 if o.pairs < learned.MIN_PAIRS else
+                 wording.learned_count(score, o.right, o.pairs))
+    counts = pair_counts(opt, lf.orderings)
     groups = [(wording.LEARNED_WORDS[v], lf.model_names(opt, v))
               for v in (learned.PREDICTABLE, learned.PARTLY, learned.NOT_YET)]
     groups = [(w, names) for w, names in groups if names]
-    # The count and as many groups as fit; else the groups alone (a verdict
-    # is never dropped for the count); else the count alone.
-    tries = [(count, groups[:k]) for k in range(len(groups), 0, -1) if count]
+    bare = wording.LEARNED_WORDS[learned.NOT_YET]
+    # Specific wording: each Predicts or Partly name with its pairs; Not yet
+    # stays bare. Beside the count (which says "pairs" and gives the
+    # Overall score's), the details chart's form: 'Tangy (5/5)'.
+    beside = [(w, names if w == bare else
+               [n if n == score else wording.named_pairs_short(n, counts.get(n))
+                for n in names]) for w, names in groups]
+    # Alone, the first says the unit: 'Overall score (5 of 5 pairs), Tangy (5/5)'.
+    counted = [n for w, names in groups if w != bare for n in names if counts.get(n, (0, 0))[1]]
+    said = {n: (wording.named_pairs([n], counts) if i == 0 else
+                wording.named_pairs_short(n, counts.get(n))) for i, n in enumerate(counted)}
+    alone = [(w, names if w == bare else [said.get(n, n) for n in names])
+             for w, names in groups]
+    # The count and as many groups as fit; else the groups alone with their
+    # pairs, else bare (a verdict is never dropped for the count); else the
+    # count alone.
+    tries = [(count, beside[:k]) for k in range(len(groups), 0, -1) if count]
+    tries += [(None, alone[:k]) for k in range(len(groups), 0, -1)]
     tries += [(None, groups[:k]) for k in range(len(groups), 0, -1)]
     tries += [(count, [])] if count else []
     line = next((t for t in (wording.learned_line(c, g) for c, g in tries)
                  if t and _line_words(t) <= wording.LEARNED_LINE_WORDS), None)
     if line is None:
         # Long names: the first group alone, whatever its length.
-        line = wording.learned_line(None, groups[:1]) or wording.learned_line(count, [])
+        line = wording.learned_line(None, alone[:1]) or wording.learned_line(count, [])
     return _short(opt, line), _say(opt, wording.brief(wording.learned_verdicts_help(_tested(lf))))
 
 
@@ -6408,19 +6508,24 @@ def learned_card(opt, lf, card, facts=None):
     first, the records in plain words, the rule, the terms of art last;
     the old Predictions card's sentence only when it warns (its "still very
     uncertain" contradicted Predicts)."""
-    word, line = wording.learned_strip(lf.model_names(opt, learned.PREDICTABLE),
-                                       lf.model_names(opt, learned.PARTLY),
-                                       lf.model_names(opt, learned.NOT_YET))
+    counts = pair_counts(opt, lf.orderings)
+    word, line = wording.learned_strip_counted(lf.model_names(opt, learned.PREDICTABLE),
+                                               lf.model_names(opt, learned.PARTLY),
+                                               lf.model_names(opt, learned.NOT_YET), counts)
     old = card.lines if card is not None else []
     warns = [(t, w) for t, w in old if w]
     # The old card's further lines (a Repeat request, the measurements'
     # misses) stay, under the names: the strip shows a warning or the names.
     rest = [(t, w) for t, w in old[1:] if not w]
-    plain = wording.model_plain(lf.model_names(opt, learned.PREDICTABLE),
-                                lf.model_names(opt, learned.PARTLY),
-                                lf.model_names(opt, learned.NOT_YET))
-    ev = wording.learned_evidence(
-        [(learned_label(opt, n), o.right, o.pairs) for n, o in lf.orderings.items()])
+    plain = wording.model_plain_counted(lf.model_names(opt, learned.PREDICTABLE),
+                                        lf.model_names(opt, learned.PARTLY),
+                                        lf.model_names(opt, learned.NOT_YET), counts)
+    # Specific wording: the opening sentence gives the Predicts and Partly
+    # names' pairs; the evidence line the rest, so no count is said twice.
+    named = set(lf.model_names(opt, learned.PREDICTABLE) + lf.model_names(opt, learned.PARTLY))
+    rows = [(learned_label(opt, n), o.right, o.pairs) for n, o in lf.orderings.items()
+            if learned_label(opt, n) not in named or not o.pairs]
+    ev = wording.learned_evidence(rows) if rows else ""
     record = getattr(lf, "plain_line", "")
     h = getattr(facts, "headline", None) if facts is not None else None
     if h is not None and getattr(h, "total", 0):
@@ -6529,6 +6634,21 @@ def round_forecast_lines(opt, checks, rows=None):
     return lines, wording.forecast_help(learned.round_start(opt), opt.pending_batch_no)
 
 
+def forecast_none_text(opt, checks):
+    """Specific wording: with nothing Predictable, the result closest to
+    it (Partly first, then the lowest chance p) and its pairs, from the
+    orderings round_forecast_lines reads."""
+    try:
+        ords = learned.orderings(opt, checks)
+    except Exception:
+        return wording.LEARNED_FORECAST_NONE
+    near = [o for o in ords.values() if o.pairs]
+    if not near:
+        return wording.forecast_none()
+    o = min(near, key=lambda o: (o.verdict != learned.PARTLY, o.p, -o.right))
+    return wording.forecast_none(learned_label(opt, o.name), o.right, o.pairs)
+
+
 def forecast_panel(opt):
     """Make a round, above the results grid: the forecast before tasting,
     for Predictable measurements only (never fits for the verdict: it reads
@@ -6542,7 +6662,7 @@ def forecast_panel(opt):
         return
     with st.container(border=True, key="round_forecast", gap="xsmall"):
         if not lines:
-            st.caption(_say(opt, wording.LEARNED_FORECAST_NONE))
+            st.caption(_say(opt, forecast_none_text(opt, checks)))
             return
         st.markdown(f"**{_say(opt, wording.LEARNED_FORECAST_TITLE)}**", help=_say(opt, help_))
         for line in lines:

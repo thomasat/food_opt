@@ -10805,3 +10805,216 @@ def spider_help(start_no, start_round, repeats=False):
             f"grey: Start, {FORMULATION_CAP} {start_no}, the best of {ROUND_CAP} {start_round}. "
             f"Faint grey: earlier {ROUND_CAP}s' bests. Each spoke runs from its Range's "
             "low end at the centre to its high end at the rim.")
+
+
+# --- specific wording ---
+# Owner (2026-10-12): "I also don't like vague wording like 'Measurements:
+# more misses than expected.'" Every status, answer line and caption names
+# the thing, the count and what it is measured against; the plain words
+# first, the detail in its "?". The numbers are the app's own, passed in.
+
+def expected_count(expected):
+    """'about 2' for 1.8 misses expected; 'under 1' below one half."""
+    n = int(expected + 0.5)
+    return "under 1" if n == 0 else f"about {n}"
+
+
+def _worst(items):
+    """The 1-2 measurements that missed most ((name, misses, checked)
+    items, most first): the second only when it missed more than the
+    third, so a tie is never cut in two."""
+    if len(items) <= 2:
+        return [it[0] for it in items]
+    if items[1][1] > items[2][1]:
+        return [items[0][0], items[1][0]]
+    return [items[0][0]]
+
+
+def values_missed(items, misses, total, expected):
+    """The measurements' miss line (≤ ~10 words): 'Creaminess, Tangy: 9 of
+    36 outside range (about 2 expected).' Every measurement that missed is
+    named when they fit (two at most), else the worst one or two and how
+    many more: 'Creaminess +3: …'."""
+    names = _worst(items)
+    tail = f": {misses} of {total} outside range ({expected_count(expected)} expected)."
+    for k in (len(names), 1):
+        rest = len(items) - k
+        line = ", ".join(names[:k]) + (f" +{rest}" if rest else "") + tail
+        if len(line.split()) <= VALUES_MISSED_WORDS:
+            break
+    return line
+
+
+VALUES_MISSED_WORDS = 10    # a card line's limit (owner): two long names give way
+
+
+def values_missed_short(misses, total, expected):
+    """Make a round's form, after the Overall score's: 'Measurements: 9 of
+    36 outside (about 2 expected).'"""
+    return f"Measurements: {misses} of {total} outside ({expected_count(expected)} expected)."
+
+
+def values_missed_detail(rounds, items, misses, total, expected):
+    """The "?"'s first sentences: 'Single measurements, Rounds 3–5: 9 of 36
+    outside their 95 % range; a correct range misses 1 in 20, about 2.
+    Creaminess 4 of 9, Tangy 2 of 9, Thickness uniformity 2 of 9,
+    Consistency 1 of 9.'"""
+    where = f", {rounds_span(rounds)}" if rounds else ""
+    each = ", ".join(f"{n} {m} of {c}" for n, m, c in items)
+    return (f"Single measurements{where}: {misses} of {total} outside their 95 % range; a "
+            f"correct range misses 1 in 20, {expected_count(expected)}."
+            + (f" {each}." if each else ""))
+
+
+def next_misses_said(misses, total, expected, repeat_no=None):
+    """Make a round's misses line above Generate, with the one form of the
+    Repeat request: 'Measurements: 10 of 36 outside (about 2 expected).
+    Repeat Formulation 16 to check noise.'"""
+    return f"{values_missed_short(misses, total, expected)} {card_noise_repeat(repeat_no)}."
+
+
+def next_misses_counted(rounds, kind, misses, total, expected, repeat_no=None, bias_text=""):
+    """next_misses_diag with its counts: 'Measured values in Rounds 4–6: 10
+    of 36 outside their 95 % range, about 2 expected (1 in 20), so new
+    predictions can land outside their range more often than 1 in 20. A
+    Repeat of Formulation 16 would measure the noise.'"""
+    ask = (f"A Repeat of {FORMULATION_CAP} {repeat_no} would measure the noise."
+           if repeat_no is not None else "A Repeat would measure the noise.")
+    line = (f"Measured values in {_in_rounds(rounds)}: {misses} of {total} outside their 95 % "
+            f"range, {expected_count(expected)} expected (1 in 20){_DIAG_WHERE.get(kind, '')}, "
+            f"so new predictions can land outside their range more often than 1 in 20. {ask}")
+    return f"{line} {bias_text}" if bias_text else line
+
+
+def track_measured_counted(misses, total, expected):
+    """Make a round's track "?" tail: '; measurements: 9 of 36 outside their
+    95 % range (about 2 expected)'."""
+    return (f"; measurements: {misses} of {total} outside their 95 % range "
+            f"({expected_count(expected)} expected)")
+
+
+# A verdict word (Predicts, Partly) carries its evidence wherever it shows:
+# 'Partly: Tangy (7 of 8 pairs)'.
+def named_pairs(names, counts, first_unit=True):
+    """'Tangy (7 of 8 pairs)'; 'Overall score (5 of 5 pairs), Tangy (6 of
+    7)' — `counts` {name: (right, pairs)}; a name with no count is bare."""
+    out = []
+    for name in names:
+        c = counts.get(name)
+        if c is None or not c[1]:
+            out.append(name)
+            continue
+        unit = " pairs" if first_unit and not any("pairs" in o for o in out) else ""
+        out.append(f"{name} ({c[0]} of {c[1]}{unit})")
+    return ", ".join(out)
+
+
+def named_pairs_short(name, count):
+    """'Tangy (5/5)', the details chart's form, beside a count that says
+    "pairs"; bare without a count."""
+    if count is None or not count[1]:
+        return name
+    return f"{name} ({count[0]}/{count[1]})"
+
+
+def learned_strip_counted(predictable, partly, not_yet=(), counts=None):
+    """learned_strip with the evidence: ('Partly:', 'Tangy (5 of 5 pairs)');
+    ('Predicts:', 'Consistency (11 of 11 pairs)'). The Not yet names stay
+    bare (they are the ones without evidence)."""
+    word, shown = learned_strip(predictable, partly, not_yet)
+    names = predictable or partly
+    if not names or not counts:
+        return word, shown
+    if len(names) == 1:
+        return word, named_pairs(names, counts)
+    # Two names in a strip item of ~7 words: the details chart's form,
+    # 'Overall score (5/5), Tangy (5/5)'; its "?" says they are pairs.
+    head = ", ".join(named_pairs_short(n, counts.get(n)) for n in names[:2])
+    return word, head + (f" +{len(names) - 2}" if len(names) > 2 else "")
+
+
+def learned_count_needed(label, right, pairs, needed):
+    """Under the pairs a verdict needs: 'Overall score 4 of 4 pairs (needs
+    5)' — the count it has and the count it needs."""
+    return f"{label} {right} of {pairs} pairs (needs {needed})"
+
+
+def learned_too_few(needed):
+    """The ordering chart's label beside a count under `needed` pairs."""
+    return f"under {needed} pairs"
+
+
+def learned_full_chance(rounds):
+    """The ordering chart's second label line when chance reaches 100 %:
+    '(chance up to 100 %: 3 Rounds)'."""
+    return f"chance up to 100 %: {rounds} {ROUND_CAP}{'s' if rounds != 1 else ''}"
+
+
+def model_plain_counted(predictable, partly, not_yet, counts):
+    """model_plain's opening sentence with each named result's pairs:
+    '…the model leans right on the order of Tangy (5 of 5 pairs), not yet
+    clearly.'"""
+    said = []
+
+    def _pairs(name):
+        # The first count says the unit, the rest the details chart's form
+        # (a "?" holds about 120 words).
+        c = counts.get(name)
+        if c is None or not c[1]:
+            return name
+        said.append(name)
+        return named_pairs([name], counts) if len(said) == 1 else named_pairs_short(name, c)
+
+    def _and(names):
+        shown = [_pairs(n) for n in names]
+        shown = [f"the {s}" if s.startswith(OVERALL_SCORE_COLUMN) else s for s in shown]
+        return shown[0] if len(shown) == 1 else ", ".join(shown[:-1]) + " and " + shown[-1]
+    if predictable:
+        line = ("Forecasting each Round from earlier Rounds, the model put "
+                f"{_and(predictable)} in the right order, clearly more often than chance.")
+    elif partly:
+        line = ("Forecasting each Round from earlier Rounds, the model leans right on the "
+                f"order of {_and(partly)}, not yet clearly.")
+    else:
+        line = "The model has not yet ordered any measurement right more often than chance."
+    if predictable and partly:
+        line += f" Partly: {', '.join(_pairs(n) for n in partly)}."
+    if not_yet and (predictable or partly):
+        line += f" Not yet: {', '.join(not_yet)}."
+    return line
+
+
+def forecast_none(name=None, right=0, pairs=0):
+    """Make a round's forecast box with nothing Predictable: what is
+    missing, and the closest result: 'No result predictable yet; closest:
+    Tangy, 5 of 5 pairs.'"""
+    if name is None or not pairs:
+        return "No result predictable yet: no pairs ordered yet."
+    return f"No result predictable yet; closest: {name}, {right} of {pairs} pairs."
+
+
+# Expected gain greyed by the Predictions word: the fact behind it.
+def gain_greyed_checks(n, needed):
+    """'Expected gain greyed: 9 Overall score checks; needs 10.'"""
+    return f"Expected gain greyed: {n} {OVERALL_SCORE_COLUMN} checks; needs {needed}."
+
+
+def gain_greyed_missed(missed, total):
+    """'Expected gain greyed: Overall score 4 of 12 outside range.'"""
+    return f"Expected gain greyed: {OVERALL_SCORE_COLUMN} {missed} of {total} outside range."
+
+
+def gain_greyed_skill(value_text, needed_text):
+    """'Expected gain greyed: skill 0.12; needs 0.20.'"""
+    return f"Expected gain greyed: skill {value_text}; needs {needed_text}."
+
+
+def tie_line_needed(old_no, lead_text, need_text):
+    """Results' tie under Best so far: 'Formulation 13 is within noise: 1.67
+    lower; 2.3 needed.' (the rise one new result needs, in its "?" before)."""
+    return f"{FORMULATION_CAP} {old_no} is within noise: {lead_text} lower; {need_text} needed."
+
+
+def cramped_counted(names, share_text):
+    """'Under 5 % room to move: Tap water.'"""
+    return f"Under {share_text} room to move: {', '.join(names)}."

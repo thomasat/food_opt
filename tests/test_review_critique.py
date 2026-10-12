@@ -234,7 +234,8 @@ def test_too_few_pairs_draw_no_dot(plain):
     [row] = U.learned_rows(opt, lf)
     assert row["few"] and row["pct"] is None and row["lo"] is None
     spec = json.dumps(U.learned_chart(opt, lf).to_dict())
-    assert wording.LEARNED_TOO_FEW in spec
+    # Specific wording (2026-10-12), re-pinned: "under 5 pairs", not "too few".
+    assert wording.learned_too_few(learned.MIN_PAIRS) in spec
 
 
 def test_the_ordering_chart_has_a_legend_and_the_multiplicity_line(plain):
