@@ -79,8 +79,9 @@ def test_value_misses_counts_the_verdicts_rounds_by_measurement():
     # Most misses first; Results' order on a tie.
     assert m.items == [("Creaminess", 4, 9), ("Thickness uniformity", 2, 9), ("Tangy", 1, 9),
                        ("Consistency", 1, 9)]
+    # One definition of "expected": the verdict's own allowance.
+    assert m.allowed == insights.allowed_misses(36) == 4
     assert m.expected == pytest.approx(0.05 * 36)
-    assert insights.MISS_RATE == 0.05
 
 
 def test_value_misses_none_without_values():
@@ -88,40 +89,40 @@ def test_value_misses_none_without_values():
     assert insights.value_misses(opt, [_check(1, 3, insights.SCORE, True)]) is None
 
 
-@pytest.mark.parametrize("expected,said", [(1.8, "about 2"), (0.5, "about 1"),
-                                           (0.45, "under 1"), (2.5, "about 3"),
-                                           (0.0, "under 1")])
-def test_expected_count(expected, said):
-    assert wording.expected_count(expected) == said
+def test_normal_count_is_the_verdicts_allowance():
+    assert wording.normal_count(4) == "up to 4 normal"
+    assert wording.normal_count(0) == "none normal"
+    # The verdict calls m misses As expected exactly when m <= allowed.
+    for n in (10, 20, 36):
+        a = insights.allowed_misses(n)
+        assert insights.binomial_tail(a, n) >= 0.10 > insights.binomial_tail(a + 1, n)
 
 
-def test_the_miss_line_names_the_worst_and_the_count():
+def test_the_miss_line_leads_with_the_count_then_the_worst():
     items = [("Creaminess", 4, 9), ("Tangy", 2, 9), ("Thickness uniformity", 2, 9),
              ("Consistency", 1, 9)]
-    line = wording.values_missed(items, 9, 36, 1.8)
-    # Tangy and Thickness uniformity tie for second: neither is named alone.
-    assert line == "Creaminess +3: 9 of 36 outside range (about 2 expected)."
-    two = wording.values_missed(items[:1] + items[3:], 5, 36, 1.8)
-    assert two == "Creaminess, Consistency: 5 of 36 outside range (about 2 expected)."
-    # Two long names would take 11 words: the worst and "+1".
-    long = wording.values_missed(items[:1] + items[2:3], 6, 36, 1.8)
-    assert long == "Creaminess +1: 6 of 36 outside range (about 2 expected)."
-    clear = [("Creaminess", 4, 9), ("Tangy", 3, 9), ("Consistency", 1, 9)]
-    # Two names and "+1" would take 11 words: the worst alone.
-    assert wording.values_missed(clear, 8, 36, 1.8).startswith("Creaminess +2: 8 of 36")
-    assert wording.values_missed(clear[:2], 7, 36, 1.8) == (
-        "Creaminess, Tangy: 7 of 36 outside range (about 2 expected).")
-    for text in (line, two, long):
-        assert _words(text) <= 10          # a card line's limit
+    line = wording.values_missed(items, 9, 36, 4)
+    assert line == "Measurements: 9 of 36 outside (up to 4 normal); most Creaminess, 4 of 9."
+    # Two tied for most: both named, "each".
+    tie = wording.values_missed(items[1:], 5, 36, 4)
+    assert tie == ("Measurements: 5 of 36 outside (up to 4 normal); most Tangy, Thickness "
+                   "uniformity.")
+    long = wording.values_missed([("Thickness uniformity", 4, 9)], 4, 36, 4)
+    # With its count it would take 15 words: the name alone.
+    assert long == "Measurements: 4 of 36 outside (up to 4 normal); most Thickness uniformity."
+    for text in (line, tie, long):
+        assert _words(text) <= 14
+        assert "+" not in text
         _clean(text)
     assert "more misses" not in line.lower()
 
 
 def test_the_miss_line_detail_lists_every_measurement():
     items = [("Creaminess", 4, 9), ("Tangy", 2, 9)]
-    text = wording.values_missed_detail([3, 4, 5], items, 6, 36, 1.8)
+    text = wording.values_missed_detail([3, 4, 5], items, 6, 36, 4)
     assert text.startswith("Single measurements, Rounds 3–5: 6 of 36 outside their 95 % "
-                           "range; a correct range misses 1 in 20, about 2.")
+                           "range. A correct range misses 1 in 20, so up to 4 of 36 can miss "
+                           "by chance.")
     assert "Creaminess 4 of 9, Tangy 2 of 9." in text
     _clean(text)
 
@@ -131,11 +132,12 @@ def test_cards_say_the_miss_line_from_the_facts():
                                                   ("Thickness uniformity", 2, 9),
                                                   ("Consistency", 1, 9)])
     facts = NS(misses=m, headline=NS(inside=27, total=36))
-    assert U.misses_line(facts) == "Creaminess +3: 9 of 36 outside range (about 2 expected)."
+    assert U.misses_line(facts) == (
+        "Measurements: 9 of 36 outside (up to 4 normal); most Creaminess, 4 of 9.")
     assert U.misses_detail(facts).startswith("Single measurements, Rounds 3–5: 9 of 36")
     # An older cache without the breakdown: the headline's own count.
     old = NS(misses=None, headline=NS(inside=27, total=36))
-    assert U.misses_line(old) == "Measurements: 9 of 36 outside (about 2 expected)."
+    assert U.misses_line(old) == "Measurements: 9 of 36 outside (up to 4 normal)."
     assert U.misses_detail(old) == ""
 
 
@@ -144,27 +146,56 @@ def test_make_a_round_track_line_counts_the_measurements():
     t = insights.RoundTrack(False, 9, 9, None, True, None, [3, 4, 5], misses=m)
     short = U.track_short(t)
     # Re-pinned (was "Overall score: 9 of 9 in range. Measurements: more
-    # misses than expected."): the measurements' count against 1 in 20.
+    # misses than expected."): the measurements' count against the
+    # verdict's own allowance.
     assert short == ("Overall score: 9 of 9 in range. Measurements: 9 of 36 outside "
-                     "(about 2 expected).")
-    # Two statements of 7 and 8 words (was 12 words with the vague one).
-    assert _words(short) <= 15
+                     "(up to 4 normal).")
+    # Two statements of 7 and 9 words (was 12 words with the vague one).
+    assert _words(short) <= 16
     full = U.track_text(t)
-    assert "measurements: 9 of 36 outside their 95 % range (about 2 expected)" in full
+    assert "measurements: 9 of 36 outside their 95 % range (up to 4 normal)" in full
     assert "many more" not in full
     _clean(short)
 
 
 def test_make_a_round_misses_line_above_generate():
-    line = wording.next_misses_said(10, 36, 1.8, 16)
-    assert line == ("Measurements: 10 of 36 outside (about 2 expected). Repeat Formulation 16 "
+    line = wording.next_misses_said(7, 36, 4, 16)
+    assert line == ("Measurements: 7 of 36 outside (up to 4 normal). Repeat Formulation 16 "
                     "to check noise.")
-    assert _words(line) <= 14
+    assert _words(line) <= 15
     _clean(line)
-    full = wording.next_misses_counted([4, 5, 6], "unexplained", 10, 36, 1.8, 16)
-    assert full.startswith("Measured values in Rounds 4–6: 10 of 36 outside their 95 % "
-                           "range, about 2 expected (1 in 20)")
+    full = wording.next_misses_counted([4, 5, 6], "unexplained", 7, 36, 4, 16)
+    assert full.startswith("Measured values in Rounds 4–6: 7 of 36 outside their 95 % "
+                           "range, up to 4 normal (a correct range misses 1 in 20)")
     assert "A Repeat of Formulation 16 would measure the noise." in full
+
+
+def test_the_remaining_lines_carry_their_numbers():
+    lines = {
+        "stop": wording.answer_line(wording.ceiling_head("1.7", "2.3"), wording.CEILING_TAIL),
+        "close": wording.no_gain_head("0.2", "1.0"),
+        "preview": wording.learning_round_counted("97.8", "98.3"),
+        "not_yet": wording.not_yet_counted(
+            ["Consistency", "Creaminess", "Thickness uniformity"],
+            {"Consistency": (3, 3), "Creaminess": (1, 5), "Thickness uniformity": (2, 5)}),
+    }
+    assert lines["stop"] == ("**Within noise of the top: 1.7 below, 2.3 needed.** Stop, or "
+                             "change the target.")
+    assert lines["close"] == "Largest expected gain 0.2, under the 1.0 noise threshold."
+    assert lines["preview"] == "Highest predicted 97.8, best 98.3: tests untried amounts."
+    assert lines["not_yet"] == ("Not yet: Consistency (3/3), Creaminess (1/5), Thickness "
+                                "uniformity (2/5).")
+    limits = {"stop": 14, "close": 10, "preview": 10, "not_yet": 10}
+    for k, text in lines.items():
+        assert _words(text) <= limits[k], text
+        _clean(text)
+    little = U._Little(["the most Tap water"])
+    little.gain_text, little.noise_text = "0.2", "1.0"
+    said = wording._little_more(little)
+    assert said.startswith(" The largest expected gain inside your current limits is 0.2, "
+                           "under the 1.0 noise threshold; the best it predicts sits at")
+    assert "little" not in said
+    assert wording._little_more(("the most Tap water",)).startswith(f" {wording.LITTLE_MORE}")
 
 
 # ------------------------------------------------------------------ #

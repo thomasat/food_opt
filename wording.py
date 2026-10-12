@@ -6166,15 +6166,19 @@ def binding_plain(kind, name, text=None, values=False):
 def _little_more(little):
     """' The app expects little more inside your current limits; the best
     it predicts sits at the most Pea allowed.' `little`: binding_plain
-    items (empty: nothing binds); None: not said."""
+    items (empty: nothing binds); None: not said. Specific wording: with
+    its `gain_text` and `noise_text`, the numbers in place of "little
+    more"."""
     if little is None:
         return ""
+    g, n = getattr(little, "gain_text", None), getattr(little, "noise_text", None)
+    head = little_more_counted(g, n) if g is not None and n is not None else LITTLE_MORE
     if not little:
-        return f" {LITTLE_MORE}."
+        return f" {head}."
     bounds = [b for b in little if not b.startswith(_LIMIT_ITEM)]
     limits = [b for b in little if b.startswith(_LIMIT_ITEM)]
     where = [f"{_and_join(bounds)} allowed"] if bounds else []
-    return f" {LITTLE_MORE}; the best it predicts sits at {_and_join(where + limits)}."
+    return f" {head}; the best it predicts sits at {_and_join(where + limits)}."
 
 
 def progress_tied(best_no, other_no, score_text, ceiling):
@@ -10831,67 +10835,75 @@ def _worst(items):
     return [items[0][0]]
 
 
-def values_missed(items, misses, total, expected):
-    """The measurements' miss line (≤ ~10 words): 'Creaminess, Tangy: 9 of
-    36 outside range (about 2 expected).' Every measurement that missed is
-    named when they fit (two at most), else the worst one or two and how
-    many more: 'Creaminess +3: …'."""
-    names = _worst(items)
-    tail = f": {misses} of {total} outside range ({expected_count(expected)} expected)."
-    for k in (len(names), 1):
-        rest = len(items) - k
-        line = ", ".join(names[:k]) + (f" +{rest}" if rest else "") + tail
+def normal_count(allowed):
+    """The verdict's own allowance: 'up to 4 normal'; 'none normal'."""
+    return f"up to {allowed} normal" if allowed else "none normal"
+
+
+def values_missed(items, misses, total, allowed):
+    """The measurements' miss line (≤ 14 words), the count first, then the
+    worst: 'Measurements: 9 of 36 outside (up to 4 normal); most Creaminess,
+    4 of 9.' Two tied for most: 'most Tangy, Thickness uniformity, 2 of 9
+    each'; a long name drops its count first."""
+    head = f"Measurements: {misses} of {total} outside ({normal_count(allowed)})"
+    if not items:
+        return head + "."
+    top = [it for it in items if it[1] == items[0][1]][:2]
+    names = ", ".join(n for n, _, _ in top)
+    each = " each" if len(top) > 1 else ""
+    for line in (f"{head}; most {names}, {top[0][1]} of {top[0][2]}{each}.",
+                 f"{head}; most {names}.", f"{head}; most {top[0][0]}."):
         if len(line.split()) <= VALUES_MISSED_WORDS:
-            break
-    return line
+            return line
+    return head + "."
 
 
-VALUES_MISSED_WORDS = 10    # a card line's limit (owner): two long names give way
+VALUES_MISSED_WORDS = 14    # the coordinator's limit for this line
 
 
-def values_missed_short(misses, total, expected):
+def values_missed_short(misses, total, allowed):
     """Make a round's form, after the Overall score's: 'Measurements: 9 of
-    36 outside (about 2 expected).'"""
-    return f"Measurements: {misses} of {total} outside ({expected_count(expected)} expected)."
+    36 outside (up to 4 normal).'"""
+    return f"Measurements: {misses} of {total} outside ({normal_count(allowed)})."
 
 
-def values_missed_detail(rounds, items, misses, total, expected):
+def values_missed_detail(rounds, items, misses, total, allowed):
     """The "?"'s first sentences: 'Single measurements, Rounds 3–5: 9 of 36
-    outside their 95 % range; a correct range misses 1 in 20, about 2.
-    Creaminess 4 of 9, Tangy 2 of 9, Thickness uniformity 2 of 9,
-    Consistency 1 of 9.'"""
+    outside their 95 % range. A correct range misses 1 in 20, so up to 4
+    of 36 can miss by chance. Creaminess 4 of 9, Tangy 2 of 9, …'"""
     where = f", {rounds_span(rounds)}" if rounds else ""
     each = ", ".join(f"{n} {m} of {c}" for n, m, c in items)
-    return (f"Single measurements{where}: {misses} of {total} outside their 95 % range; a "
-            f"correct range misses 1 in 20, {expected_count(expected)}."
+    return (f"Single measurements{where}: {misses} of {total} outside their 95 % range. A "
+            f"correct range misses 1 in 20, so up to {allowed} of {total} can miss by chance."
             + (f" {each}." if each else ""))
 
 
-def next_misses_said(misses, total, expected, repeat_no=None):
+def next_misses_said(misses, total, allowed, repeat_no=None):
     """Make a round's misses line above Generate, with the one form of the
-    Repeat request: 'Measurements: 10 of 36 outside (about 2 expected).
+    Repeat request: 'Measurements: 7 of 36 outside (up to 4 normal).
     Repeat Formulation 16 to check noise.'"""
-    return f"{values_missed_short(misses, total, expected)} {card_noise_repeat(repeat_no)}."
+    return f"{values_missed_short(misses, total, allowed)} {card_noise_repeat(repeat_no)}."
 
 
-def next_misses_counted(rounds, kind, misses, total, expected, repeat_no=None, bias_text=""):
-    """next_misses_diag with its counts: 'Measured values in Rounds 4–6: 10
-    of 36 outside their 95 % range, about 2 expected (1 in 20), so new
-    predictions can land outside their range more often than 1 in 20. A
-    Repeat of Formulation 16 would measure the noise.'"""
+def next_misses_counted(rounds, kind, misses, total, allowed, repeat_no=None, bias_text=""):
+    """next_misses_diag with its counts: 'Measured values in Rounds 4–6: 7
+    of 36 outside their 95 % range, up to 4 normal (a correct range misses
+    1 in 20), so new predictions can land outside their range more often
+    than 1 in 20. A Repeat of Formulation 16 would measure the noise.'"""
     ask = (f"A Repeat of {FORMULATION_CAP} {repeat_no} would measure the noise."
            if repeat_no is not None else "A Repeat would measure the noise.")
     line = (f"Measured values in {_in_rounds(rounds)}: {misses} of {total} outside their 95 % "
-            f"range, {expected_count(expected)} expected (1 in 20){_DIAG_WHERE.get(kind, '')}, "
-            f"so new predictions can land outside their range more often than 1 in 20. {ask}")
+            f"range, {normal_count(allowed)} (a correct range misses 1 in 20)"
+            f"{_DIAG_WHERE.get(kind, '')}, so new predictions can land outside their range "
+            f"more often than 1 in 20. {ask}")
     return f"{line} {bias_text}" if bias_text else line
 
 
-def track_measured_counted(misses, total, expected):
+def track_measured_counted(misses, total, allowed):
     """Make a round's track "?" tail: '; measurements: 9 of 36 outside their
-    95 % range (about 2 expected)'."""
+    95 % range (up to 4 normal)'."""
     return (f"; measurements: {misses} of {total} outside their 95 % range "
-            f"({expected_count(expected)} expected)")
+            f"({normal_count(allowed)})")
 
 
 # A verdict word (Predicts, Partly) carries its evidence wherever it shows:
@@ -11024,3 +11036,35 @@ def cramped_counted(names, share_text):
 # The Model "?"'s evidence line when its opening sentence already gave
 # every result's pairs.
 LEARNED_EVIDENCE_ABOVE = "Evidence: pairs ordered right from earlier Rounds, as given above."
+
+
+# Follow-up (coordinator, 2026-10-12): the stop, the close step, the
+# preview and the Not yet names, each with its numbers.
+def ceiling_head(gap_text, need_text):
+    """The stop at the top score: 'Within noise of the top: 1.7 below, 2.3
+    needed' (answer_line adds the period and CEILING_TAIL)."""
+    return f"Within noise of the top: {gap_text} below, {need_text} needed"
+
+
+def no_gain_head(gain_text, noise_text):
+    """The close step's first sentence: 'Largest expected gain 0.2, under
+    the 1.0 noise threshold.'"""
+    return f"Largest expected gain {gain_text}, under the {noise_text} noise threshold."
+
+
+def little_more_counted(gain_text, noise_text):
+    """LITTLE_MORE with its numbers: 'The largest expected gain inside your
+    current limits is 0.2, under the 1.0 noise threshold'."""
+    return (f"The largest expected gain inside your current limits is {gain_text}, under the "
+            f"{noise_text} noise threshold")
+
+
+def learning_round_counted(top_text, best_text):
+    """'Highest predicted 97.8, best 98.3: tests untried amounts.'"""
+    return f"Highest predicted {top_text}, best {best_text}: tests untried amounts."
+
+
+def not_yet_counted(names, counts):
+    """'Not yet: Consistency (3/3), Creaminess (1/5), Thickness uniformity
+    (2/5).'"""
+    return "Not yet: " + ", ".join(named_pairs_short(n, counts.get(n)) for n in names) + "."

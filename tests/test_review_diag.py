@@ -150,17 +150,17 @@ def test_synthetic_cards_never_say_panel(line_a):
     n = ui_insights.next_card(line_a, facts)
     texts = [p.word, n.word] + [t for t, _ in p.lines + n.lines]
     assert not any(BENCH.search(t) for t in texts), texts
-    # Specific wording (2026-10-12), re-pinned: which measurements missed,
-    # how many, against the 1 in 20 a correct range gives.
+    # Specific wording (2026-10-12), re-pinned: how many missed, against the
+    # verdict's own allowance, then the worst.
     assert (ui_insights.misses_line(facts), False) in p.lines
-    assert re.search(r": \d+ of \d+ outside range \((about \d+|under 1) expected\)\.$",
-                     ui_insights.misses_line(facts))
+    assert re.match(r"Measurements: \d+ of \d+ outside \((up to \d+|none) normal\); most ",
+                    ui_insights.misses_line(facts))
     assert not any(warn for _, warn in p.lines)
     assert (wording.card_noise_repeat(facts.best.formulation), False) in n.lines
     for t, _ in p.lines + n.lines:
-        # Specific wording (2026-10-12): the miss line names and counts, a
-        # card line's 10 words; every other line keeps its 6.
-        assert _words(t) <= (10 if t == ui_insights.misses_line(facts) else 6), t
+        # Specific wording (2026-10-12): the miss line counts and names, at
+        # most 14 words; every other line keeps its 6.
+        assert _words(t) <= (14 if t == ui_insights.misses_line(facts) else 6), t
 
 
 def test_synthetic_tooltip_holds_the_evidence(line_a):
@@ -334,7 +334,9 @@ def _check_without_repeat(at, name, word):
     asks = [line for line in p["lines"] + n["lines"]
             if line.startswith("Repeat Formulation ") and line.endswith("to check noise")]
     assert len(asks) == 1, (p["lines"], n["lines"])
-    stop = wording.answer_line(wording.CEILING_HEAD, wording.CEILING_TAIL)
+    # Specific wording (2026-10-12), re-pinned: the stop carries its gap and need.
+    stop = next((line for line in n["lines"]
+                 if line.startswith("**Within noise of the top: ")), None)
     for line in p["lines"] + n["lines"]:
         # Review critique, follow-up: Round 6 scored sits within noise of the
         # top score; the stop headline (at most 14 words) leads What next?.

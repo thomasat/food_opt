@@ -771,7 +771,7 @@ def track_short(t):
     if t.see_insights and m is not None and m.total:
         # Specific wording: the measurements' count against the 1 in 20.
         line = line.replace(wording.TRACK_VALUES_MISS,
-                            wording.values_missed_short(m.misses, m.total, m.expected))
+                            wording.values_missed_short(m.misses, m.total, m.allowed))
     return line
 
 
@@ -802,7 +802,7 @@ def track_text(t):
     m = getattr(t, "misses", None)
     if t.see_insights and m is not None and m.total:
         # Specific wording: the measurements' misses counted, not "many more".
-        counted = wording.track_measured_counted(m.misses, m.total, m.expected)
+        counted = wording.track_measured_counted(m.misses, m.total, m.allowed)
         line = line.replace(wording._MEASURED_MORE, counted).replace(
             "; many more in the measured values", counted)
     return line + skill
@@ -1213,8 +1213,7 @@ def _next_body(opt, places, facts):
         step = getattr(facts, "next", None) if facts is not None else None
         if card.tone != "off" and ceiling_stop(opt, facts):
             # Review critique (fix 2): the stop signal at the top score.
-            st.markdown(_say(opt, wording.answer_line(wording.CEILING_HEAD,
-                                                      wording.CEILING_TAIL)),
+            st.markdown(_say(opt, ceiling_answer(opt, facts)),
                         help=wording.brief(ceiling_tip(opt, facts)))
             reason = ceiling_reason_text(opt)
             if reason:
@@ -1256,6 +1255,19 @@ def ceiling_tip(opt, facts):
     return _say(opt, wording.ceiling_help(
         one_decimal(best), f"{top:g}", one_decimal(top - best), f"{need:.1f}",
         None if perfect is None else one_decimal(perfect), assumed, limits))
+
+
+def ceiling_answer(opt, facts):
+    """Specific wording: the stop's answer line with the gap to the top and
+    the rise one new result needs, the "?"'s own numbers: '**Within noise
+    of the top: 1.7 below, 2.3 needed.** Stop, or change the target.'"""
+    try:
+        need = tie_need(facts.yardstick)
+        gap = float(opt.utility_ceiling()) - float(facts.best.score)
+        head = wording.ceiling_head(one_decimal(gap), f"{need:.1f}")
+    except Exception:
+        head = wording.CEILING_HEAD
+    return wording.answer_line(head, wording.CEILING_TAIL)
 
 
 def _ideal(obj):
@@ -1617,8 +1629,16 @@ def little_more(standing, gain, yard, withheld, settings=()):
     if (standing is None or withheld or gain is None or yard is None or yard.value is None
             or getattr(standing, "higher", True) or gain > yard.value):
         return None
-    return tuple(wording.binding_plain(b.kind, b.name, b.text, values=b.name in settings)
-                 for b in (getattr(standing, "binding", None) or ()))
+    out = _Little(wording.binding_plain(b.kind, b.name, b.text, values=b.name in settings)
+                  for b in (getattr(standing, "binding", None) or ()))
+    # Specific wording: the gain and the threshold it fell under.
+    out.gain_text, out.noise_text = f"{gain:.1f}", f"{yard.value:.1f}"
+    return out
+
+
+class _Little(tuple):
+    """little_more's items, carrying the numbers the clause says."""
+    gain_text = noise_text = None
 
 
 def screen_facts(opt, checks, standing=None, gain=None, withheld=None, partial=False):
@@ -3245,7 +3265,7 @@ def _next_step_text(opt, step, rounds=None, amounts_shown=True):
             no_best = None if best is None else int(opt.formulation_ids[best])
             # Specific wording: the misses counted against the 1 in 20.
             return wording.next_misses_counted(
-                rounds, d.kind, d.misses, d.checked, insights.MISS_RATE * d.checked, no_best,
+                rounds, d.kind, d.misses, d.checked, insights.allowed_misses(d.checked), no_best,
                 bias_text=bias), None
         return wording.next_misses(rounds, bias_text=bias), None
     if step.kind == "repeat":
@@ -3261,28 +3281,39 @@ def _next_step_text(opt, step, rounds=None, amounts_shown=True):
     if step.kind == "explore":
         return wording.next_explore(no, left), None
     if step.kind == "close":
-        b = step.binding
-        if b is None:
-            return wording.next_close_to_top(settings_only=settings_only), None
-        setup = (wording.CHANGE_LIMITS_ON_SETUP if b.kind == "limit"
-                 else wording.change_on_setup(b.name, highest=b.kind == "highest"))
-        # Round-2 fixes (P3 #18): every binding limit named, as What next?
-        # names them, so Make a round's "?" and the Review agree.
-        try:
-            every = widen_all_text(opt, step)
-        except Exception:
-            every = None
-        if every:
-            return f"{wording.NO_GAIN_HEAD} {every}", setup
-        if b.kind == "limit":
-            return (wording.next_close_to_top(wording.widen_limit(b.text), settings_only),
-                    setup)
-        change = (wording.raise_highest(b.name) if b.kind == "highest"
-                  else wording.lower_lowest(b.name))
-        return wording.next_close_to_top(change, settings_only), setup
+        text, setup = _close_text(opt, step, settings_only)
+        if step.gain is not None and step.noise is not None:
+            # Specific wording: the largest expected gain against the noise
+            # threshold it fell under, in place of "No gain beyond noise".
+            text = text.replace(wording.NO_GAIN_HEAD, wording.no_gain_head(
+                f"{step.gain:.1f}", f"{step.noise:.1f}"), 1)
+        return text, setup
     if step.kind == "rising":
         return wording.next_rising(_wide_names(getattr(step, "wide", None) or []), no, left), None
     return (wording.next_see_open(no, left) if left else wording.NEXT_SEE), None
+
+
+def _close_text(opt, step, settings_only):
+    """The close step's (sentence, Set up label): every binding limit named."""
+    b = step.binding
+    if b is None:
+        return wording.next_close_to_top(settings_only=settings_only), None
+    setup = (wording.CHANGE_LIMITS_ON_SETUP if b.kind == "limit"
+             else wording.change_on_setup(b.name, highest=b.kind == "highest"))
+    # Round-2 fixes (P3 #18): every binding limit named, as What next?
+    # names them, so Make a round's "?" and the Review agree.
+    try:
+        every = widen_all_text(opt, step)
+    except Exception:
+        every = None
+    if every:
+        return f"{wording.NO_GAIN_HEAD} {every}", setup
+    if b.kind == "limit":
+        return (wording.next_close_to_top(wording.widen_limit(b.text), settings_only),
+                setup)
+    change = (wording.raise_highest(b.name) if b.kind == "highest"
+              else wording.lower_lowest(b.name))
+    return wording.next_close_to_top(change, settings_only), setup
 
 
 def amounts_shown(facts):
@@ -4598,12 +4629,12 @@ def misses_line(facts):
     when the facts carry no breakdown (an older cache)."""
     m = getattr(facts, "misses", None)
     if m is not None and m.total:
-        return wording.values_missed(m.items, m.misses, m.total, m.expected)
+        return wording.values_missed(m.items, m.misses, m.total, m.allowed)
     h = getattr(facts, "headline", None)
     total = getattr(h, "total", 0) or 0
     if not total:
         return wording.TRACK_VALUES_MISS
-    return wording.values_missed_short(total - h.inside, total, insights.MISS_RATE * total)
+    return wording.values_missed_short(total - h.inside, total, insights.allowed_misses(total))
 
 
 def misses_detail(facts):
@@ -4611,7 +4642,7 @@ def misses_detail(facts):
     m = getattr(facts, "misses", None)
     if m is None or not m.total:
         return ""
-    return wording.values_missed_detail(m.rounds, m.items, m.misses, m.total, m.expected)
+    return wording.values_missed_detail(m.rounds, m.items, m.misses, m.total, m.allowed)
 
 
 def _check_round(opt):
@@ -5771,7 +5802,8 @@ def _profiler(opt, computed):
             st.caption(_say(opt, note[0]), help=_say(opt, note[1]))
         hidden = [n for n in hidden if n not in rows_shown]
         if hidden:
-            st.caption(_say(opt, wording.learned_not_predictable(hidden)),
+            st.caption(_say(opt, wording.not_yet_counted(hidden, pair_counts(opt, lf.orderings))
+                            if lf is not None else wording.learned_not_predictable(hidden)),
                        help=_say(opt, wording.LEARNED_RULE))
     return profile, shown, guard
 
@@ -6429,18 +6461,16 @@ def learned_verdict_line(opt, lf):
     groups = [(wording.LEARNED_WORDS[v], lf.model_names(opt, v))
               for v in (learned.PREDICTABLE, learned.PARTLY, learned.NOT_YET)]
     groups = [(w, names) for w, names in groups if names]
-    bare = wording.LEARNED_WORDS[learned.NOT_YET]
-    # Specific wording: each Predicts or Partly name with its pairs; Not yet
-    # stays bare. Beside the count (which says "pairs" and gives the
-    # Overall score's), the details chart's form: 'Tangy (5/5)'.
-    beside = [(w, names if w == bare else
-               [n if n == score else wording.named_pairs_short(n, counts.get(n))
-                for n in names]) for w, names in groups]
+    # Specific wording: each name with its pairs. Beside the count (which
+    # says "pairs" and gives the Overall score's), the details chart's
+    # form: 'Tangy (5/5)'.
+    beside = [(w, [n if n == score else wording.named_pairs_short(n, counts.get(n))
+                   for n in names]) for w, names in groups]
     # Alone, the first says the unit: 'Overall score (5 of 5 pairs), Tangy (5/5)'.
-    counted = [n for w, names in groups if w != bare for n in names if counts.get(n, (0, 0))[1]]
+    counted = [n for w, names in groups for n in names if counts.get(n, (0, 0))[1]]
     said = {n: (wording.named_pairs([n], counts) if i == 0 else
                 wording.named_pairs_short(n, counts.get(n))) for i, n in enumerate(counted)}
-    alone = [(w, names if w == bare else [said.get(n, n) for n in names])
+    alone = [(w, [said.get(n) or wording.named_pairs_short(n, counts.get(n)) for n in names])
              for w, names in groups]
     # The count and as many groups as fit; else the groups alone with their
     # pairs, else bare (a verdict is never dropped for the count); else the
@@ -6877,7 +6907,12 @@ def _preview_body(opt, computed, facts, binding, title=True):
         st.caption(_say(opt, wording.PREVIEW_FOLD_CAPTION), help=_say(opt, help_))
     # Persona fixes: a learning round said as one, above the table.
     if learning_round(opt, rows):
-        st.caption(_say(opt, wording.LEARNING_ROUND_WHY))
+        # Specific wording: the highest prediction against the best.
+        means = [r.mean for r in rows if getattr(r, "mean", None) is not None]
+        best_i = opt.best_index()
+        st.caption(_say(opt, wording.learning_round_counted(
+            f"{max(means):.1f}", f"{float(opt.Y_history[best_i]):.1f}")
+            if means and best_i is not None else wording.LEARNING_ROUND_WHY))
     cols = [_say(opt, c) for c in (wording.PREVIEW_COLUMNS[0], wording.PREVIEW_APART_COLUMN,
                                    *wording.PREVIEW_COLUMNS[2:])]
     frame = pd.DataFrame([dict(zip(cols, (r[0], _say(opt, getattr(r, "apart", "") or r[1]),

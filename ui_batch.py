@@ -488,7 +488,7 @@ def _next_step_line(opt, linked=False):
         no_best = None if best is None else int(opt.formulation_ids[best])
         m = insights.value_misses(opt, checks) if checks else None
         # Specific wording: the measurements' count against the 1 in 20.
-        short = (wording.next_misses_said(m.misses, m.total, m.expected, no_best)
+        short = (wording.next_misses_said(m.misses, m.total, m.allowed, no_best)
                  if m is not None and m.misses else wording.next_misses_short(no_best))
     st.caption(wording.for_project(opt, short),
                help=wording.for_project(opt, text) if short != text else None)

@@ -1313,6 +1313,9 @@ class NextStep:
     # "close": every limit the predicted best sits at (review critique: name
     # them all, not the first only).
     bindings: list = dataclasses.field(default_factory=list)
+    # "close" (specific wording): the noise threshold the expected gain
+    # (`gain`) fell under.
+    noise: float | None = None
 
 
 def next_step(opt, checks, standing=None, gain=None):
@@ -1369,7 +1372,8 @@ def next_step(opt, checks, standing=None, gain=None):
             if gain is not None and gain > yard.value:
                 return NextStep("explore", gain=gain, assumed=assumed)
             return NextStep("close", binding=standing.binding[0] if standing.binding else None,
-                            assumed=assumed, bindings=list(standing.binding or []))
+                            assumed=assumed, bindings=list(standing.binding or []),
+                            gain=gain, noise=yard.value)
     if answer is not None and answer.state == "yes":
         # Said with the width caution the verdict gives (answer-key
         # read-through, Line C).
@@ -3971,6 +3975,13 @@ class ValueMisses:
     def expected(self):
         """The misses a correct 95 % range gives on `total` values."""
         return MISS_RATE * self.total
+
+    @property
+    def allowed(self):
+        """The most misses the verdict still calls As expected (the
+        binomial allowance, allowed_misses): the screen's "up to N
+        normal", so the line and the verdict agree."""
+        return allowed_misses(self.total)
 
 
 def value_misses(opt, checks, h=None):
