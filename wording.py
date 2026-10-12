@@ -11060,8 +11060,9 @@ def little_more_counted(gain_text, noise_text):
 
 
 def learning_round_counted(top_text, best_text):
-    """'Highest predicted 97.8, best 98.3: tests untried amounts.'"""
-    return f"Highest predicted {top_text}, best {best_text}: tests untried amounts."
+    """'Predicted at most 98.3, best 98.3: tests untried amounts.' (every
+    suggestion at or under Best so far, to the tenth)."""
+    return f"Predicted at most {top_text}, best {best_text}: tests untried amounts."
 
 
 def not_yet_counted(names, counts):
