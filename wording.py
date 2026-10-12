@@ -10427,9 +10427,10 @@ ONLY_OWN_FORMULATIONS_CAPTION = (
 
 # "Tied" only for equal values; "within noise" for close ones (P3 #18).
 def tie_line(new_no, score_text, lead_text, old_no, need_text):
-    """'Formulation 19 is within noise: 0.83 lower.' (under the rise one
-    new result needs; the "?" gives that number)."""
-    return f"{FORMULATION_CAP} {old_no} is within noise: {lead_text} lower."
+    """'Formulation 19 is within noise: 0.83 lower; 2.3 needed.' (specific
+    wording, 2026-10-12: the rise one new result needs, said beside the
+    lead, not left to the "?")."""
+    return tie_line_needed(old_no, lead_text, need_text)
 
 
 def _tied_with(near_no, after_round=True):
@@ -11018,3 +11019,8 @@ def tie_line_needed(old_no, lead_text, need_text):
 def cramped_counted(names, share_text):
     """'Under 5 % room to move: Tap water.'"""
     return f"Under {share_text} room to move: {', '.join(names)}."
+
+
+# The Model "?"'s evidence line when its opening sentence already gave
+# every result's pairs.
+LEARNED_EVIDENCE_ABOVE = "Evidence: pairs ordered right from earlier Rounds, as given above."

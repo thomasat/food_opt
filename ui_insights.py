@@ -6525,7 +6525,7 @@ def learned_card(opt, lf, card, facts=None):
     named = set(lf.model_names(opt, learned.PREDICTABLE) + lf.model_names(opt, learned.PARTLY))
     rows = [(learned_label(opt, n), o.right, o.pairs) for n, o in lf.orderings.items()
             if learned_label(opt, n) not in named or not o.pairs]
-    ev = wording.learned_evidence(rows) if rows else ""
+    ev = wording.learned_evidence(rows) if rows else wording.LEARNED_EVIDENCE_ABOVE
     record = getattr(lf, "plain_line", "")
     h = getattr(facts, "headline", None) if facts is not None else None
     if h is not None and getattr(h, "total", 0):

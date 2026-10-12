@@ -291,3 +291,12 @@ def test_the_tie_line_says_what_a_rise_needs():
     assert line == "Formulation 13 is within noise: 1.67 lower; 2.3 needed."
     assert _words(line) <= 10
     assert wording.cramped_counted(["Tap water"], "5 %") == "Under 5 % room to move: Tap water."
+
+
+def test_the_tie_line_folds_the_need_in_and_never_reads_equal():
+    # tie_line is the one Results uses; the need is said beside the lead.
+    assert wording.tie_line(4, "70.30", "0.50", 3, "2.3") == (
+        "Formulation 3 is within noise: 0.50 lower; 2.3 needed.")
+    _clean(wording.LEARNED_EVIDENCE_ABOVE)
+    assert wording.LEARNED_EVIDENCE_ABOVE.startswith(
+        "Evidence: pairs ordered right from earlier Rounds")

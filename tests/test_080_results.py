@@ -114,7 +114,10 @@ def test_the_q1_rise_threshold_is_the_line_without_repeats(tmp_path, monkeypatch
     old = max(range(3), key=lambda i: opt.Y_history[i])
     opt.Y_history[3] = opt.Y_history[old] + lead
     said = ui_results._progress_line(opt)
-    assert said.endswith("under the 2.3 points needed to differ.") is tie, said
+    # Specific wording (2026-10-12), re-pinned (this pin predates the P3 #18
+    # line and failed on b70b8a5): the need is said again, beside the lead,
+    # to two decimals where one would read no larger than it.
+    assert said.endswith("lower; 2.33 needed.") is tie, said
 
 
 def test_a_late_value_that_makes_a_tie_is_said_under_best_so_far(tmp_path, monkeypatch):
@@ -173,7 +176,9 @@ def test_a_process_only_tie_says_trial(trial_tie):
     for_project."""
     said = _captions(_results(project="ferment"))
     # Concision round and fix A follow-up (ruling on ties): the short line.
-    assert "Tied with Trial 1: 0.50 apart, under the 2.3 points needed to differ." in said, said
+    # Specific wording (2026-10-12), re-pinned (failed on b70b8a5): the
+    # tie line with the rise one new result needs.
+    assert "Trial 1 is within noise: 0.50 lower; 2.3 needed." in said, said
     assert not any("Formulation" in c for c in said), said
 
 
@@ -190,8 +195,9 @@ def test_scoring_a_not_scored_trial_flashes_trial(trial_tie):
     assert not at.exception
     flashes = [f.value for f in at.success]
     # Concision round and fix A follow-up (ruling on ties): the short line.
-    assert ("Trial 3 scored. Tied with Trial 2: 0.50 apart, under the 2.3 points needed to "
-            "differ. " + wording.COPY_KEPT) in flashes, flashes
+    # Specific wording (2026-10-12), re-pinned (failed on b70b8a5).
+    assert ("Trial 3 scored. Trial 2 is within noise: 0.50 lower; 2.3 needed. "
+            + wording.COPY_KEPT) in flashes, flashes
     assert not any("Formulation" in f for f in flashes), flashes
 
 
@@ -206,7 +212,8 @@ def test_the_tie_uses_the_repeats_from_three_pairs(tmp_path, monkeypatch):
     opt.batch_history[3] = 2
     # Fix A follow-up (ruling on ties): rise_threshold(yard, 1), t on 4 df:
     # 2.0 × √2 × 2.13 = 6.0.
-    assert ui_results._tie(opt, old, 3).endswith("under the 6.0 points needed to differ.")
+    # Specific wording (2026-10-12), re-pinned (failed on b70b8a5).
+    assert ui_results._tie(opt, old, 3).endswith("1.50 lower; 6.0 needed.")
 
 
 # ------------------------------------------------------------------ #
