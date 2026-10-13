@@ -60,7 +60,7 @@ def test_build_script_ships_the_sample_data():
         "data/samples/yogurt_pilot/Round 6 results (pilot).xlsx",
     ]
     for rel in SHIPPED_DATA:
-        assert rel.split("/")[-1] in BUILD or "data/samples/yogurt_pilot" in BUILD, rel
+        assert rel.split("/")[-1] in BUILD, rel
     assert "sample_ingredients.csv" not in BUILD
 
 

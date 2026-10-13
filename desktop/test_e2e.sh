@@ -160,6 +160,7 @@ done
 for f in "Yogurt pilot - Round 6 to score.json" "Yogurt pilot - all 10 Rounds.json" "Round 6 results (pilot).xlsx"; do
   assert "Resources/data/samples/yogurt_pilot/$f present" test -f "$DIST_APP/Contents/Resources/data/samples/yogurt_pilot/$f"
 done
+assert "no sample_ingredients.csv in the bundle" test ! -e "$DIST_APP/Contents/Resources/data/sample_ingredients.csv"
 assert "Info.plist present"   test -f "$DIST_APP/Contents/Info.plist"
 
 # The bundle deliberately ships Resources/data/ingredients_template.csv and yogurt pilot
