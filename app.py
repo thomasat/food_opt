@@ -35,6 +35,7 @@ from datetime import datetime, timedelta                 # noqa: E402
 import pandas as pd                           # noqa: E402
 
 import insights                               # noqa: E402
+import sample_projects                        # noqa: E402
 import storage as storage_backend             # noqa: E402
 import ui_batch                               # noqa: E402
 import ui_insights                            # noqa: E402
@@ -59,8 +60,7 @@ if _starting is not None:
 
 STORAGE = storage_backend.LocalStorage()
 
-_SAMPLE_CSV = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "data", "sample_ingredients.csv")
+_TEMPLATE_CSV = str(sample_projects.TEMPLATE_CSV)
 
 st.title(wording.APP_TITLE)
 # The container the flash messages live in. The sidebar below runs later and
@@ -221,12 +221,13 @@ def _reset_project_session():
             st.session_state.pop(k, None)
 
 
-def _open_project(name, create=False, made=False, rebuilt=False):
+def _open_project(name, create=False, made=False, rebuilt=False, tab=None):
     """Open a project. `create` makes an empty one first; `made` says the
     project was built a moment ago by another handler (the sample), so the
     user is told it was created rather than opened; `rebuilt` says the
     sample was put back the way it started, throwing away edits the reader
-    had made to it."""
+    had made to it. `tab`, when given, is where it opens instead of where
+    the landing rule would put it."""
     if create:
         new_opt = FoodOptimizer(name, storage=STORAGE)
         new_opt.set_amount_unit("g")     # the default unit for a new project
@@ -236,6 +237,9 @@ def _open_project(name, create=False, made=False, rebuilt=False):
     _reset_project_session()
     st.session_state["_loaded_project"] = name
     st.session_state["_land_on_open"] = True
+    if tab:
+        # The landing rule runs first; this overrides it on the same run.
+        st.session_state["_pending_tab"] = tab
     # Parked, not popped: the box is mounted in the browser and would post the
     # previous project's name straight back, leaving the sidebar naming one
     # project, the box another, and Open lit over the project just abandoned.
@@ -250,67 +254,23 @@ def _open_project(name, create=False, made=False, rebuilt=False):
     st.rerun()
 
 
-class _FreshStart:
-    """A storage backend that reports every project as new.
-
-    Building the sample needs a blank project under the sample's own name,
-    and FoodOptimizer reads the file whenever the name it is given already
-    exists. This stands in for the real backend just long enough to skip that
-    read; _build_sample_project swaps the real one back in before the first
-    save, so the sample is written where it belongs — over whatever that name
-    held.
-    """
-    persist_empty_on_init = False   # nothing is written until the build starts
-    persist_after_load = True
-
-    def exists(self, name):
-        return False
-
-
-def _build_sample_project(name, kind="Burger formulation"):
-    """Build the guided example; existing projects with work are preserved by the caller."""
-    import sample_projects
-    return sample_projects.build(kind, name, _FreshStart(), STORAGE)
-
-
-def _open_sample_project(kind="Burger formulation"):
-    """Open the sample, building it first unless there is one worth keeping.
-
-    A Mac that met an earlier version has that version's sample on disk, and
-    reopening it unchanged is how someone ends up with a sample that has no
-    formulation total and batches that come out at different weights. So a
-    sample nobody has used yet is rebuilt as the current one. The moment it
-    holds any work of the user's it is their project, and it is opened
-    exactly as it stands.
-    """
-    import sample_projects
-    _name = sample_projects.NAMES[kind]
-    _existing = None
-    if STORAGE.exists(_name):
-        _existing = FoodOptimizer(_name, storage=STORAGE)
-        # Used, or unreadable: either way this is not ours to rewrite. Used
-        # means more than a recorded result — an open batch is on someone's
-        # bench, and a formulation number already issued says a batch was
-        # made and then deleted, which is still their history. A damaged file
-        # reports itself on the page it opens onto.
-        if (_existing.load_error or _existing.X_history or _existing.skipped
-                or _existing.pending_batch or _existing.next_formulation_no > 1):
-            _open_project(_name)
-            return
+def _open_sample(name=sample_projects.ROUND6):
+    """Open a sample on 4 · Review, writing whichever sample is missing.
+    A sample already on disk is opened exactly as it stands: Start this
+    sample over is the only thing that puts it back."""
     try:
-        _sample = _build_sample_project(_name, kind)
-    except ValueError as e:
-        st.error(wording.sample_project_failed(e))
-    else:
-        if _sample.save_error:
-            st.error(_sample.save_error)
-        else:
-            # "Created" only the first time. A sample that WAS on disk is
-            # being rebuilt, which throws away whatever the reader typed
-            # into it — rules, amounts, a changed Highest — and the line
-            # says so rather than calling it an open.
-            _open_project(_name, made=_existing is None,
-                          rebuilt=_existing is not None)
+        written = sample_projects.ensure(STORAGE)
+    except (OSError, storage_backend.StorageError) as e:
+        st.error(str(e))
+        return
+    _open_project(name, made=name in written, tab=wording.TAB_INSIGHTS)
+
+
+# A sample can ask, from inside a tab, for the other sample to be opened on
+# the next run. It is answered here, before the sidebar draws the project
+# that asked.
+if st.session_state.pop(sample_projects.OPEN_NEXT_KEY, False):
+    _open_sample(sample_projects.ALL10)
 
 
 def _safety_copies(opt):
@@ -619,6 +579,9 @@ with st.sidebar:
 
         st.divider()
         st.subheader(opt.project_name)
+        if sample_projects.is_sample(opt.project_name):
+            st.caption(wording.SAMPLE_PROVENANCE_CAPTION,
+                       help=wording.SAMPLE_PROVENANCE_HELP)
 
         if getattr(opt, "save_error", None):
             st.error(opt.save_error)
@@ -635,45 +598,69 @@ with st.sidebar:
             # §5, audit V21): the sidebar itself is the projects, the
             # project's name and when it was saved.
             _saved_copies(opt)
-            if os.path.exists(_SAMPLE_CSV):
+            if sample_projects.available():
                 if st.button(
                     wording.TRY_SAMPLE_LABEL, key="sample_project_sidebar",
                     help=wording.TRY_SAMPLE_HELP,
                 ):
-                    _open_sample_project()
+                    _open_sample()
             st.divider()
-            if confirm_action(
-                "hard_reset", wording.START_OVER_LABEL,
-                (wording.start_over_warning(opt.project_name)
-                 if not _held(opt) else
-                 wording.start_over_warning(
-                     opt.project_name, plural(_held(opt), wording.FORMULATION))),
-                confirm_label=wording.YES_START_OVER,
-                disabled=other_confirmation("hard_reset"),
-                preserve=True,
-            ):
-                _target = opt.project_name
-                try:
-                    archived = STORAGE.archive(_target, "archived", copy=False)
-                except storage_backend.StorageError as e:
-                    st.error(str(e))
-                else:
-                    # Archiving renames the file away, so the emptied project
-                    # has to be written back under its own name. Without this
-                    # the project vanished from Open project, the sidebar
-                    # still named it, and Open lit up over a project that was
-                    # no longer on disk.
-                    _fresh = FoodOptimizer(_target, storage=STORAGE)
-                    _fresh.save()
-                    if _fresh.save_error:
-                        st.error(_fresh.save_error)
+            if sample_projects.is_sample(opt.project_name):
+                # A sample goes back to how it shipped rather than to empty:
+                # an emptied sample is no longer the pilot it says it is.
+                if confirm_action(
+                    "restore_sample", wording.START_SAMPLE_OVER_LABEL,
+                    wording.start_sample_over_warning(opt.project_name),
+                    confirm_label=wording.YES_START_SAMPLE_OVER,
+                    disabled=other_confirmation("restore_sample"),
+                    preserve=True,
+                ):
+                    _target = opt.project_name
+                    try:
+                        archived = sample_projects.restore(_target, STORAGE)
+                    except (OSError, storage_backend.StorageError) as e:
+                        st.error(str(e))
                     else:
                         if archived:
                             flash("info", wording.copy_saved_as(archived))
                         _reset_project_session()
                         st.session_state["_loaded_project"] = _target
                         st.session_state["_land_on_open"] = True
+                        st.session_state["_pending_tab"] = wording.TAB_INSIGHTS
                         st.rerun()
+            else:
+                if confirm_action(
+                    "hard_reset", wording.START_OVER_LABEL,
+                    (wording.start_over_warning(opt.project_name)
+                     if not _held(opt) else
+                     wording.start_over_warning(
+                         opt.project_name, plural(_held(opt), wording.FORMULATION))),
+                    confirm_label=wording.YES_START_OVER,
+                    disabled=other_confirmation("hard_reset"),
+                    preserve=True,
+                ):
+                    _target = opt.project_name
+                    try:
+                        archived = STORAGE.archive(_target, "archived", copy=False)
+                    except storage_backend.StorageError as e:
+                        st.error(str(e))
+                    else:
+                        # Archiving renames the file away, so the emptied project
+                        # has to be written back under its own name. Without this
+                        # the project vanished from Open project, the sidebar
+                        # still named it, and Open lit up over a project that was
+                        # no longer on disk.
+                        _fresh = FoodOptimizer(_target, storage=STORAGE)
+                        _fresh.save()
+                        if _fresh.save_error:
+                            st.error(_fresh.save_error)
+                        else:
+                            if archived:
+                                flash("info", wording.copy_saved_as(archived))
+                            _reset_project_session()
+                            st.session_state["_loaded_project"] = _target
+                            st.session_state["_land_on_open"] = True
+                            st.rerun()
 
             # Same shape as Start this project over, but the project leaves the
             # list. The
@@ -808,13 +795,13 @@ if opt is None:
     st.markdown(wording.welcome_steps())
     wc1, wc2 = st.columns(2)
     with wc1:
-        if os.path.exists(_SAMPLE_CSV) and st.button(wording.TRY_SAMPLE_LABEL, type="primary"):
-            _open_sample_project()
+        if sample_projects.available() and st.button(wording.TRY_SAMPLE_LABEL, type="primary"):
+            _open_sample()
     with wc2:
-        if os.path.exists(_SAMPLE_CSV):
+        if os.path.exists(_TEMPLATE_CSV):
             st.download_button(
                 wording.DOWNLOAD_TEMPLATE,
-                data=ingredients_template_workbook(_SAMPLE_CSV),
+                data=ingredients_template_workbook(_TEMPLATE_CSV),
                 file_name=wording.INGREDIENTS_TEMPLATE_FILE_NAME,
                 mime=WORKBOOK_MIME)
     st.stop()

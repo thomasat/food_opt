@@ -190,15 +190,19 @@ OPEN_PROJECT_LABEL = "Open project"
 
 TRY_SAMPLE_LABEL = "Try the sample project"
 TRY_SAMPLE_HELP = (
-    "Explore one guided burger example with ingredients, blends, calculated water, "
-    "a process setting and measurements."
-)
+    "A real yogurt-style pilot: 15 formulations scored, Round 6 made and "
+    "waiting for its results.")
+SAMPLE_PROVENANCE_CAPTION = "Real yogurt-style pilot; Rounds 3–10 chosen by an earlier engine."
+SAMPLE_PROVENANCE_HELP = (
+    "Rounds 1–2 were the team's starting set; Rounds 3–10 were chosen by "
+    "EGBO, an earlier version of this engine (Feb–May 2026). Ingredient "
+    "limits and the batch-total limit are inferred from the pilot's own "
+    "batches. Tasting noise is assumed at 1 point unless you set it.")
 
-# The sample project's own name, so app.py and ui_setup.py agree on how it is
-# recognised: by name, the same way the app has always told it apart from a
-# project the user made.
-SAMPLE_PROJECT_NAME = "Sample project"
 
+# The burger sample is gone (0.8.0). The four strings below are no longer
+# shown anywhere; tests/test_food_bo.py names them at import time in its
+# _ALLOWED_EXACT list, so they go when that list is re-pointed.
 # The sample's own targets_source, set once when it is built.
 LEGACY_SAMPLE_TARGETS_SOURCE = (
     "Illustrative training example; not a validated formulation or recorded panel study. "
@@ -452,6 +456,16 @@ MANAGE_PROJECT = "Manage project"
 
 START_OVER_LABEL = "Clear project contents"
 YES_START_OVER = "Yes, clear contents"
+
+# A sample's Start over: the shipped file goes back, the reader's own version
+# is kept as a copy.
+START_SAMPLE_OVER_LABEL = "Start this sample over"
+YES_START_SAMPLE_OVER = "Yes, start over"
+
+
+def start_sample_over_warning(name):
+    return (f"{name} goes back to how it shipped. Your version is kept "
+            "as a copy in the project backups.")
 
 
 def start_over_warning(project_name, held_text=None):
