@@ -1485,8 +1485,8 @@ def test_generating_prints_nothing_to_the_console(tmp_path, monkeypatch,
     assert "DEBUG" not in capsys.readouterr().out
 
 
-def test_sample_ingredients_file_has_readable_names(tmp_path, monkeypatch):
-    """The shipped sample CSV (the sample project and the CSV template
+def test_shipped_ingredient_files_have_readable_names(tmp_path, monkeypatch):
+    """The shipped ingredient lists (the experiments' list and the CSV template
     download) must use plain, human-readable ingredient names, since they
     appear verbatim in every table, recipe card, and batch sheet."""
     monkeypatch.chdir(tmp_path)
@@ -1502,16 +1502,15 @@ def test_sample_ingredients_file_has_readable_names(tmp_path, monkeypatch):
     for name in names:
         assert "_" not in name, name
 
-    # The shipped sample (sample project + CSV template) is a subset of the
-    # same list, short enough to read at a glance.
-    sample = pd.read_csv(os.path.join(repo_root, "data", "sample_ingredients.csv"))
+    # The CSV template is one example row, short enough to read at a glance.
+    import sample_projects
+    sample = pd.read_csv(sample_projects.TEMPLATE_CSV)
     sample_opt = FoodOptimizer(project_name="sample_small")
     sample_opt.load_ingredients_from_csv(sample)
     sample_names = [v["name"] for v in sample_opt.variables]
-    assert len(sample_names) == 9
+    assert len(sample_names) == 1
     assert list(sample_opt.ingredient_grid_frame()[wording.NAME_LABEL]) == [
-        "Textured pea protein", "Textured soy protein", "Hydration water", "Remaining water",
-        "Dry blend", "Wheat gluten", "Seasoning blend", "Fats and oils"]
+        "Coconut cream"]
     assert all("_" not in name for name in sample[wording.NAME_LABEL])
     # The template's headers are the add form's own words — Name, Lowest,
     # Highest, Unit — so a reader filling it in is answering the same four
@@ -2724,8 +2723,8 @@ class TestUnitPerIngredient:
     def test_the_shipped_csv_template_carries_the_unit_column(self, tmp_path,
                                                               monkeypatch):
         monkeypatch.chdir(tmp_path)
-        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        df = pd.read_csv(os.path.join(root, "data", "sample_ingredients.csv"))
+        import sample_projects
+        df = pd.read_csv(sample_projects.TEMPLATE_CSV)
         assert "Unit" in df.columns
         opt = FoodOptimizer("template_units")
         opt.load_ingredients_from_csv(df)
@@ -4459,7 +4458,6 @@ _ALLOWED_EXACT = {
     wording.MADE_AS_HELP,
     wording.LOWEST_MEASURABLE_LABEL, wording.HIGHEST_MEASURABLE_LABEL,
     wording.WIDEN_RANGE_HINT,
-    wording.SAMPLE_TARGETS_SOURCE, wording.SAMPLE_METHOD, wording.LEGACY_SAMPLE_TARGETS_SOURCE, wording.SAMPLE_REFERENCE,
 
     # The one legacy value that must stay spelled the old way: it is the
     # reserved column name a 0.2.x project could collide with.
@@ -5388,8 +5386,18 @@ class TestWhereTheTargetsComeFrom:
 #  Default batch size (0.4.0 §C)
 # ------------------------------------------------------------------ #
 
-_SAMPLE_CSV = pathlib.Path(__file__).resolve().parent.parent / "data" / \
-    "sample_ingredients.csv"
+# A small ingredient list with a worked-out "= rest" water row and a
+# fixed-amount pre-mix, for the tests that need those two things.
+_REST_CSV = """Name,Part of,Preparation,Lowest,Highest,Composition (%),Calculation,Unit
+Textured pea protein,,,4,6,,,g
+Wheat gluten,,,3.5,6,,,g
+Seasoning blend,,Pre-mix: keep proportions fixed,2.2,2.2,,,g
+Salt,Seasoning blend,,,,60,,g
+Onion powder,Seasoning blend,,,,40,,g
+Remaining water,,,0,100,,= rest,g
+Coconut oil,,,6,10,,,g
+Sunflower oil,,,2,5,,,g
+"""
 
 
 _FLAT_BURGER_CSV = os.path.join(os.path.dirname(__file__), "fixtures", "flat_burger.csv")
@@ -6768,8 +6776,8 @@ class TestTheWorkbook:
         the headers and ONE example row, so nobody has to work out which
         lines are theirs."""
         monkeypatch.chdir(tmp_path)
-        template = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                "..", "data", "sample_ingredients.csv")
+        import sample_projects
+        template = str(sample_projects.TEMPLATE_CSV)
         book = _book(ingredients_template_workbook(template))
         assert book.sheetnames == ["Ingredients"]
         header = _rows(book["Ingredients"])[0]
@@ -9864,24 +9872,22 @@ class TestTheFormulaColumn:
         assert opt.fill_formulas({"Flour": 40.0}) == {
             "Flour": 40.0, "Sugar": 8.0, "Water": 52.0}
 
-    def test_the_sample_water_is_rest_and_every_sample_round_adds_up(
+    def test_a_rest_row_makes_every_round_add_up(
             self, tmp_path, monkeypatch):
-        """Show, don't teach: the sample project the reader opens first has
-        a worked-out row in it, and every round it makes lands exactly on
-        the batch size because of it."""
+        """A project with a worked-out row in it makes every round land
+        exactly on the batch size because of it."""
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer("sample_rest", robust=False)
         opt.set_amount_unit("g")
-        opt.load_ingredients_from_csv(pd.read_csv(_SAMPLE_CSV))
+        opt.load_ingredients_from_csv(pd.read_csv(io.StringIO(_REST_CSV)))
         opt.add_objective("Juiciness", 1.0, goal="target", target=7,
                           min_val=0, max_val=10, unit="/10")
         opt.set_formulation_total(100.0)
         assert opt._var_by_name("Remaining water")['balance'] is True
         assert opt._formula_text(opt._var_by_name("Remaining water")) == "= rest"
-        # Textured pea protein, Dry blend, Wheat gluten and the two oils
-        # the Fat phase is weighed out as; Seasoning blend is fixed at
-        # 2.20 g and Water is calculated.
-        assert len(opt.varying_variables()) == 6
+        # Textured pea protein, Wheat gluten and the two oils; Seasoning
+        # blend is fixed at 2.20 g and Remaining water is calculated.
+        assert len(opt.varying_variables()) == 4
         for row in opt.ask(n_suggestions=3):
             assert sum(row.values()) == pytest.approx(100.0, abs=1e-6)
             assert row["Remaining water"] >= -1e-9
@@ -10424,7 +10430,7 @@ class TestTheFormulaColumnFixes:
             "Flour and Water")
         assert opt.variables == before
 
-    def test_the_samples_water_keeps_the_range_its_formula_covers(
+    def test_a_rest_rows_water_keeps_the_range_its_formula_covers(
             self, tmp_path, monkeypatch):
         """A worked-out row may carry a dormant range: the grid shows the
         word, and rubbing the formula out gives the row its amounts back
@@ -10432,7 +10438,7 @@ class TestTheFormulaColumnFixes:
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer("sample_range", robust=False)
         opt.set_amount_unit("g")
-        opt.load_ingredients_from_csv(pd.read_csv(_SAMPLE_CSV))
+        opt.load_ingredients_from_csv(pd.read_csv(io.StringIO(_REST_CSV)))
         opt.add_objective("Juiciness", 1.0, goal="target", target=7,
                           min_val=0, max_val=10, unit="/10")
         opt.set_formulation_total(100.0)

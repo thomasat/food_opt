@@ -101,7 +101,7 @@ def test_the_calculation_line_is_said_once(burger):
     assert captions.count(wording.CALCULATION_EDIT_HINT) == 1
 
 
-def test_the_sample_says_one_line_before_its_first_round(tmp_path, monkeypatch):
+def test_the_sample_is_named_in_the_sidebar_and_setup_stays_quiet(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     at = _app()
     next(b for b in at.main.button if b.label == wording.TRY_SAMPLE_LABEL).click()
@@ -110,7 +110,7 @@ def test_the_sample_says_one_line_before_its_first_round(tmp_path, monkeypatch):
     at.run()
     assert not at.exception
     captions = [c.value for c in at.tabs[0].caption]
-    assert captions[0] == wording.SAMPLE_INTRO_LINE
+    assert wording.SAMPLE_PROVENANCE_CAPTION in [c.value for c in at.sidebar.caption]
     assert not any(c.startswith("Learn the workflow") for c in captions)
     assert wording.TEACHING_EXAMPLE_CAPTION not in captions
 
