@@ -6435,8 +6435,7 @@ def called_detail(opt, lf):
     # Final demo (A3): the pairs called (raw and adjusted chance) and the
     # values just inside their range, after the noise they had to reach.
     out = [wording.CALLED_RULE, " ".join(lines),
-           wording.check_noise(noise, assumed, k, noise_sd_text(opt)),
-           pairs_called_text(opt, lf), near_edge_text(opt, lf)]
+           wording.check_noise(noise, assumed, k, noise_sd_text(opt)), near_edge_text(opt, lf)]
     if pairs:
         out.append(wording.for_experts("; ".join(pairs) + "."))
     return _short(opt, wording.brief("\n\n".join(t for t in out if t)))
@@ -6720,7 +6719,9 @@ def learned_verdict_line(opt, lf):
     if line is None:
         # Long names: the first group alone, whatever its length.
         line = wording.learned_line(None, alone[:1]) or wording.learned_line(count, [])
-    return _short(opt, line), _say(opt, wording.brief(wording.learned_verdicts_help(_tested(lf))))
+    # Final demo (A3): the "?" opens on the pairs called and the chance by luck.
+    return _short(opt, line), _say(opt, wording.brief("\n\n".join(t for t in (
+        pairs_called_text(opt, lf), wording.learned_verdicts_help(_tested(lf))) if t)))
 
 
 def _learned_section(opt, slot, computed, facts):
@@ -7222,7 +7223,8 @@ PANEL_SPLIT = [0.44, 0.56]              # the columns: chart over What changed |
 REPLAY_STYLE = """<style>
 .st-key-insights_replay_panel_now, .st-key-insights_replay_panel_past { padding: 0.6rem 0.9rem !important; }
 .st-key-insights_replay_panel_past { background: rgba(120, 128, 140, 0.09);
-  border: 2px solid rgba(90, 98, 110, 0.55) !important; }
+  border: 1px solid rgba(90, 98, 110, 0.55) !important;
+  box-shadow: inset 0 0 0 1px rgba(90, 98, 110, 0.55); }
 .st-key-insights_replay_bar button { min-height: 2rem; padding: 0.15rem 0.7rem; }
 .st-key-insights_replay_bar p { margin: 0; }
 [class*="st-key-insights_replay_panel"] [data-testid="stElementToolbar"] { display: none; }
