@@ -234,8 +234,10 @@ def test_the_stop_help_gives_the_gap_the_threshold_and_the_noisy_perfect_score(
     text = wording.ceiling_help("98.3", "100", "1.7", "2.3", "98.4", True)
     assert text.startswith("Best so far 98.3 is 1.7 below the top (100); 2.3 is needed to "
                            "tell two single results apart.")
-    assert ("A formulation exactly on every target would score about 98.4 here, because "
-            "tasting noise only pulls the score down (assumed noise).") in text
+    # Final demo (A4), re-pinned: one tasting regresses to the mean; never
+    # read as a score that beats perfect.
+    assert ("A formulation exactly on target, tasted once, averages about 98.4 with this "
+            "noise (assumed noise of 1 point); single tastings scatter around it.") in text
     assert ("A single new result can't be told apart from this best in the Overall score; a "
             "single measurement still can") in text
     assert "Further Rounds" not in text
@@ -491,7 +493,8 @@ def test_the_strips_set_up_button_is_secondary_at_the_stop(monkeypatch):
     monkeypatch.setattr(U, "_say", lambda o, t: t)
     U._ceiling_foot(NS())
     [btn] = [c for c in fake.calls if c[0] == "button"]
-    assert btn[2]["type"] == "secondary"
+    # Final demo (B1), re-pinned: a tertiary link — no button leads at the stop.
+    assert btn[2]["type"] == "tertiary"
 
 
 def test_start_the_next_round_is_secondary_with_its_reason_under_stop(monkeypatch):

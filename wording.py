@@ -11069,3 +11069,273 @@ def not_yet_counted(names, counts):
     """'Not yet: Consistency (3/3), Creaminess (1/5), Thickness uniformity
     (2/5).'"""
     return "Not yet: " + ", ".join(named_pairs_short(n, counts.get(n)) for n in names) + "."
+
+
+# --- final demo ---
+# Owner-approved stages A and B (2026-10-13): the Round panel's labels say
+# "best after Round r" (the best so far may come from an earlier Round);
+# "on target" is as rated; the Forecast check counts the pairs it could
+# call; the stop is the loudest thing in What next?; Play draws only the
+# Rounds up to the one on view; and the tasting noise is the project's own.
+def noise_text(value):
+    """'1 point', '2 points', '0.5 points' from a noise SD."""
+    return points_text(f"{float(value):g}")
+
+
+def assumed_noise_clause(sd_text="1"):
+    """'if tasting noise ≈ 2 points'."""
+    return f"if tasting noise ≈ {points_text(sd_text)}"
+
+
+def progress_rise_answer(before_text, best_text, rise_text, need_text, assumed=True,
+                         sd_text="1"):
+    """'Best 95.0 → 98.3 (+3.3; needs 6.0 if tasting noise ≈ 2 points)'."""
+    clause = f" {assumed_noise_clause(sd_text)}" if assumed else ""
+    return f"Best {before_text} → {best_text} (+{rise_text}; needs {need_text}{clause})"
+
+
+def noise_band(sd_text="1"):
+    """The chart's band key: '±2 points: assumed noise (1 SD)'."""
+    return f"±{points_text(sd_text)}: assumed noise (1 SD)"
+
+
+NOISE_BAND = noise_band("1")
+
+
+def story_improving_help(first_avg, last_avg, first_round, last_round, assumed=True,
+                         need_text=None, sd_text="1"):
+    """Are we improving?'s "?": what is drawn, the Round averages, the noise
+    band, the top zone (the band at the project's tasting noise)."""
+    avg = ""
+    if first_avg is not None and last_avg is not None and first_round != last_round:
+        avg = (f" {ROUND_CAP} average: {first_avg} ({ROUND_CAP} {first_round}) → {last_avg} "
+               f"({ROUND_CAP} {last_round}).")
+    band = (f"Blue band: ±{points_text(sd_text)} around the best, the tasting noise assumed "
+            "until Repeats measure it." if assumed else
+            "Blue band: ±the tasting noise your Repeats measured, around the best.")
+    zone = (f" Grey zone: within {need_text} of the top score, where a higher result can't be "
+            "told from this best." if need_text else "")
+    tail = f" {REPEAT_CONFIRMS}" if assumed else ""
+    return (f"Grey dots: each {FORMULATION}'s measured {OVERALL_SCORE_COLUMN}. Line: "
+            f"{BEST_SO_FAR_COLUMN}, stepping once per {ROUND_CAP}. Short grey bars: each "
+            f"{ROUND_CAP}'s average, printed under it.{avg} {band}{zone}{tail} Measured values "
+            "only.")
+
+
+def tip_threshold_assumed(sd_text="1"):
+    """The noise threshold's basis while Repeats give under 3 df."""
+    if sd_text in ("1", "1.0"):
+        return TIP_THRESHOLD_ASSUMED
+    return (f"{points_text(sd_text)}, your tasting noise: the Repeats give fewer than 3 "
+            "degrees of freedom (3 df)")
+
+
+def check_noise(cells, assumed=True, k=None, sd_text="1"):
+    """The noise each order claim had to reach, in the "?": 'Tasting noise
+    assumed: Overall score 2.0; Consistency 0.6. 0.6: 2 score points in
+    Consistency's units, split over 4 measurements.'"""
+    if not cells:
+        return ""
+    listed = "; ".join(f"{n} {v}" for n, v in cells)
+    if not assumed:
+        return f"Tasting noise from your Repeats: {listed}."
+    share = ""
+    if k and len(cells) > 1:
+        name, value = cells[1]
+        unit = "score point" if sd_text in ("1", "1.0") else "score points"
+        share = f" {value}: {sd_text} {unit} in {name}'s units, split over {k} measurements."
+    return f"Tasting noise assumed: {listed}.{share} {REPEAT_CONFIRMS}"
+
+
+# A1 · the Round panel's best, as of the Round on view.
+def best_after(round_no, no, made_round=None):
+    """'Best after Round 10: F21 (Round 7)'; made in that Round: 'Best
+    after Round 6: F16'."""
+    made = "" if made_round is None or made_round == round_no else f" ({ROUND_CAP} {made_round})"
+    return f"Best after {ROUND_CAP} {round_no}: F{no}{made}"
+
+
+def changes_best_column(no, round_no=None, made_round=None):
+    """What changed's column: 'Best after Round 10: F21 (Round 7)'; with no
+    Round control, 'Best so far (F16)'."""
+    if round_no is None:
+        return f"{BEST_SO_FAR_COLUMN} (F{no})"
+    return best_after(round_no, no, made_round)
+
+
+def spider_key_best(round_no, no, made_round=None):
+    """The profile's key: 'Best after Round 10: F21 (Round 7)'."""
+    return best_after(round_no, no, made_round)
+
+
+def spider_answer(round_no, on, n, offs, targets=True, no=None, made_round=None, short=False):
+    """'Best so far, F10 (Round 4): on target 2 of 4; Tangy 2.0 over.' —
+    the formulation and the Round it was made in. `offs` largest first.
+    `short`: 'Best F21 (Round 7): …', for a long measurement name."""
+    best = "Best" if short else f"{BEST_SO_FAR_COLUMN},"
+    who = (f"{best} F{no} ({ROUND_CAP} {made_round})" if no is not None
+           else f"{ROUND_CAP} {round_no}")
+    head = f"{who}: " + (f"on target {on} of {n}" if targets else f"at their best {on} of {n}")
+    return f"{head}; {', '.join(offs)}." if offs else f"{head}."
+
+
+# A2 · on target as rated; within noise of target in the "?".
+def on_target_help(on, n, within, half_text, targets=True):
+    """'On target as rated: 3 of 4 (the rating equals the target). Within
+    noise of target (±0.6, 95 % of single tastings): 4 of 4.'"""
+    word = "On target" if targets else "At their best"
+    out = f"{word} as rated: {on} of {n} (the rating equals the target)."
+    if within is not None:
+        width = f"±{half_text}, " if half_text else ""
+        out += (f" Within noise of target ({width}where 95 % of single tastings land): "
+                f"{within} of {n}.")
+    return out
+
+
+# A3 · the Forecast check's pairs, called of all.
+def score_pairs_called(label, right, called, total):
+    """'Overall score (5 of 12 pairs called, all 5 right)'."""
+    tail = (f"all {right} right" if right == called and called > 1 else f"{right} right")
+    return f"{label} ({called} of {total} pairs called, {tail})"
+
+
+def learned_count(label, right, pairs, few=False, total=None):
+    """'Overall score 5 of 12 pairs called, 4 right'; without the total,
+    'Overall score 7 of 9 pairs ordered right'."""
+    if total is not None and total > pairs:
+        tail = f"all {right} right" if right == pairs and pairs > 1 else f"{right} right"
+        out = f"{label} {pairs} of {total} pairs called, {tail}"
+        return f"{out} (too few to judge)" if few else out
+    if few:
+        return f"{label} {right} of {pairs} pairs (too few to judge)"
+    return f"{label} {right} of {pairs} pairs ordered right"
+
+
+def learned_count_needed(label, right, pairs, needed, total=None):
+    """'Overall score 4 of 12 pairs called, 4 right (needs 5)'."""
+    if total is not None and total > pairs:
+        return f"{label} {pairs} of {total} pairs called, {right} right (needs {needed})"
+    return f"{label} {right} of {pairs} pairs (needs {needed})"
+
+
+def pairs_called_help(label, right, called, total, close, ties, p_text, adj_text=None,
+                      tested=1):
+    """The Forecast check's "?" on the pairs: 'Overall score: 5 of 12 pairs
+    called (6 too close, 1 tie); 5 right. Chance by luck: 3 in 100; 15 in
+    100 adjusted for checking 5 results.'"""
+    why = [f"{close} too close"] if close else []
+    why += [f"{ties} tie{'s' if ties != 1 else ''}"] if ties else []
+    out = (f"{label}: {called} of {total} pairs called"
+           + (f" ({', '.join(why)})" if why else "") + f"; {right} right.")
+    if called:
+        out += f" Chance by luck: {p_text}"
+        if adj_text is not None and tested > 1:
+            out += f"; {adj_text} adjusted for checking {tested} results"
+        out += "."
+    return out
+
+
+def near_edge(items):
+    """'Close to the range edge: F18 in by 0.07.'"""
+    return "Close to the range edge: " + ", ".join(items) + "."
+
+
+def near_edge_item(no, margin_text):
+    return f"F{no} in by {margin_text}"
+
+
+# A4 · the stop's "?": one tasting regresses to the mean.
+def ceiling_help(best_text, top_text, gap_text, need_text, perfect_text=None, assumed=True,
+                 limits=(), sd_text="1"):
+    """The stop signal's "?": the gap and the threshold in numbers; what a
+    formulation exactly on target averages, tasted once, with this noise;
+    what can still move; the limits that bind; what would measure the
+    noise."""
+    lines = [f"{BEST_SO_FAR_COLUMN} {best_text} is {gap_text} below the top ({top_text}); "
+             f"{need_text} is needed to tell two single results apart."]
+    if perfect_text is not None:
+        basis = (f"assumed noise of {points_text(sd_text)}" if assumed
+                 else "noise from your Repeats")
+        lines.append(f"A {FORMULATION} exactly on target, tasted once, averages about "
+                     f"{perfect_text} with this noise ({basis}); single tastings scatter "
+                     "around it.")
+    lines.append(CEILING_MEASURE)
+    if limits:
+        lines.append(f"Limits the predicted best sits at: {', '.join(limits)}.")
+    if assumed:
+        lines.append(REPEAT_CONFIRMS)
+    return " ".join(lines)
+
+
+# A5 · what the score is.
+SCORE_IS_MATCH = "Score = match to your targets, not liking."
+
+
+# B1 · the stop, the loudest thing in What next?.
+STOP_CALLOUT_HEAD = "Stop: within noise of the top"
+STOP_WORD = "Stop"
+
+
+def stop_callout_line(gap_text, need_text):
+    """'1.7 below the top; 2.3 needed to tell two results apart.'"""
+    return f"{gap_text} below the top; {need_text} needed to tell two results apart."
+
+
+def stop_strip_line(gap_text, need_text):
+    """The strip's Next at the stop: '1.7 below top; 2.3 needed'."""
+    return f"{gap_text} below top; {need_text} needed"
+
+
+def stop_on_target(on, n, offs, targets=True):
+    """'On target 3 of 4; Tangy 1.0 under.' `offs` ['Tangy 1.0 under'],
+    largest first, at most two said."""
+    head = f"On target {on} of {n}" if targets else f"At their best {on} of {n}"
+    return f"{head}; {', '.join(offs[:2])}." if offs else f"{head}."
+
+
+# B2 · Play.
+REPLAY_STEP_TEXT = "one every 2 seconds"
+
+
+def replay_play_help(first, last):
+    """Play's "?": 'Round 1 to 6, one every 2 seconds.'"""
+    return f"{ROUND_CAP} {first} to {last}, {REPLAY_STEP_TEXT}."
+
+
+# B3 · the stop marker on the Latest chart.
+def stop_marker(round_no):
+    """'Stop signal (Round 6)'."""
+    return f"Stop signal ({ROUND_CAP} {round_no})"
+
+
+def after_stop(gain_text):
+    """'after the stop: +0.8'."""
+    return f"after the stop: +{gain_text}"
+
+
+def stop_marker_help(round_no, best_text, now_text, gain_text, need_text):
+    """The marker in the chart's "?"."""
+    return (f"Stop signal: after {ROUND_CAP} {round_no} the best ({best_text}) was within "
+            f"{need_text} of the top. Since then: {now_text}, +{gain_text}.")
+
+
+# B5 · the project's tasting noise.
+TASTING_NOISE_LABEL = "Tasting noise"
+TASTING_NOISE_HELP = ("Set this from your tasters' Repeats; until then 1 point is assumed. "
+                      "Higher noise: the app stops sooner. It changes the Review's reading "
+                      "only, never the suggestions.")
+
+
+def tasting_noise_option(value, default=1.0):
+    """'1 point (assumed)', '2 points', '0.5 points'."""
+    text = noise_text(value)
+    return f"{text} (assumed)" if abs(float(value) - float(default)) < 1e-9 else text
+
+
+def tasting_noise_measured(sd_text, df):
+    """'Tasting noise: 1.4 points, measured from Repeats (4 df)'."""
+    return f"{TASTING_NOISE_LABEL}: {points_text(sd_text)}, measured from Repeats ({df} df)"
+
+
+TASTING_NOISE_MEASURED_HELP = ("Measured from your Repeats (3 degrees of freedom or more), so "
+                               "it replaces the setting.")

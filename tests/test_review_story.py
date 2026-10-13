@@ -494,7 +494,8 @@ def test_pilot_story(pilot):
     # Slim Review (re-pinned): the verdict line in the Forecast check.
     line = next(t for k, t in got[wording.FORECAST_CHECK_TITLE]
                 if k == "markdown" and t.startswith("So far: "))
-    assert re.fullmatch(r"So far: Overall score \d+ of \d+ pairs ordered right\. "
+    # Final demo (A3), re-pinned: the pairs called of all, and how many right.
+    assert re.fullmatch(r"So far: Overall score \d+ of \d+ pairs called, (all )?\d+ right\. "
                         r"Predicts: .+ \(\d+/\d+\)\.", line), line
     # Review critique (fix 4): the profiler is a closed fold.
     assert wording.Q3_TITLE not in got

@@ -1067,6 +1067,11 @@ STRIP_STYLE = """<style>
 [data-testid="stLayoutWrapper"]:has(> .st-key-insights_strip_predictions),
 [data-testid="stLayoutWrapper"]:has(> .st-key-insights_strip_next) {
   flex: 1 1 auto !important; min-width: 0; }
+.st-key-insights_stop_callout { background: rgba(214, 158, 46, 0.13);
+  border-left: 4px solid #b7791f; border-radius: 0.5rem; padding: 0.7rem 1rem !important; }
+.st-key-insights_stop_callout [data-testid="stMarkdownContainer"] p { margin-bottom: 0.1rem; }
+.st-key-insights_stop_head [data-testid="stMarkdownContainer"] p { font-size: 1.2rem; }
+.st-key-insights_tasting_noise_row [data-testid="stSelectbox"] { min-width: 9.5rem; }
 </style>"""
 
 
@@ -1125,6 +1130,8 @@ def _places(opt, gate=False):
                 p.link = st.empty()
             with p.link.container():
                 p.why = _why_link(opt)
+        # Final demo (B5): the project's tasting noise, beside the stop.
+        _noise_control(opt)
         p.preview = st.empty()
     # The model-free charts, at once (they need no fit).
     _progress_body(opt, p.q["progress"])
@@ -1162,6 +1169,14 @@ def strip_line(opt, facts, which, card):
     return "", False
 
 
+def strip_stop_label(opt, facts):
+    """'**:orange[Stop]** 1.7 below top; 2.3 needed'."""
+    need = tie_need(facts.yardstick)
+    gap = float(opt.utility_ceiling()) - float(facts.best.score)
+    return (f":orange[**{wording.STOP_WORD}**] "
+            + _say(opt, wording.stop_strip_line(one_decimal(gap), f"{need:.1f}")))
+
+
 def strip_label(card, line, warn):
     """A strip item's button: '**Flat** 88.4 → 96.4 of 100'; a red word or
     line ':red[**Check panel first**]'."""
@@ -1193,7 +1208,11 @@ def _strip_item(opt, places, facts, which):
         st.caption(label, help=card.help)
         line, warn = strip_line(opt, facts, which, card)
         question = _say(opt, _QUESTIONS[which])
-        st.button(strip_label(card, line, warn), type="tertiary", key=f"{SEE_CHART_KEY}_{which}",
+        text = strip_label(card, line, warn)
+        if which == "next" and card.tone != "off" and ceiling_stop(opt, facts):
+            # Final demo (B1): the strip says Stop, with its numbers.
+            text = strip_stop_label(opt, facts)
+        st.button(text, type="tertiary", key=f"{SEE_CHART_KEY}_{which}",
                   help=_say(opt, wording.strip_jump_help(question)),
                   disabled=confirmation_open(), on_click=ask_tab,
                   args=(wording.TAB_INSIGHTS, SECTION_KEYS[which]))
@@ -1212,12 +1231,15 @@ def _next_body(opt, places, facts):
             return
         step = getattr(facts, "next", None) if facts is not None else None
         if card.tone != "off" and ceiling_stop(opt, facts):
-            # Review critique (fix 2): the stop signal at the top score.
-            st.markdown(_say(opt, ceiling_answer(opt, facts)),
-                        help=wording.brief(ceiling_tip(opt, facts)))
-            reason = ceiling_reason_text(opt)
-            if reason:
-                st.markdown(reason)
+            # Final demo (B1): the stop, the loudest thing here — a tinted
+            # callout; the Repeat request a quiet line under it.
+            _stop_callout(opt, facts)
+            for text, warn in card.lines + repeat_asks(opt, facts, card):
+                if warn:
+                    st.markdown(f":red[**{text}**]")
+                else:
+                    st.caption(text)
+            return
         elif step is not None and step.kind == "close" and card.tone != "off":
             # Persona fixes: the stop signal is the headline.
             y = getattr(facts, "yardstick", None)
@@ -1233,6 +1255,88 @@ def _next_body(opt, places, facts):
             st.markdown(word, help=card.help)
         for text, warn in card.lines + repeat_asks(opt, facts, card):
             st.markdown(f":red[**{text}**]" if warn else text)
+
+
+def _stop_callout(opt, facts):
+    """Final demo (B1): 'Stop: within noise of the top', then '1.7 below
+    the top; 2.3 needed to tell two results apart.' (its "?" the stop's
+    numbers) and 'On target 3 of 4; Tangy 1.0 under.' (its "?" on target
+    as rated and within noise of target), in a warm tinted box."""
+    with st.container(key="insights_stop_callout", gap="xsmall"):
+        with st.container(key="insights_stop_head", gap=None):
+            st.markdown(f"**{_say(opt, wording.STOP_CALLOUT_HEAD)}**")
+        st.markdown(_say(opt, stop_line_text(opt, facts)),
+                    help=wording.brief(ceiling_tip(opt, facts)))
+        reason = stop_reason_text(opt)
+        if reason:
+            best = opt.best_index()
+            res = opt.results_history[best] if best is not None else {}
+            st.markdown(reason, help=on_target_help_text(opt, res) or None)
+
+
+def stop_line_text(opt, facts):
+    """'1.7 below the top; 2.3 needed to tell two results apart.'"""
+    need = tie_need(facts.yardstick)
+    gap = float(opt.utility_ceiling()) - float(facts.best.score)
+    return wording.stop_callout_line(one_decimal(gap), f"{need:.1f}")
+
+
+def stop_reason_text(opt):
+    """'On target 3 of 4; Tangy 1.0 under.' — ceiling_reason_text's facts
+    in the callout's short form; '' with nothing to read."""
+    best = opt.best_index()
+    if best is None or best >= len(opt.results_history or []):
+        return ""
+    gaps = ideal_gaps(opt, opt.results_history[best] or {})
+    if gaps is None:
+        return ""
+    on, n, offs, targets = gaps
+    texts = [wording.spider_off(o['name'], amount, "short" if o.get('goal') != 'target'
+                                else "under" if gap < 0 else "over") for o, amount, gap in offs]
+    return _say(opt, wording.stop_on_target(on, n, texts, targets))
+
+
+NOISE_KEY = "insights_tasting_noise"
+
+
+def _on_noise(opt):
+    value = st.session_state.get(NOISE_KEY)
+    try:
+        insights.set_tasting_noise(opt, value)
+    except Exception:
+        pass
+
+
+def _noise_control(opt):
+    """Final demo (B5): the Overall score's tasting noise, in points (1 SD):
+    a choice of TASTING_NOISE_CHOICES, the assumed 1 point the default;
+    saved with the project. From YARDSTICK_DF Repeat df the measured value
+    instead, read-only. Review-side only: the rise and tie thresholds, the
+    stop, the derived measurement noise, too-close pairs, the band and the
+    "?"s follow it; suggestions never read it."""
+    try:
+        yard = insights.noise_yardstick(opt)
+    except Exception:
+        return
+    with st.container(horizontal=True, vertical_alignment="center", gap="small",
+                      key="insights_tasting_noise_row"):
+        if getattr(yard, "from_repeats", False) and yard.value is not None:
+            st.caption(_say(opt, wording.tasting_noise_measured(f"{yard.value:.1f}", yard.df)),
+                       help=_say(opt, wording.TASTING_NOISE_MEASURED_HELP), width="content")
+            return
+        st.markdown(_say(opt, wording.TASTING_NOISE_LABEL), width="content",
+                    help=_say(opt, wording.TASTING_NOISE_HELP))
+        want = insights.assumed_noise(opt)
+        choices = list(insights.TASTING_NOISE_CHOICES)
+        if all(abs(want - c) > 1e-9 for c in choices):
+            choices = sorted(choices + [want])
+        if st.session_state.get(NOISE_KEY) != want:
+            st.session_state[NOISE_KEY] = want
+        st.selectbox(_say(opt, wording.TASTING_NOISE_LABEL), choices, key=NOISE_KEY,
+                     format_func=lambda v: wording.tasting_noise_option(
+                         v, insights.ASSUMED_NOISE_SD),
+                     label_visibility="collapsed", width=200, on_change=_on_noise,
+                     args=(opt,), disabled=confirmation_open())
 
 
 def ceiling_tip(opt, facts):
@@ -1254,7 +1358,8 @@ def ceiling_tip(opt, facts):
     assumed = getattr(facts.yardstick, "assumed", True)
     return _say(opt, wording.ceiling_help(
         one_decimal(best), f"{top:g}", one_decimal(top - best), f"{need:.1f}",
-        None if perfect is None else one_decimal(perfect), assumed, limits))
+        None if perfect is None else one_decimal(perfect), assumed, limits,
+        sd_text=noise_sd_text(opt)))
 
 
 def ceiling_answer(opt, facts):
@@ -1311,6 +1416,45 @@ def ceiling_reason_text(opt):
     texts = [wording.off_target(o['name'], amount, gap < 0) if o.get('goal') == 'target'
              else wording.off_best(o['name'], amount) for o, amount, gap in offs]
     return _say(opt, wording.ceiling_reason(on, n, texts, targets))
+
+
+def within_noise_of_target(opt, res):
+    """Final demo (A2): (within, n, half-width text) — how many of the
+    measured values in `res` lie within 95 % of single tastings of their
+    best value (± Z95 × each measurement's noise: its Repeats' SD, else
+    derived from the project's tasting noise, learned.pair_noise); the
+    half-width as text when every measurement shares it, else '' . None
+    with nothing measured or no noise known."""
+    objs = [o for o in opt.objectives if res.get(o['name']) is not None]
+    if not objs:
+        return None
+    noise = learned.pair_noise(opt)
+    halves, within = [], 0
+    for o in objs:
+        sd = noise.get(o['name'])
+        if not sd:
+            return None
+        half = insights.Z95 * float(sd)
+        halves.append(half)
+        within += abs(float(res[o['name']]) - _ideal(o)) <= half + 1e-9
+    texts = {f"{h:.1f}" for h in halves}
+    return within, len(objs), (texts.pop() if len(texts) == 1 else "")
+
+
+def on_target_help_text(opt, res):
+    """Final demo (A2): the "?" line on "on target": as rated (the rating
+    equals the target, ideal_gaps' rule), then within noise of target."""
+    try:
+        res = {k: v for k, v in (res or {}).items() if v is not None}
+        gaps = ideal_gaps(opt, res)
+        if gaps is None:
+            return ""
+        on, n, _offs, targets = gaps
+        w = within_noise_of_target(opt, res)
+    except Exception:
+        return ""
+    within, half = (w[0], w[2]) if w is not None else (None, "")
+    return _say(opt, wording.on_target_help(on, n, within, half or None, targets))
 
 
 def on_ideal(opt, name, gap):
@@ -1485,7 +1629,10 @@ def _finish(opt, places, facts):
         # R-I4's one link, by priority: Why (drawn with the places), then
         # the Repeat, then the Explored link (ftue fix C).
         with places.link.container():
-            if not _repeat_link(opt, facts):
+            if ceiling_stop(opt, facts):
+                # Final demo (B1): at the stop the Repeat is a quiet line.
+                _quiet_repeat(opt, facts)
+            elif not _repeat_link(opt, facts):
                 explored_link(opt, facts.next)
     _answer(opt, places.q["progress"], facts, "progress", text=progress_answer_text(opt, facts))
 
@@ -1813,7 +1960,8 @@ def rise_and_need(answer):
     or the same as its threshold; then hundredths, so the words never
     contradict the numbers (Task 6 review M-1)."""
     threshold = answer.threshold if answer.threshold is not None else (
-        insights.rise_threshold(1.0 if answer.sd is None else answer.sd, max(1, answer.q),
+        insights.rise_threshold(insights.ASSUMED_NOISE_SD if answer.sd is None else answer.sd,
+                                max(1, answer.q),
                                 answer.df or None))
     d = 2 if f"{answer.rise:.1f}" in ("0.0", f"{threshold:.1f}") else 1
     return f"{answer.rise:.{d}f}", f"{threshold:.{d}f}"
@@ -1931,7 +2079,8 @@ def _ceiling_foot(opt):
     lit = not confirmation_open()
     # Round-2 fixes (P2 #16): secondary — stopping needs no button, and a
     # red Set up read as the next step.
-    if st.button(wording.SETUP_BUTTON_SHORT, type="secondary",
+    # Final demo (B1): tertiary — no primary, nor a button, at the stop.
+    if st.button(wording.SETUP_BUTTON_SHORT, type="tertiary",
                  disabled=not lit, key="insights_foot_setup",
                  help=_say(opt, wording.CEILING_SETUP_HELP)) and lit:
         st.session_state[SETUP_CALLOUT_KEY] = _say(opt, wording.CEILING_SETUP_HELP)
@@ -2118,7 +2267,7 @@ def progress_answer_text(opt, facts):
     # wherever the verdict rests on it.
     assumed = bool(getattr(getattr(facts, "yardstick", None), "assumed", True))
     return wording.progress_rise_answer(one_decimal(f.score - a.rise), one_decimal(f.score),
-                                        rise, need, assumed=assumed)
+                                        rise, need, assumed=assumed, sd_text=noise_sd_text(opt))
 
 
 def score_built_text(opt):
@@ -2159,7 +2308,7 @@ def progress_plain(opt, facts):
             and getattr(a, "rise", None) is not None:
         _, need = rise_and_need(a)
         assumed = y is None or getattr(y, "assumed", True)
-        sd = "1" if (a.sd is None or assumed) else f"{a.sd:.1f}"
+        sd = noise_sd_text(opt) if (a.sd is None or assumed) else f"{a.sd:.1f}"
         out.append(wording.progress_need_plain(need, sd, assumed, max(1, a.q or 1)))
     if plateau_round(opt, facts) is not None:
         out.append(wording.plateau_rule(plateau_round(opt, facts)))
@@ -2369,6 +2518,22 @@ def _why_link(opt):
 
 
 REPEAT_LINK_KEY = "insights_repeat_link"
+
+
+def _quiet_repeat(opt, facts):
+    """At the stop: the Repeat request _repeat_link would draw, as a quiet
+    caption (no button); nothing when What next? says it already."""
+    step = getattr(facts, "next", None)
+    best = getattr(facts, "best", None)
+    if (step is None or step.kind not in _ASK_REPEAT or not getattr(step, "assumed", False)
+            or best is None or _why_link_offered(opt)):
+        return False
+    card = card_for(opt, facts, "next")
+    text = _say(opt, wording.card_noise_repeat(best.formulation))
+    if card is not None and any(text in t for t, _ in card.lines):
+        return False
+    st.caption(text)
+    return True
 
 
 def _repeat_link(opt, facts):
@@ -4348,7 +4513,14 @@ def _rule_text(opt, key):
 def _threshold_tip(yard):
     if yard is not None and yard.from_repeats:
         return wording.tip_threshold_measured(f"{yard.value:.1f}", yard.pairs, yard.df or None)
-    return wording.TIP_THRESHOLD_ASSUMED
+    value = getattr(yard, "value", None) if yard is not None else None
+    return wording.tip_threshold_assumed(f"{value:g}" if value else "1")
+
+
+def noise_sd_text(opt):
+    """Final demo (B5): the Overall score's assumed noise SD as the screen
+    writes it: '1', '2', '0.5' (the project's tasting noise, else 1)."""
+    return f"{insights.assumed_noise(opt):g}"
 
 
 def _predictions_tip(opt, facts):
@@ -4381,9 +4553,10 @@ def _rise_tip(facts, yard):
     a = getattr(facts, "improvement", None)
     need = None
     if a is not None and a.state in ("yes", "barely") and a.threshold is not None:
-        sd = 1.0 if a.sd is None else a.sd
+        base = getattr(yard, "value", None) or insights.ASSUMED_NOISE_SD
+        sd = base if a.sd is None else a.sd
         need = (f"{a.threshold:.2f}", rise_factor_text(a.q, a.df),
-                "1" if a.sd is None else f"{sd:.2f}")
+                f"{sd:g}" if a.sd is None else f"{sd:.2f}")
     return wording.tip_progress(_threshold_tip(yard), need)
 
 
@@ -5957,8 +6130,9 @@ def learned_facts_from(opt, checks):
 
 
 def learned_facts(opt, computed):
-    """learned_facts_from, once per data_key (cached in the session)."""
-    key = insights.data_key(opt)
+    """learned_facts_from, once per data_key and tasting noise (cached in
+    the session; the noise decides which pairs are too close to call)."""
+    key = _learned_key(opt)
     hit = st.session_state.get(LEARNED_KEY)
     if hit and hit[0] == key:
         return hit[1]
@@ -5973,7 +6147,11 @@ def learned_facts(opt, computed):
 def learned_cached(opt):
     """This data's LearnedFacts when already worked out, else None."""
     hit = st.session_state.get(LEARNED_KEY)
-    return hit[1] if hit and hit[0] == insights.data_key(opt) else None
+    return hit[1] if hit and hit[0] == _learned_key(opt) else None
+
+
+def _learned_key(opt):
+    return (insights.data_key(opt), insights.assumed_noise(opt))
 
 
 def capped(value, top, d=1):
@@ -6254,10 +6432,56 @@ def called_detail(opt, lf):
         assumed = True
     k = len(learned.scored_measurements(opt)) if any(n != insights.SCORE for n, _, _ in lf.items) \
         else None
-    out = [wording.CALLED_RULE, " ".join(lines), wording.check_noise(noise, assumed, k)]
+    # Final demo (A3): the pairs called (raw and adjusted chance) and the
+    # values just inside their range, after the noise they had to reach.
+    out = [wording.CALLED_RULE, " ".join(lines),
+           wording.check_noise(noise, assumed, k, noise_sd_text(opt)),
+           pairs_called_text(opt, lf), near_edge_text(opt, lf)]
     if pairs:
         out.append(wording.for_experts("; ".join(pairs) + "."))
     return _short(opt, wording.brief("\n\n".join(t for t in out if t)))
+
+
+def _chance_words(p):
+    """A p-value in plain words: 'about 6 in 100 (p = 0.06)'."""
+    n = max(1, int(round(p * 100))) if p > 0 else 0
+    return f"{n} in 100" if n < 100 else "certain"
+
+
+def pairs_called_text(opt, lf):
+    """Final demo (A3): the Overall score's pairs, called of all, and the
+    chance of as many right by luck, raw and adjusted ('' without pairs)."""
+    o = lf.orderings.get(insights.SCORE) if lf is not None else None
+    if o is None:
+        return ""
+    total = o.pairs + o.ties + o.close
+    if not total:
+        return ""
+    return _say(opt, wording.pairs_called_help(
+        learned_label(opt, insights.SCORE), o.right, o.pairs, total, o.close, o.ties,
+        _chance_words(o.p) if o.pairs else "",
+        _chance_words(o.p_holm) if o.p_holm is not None else None, o.tested))
+
+
+NEAR_EDGE = 0.2         # a value in its range by less than this: its margin in the "?"
+
+
+def near_edge_text(opt, lf):
+    """Final demo (A3): 'Close to the range edge: F18 in by 0.07.' — the
+    drawn values inside their 95 % range by under NEAR_EDGE; '' with none."""
+    items = []
+    for name, _call, cks in learned.shown(lf.items):
+        for c in sorted(cks, key=lambda c: c.formulation):
+            if not (c.low <= c.measured <= c.high):
+                continue
+            margin = min(c.measured - c.low, c.high - c.measured)
+            _lo, top = insights._range_of(opt, name)
+            if margin < NEAR_EDGE and not (c.high >= top - 1e-9 and c.high - c.measured
+                                           == margin):
+                item = wording.near_edge_item(int(c.formulation), f"{margin:.2f}")
+                items.append(item if name == insights.SCORE
+                             else f"{learned_label(opt, name)} {item}")
+    return _short(opt, wording.near_edge(items)) if items else ""
 
 
 def check_frame(opt, name, cks):
@@ -6453,10 +6677,13 @@ def learned_verdict_line(opt, lf):
     # Specific wording: under the pairs a verdict needs, the count it needs.
     score = learned_label(opt, insights.SCORE)
     count = None
+    total = None if o is None else o.pairs + o.ties + o.close
     if o is not None and o.pairs:
-        count = (wording.learned_count_needed(score, o.right, o.pairs, learned.MIN_PAIRS)
+        # Final demo (A3): the pairs that could be called, of all.
+        count = (wording.learned_count_needed(score, o.right, o.pairs, learned.MIN_PAIRS,
+                                              total=total)
                  if o.pairs < learned.MIN_PAIRS else
-                 wording.learned_count(score, o.right, o.pairs))
+                 wording.learned_count(score, o.right, o.pairs, total=total))
     counts = pair_counts(opt, lf.orderings)
     groups = [(wording.LEARNED_WORDS[v], lf.model_names(opt, v))
               for v in (learned.PREDICTABLE, learned.PARTLY, learned.NOT_YET)]
@@ -6472,10 +6699,19 @@ def learned_verdict_line(opt, lf):
                 wording.named_pairs_short(n, counts.get(n))) for i, n in enumerate(counted)}
     alone = [(w, [said.get(n) or wording.named_pairs_short(n, counts.get(n)) for n in names])
              for w, names in groups]
+    called = []
+    if o is not None and o.pairs and score in said and total and total > o.pairs:
+        # Final demo (A3): 'Overall score (5 of 12 pairs called, all 5 right)',
+        # when it fits; else the form before.
+        said_c = dict(said, **{score: wording.score_pairs_called(score, o.right, o.pairs,
+                                                                 total)})
+        called = [(w, [said_c.get(n) or wording.named_pairs_short(n, counts.get(n))
+                       for n in names]) for w, names in groups]
     # The count and as many groups as fit; else the groups alone with their
     # pairs, else bare (a verdict is never dropped for the count); else the
     # count alone.
     tries = [(count, beside[:k]) for k in range(len(groups), 0, -1) if count]
+    tries += [(None, called[:k]) for k in range(len(called), 0, -1)]
     tries += [(None, alone[:k]) for k in range(len(groups), 0, -1)]
     tries += [(None, groups[:k]) for k in range(len(groups), 0, -1)]
     tries += [(count, [])] if count else []
@@ -6971,7 +7207,10 @@ PROGRESS_ROUND_PLACE = "insights_progress_round"   # the section's Replay panel 
 # stay about today. Leaving the tab, or another project, is today again.
 REPLAY_STATE = "insights_replay"        # {"project", "round"}: an earlier Round on view
 REPLAY_PLAY = "insights_replay_play"    # the project while Replay steps
-REPLAY_STEP_SECS = 1.0                  # Replay: one Round a second, then stops on the latest
+REPLAY_STEP_SECS = 2.0                  # Play: one Round every 2 s (final demo B2), then stops
+REPLAY_T = "_insights_replay_t"         # {"play", "stop", "end"}: when each last happened
+STOP_GUARD_SECS = 0.8                   # a Stop this soon after Play is ignored (B4)
+PLAY_GUARD_SECS = 1.0                   # a Play this soon after a Stop or a run's end, too
 REPLAY_SLICE_SECS = 0.05                # the wait's slices: a click is seen within this
 REPLAY_PANEL = "insights_replay_panel"  # + "_now" (the latest) or "_past" (framed, tinted)
 REPLAY_BAR = "insights_replay_bar"
@@ -7050,15 +7289,42 @@ def _on_latest(opt, rounds):
     show_round(opt, rounds, None)
 
 
+def _replay_times():
+    t = st.session_state.get(REPLAY_T)
+    if not isinstance(t, dict):
+        t = {}
+        st.session_state[REPLAY_T] = t
+    return t
+
+
+def _since(t, *names):
+    """Seconds since the latest of `names` in `t` (inf when none)."""
+    last = [t[n] for n in names if n in t]
+    return time.monotonic() - max(last) if last else math.inf
+
+
 def _on_play(opt, rounds):
+    """Play, from the first Round. Final demo (B4): ignored within
+    PLAY_GUARD_SECS of a Stop or of a run's end (a second click of Stop
+    lands on Play)."""
+    t = _replay_times()
+    if _since(t, "stop", "end") < PLAY_GUARD_SECS:
+        return
     show_round(opt, rounds, rounds[0])
     st.session_state[REPLAY_PLAY] = _replay_project(opt)
+    t["play"] = time.monotonic()
 
 
 def _on_stop(opt=None, rounds=None, r=None):
     """Stop: hold on the Round that was on screen when it was clicked
-    (`r`, the Round its button was drawn with), even if a step began."""
+    (`r`, the Round its button was drawn with), even if a step began.
+    Final demo (B4): ignored within STOP_GUARD_SECS of Play (a slow
+    double-click on Play lands its second click on Stop)."""
+    t = _replay_times()
+    if _since(t, "play") < STOP_GUARD_SECS and replaying(opt):
+        return
     st.session_state.pop(REPLAY_PLAY, None)
+    t["stop"] = time.monotonic()
     if opt is not None and rounds and r in rounds:
         show_round(opt, rounds, r)
 
@@ -7116,6 +7382,7 @@ def _replay_tick(opt, rounds, r):
     show_round(opt, rounds, nxt)
     if not still:
         st.session_state.pop(REPLAY_PLAY, None)
+        _replay_times()["end"] = time.monotonic()
     st.rerun(scope="fragment")
 
 
@@ -7220,7 +7487,7 @@ def _panel_captions(opt):
                        one_decimal(last[3]) if last else None,
                        first[0] if first else None, last[0] if last else None,
                        assumed=getattr(insights.noise_yardstick(opt), "assumed", True),
-                       need_text=_top_zone_need(opt))))
+                       need_text=_top_zone_need(opt), sd_text=noise_sd_text(opt))))
         try:
             spider = spider_data(opt)
         except Exception:
@@ -7242,8 +7509,13 @@ def _panel_captions(opt):
         recipe = score_recipe_text(opt)
     except Exception:
         recipe = None
-    if recipe:
-        st.caption(recipe)
+    # Final demo (A5): what the score is, the recipe in its "?".
+    try:
+        built = score_built_text(opt)
+    except Exception:
+        built = None
+    st.caption(_say(opt, wording.SCORE_IS_MATCH),
+               help="\n\n".join(t for t in (recipe, built) if t) or None)
 
 
 def _improving_part(opt, r):
@@ -7742,10 +8014,14 @@ def improving_spec(opt, r=None, height=None):
     without a highlight is converted once per project state and theme;
     the band (first, under every mark) and the marker (last) are added per
     Round. None when there is nothing to draw."""
+    # Final demo (B2): an earlier Round draws only the Rounds up to it.
+    rounds = _section_rounds(opt) if r is not None else []
+    upto = r if r is not None and rounds and r in rounds[:-1] else None
     key = ("improving", insights.data_key(opt), spider_key(opt), insights.setup_key(opt),
            theme(), _say(opt, wording.ROUND_CAP), float(opt.utility_ceiling()),
-           getattr(insights.noise_yardstick(opt), "assumed", True), height or IMPROVING_HEIGHT)
-    base = chart_spec(key, lambda: improving_chart(opt, height=height))
+           getattr(insights.noise_yardstick(opt), "assumed", True), height or IMPROVING_HEIGHT,
+           insights.assumed_noise(opt), upto)
+    base = chart_spec(key, lambda: improving_chart(opt, height=height, upto=upto))
     if base is None or r is None:
         return base
     lit = round_highlight(opt, r)
@@ -7767,15 +8043,66 @@ def improving_spec(opt, r=None, height=None):
     return out
 
 
-def improving_chart(opt, highlight=None, height=None):
+def stop_signal(opt):
+    """Final demo (B3): the first Round after which the stop rule held —
+    Best so far by then within the tie threshold of the top score
+    (at_ceiling's rule, at the project's tasting noise) — as (Round, best
+    then, best now, gain since, threshold); None when it never held or
+    the noise is not known. Model-free except the noise."""
+    try:
+        rounds, at = round_bests(opt)
+        need = tie_need(insights.noise_yardstick(opt))
+    except Exception:
+        return None
+    if not rounds or not need:
+        return None
+    top = float(opt.utility_ceiling())
+    now = float(opt.Y_history[at[rounds[-1]]])
+    for r in rounds:
+        best = float(opt.Y_history[at[r]])
+        if round(top - best, 2) < round(need, 2):
+            return r, best, now, now - best, need
+    return None
+
+
+def stop_marker_x(opt, r):
+    """The x of the rule after Round `r`: half a step past its last
+    Formulation; None when it has none."""
+    nos = [int(opt.formulation_ids[i]) for i in range(len(opt.formulation_ids))
+           if _round_of(opt, i) == r]
+    return max(nos) + 0.5 if nos else None
+
+
+def _drawn_stop(opt):
+    """The stop marker the Latest chart draws: stop_signal's, only when a
+    scored Round came after it (at the latest Round the What next? callout
+    says it). None otherwise."""
+    sig = stop_signal(opt)
+    if sig is None:
+        return None
+    rounds = _section_rounds(opt)
+    if not rounds or sig[0] >= rounds[-1]:
+        return None
+    x = stop_marker_x(opt, sig[0])
+    return None if x is None else (sig, x)
+
+
+_STOP_LANE = 16              # px under the data for the stop marker's labels
+_STOP_FILL = {"light": "#b7791f", "dark": "#d69e2e"}    # warm, never error-red
+
+
+def improving_chart(opt, highlight=None, height=None, upto=None):
     """Are we improving? (a): each formulation's measured Overall score
     (grey dots), Best so far (an ink step), each Round's average (a short
     mid-grey bar under its Formulations) and the start and the best named
     on the chart. Model-free. x: Formulations in the order made, the
     Rounds marked along the top — the same axis as the forecast chart.
     `highlight`: a Round to mark (the section's Round control) — a light band over
-    its Formulations and a marker on Best so far there; every other mark
-    stays drawn, so no later Round reads as not having happened."""
+    its Formulations and a marker on Best so far there. `upto` (final demo,
+    B2): an earlier Round on view — the formulations, Round averages, band
+    and Best so far drawn only up to it (the axes as at the latest, so a
+    step never moves them); None draws everything, with the stop marker
+    (B3) when the stop rule held before the latest Round."""
     plot_h = height or IMPROVING_HEIGHT
     narrow = height is not None and height < IMPROVING_HEIGHT
     frame = progress_frame(opt).reset_index()
@@ -7799,6 +8126,19 @@ def improving_chart(opt, highlight=None, height=None):
     lo, hi = min(values), max(values)
     ceiling = float(opt.utility_ceiling())
     steps = best_steps(opt)
+    stop = _drawn_stop(opt)
+    if upto is not None:
+        # Final demo (B2): nothing after Round `upto` (the scales stay).
+        later = [r is not None and r > upto for r in
+                 (list(opt.batch_history) + [None] * len(frame))[:len(frame)]]
+        frame.loc[later, score] = None
+        avgs = [a for a in avgs if a[0] <= upto]
+        steps = [st_ for st_ in steps if st_[3] <= upto]
+        _rounds, at = round_bests(opt)
+        if nums is not None and upto in at:
+            bi = at[upto]
+            nums = (nums[0], nums[1], float(opt.Y_history[bi]), _round_of(opt, bi),
+                    int(opt.formulation_ids[bi]))
     noise = leader_noise(opt)
     # Review critique (fix 7): the top of the score drawn (a rule and its
     # tick) when it is near the data.
@@ -7809,6 +8149,11 @@ def improving_chart(opt, highlight=None, height=None):
     bottom = lo - 0.04 * max(hi - lo, 4.0)
     data_top = (ceiling if show_top else hi) + 0.03 * max(hi - lo, 4.0)
     lanes = _IMPROVING_LANES if nums is not None else 0
+    # Final demo (B3): a lane under the data for the stop marker's labels,
+    # kept at every Round so a step never moves the scale.
+    low_lane = _STOP_LANE if stop is not None else 0
+    data_bottom = bottom
+    bottom = bottom - (data_top - bottom) * low_lane / max(1, plot_h - lanes - low_lane)
     top = data_top + (data_top - bottom) * lanes / (plot_h - lanes)
     y_scale = alt.Scale(domain=[bottom, top], nice=False, zero=False)
 
@@ -7834,7 +8179,7 @@ def improving_chart(opt, highlight=None, height=None):
     # Review readable: ticks only over the data, never in the label lanes.
     span = data_top - bottom
     step = 5 if span <= 30 else 10 if span <= 60 else 20
-    first = math.ceil(bottom / step) * step
+    first = math.ceil(data_bottom / step) * step
     ticks = [first + step * k for k in range(int((data_top - first) // step) + 1)]
     if show_top and all(abs(t - ceiling) > 1e-9 for t in ticks):
         ticks.append(ceiling)
@@ -7845,7 +8190,7 @@ def improving_chart(opt, highlight=None, height=None):
     y = alt.Y(f"{score}:Q", title=y_title, scale=y_scale,
               axis=alt.Axis(values=ticks, labelExpr=top_tick if show_top else "datum.label"))
     layers = []
-    band_name = _say(opt, wording.NOISE_BAND if getattr(
+    band_name = _say(opt, wording.noise_band(noise_sd_text(opt)) if getattr(
         insights.noise_yardstick(opt), "assumed", True) else wording.NOISE_BAND_MEASURED)
     zone_name = _say(opt, wording.TOP_ZONE)
     kinds = alt.Scale(domain=[best_name, avg_name], range=[ink, mid])
@@ -7881,6 +8226,9 @@ def improving_chart(opt, highlight=None, height=None):
         layers.append(alt.Chart(sdf).mark_area(opacity=0.25, tooltip=False).encode(
             x=alt.X("x:Q", scale=x_scale), y=alt.Y("lo:Q", scale=y_scale, title=y_title),
             y2="hi:Q", fill=alt.Fill("what:N", scale=areas, legend=area_legend)))
+    if stop is not None and upto is None:
+        layers += _stop_layers(opt, stop, x_scale, y_scale, y_title, bottom, data_bottom,
+                               data_top)
     if show_top:
         tdf = pd.DataFrame([{"y": ceiling}])
         layers.append(alt.Chart(tdf).mark_rule(color=grey, strokeDash=[2, 3], strokeWidth=1,
@@ -7971,6 +8319,40 @@ def improving_chart(opt, highlight=None, height=None):
     body = alt.layer(*layers)
     chart = alt.layer(rounds, body).resolve_axis(x="independent") if rounds else body
     return readable(chart.properties(height=plot_h))
+
+
+def _stop_layers(opt, stop, x_scale, y_scale, y_title, bottom, data_bottom, data_top):
+    """Final demo (B3): the stop marker — a light warm shade over the
+    Rounds after the stop, a dashed rule after its Round, and in the lane
+    under the data 'Stop signal (Round 6)' left of the rule and 'after the
+    stop: +0.8' right of it."""
+    (r, best_then, now, gain, need), x = stop
+    hi_x = _x_domain(opt)[1]
+    warm = _STOP_FILL[theme()]
+    tip = _say(opt, wording.stop_marker_help(r, one_decimal(best_then), one_decimal(now),
+                                             one_decimal(max(0.0, gain)), f"{need:.1f}"))
+    out = []
+    shade = pd.DataFrame([{"x": x, "x2": hi_x, "lo": bottom, "hi": data_top, "tip": tip}])
+    out.append(alt.Chart(shade).mark_rect(color=warm, opacity=0.08).encode(
+        x=alt.X("x:Q", scale=x_scale), x2="x2:Q",
+        y=alt.Y("lo:Q", scale=y_scale, title=y_title), y2="hi:Q",
+        tooltip=alt.Tooltip("tip:N", title=None)))
+    rule = pd.DataFrame([{"x": x, "lo": bottom, "hi": data_top, "tip": tip}])
+    out.append(alt.Chart(rule).mark_rule(color=warm, strokeWidth=1.5, strokeDash=[4, 3]).encode(
+        x=alt.X("x:Q", scale=x_scale), y=alt.Y("lo:Q", scale=y_scale, title=y_title),
+        y2="hi:Q", tooltip=alt.Tooltip("tip:N", title=None)))
+    lane = (bottom + data_bottom) / 2
+    labels = pd.DataFrame([
+        {"x": x, "y": lane, "text": _say(opt, wording.stop_marker(r)), "side": "left"},
+        {"x": x, "y": lane, "text": wording.after_stop(one_decimal(max(0.0, gain))),
+         "side": "right"}])
+    for side, align, dx in (("left", "right", -4), ("right", "left", 4)):
+        part = labels[labels["side"] == side]
+        out += _halo_text(part, alt.X("x:Q", scale=x_scale),
+                          alt.Y("y:Q", scale=y_scale, title=y_title), "text:N", warm,
+                          fontSize=FONT_SMALL, fontWeight="bold", align=align, dx=dx,
+                          baseline="middle")
+    return out
 
 
 def target_rows(opt, best=None):
@@ -8402,17 +8784,20 @@ def spider_round_answer(opt, data, r):
     """The answer line for Round r: 'Round 6: on target 3 of 4; Tangy 1.0
     under.' — ideal_gaps' count and order, the Stop line's own; at most
     SPIDER_ANSWER_WORDS (the largest miss alone when two run long)."""
-    _i, _no, vals, _score = data.bests[r]
+    i, no, vals, _score = data.bests[r]
     gaps = ideal_gaps(opt, {k: v for k, v in vals.items() if v is not None})
     if gaps is None:
         return ""
     on, n, offs, targets = gaps
     texts = [wording.spider_off(o['name'], amount, "short" if o.get('goal') != 'target'
                                 else "under" if gap < 0 else "over") for o, amount, gap in offs]
-    for k in (2, 1, 0):
-        line = wording.spider_answer(r, on, n, texts[:k], targets)
+    # Final demo (A1): the best so far by then, and the Round it was made
+    # in; a long name keeps its miss with the short head ('Best F21 …').
+    for k, short in ((2, False), (1, False), (1, True), (0, False)):
+        line = wording.spider_answer(r, on, n, texts[:k], targets, no=no,
+                                     made_round=_round_of(opt, i), short=short)
         if limit_words(line) <= SPIDER_ANSWER_WORDS or k == 0:
-            return _say(opt, line)
+            return _short(opt, line)
 
 
 SPIDER_ANSWER_WORDS = 12
@@ -8423,8 +8808,9 @@ def spider_round_help(opt, data, r):
     Round r's best, by the same tolerance as the answer line."""
     i, no, vals, _score = data.bests[r]
     s_i, s_no, s_round, s_vals = data.start
+    rated = on_target_help_text(opt, vals)
     if i == s_i:
-        return _say(opt, wording.spider_same_help(r, s_no))
+        return "\n\n".join(t for t in (rated, _say(opt, wording.spider_same_help(r, s_no))) if t)
     items = []
     for sp in data.spokes:
         row = dict(sp, start=s_vals.get(sp["name"]), best=vals.get(sp["name"]))
@@ -8433,8 +8819,9 @@ def spider_round_help(opt, data, r):
             items.append(wording.spider_move(sp["name"], m[0], _move_text(
                 m[1], sp["high"] - sp["low"])))
     if not items:
-        return None
-    return _short(opt, wording.spider_moves_help(s_no, no, items))
+        return rated or None
+    return "\n\n".join(t for t in (rated, _short(opt, wording.spider_moves_help(s_no, no, items)))
+                       if t)
 
 
 def spider_frames(opt, data, r):
@@ -8445,7 +8832,7 @@ def spider_frames(opt, data, r):
     i, no, vals, _score = data.bests[r]
     s_i, s_no, s_round, s_vals = data.start
     target_name = _say(opt, wording.SPIDER_KEY_TARGET)
-    best_name = _short(opt, wording.spider_key_best(r, no))
+    best_name = _short(opt, wording.spider_key_best(r, no, _round_of(opt, i)))
     start_name = _short(opt, wording.spider_key_start(s_no))
     earlier_name = _say(opt, wording.SPIDER_KEY_EARLIER)
     rlabel = wording.round_tick
@@ -8937,6 +9324,14 @@ def changes_answer(opt, ch):
     return _say(opt, line)
 
 
+def _made_round(opt, no):
+    """The Round Formulation `no` was made in, or None."""
+    for i, f in enumerate(opt.formulation_ids):
+        if int(f) == int(no):
+            return _round_of(opt, i)
+    return None
+
+
 def _md_cell(text):
     return re.sub(r"([\\|*_`\[\]<>])", r"\\\1", str(text))
 
@@ -8955,7 +9350,8 @@ def changes_table(opt, ch, compact=False):
     head = (wording.CHANGES_NAME_BOTH if len(kinds) > 1 else
             wording.CHANGES_NAME_SETTING if kinds == {True} else wording.CHANGES_NAME_INGREDIENT)
     cols = [_say(opt, head), _short(opt, wording.changes_start_column(ch.start_no)),
-            _short(opt, wording.changes_best_column(ch.best_no, ch.round_no)),
+            _short(opt, wording.changes_best_column(ch.best_no, ch.round_no,
+                                                    _made_round(opt, ch.best_no))),
             wording.CHANGES_CHANGE]
     if compact:
         cols = [_keep_together(c) for c in cols]
@@ -8978,6 +9374,10 @@ def _changes_block(opt, r=None):
         ch = None
     if ch is None:
         return
+    # Final demo (B2): the block keeps one height at every Round (a Round
+    # with no table reserves the table's room), so a step never moves the
+    # panel: the title, the answer, the table and a two-line limits line.
+    st.html(f"<style>.st-key-insights_changes {{ min-height: {changes_height(opt)}px; }}</style>")
     with st.container(key="insights_changes"):
         st.markdown(f"**{_say(opt, wording.changes_title(ch.round_no))}**")
         st.markdown(changes_answer(opt, ch))
@@ -8989,6 +9389,18 @@ def _changes_block(opt, r=None):
             st.markdown(ch.limits, help=ch.limits_help)
         else:
             _hold(1)
+
+
+CHANGES_BASE_H = 148          # px: What changed's title, answer, header and a 2-line limits line
+CHANGES_ROW_H = 21            # px per table row (0.82rem, 1152-1280 px)
+
+
+def changes_height(opt):
+    """What changed's reserved height: its rows (the varying rows but the
+    one filling to the total) at CHANGES_ROW_H, plus CHANGES_BASE_H."""
+    fill = opt.balance_row_name()
+    n = sum(1 for v in opt.varying_variables() if v['name'] != fill)
+    return CHANGES_BASE_H + CHANGES_ROW_H * n
 
 
 def _frange(a, b, step):

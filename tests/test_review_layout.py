@@ -36,6 +36,10 @@ def state(monkeypatch):
     """A plain dict for st.session_state (the pure helpers, outside a run)."""
     d = {}
     monkeypatch.setattr(U.st, "session_state", d)
+    # Final demo (B4): these tests click Play and Stop back to back; the
+    # double-click guards are pinned in test_final_demo, off here.
+    monkeypatch.setattr(U, "STOP_GUARD_SECS", 0.0)
+    monkeypatch.setattr(U, "PLAY_GUARD_SECS", 0.0)
     return d
 
 
@@ -147,8 +151,8 @@ def test_replay_tick_waits_then_reruns_only_the_fragment(state, monkeypatch):
         r = U.shown_round(a, rounds)
         path.append(r)
     assert path == [1, 2, 3]
-    # Stop fix (re-pinned): each wait is 1 s in short slices.
-    assert sum(slept) == pytest.approx(2 * U.REPLAY_STEP_SECS) and U.REPLAY_STEP_SECS == 1.0
+    # Final demo (B2), re-pinned: each wait is 2 s, in short slices.
+    assert sum(slept) == pytest.approx(2 * U.REPLAY_STEP_SECS) and U.REPLAY_STEP_SECS == 2.0
     assert max(slept) <= U.REPLAY_SLICE_SECS <= 0.1
     assert reruns == ["fragment", "fragment"]
     assert U.shown_round(a, rounds) == 3 and U.REPLAY_STATE not in state
@@ -291,7 +295,8 @@ def test_replay_starts_on_the_first_round():
     # the browser reruns only the fragment and steps on, test_replay_tick.)
     texts = _click(at, "insights_replay_play")
     assert wording.replay_label(1, 4) in texts
-    assert any(t.startswith("Round 1: on target") for t in texts)
+    # Final demo (A1), re-pinned: Round 1's best named by its Formulation.
+    assert any(t.startswith("Best so far, F2 (Round 1): on target") for t in texts)
     band, marker = next((b, m) for b, m in map(_band_and_marker, _specs(at)) if b)
     assert band == (0.5, 3.5) and marker["f"] == "F2"
     assert at.button(key="insights_replay_prev").disabled
@@ -346,8 +351,12 @@ def test_the_table_header_wraps_only_before_its_bracket():
     opt = _spider_opt()
     ch = U.what_changed(opt, 2)
     head = U.changes_table(opt, ch, compact=True).splitlines()[0]
-    assert "Best so far (F4, Round 2)" in head
-    assert "Best so far (F4, Round 2)" in U.changes_table(opt, ch).splitlines()[0]
+    # Final demo (A1), re-pinned: 'Best after Round 2: F4' (made in Round 2;
+    # an earlier one adds its Round in brackets, kept together).
+    assert "Best after Round 2: F4" in head
+    assert "Best after Round 2: F4" in U.changes_table(opt, ch).splitlines()[0]
+    assert U._keep_together(wording.best_after(10, 21, 7)) == \
+        "Best after Round 10: F21 (Round\u00a07)"
     # The cells never wrap (no horizontal scroll: the column fits them).
     assert "white-space: nowrap" in U.REPLAY_STYLE
     # No chart toolbar pops over the control (a click meant for Replay).

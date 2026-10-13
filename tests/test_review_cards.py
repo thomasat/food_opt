@@ -185,7 +185,9 @@ def _text(el):
     return ""
 
 
-_LABEL = re.compile(r"^(?::red\[\*\*(?P<red>.+?)\*\*\]|\*\*(?P<word>.+?)\*\*)\s*(?P<line>.*)$")
+# Final demo (B1): the strip's Stop is ':orange[**Stop**] 1.7 below top; …'.
+_LABEL = re.compile(r"^(?::red\[\*\*(?P<red>.+?)\*\*\]|(?::orange\[)?\*\*(?P<word>.+?)\*\*\]?)"
+                    r"\s*(?P<line>.*)$")
 
 
 def strip(at):
@@ -313,7 +315,10 @@ def _title_of(at, label):
 
 
 def _next_rows(at):
-    return section(at, wording.Q5_TITLE)
+    # Final demo (B5): the Tasting noise control's label sits in What
+    # next? under the card's lines; it is a control, not a card line.
+    rows = section(at, wording.Q5_TITLE)
+    return [(el, t) for el, t in rows if t != wording.TASTING_NOISE_LABEL]
 
 
 def outside(at):

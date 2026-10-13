@@ -31,7 +31,7 @@ import wording
 from food_bo import FoodOptimizer
 from tests import demo_projects as D
 from tests.test_app_ui import APP_PATH
-from tests.test_review_cards import _install, _leaves, _open, _text, _words, cards
+from tests.test_review_cards import _install, _leaves, _next_rows, _open, _text, _words, cards
 
 BENCH = re.compile(r"panel|supplier|equipment", re.I)
 CONTRADICTION = ("too narrow", "Wide 95 %", "fall inside easily")
@@ -331,18 +331,19 @@ def _check_without_repeat(at, name, word):
     assert wording.CARD_MEASURES_MISS not in p["lines"]
     assert not any(line.startswith(":red[") for line in p["lines"])
     assert all(line != wording.CARD_DIAG["unexplained"] for line in p["lines"])
-    asks = [line for line in p["lines"] + n["lines"]
+    # Final demo (B1), re-pinned: at the stop the Repeat request is a quiet
+    # caption under the callout (no longer a card line).
+    quiet = [t for el, t in _next_rows(at) if el.type == "caption"]
+    asks = [line for line in p["lines"] + n["lines"] + quiet
             if line.startswith("Repeat Formulation ") and line.endswith("to check noise")]
-    assert len(asks) == 1, (p["lines"], n["lines"])
-    # Specific wording (2026-10-12), re-pinned: the stop carries its gap and need.
-    stop = next((line for line in n["lines"]
-                 if line.startswith("**Within noise of the top: ")), None)
+    assert len(asks) == 1, (p["lines"], n["lines"], quiet)
+    # Final demo (B1), re-pinned: the stop is a callout — its headline, the
+    # gap and the need (at most 12 words), the on-target line (at most 12).
+    stop = next((line for line in n["lines"] if line == wording.STOP_CALLOUT_HEAD), None)
+    callout = [line for line in n["lines"]
+               if line.startswith("On target") or "needed to tell two results apart" in line]
     for line in p["lines"] + n["lines"]:
-        # Review critique, follow-up: Round 6 scored sits within noise of the
-        # top score; the stop headline (at most 14 words) leads What next?.
-        # Round 2 (P1 #5): the stop's concrete reason line, at most 12.
-        reason = line.startswith("On target:")
-        assert _words(line) <= (14 if line == stop else 12 if reason else 6), line
+        assert _words(line) <= (14 if line == stop else 12 if line in callout else 6), line
     if name == R6:
         assert stop in n["lines"]
     opt = FoodOptimizer(name)

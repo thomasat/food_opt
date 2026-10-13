@@ -155,11 +155,12 @@ def test_one_control_drives_the_chart_the_profile_and_what_changed():
     _step(at, "insights_replay_prev")
     texts = _step(at, "insights_replay_prev")
     assert _label(2, 4) in texts
-    assert any(t.startswith("Round 2: on target") for t in texts)
+    # Final demo (A1), re-pinned: the best after Round 2, F4, made in it.
+    assert any(t.startswith("Best so far, F4 (Round 2): on target") for t in texts)
     assert "**What changed by Round 2**" in texts
     table = next(t for t in texts if t.startswith("| Ingredient"))
     nb = "\u00a0"
-    assert f"| Best so far (F4,{nb}Round{nb}2) |" in table and "| Start (F2) |" in table
+    assert "| Best after Round 2: F4 |" in table and "| Start (F2) |" in table
     # The chart: Round 2's Formulations shaded, the marker on F4 itself.
     band, marker = next((b, m) for b, m in map(_band_and_marker, _specs(at)) if b)
     assert band == (3.5, 6.5)
@@ -245,7 +246,11 @@ def test_the_kept_spec_is_private_and_reused():
     assert a["usermeta"] == {"embedOptions": {"actions": False}}
     assert U.improving_spec(opt, None) is a                 # worked out once
     b = U.improving_spec(opt, 3)
-    assert b is not a and len(U._plot_layers(b)) == len(U._plot_layers(a)) + 2
+    # Final demo (B2), re-pinned: an earlier Round draws its own chart (only
+    # the Rounds up to it), the band and the marker added to that.
+    early = U.chart_spec(next(k for k in U._SPEC_CACHE if k[0] == "improving" and k[-1] == 3),
+                         lambda: None)
+    assert b is not a and len(U._plot_layers(b)) == len(U._plot_layers(early)) + 2
     assert len(U._plot_layers(a)) == len(U._plot_layers(U.improving_spec(opt, None)))
 
 
@@ -313,7 +318,8 @@ def test_the_table_and_title_name_the_round():
     opt = _changes_opt()
     ch = U.what_changed(opt, 2)
     table = U.changes_table(opt, ch)
-    assert table.startswith("| Ingredient | Start (F2) | Best so far (F4, Round 2) | Change |")
+    # Final demo (A1), re-pinned.
+    assert table.startswith("| Ingredient | Start (F2) | Best after Round 2: F4 | Change |")
     assert wording.changes_title(2) == "What changed by Round 2"
     assert wording.changes_title(None) == wording.CHANGES_TITLE
     # No slider: today's table, as before.

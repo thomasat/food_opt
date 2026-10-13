@@ -323,6 +323,7 @@ def test_the_review_draws_the_block_under_start_vs_best():
     assert texts.index(f"**{wording.STORY_TARGET_TITLE}**") > k
     assert texts[k + 1] == "**Biggest changes:** Starch +2 g, Sugar +0.6 g."
     nb = "\u00a0"
+    # Final demo (A1), re-pinned: the best after the Round on view.
     assert texts[k + 2].startswith(
-        f"| Ingredient | Start (F2) | Best so far (F4,{nb}Round{nb}2) | Change |")
+        "| Ingredient | Start (F2) | Best after Round 2: F4 | Change |")
     assert wording.CHANGES_CAPTION in [c.value for c in at.tabs[3].caption]

@@ -188,7 +188,8 @@ def test_the_review_draws_the_spider_above_what_changed():
     # Layout study (re-pinned): What changed names the panel's Round and
     # sits beside the profile (the left column, under the score chart).
     assert f"**{wording.changes_title(4)}**" in texts
-    assert texts[k + 1] == "Round 4: on target 3 of 4; Sourness 1.0 under."
+    # Final demo (A1), re-pinned: the best so far by then, and its own Round.
+    assert texts[k + 1] == "Best so far, F7 (Round 3): on target 3 of 4; Sourness 1.0 under."
     captions = [c.value for c in at.tabs[3].caption]
     assert wording.SPIDER_CAPTION in captions
     # Layout study (re-pinned): the Replay panel's control, Round 1 to the
@@ -205,8 +206,8 @@ def test_the_review_draws_the_spider_above_what_changed():
         at.run()
         assert not at.exception, [e.message for e in at.exception]
     texts = [m.value for m in at.markdown]
-    assert "Round 1: on target 2 of 4; Firmness 4.0 under." in texts
-    assert "Round 4: on target 3 of 4; Sourness 1.0 under." not in texts
+    assert "Best so far, F2 (Round 1): on target 2 of 4; Firmness 4.0 under." in texts
+    assert "Best so far, F7 (Round 3): on target 3 of 4; Sourness 1.0 under." not in texts
 
 
 def test_two_measurements_keep_start_vs_best():
@@ -305,11 +306,16 @@ def test_start_is_what_changeds_start():
     assert data.bests[1][1] == data.start[1]          # Round 1's best is the Start
     f = U.spider_frames(opt, data, 4)
     assert f["names"]["start"] == "Start (F2)"
-    assert f["names"]["best"] == "Best so far (Round 4, F7)"
+    # Final demo (A1), re-pinned: as of Round 4, made in Round 3.
+    assert f["names"]["best"] == "Best after Round 4: F7 (Round 3)"
     # Earlier Rounds: Round 2's best (F4) once; neither the Start nor Round 4's.
     assert {p["no"] for p in f["earlier"]} == {4}
     assert U.spider_frames(opt, data, 2)["earlier"] == []
-    assert U.spider_round_help(opt, data, 1) == "Round 1's best is the Start (F2)."
+    # Final demo (A2), re-pinned: "on target" as rated, and within noise.
+    assert U.spider_round_help(opt, data, 1) == (
+        "On target as rated: 2 of 4 (the rating equals the target). Within noise of target "
+        "(±0.6, where 95 % of single tastings land): 2 of 4.\n\n"
+        "Round 1's best is the Start (F2).")
 
 
 def test_cached_by_project_state():
@@ -341,7 +347,7 @@ def test_one_scored_round_draws_no_control():
     at = _review(_opt(rows))
     assert not [b for b in at.tabs[3].button if (b.key or "").startswith("insights_replay")]
     texts = [m.value for m in at.tabs[3].markdown]
-    assert "Round 1: on target 2 of 4; Firmness 4.0 under." in texts
+    assert "Best so far, F2 (Round 1): on target 2 of 4; Firmness 4.0 under." in texts
 
 
 # ------------------------------------------------------------------ #
@@ -352,11 +358,13 @@ def test_answer_line_per_round():
     opt = _opt()
     data = U.spider_data(opt)
     got = [U.spider_round_answer(opt, data, r) for r in data.rounds]
-    assert got == ["Round 1: on target 2 of 4; Firmness 4.0 under.",
-                   "Round 2: on target 0 of 4; Firmness 2.0 under.",
-                   "Round 3: on target 3 of 4; Sourness 1.0 under.",
-                   "Round 4: on target 3 of 4; Sourness 1.0 under."]
-    assert all(_words(t) <= U.SPIDER_ANSWER_WORDS for t in got)
+    # Final demo (A1), re-pinned: Best so far as of each Round, named by
+    # its Formulation and the Round it was made in (F7 holds through Round 4).
+    assert got == ["Best so far, F2 (Round 1): on target 2 of 4; Firmness 4.0 under.",
+                   "Best so far, F4 (Round 2): on target 0 of 4; Firmness 2.0 under.",
+                   "Best so far, F7 (Round 3): on target 3 of 4; Sourness 1.0 under.",
+                   "Best so far, F7 (Round 3): on target 3 of 4; Sourness 1.0 under."]
+    assert all(U.limit_words(t) <= U.SPIDER_ANSWER_WORDS for t in got)
 
 
 @pytest.mark.parametrize("value, on", [(12.04, True), (12.06, False), (11.96, True),
@@ -383,15 +391,19 @@ def test_answer_line_keeps_to_twelve_words():
             ("Smoothness", 13)]
     opt = _opt(measures=long)
     data = U.spider_data(opt)
+    # Final demo (A1), re-pinned: the app's own count (a bracket's Round not
+    # counted, limit_words); a long name keeps its miss with 'Best F7 (…)'.
     for r in data.rounds:
-        assert _words(U.spider_round_answer(opt, data, r)) <= 12
+        line = U.spider_round_answer(opt, data, r)
+        assert U.limit_words(line) <= 12 and " under." in line, line
 
 
 def test_max_and_min_answer_says_short():
     opt = _opt(goals={"Sweetness": "max"})
     line = U.spider_round_answer(opt, U.spider_data(opt), 4)
     # Not every measurement has a target: the Stop line's "at their best".
-    assert line == "Round 4: at their best 2 of 4; Sweetness 10.0 short."
+    # Final demo (A1), re-pinned.
+    assert line == "Best F7 (Round 3): at their best 2 of 4; Sweetness 10.0 short."
     assert U.ceiling_reason_text(opt).startswith("At their best: 2 of 4.")
 
 
