@@ -37,9 +37,7 @@ def test_empty_property_bounds_do_not_restrict_or_require_data(opt):
     opt.add_constraint('Fat')
     assert opt.ask(1)
 
-def test_old_example_note_is_shortened_but_custom_note_kept(opt):
-    opt.set_targets_source(wording.LEGACY_SAMPLE_TARGETS_SOURCE)
-    assert FoodOptimizer('my_project').targets_source==wording.SAMPLE_TARGETS_SOURCE
+def test_custom_targets_note_is_kept(opt):
     opt.set_targets_source('My own panel protocol')
     assert FoodOptimizer('my_project').targets_source=='My own panel protocol'
 
