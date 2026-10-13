@@ -24,6 +24,7 @@ import os
 import pandas as pd
 import streamlit as st
 
+import sample_projects
 import storage as storage_backend
 import wording
 import custom_records
@@ -49,8 +50,7 @@ from ui_helpers import (
     saved_ok, table_height, typed_batch_size, unpark_grid,
 )
 
-_SAMPLE_CSV = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "data", "sample_ingredients.csv")
+_TEMPLATE_CSV = str(sample_projects.TEMPLATE_CSV)
 
 # The one collapsed expander that maps the words on this tab to the words a
 # specialist would use, and the tuple marking its three nested goal lines,
@@ -1232,10 +1232,10 @@ def _upload_ingredients(opt):
         # is what a blank Unit cell means, which is this project's own unit.
         help=wording.blank_unit_cell_help(opt.amount_unit),
     )
-    if os.path.exists(_SAMPLE_CSV):
+    if os.path.exists(_TEMPLATE_CSV):
         st.download_button(
             wording.DOWNLOAD_TEMPLATE,
-            data=ingredients_template_workbook(_SAMPLE_CSV),
+            data=ingredients_template_workbook(_TEMPLATE_CSV),
             file_name=wording.INGREDIENTS_TEMPLATE_FILE_NAME,
             mime=WORKBOOK_MIME, key="ingredients_template")
     df = None
@@ -1338,9 +1338,7 @@ _TARGETS_SOURCE_BOX = "targets_source_box"
 
 
 def _targets_source_editor(opt):
-    label = (wording.EXAMPLE_REFERENCES_LABEL if opt.project_name == wording.SAMPLE_PROJECT_NAME
-             else wording.TARGET_REFERENCES_LABEL)
-    with st.popover(label):
+    with st.popover(wording.TARGET_REFERENCES_LABEL):
         _targets_source_contents(opt)
 
 
@@ -1353,9 +1351,6 @@ def _targets_source_contents(opt):
     editor's own Cancel."""
     if opt.targets_source:
         st.markdown(wording.targets_from_caption(opt.targets_source))
-        if opt.targets_source == wording.SAMPLE_TARGETS_SOURCE:
-            with st.expander(wording.BACKGROUND_REFERENCE_LABEL):
-                st.markdown(wording.SAMPLE_REFERENCE)
     if st.session_state.get(_TARGETS_SOURCE_OPEN):
         st.session_state.setdefault(_TARGETS_SOURCE_BOX, opt.targets_source)
         text = st.text_input(wording.TARGETS_SOURCE_LABEL,
@@ -2102,18 +2097,9 @@ def render(opt, storage):
     if empty:
         st.caption(wording.setup_first_line(
             settings_only=not opt.has_ingredients() and bool(opt._process_settings())))
-    elif not opt.X_history and not opt.pending_batch and opt.project_name != wording.SAMPLE_PROJECT_NAME:
+    elif not opt.X_history and not opt.pending_batch:
         st.caption(wording.for_project(opt, wording.PROCESS_STUDY_INTRO if not opt.has_ingredients() and opt._process_settings()
                    else wording.SETUP_INTRO))
-    # The sample's own welcome, one line (audit V20), directly under the
-    # tab's title: gone the moment any formulation exists, scored or not —
-    # a batch whose one row was ticked Not scored has still been made.
-    fresh_sample = (not opt.X_history and not opt.skipped
-                    and opt.project_name == wording.SAMPLE_PROJECT_NAME)
-    if fresh_sample:
-        st.caption(wording.for_project(opt, wording.SAMPLE_INTRO_LINE))
-    elif opt.project_name in (wording.SAMPLE_PROJECT_NAME, "Advanced burger example", "Okara fermentation example"):
-        st.caption(wording.TEACHING_EXAMPLE_CAPTION)
     pending, captions = _variables(opt, storage)
     st.divider()
     pending = _measurements(opt, storage) or pending

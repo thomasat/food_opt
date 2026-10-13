@@ -13100,8 +13100,6 @@ class FoodOptimizer:
         # A file written before this was stored has no key at all; blank is
         # backfilled below in _backfill_identity.
         self.targets_source = str(state.get('targets_source') or "").strip()
-        if self.targets_source == wording.LEGACY_SAMPLE_TARGETS_SOURCE:
-            self.targets_source = wording.SAMPLE_TARGETS_SOURCE
         self.method = str(state.get('method') or "").strip()
         self._backfill_recorded_fields(state)
         self.bench_records = state.get('bench_records', {})
