@@ -191,6 +191,17 @@ def test_the_yogurt_sample_generates_feasible_rounds(tmp_path, monkeypatch):
     assert [s.title for s in book if s.sheet_state == 'visible'] == ['Round overview', 'Preparation', 'Results']
 
 
+def test_suggestions_honour_calculated_rows_the_rest_row_and_the_total(tmp_path, monkeypatch):
+    opt = _bench(tmp_path, monkeypatch)
+    suggestions = opt.ask(3)
+    assert len(suggestions) == 3
+    for recipe in suggestions:
+        assert opt._check_constraints(recipe)
+        assert recipe['Hydration water'] == pytest.approx(2.2 * recipe['Protein'])
+        assert recipe['Remaining water'] >= 0
+        assert sum(v for k, v in recipe.items() if k != 'Mixing time after fat') == pytest.approx(100)
+
+
 def test_a_250_g_round_of_a_fixed_ratio_blend_raises_no_caution(tmp_path, monkeypatch):
     """250 g is the first size anybody tries, and a pre-mix fixed at 2.2 g
     per 100 g gives 2.2 * 2.5 = 5.5; the stored amount is 5.499999999999999,
