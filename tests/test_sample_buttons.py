@@ -155,12 +155,9 @@ def test_after_round6_see_what_happened_next_asks_for_the_all10_sample():
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
     at.run()
     assert not at.exception, [e.message for e in at.exception]
-    # Task 2's handler acts on the key (opens ALL10 on 4 · Review); until it
-    # is merged, the key is what this button promises.
-    if at.session_state["_loaded_project"] == sp.ALL10:
-        assert at.session_state["main_tab"] == wording.TAB_INSIGHTS
-    else:
-        assert at.session_state[sp.OPEN_NEXT_KEY] is True
+    assert at.session_state["_loaded_project"] == sp.ALL10
+    assert at.session_state["main_tab"] == wording.TAB_INSIGHTS
+    assert sp.OPEN_NEXT_KEY not in at.session_state
 
 
 def test_round7_made_drops_the_download_and_keeps_what_next():
@@ -173,7 +170,6 @@ def test_round7_made_drops_the_download_and_keeps_what_next():
     assert len(_what_next(at)) == 1
 
 
-@pytest.mark.skip(reason="needs Task 2's open-next handler; enabled at integration")
 def test_what_next_recreates_a_deleted_all10_sample(tmp_path):
     _record_round6()
     (tmp_path / f"{sp.ALL10}.pkl").unlink()

@@ -77,7 +77,7 @@ def _new_lines():
         w.result_view_waiting("Formulation 22 (Round 6)", "Cook loss"),
         w.NEXT_MAKE_A_ROUND, w.SETUP_FIRST_LINE, w.setup_first_line(True),
         w.MEASUREMENT_GOAL_CAPTION,
-        w.SAMPLE_INTRO_LINE, w.CHANGE_NEAR, w.CHANGE_WHOLE,
+        w.CHANGE_NEAR, w.CHANGE_WHOLE,
     ]
 
 
