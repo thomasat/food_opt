@@ -954,6 +954,7 @@ UPLOAD_SHEETS_ARE_BACK_CAPTION = "Upload the completed workbook here."
 UPLOAD_SHEETS_ARE_BACK_HELP = ("Upload the completed workbook here. The app imports entries "
                                "from the input cells.")
 UPLOAD_RESULTS_FILE = "Upload results (Excel or CSV)"
+DOWNLOAD_ROUND6_RESULTS = "Download the pilot's Round 6 results"
 CHECK_THIS_FILE = "Check this file"
 FILE_UNREADABLE = (
     "This file could not be read. Upload the workbook you downloaded above, "
@@ -3915,6 +3916,8 @@ PATH_NO_ROOM_UP = "the other ingredients are all at their Highest"
 
 
 TAB_INSIGHTS = "4 · Review"
+SEE_WHAT_HAPPENED_NEXT = "See what happened next"
+SEE_WHAT_HAPPENED_NEXT_CAPTION = "The pilot's Rounds 7–10."
 INSIGHTS_NONE = "The review appears once formulations are scored."
 INSIGHTS_WORKING = "Preparing the insights…"
 INSIGHTS_FAILED = "The review could not be prepared for this project."

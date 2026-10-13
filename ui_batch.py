@@ -17,6 +17,7 @@ import streamlit as st
 
 import wording
 import custom_records
+import sample_projects
 from food_bo import WORKBOOK_MIME, UploadedWorkbook, uploaded_parts
 from storage import StorageError
 from ui_helpers import (
@@ -2018,6 +2019,13 @@ def _upload(opt):
             # Per project: an uploader cannot be emptied from session state,
             # so a shared key offered the next project this one's sheet.
             key=_upload_key(opt))
+        # The Round 6 sample: the pilot's own results, to upload right here.
+        if sample_projects.offers_round6_download(opt):
+            st.download_button(
+                wording.DOWNLOAD_ROUND6_RESULTS,
+                data=sample_projects.round6_results_bytes(),
+                file_name=sample_projects.ROUND6_RESULTS_FILE_NAME,
+                mime=WORKBOOK_MIME, key="sample_round6_results")
         check_file = sheet_file is not None and st.button(wording.CHECK_THIS_FILE, key="check_sheet")
         file_mark = None
         if sheet_file is not None:
