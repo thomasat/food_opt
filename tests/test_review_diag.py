@@ -339,7 +339,8 @@ def _check_without_repeat(at, name, word):
     assert len(asks) == 1, (p["lines"], n["lines"], quiet)
     # Final demo (B1), re-pinned: the stop is a callout — its headline, the
     # gap and the need (at most 12 words), the on-target line (at most 12).
-    stop = next((line for line in n["lines"] if line == wording.STOP_CALLOUT_HEAD), None)
+    stop = next((line for line in n["lines"] if line == f"**{wording.STOP_CALLOUT_HEAD}**"),
+                None)
     callout = [line for line in n["lines"]
                if line.startswith("On target") or "needed to tell two results apart" in line]
     for line in p["lines"] + n["lines"]:
