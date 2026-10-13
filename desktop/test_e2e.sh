@@ -154,14 +154,17 @@ if file "$DIST_APP/Contents/MacOS/FoodOptimizer" | grep -q "Mach-O 64-bit execut
 else
   fail "native wrapper is arm64 Mach-O"
 fi
-for f in app.py food_bo.py storage.py ui_helpers.py ui_setup.py ui_batch.py ui_results.py insights.py ui_insights.py insights_jobs.py insights_cache.py insights_worker.py bo_views.py calculation_editor.py wording.py workbook_flow.py custom_records.py sample_projects.py learned.py data/sample_ingredients.csv requirements.lock.txt icon.icns; do
+for f in app.py food_bo.py storage.py ui_helpers.py ui_setup.py ui_batch.py ui_results.py insights.py ui_insights.py insights_jobs.py insights_cache.py insights_worker.py bo_views.py calculation_editor.py wording.py workbook_flow.py custom_records.py sample_projects.py learned.py data/ingredients_template.csv requirements.lock.txt icon.icns; do
   assert "Resources/$f present" test -f "$DIST_APP/Contents/Resources/$f"
+done
+for f in "Yogurt pilot - Round 6 to score.json" "Yogurt pilot - all 10 Rounds.json" "Round 6 results (pilot).xlsx"; do
+  assert "Resources/data/samples/yogurt_pilot/$f present" test -f "$DIST_APP/Contents/Resources/data/samples/yogurt_pilot/$f"
 done
 assert "Info.plist present"   test -f "$DIST_APP/Contents/Info.plist"
 
-# The bundle deliberately ships Resources/data/sample_ingredients.csv (sample project +
-# template); anything else under a data dir is stray.
-STRAY="$(find "$DIST_APP" \( -name '*.pkl' -o -name '__pycache__' -o -name 'results' -o -name 'plots' \) 2>/dev/null; find "$DIST_APP/Contents/Resources/data" -type f ! -name 'sample_ingredients.csv' 2>/dev/null; find "$DIST_APP" -name data -not -path '*/Contents/Resources/data' 2>/dev/null)"
+# The bundle deliberately ships Resources/data/ingredients_template.csv and yogurt pilot
+# sample data; anything else under a data dir is stray.
+STRAY="$(find "$DIST_APP" \( -name '*.pkl' -o -name '__pycache__' -o -name 'results' -o -name 'plots' \) 2>/dev/null; find "$DIST_APP/Contents/Resources/data" -type f \( ! -name 'ingredients_template.csv' ! -path '*/yogurt_pilot/*' \) 2>/dev/null; find "$DIST_APP" -name data -not -path '*/Contents/Resources/data' 2>/dev/null)"
 if [ -z "$STRAY" ]; then ok "no stray files in bundle"; else fail "no stray files in bundle ($STRAY)"; fi
 
 SIZE=$(stat -f%z "$DMG")
