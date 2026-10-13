@@ -12,9 +12,10 @@ More detail is one story: the count, then the misses by measurement, side,
 mean error and how many fell on new ground (suggestion_role's
 FAR_FROM_TESTED rule, judged against what was tested before each Round).
 
-The yogurt files are confidential and gitignored: those tests skip without
-them, and assert no pilot numbers or names. A synthetic project (Line A's
+The yogurt pilot samples ship in data/samples/yogurt_pilot: those tests always
+run, and assert no pilot numbers or names. A synthetic project (Line A's
 make-ups, checks written by hand) covers the rule in CI."""
+import importlib.util
 import json
 import os
 import re
@@ -26,6 +27,7 @@ from streamlit.testing.v1 import AppTest
 
 import bo_views
 import insights
+import sample_projects as sp
 import ui_insights
 import wording
 from food_bo import FoodOptimizer
@@ -36,23 +38,21 @@ from tests.test_review_cards import _install, _leaves, _next_rows, _open, _text,
 BENCH = re.compile(r"panel|supplier|equipment", re.I)
 CONTRADICTION = ("too narrow", "Wide 95 %", "fall inside easily")
 
-def _pilot_dir():
-    """The pilot's folder: FOODOPT_PILOT_DIR, this checkout's data/pilot/demo,
-    or, from a .claude/worktrees checkout, the main repo's."""
-    root = Path(__file__).resolve().parent.parent
-    found = [Path(os.environ["FOODOPT_PILOT_DIR"])] if os.environ.get("FOODOPT_PILOT_DIR") else []
-    found.append(root / "data" / "pilot" / "demo")
-    if root.parent.name == "worktrees" and root.parent.parent.name == ".claude":
-        found.append(root.parents[2] / "data" / "pilot" / "demo")
-    return next((d for d in found if d.is_dir()), found[-1])
+R5, R6, ALL10 = "Yogurt pilot - Round 5", sp.ROUND6, sp.ALL10
 
 
-PILOT = _pilot_dir()
-R5, R6, ALL10 = ("Yogurt pilot - Round 5", "Yogurt pilot - Round 6 to score",
-                 "Yogurt pilot - all 10 Rounds")
-needs_pilot = pytest.mark.skipif(
-    not all((PILOT / f"{n}.pkl").exists() for n in (R5, R6, ALL10)),
-    reason="confidential yogurt pilot not on this machine")
+@pytest.fixture(scope="session")
+def pilot_dir(tmp_path_factory):
+    """The shipped yogurt samples as the .pkl projects the app opens; Round 5
+    is built from the same builder."""
+    d = tmp_path_factory.mktemp("pilot")
+    for n in (R6, ALL10):
+        shutil.copy(sp.SAMPLE_DIR / f"{n}.json", d / f"{n}.pkl")
+    spec = importlib.util.spec_from_file_location("yogurt_build", sp.SAMPLE_DIR / "build.py")
+    b = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(b)
+    b.build(R5, scored=5, out_dir=str(d))
+    return d
 
 
 def _all_text(at):
@@ -276,15 +276,15 @@ def test_no_diagnosis_where_nothing_is_off(demos, name):
 
 
 # ------------------------------------------------------------------ #
-#  The yogurt pilot (skipped without it)
+#  The yogurt pilot (shipped samples)
 # ------------------------------------------------------------------ #
 
 @pytest.fixture(scope="module")
-def pilot(tmp_path_factory):
+def pilot(tmp_path_factory, pilot_dir):
     here = os.getcwd()
     work = tmp_path_factory.mktemp("review-diag-pilot")
     for n in (R5, R6, ALL10):
-        shutil.copy(PILOT / f"{n}.pkl", work)
+        shutil.copy(pilot_dir / f"{n}.pkl", work)
     os.chdir(work)
     try:
         with bo_views.fresh():
@@ -358,7 +358,6 @@ def _check_without_repeat(at, name, word):
         assert not any(bad in t for t in texts)
 
 
-@needs_pilot
 def test_pilot_round_5_never_says_panel(pilot):
     # 9 Overall-score checks: under SKILL_MIN, Not yet (ruling 1).
     # Review learned: the Model item's word (the ordering rule).
@@ -368,7 +367,6 @@ def test_pilot_round_5_never_says_panel(pilot):
     _check_without_repeat(_open_review(R5), R5, "Partly:")
 
 
-@needs_pilot
 def test_pilot_round_6_scored_never_says_panel(pilot):
     # The Overall score 10 of 12 in range, skill 0.69: Reliable (ruling 1).
     # Persona fixes 2: pairs too close to call (forecasts under one noise SD
@@ -378,7 +376,6 @@ def test_pilot_round_6_scored_never_says_panel(pilot):
     _check_without_repeat(_score_round_6(), R6, "Partly:")
 
 
-@needs_pilot
 def test_pilot_all_10_is_not_off(pilot):
     at = _open_review(ALL10)
     p = cards(at)[0]
