@@ -20,6 +20,7 @@ import pyarrow as pa
 import pytest
 from streamlit.testing.v1 import AppTest
 
+import sample_projects
 import storage as storage_backend
 import wording
 from food_bo import FoodOptimizer, ingredients_template_workbook
@@ -426,120 +427,44 @@ def test_sample_project_button_creates_ready_project(tmp_path, monkeypatch):
     _submit_button(at.main, "Try the sample project").click()
     at.run()
     assert not at.exception
-    opt = FoodOptimizer("Sample project")
-    # Six lines on the collapsed grid: a texturate, a dry blend portioned
-    # from one lot, gluten as its own row so the firmness lever can move, a
-    # fat phase weighed in two oils, a fixed seasoning, and water worked
-    # out. Eight rows in the searched list, and one process setting.
-    assert len(opt.variables) == 10
+    # Both samples are written; Round 6 is the one that opens.
+    assert all((tmp_path / f"{n}.pkl").exists() for n in sample_projects.NAMES)
+    opt = FoodOptimizer(sample_projects.ROUND6)
+    assert [v["name"] for v in opt.variables] == [
+        "Coconut cream", "Tap water", "Lemon juice", "Salt",
+        "Nutritional yeast", "Tapioca starch", "Xanthan gum"]
     assert opt.amount_unit == "g"
-    assert [v["name"] for v in opt.variables if v.get("category") == "process"] \
-        == ["Mixing time after fat"]
-    # The sample is the plant-based burger brief for a trained panel: two
-    # intensity scores with targets (7 and 6 out of 10), and one
-    # instrumental measurement a balance gives you with no panel to book.
-    assert [o["name"] for o in opt.objectives] == ["Juiciness", "Firmness",
-                                                   "Cook loss"]
-    assert [o["goal"] for o in opt.objectives] == ["target", "target", "min"]
-    assert {o["name"]: o["target"] for o in opt.objectives
-            if o["goal"] == "target"} == {"Juiciness": 7, "Firmness": 6}
-    assert {o["name"]: o["unit"] for o in opt.objectives} == {
-        "Juiciness": "/10", "Firmness": "/10", "Cook loss": "%"}
-    weights = {o["name"]: o["weight"] for o in opt.objectives}
-    assert weights["Firmness"] > weights["Juiciness"] > weights["Cook loss"]
-    # One finished-product limit, and one that binds.
-    assert [(c["metric"], c["max"]) for c in opt.constraints] == [
-        ("Fat per 100 g", 16.0)]
-    assert opt.method
+    # The pilot's brief: four panel scores out of 15, each with a target.
+    assert [o["name"] for o in opt.objectives] == [
+        "Consistency", "Creaminess", "Tangy", "Thickness uniformity"]
+    assert {o["name"]: o["target"] for o in opt.objectives} == {
+        "Consistency": 12, "Creaminess": 5, "Tangy": 5,
+        "Thickness uniformity": 13}
+    assert {o["unit"] for o in opt.objectives} == {"/15"}
+    assert {o["goal"] for o in opt.objectives} == {"target"}
+    # One limit on the whole batch, read back from the pilot's own recipes.
+    assert [(c["name"], c["min"], c["max"]) for c in opt.quantity_constraints] \
+        == [("Batch total (inferred from the pilot)", 97.6, 98.7)]
+    # Fifteen formulations scored; Round 6 open with Formulations 16-18.
+    assert len(opt.X_history) == 15
+    assert [r["formulation"] for r in opt.pending_batch] == [16, 17, 18]
 
 
-def test_the_sample_lists_firmness_first(tmp_path, monkeypatch):
+def test_the_sample_lists_its_four_measurements(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     _submit_button(at.main, "Try the sample project").click()
     at.run()
-    # Set up is complete, but nothing has been made yet: the sample opens on
-    # its set-up so the user sees what they are about to make.
-    assert at.session_state["main_tab"] == wording.TAB_SETUP
+    # The sample opens on 4 · Review: it is a pilot that has been run, and
+    # the first thing to read is what it found.
+    assert at.session_state["main_tab"] == wording.TAB_INSIGHTS
     grid = next(d.value for d in at.dataframe if "Measurement" in d.value.columns)
-    # A panel rating's "/10" is a column of its own on the grid: the name
-    # cell is the name, because it is the cell a rename would be typed in.
-    assert list(grid["Measurement"]) == ["Firmness", "Juiciness",
-                                        "Cook loss"]
-    assert list(grid[wording.UNIT_LABEL]) == ["/10", "/10", "%"]
-    assert list(grid["Goal"]) == [wording.GOAL_LABELS["target"]] * 2 + [
-        wording.GOAL_LABELS["min"]]
-    assert list(grid["Target"])[:2] == [6.0, 7.0]
-
-
-def test_the_sample_names_its_targets_and_welcomes_the_first_visit(tmp_path, monkeypatch):
-    """The sample sets its own targets_source and shows the caption it
-    produces, plus the two-line welcome under the tab-1 title -- both gone
-    once the sample is not what is open."""
-    monkeypatch.chdir(tmp_path)
-    at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.run()
-    _submit_button(at.main, "Try the sample project").click()
-    at.run()
-    assert not at.exception
-    opt = FoodOptimizer("Sample project")
-    assert opt.targets_source == wording.SAMPLE_TARGETS_SOURCE
-    captions = [c.value for c in at.tabs[0].caption]
-    assert wording.SAMPLE_INTRO_LINE in captions
-    assert (wording.targets_from_caption(wording.SAMPLE_TARGETS_SOURCE)
-            in [m.value for m in at.tabs[0].markdown])
-
-
-def test_the_sample_welcome_is_gone_once_a_formulation_is_scored(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    pre = FoodOptimizer("Sample project")
-    pre.add_ingredient("Water", 0, 100)
-    pre.add_objective("Taste", 1.0, goal="max")
-    pre.set_targets_source(wording.SAMPLE_TARGETS_SOURCE)
-    pre.tell({"Water": 50.0}, {"Taste": 7.0})
-    at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.session_state["_loaded_project"] = "Sample project"
-    at.session_state["_land_on_open"] = True
-    at.run()
-    assert not at.exception
-    captions = [c.value for c in at.tabs[0].caption]
-    assert wording.SAMPLE_INTRO_LINE not in captions
-    # The targets_source caption is unrelated to X_history and stays.
-    assert (wording.targets_from_caption(wording.SAMPLE_TARGETS_SOURCE)
-            in [m.value for m in at.tabs[0].markdown])
-
-
-def test_the_sample_welcome_is_gone_once_a_formulation_is_not_scored(
-        tmp_path, monkeypatch):
-    """A batch whose only row was generated and then ticked Not scored has
-    still been made -- X_history stays empty, but 'Next: make a batch' would
-    be wrong about it."""
-    monkeypatch.chdir(tmp_path)
-    pre = FoodOptimizer("Sample project")
-    pre.add_ingredient("Water", 0, 100)
-    pre.add_objective("Taste", 1.0, goal="max")
-    pre.record_skipped(1, 1, {"Water": 50.0})
-    assert pre.X_history == [] and pre.skipped
-    at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.session_state["_loaded_project"] = "Sample project"
-    at.session_state["_land_on_open"] = True
-    at.run()
-    assert not at.exception
-    captions = [c.value for c in at.tabs[0].caption]
-    assert wording.SAMPLE_INTRO_LINE not in captions
-
-
-def test_the_welcome_never_shows_on_a_project_of_the_users_own(burger):
-    """Only the sample gets the welcome line, matched by name -- a project
-    the user named 'Sample project' of their own would be an odd coincidence,
-    but the check is the one the app has always used to recognise its own
-    sample."""
-    at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.run()
-    assert not at.exception
-    captions = [c.value for c in at.tabs[0].caption]
-    assert wording.SAMPLE_INTRO_LINE not in captions
+    assert list(grid["Measurement"]) == [
+        "Consistency", "Creaminess", "Tangy", "Thickness uniformity"]
+    assert list(grid[wording.UNIT_LABEL]) == ["/15"] * 4
+    assert list(grid["Goal"]) == [wording.GOAL_LABELS["target"]] * 4
+    assert list(grid["Target"]) == [12.0, 5.0, 5.0, 13.0]
 
 
 def test_the_targets_source_button_opens_a_prefilled_box_and_saves(burger):
@@ -631,16 +556,15 @@ def test_targets_source_box_is_cleared_on_a_project_switch(tmp_path, monkeypatch
 
 def test_sample_project_button_reopens_existing_without_recreating(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    # Pre-create "Sample project" with an experiment, simulating a shared host
-    # where a previous visitor already ran the sample project.
-    pre = FoodOptimizer("Sample project")
-    pre.add_ingredient("Water", 0, 100)
-    pre.add_objective("Taste", 1.0, goal="max")
-    pre.tell({"Water": 50.0}, {"Taste": 7.0})
+    # Pre-create Round 6 with an edit, simulating a shared host where a
+    # previous visitor already worked in the sample.
+    state = sample_projects.shipped_state(sample_projects.ROUND6)
+    state["tasting_noise"] = 2.0
+    (tmp_path / f"{sample_projects.ROUND6}.pkl").write_text(json.dumps(state))
 
     # app.py never auto-opens the most-recently-used project on a shared host
     # (os.path.isdir("/mount/src")); force that guard so the welcome panel
-    # renders here even though "Sample project" already exists on disk, which
+    # renders here even though the sample already exists on disk, which
     # is exactly the scenario where clicking the sample button again must
     # reopen the existing project instead of re-creating it.
     real_isdir = os.path.isdir
@@ -660,8 +584,10 @@ def test_sample_project_button_reopens_existing_without_recreating(tmp_path, mon
     at.run()
     assert not at.exception
 
-    assert len(FoodOptimizer("Sample project").X_history) == 1
-    assert "Sample project" in [h.value for h in at.sidebar.subheader]
+    kept = json.loads((tmp_path / f"{sample_projects.ROUND6}.pkl").read_text())
+    assert kept["tasting_noise"] == 2.0
+    assert len(FoodOptimizer(sample_projects.ROUND6).X_history) == 15
+    assert sample_projects.ROUND6 in [h.value for h in at.sidebar.subheader]
 
 
 def test_sidebar_sample_project_button_available_with_project_open(project_with_history):
@@ -675,15 +601,15 @@ def test_sidebar_sample_project_button_available_with_project_open(project_with_
     at.run()
     assert not at.exception
 
-    opt = FoodOptimizer("Sample project")
+    opt = FoodOptimizer(sample_projects.ROUND6)
     assert len(opt.variables) >= 3
-    assert "Sample project" in [h.value for h in at.sidebar.subheader]
+    assert sample_projects.ROUND6 in [h.value for h in at.sidebar.subheader]
 
 
 def test_sidebar_sample_project_button_reopens_without_recreating(project_with_history):
     """Clicking the sidebar sample button when the sample already exists
     must reopen it, not recreate it (experiment count unchanged)."""
-    pre = FoodOptimizer("Sample project")
+    pre = FoodOptimizer(sample_projects.ROUND6)
     pre.add_ingredient("Water", 0, 100)
     pre.add_objective("Taste", 1.0, goal="max")
     pre.tell({"Water": 50.0}, {"Taste": 7.0})
@@ -696,7 +622,9 @@ def test_sidebar_sample_project_button_reopens_without_recreating(project_with_h
     at.run()
     assert not at.exception
 
-    assert len(FoodOptimizer("Sample project").X_history) == 1
+    kept = FoodOptimizer(sample_projects.ROUND6)
+    assert len(kept.X_history) == 1
+    assert [v["name"] for v in kept.variables] == ["Water"]
 
 
 def test_restore_warns_when_another_window_edited_project(project_with_history, tmp_path):
@@ -4251,18 +4179,18 @@ def test_the_sample_project_is_created_not_opened(tmp_path, monkeypatch):
     _submit_button(at.main, "Try the sample project").click()
     at.run()
     assert not at.exception
-    assert any(s.value == "Created Sample project." for s in at.success), \
-        [s.value for s in at.success]
-    # And clicking it again on a sample nobody has made a round from
-    # REBUILDS it, which throws away whatever was typed into it. That is
-    # what the line says: it used to say "Opened Sample project." and the
-    # reader's own rules and amounts were gone with nothing about it.
+    assert any(s.value == wording.project_created(sample_projects.ROUND6)
+               for s in at.success), [s.value for s in at.success]
+    # Clicking it again opens the sample as it stands: it says "Opened", and
+    # it never claims the sample was put back, because nothing was.
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     _submit_button(at.sidebar, "Try the sample project").click()
     at.run()
-    assert any(s.value == "Sample project restored to its original settings."
+    assert any(s.value == wording.project_opened(sample_projects.ROUND6)
                for s in at.success), [s.value for s in at.success]
+    assert not any("restored" in s.value or "put back" in s.value
+                   for s in at.success), [s.value for s in at.success]
 
 
 def test_a_partly_uploaded_sheet_says_what_it_recorded(open_batch):
@@ -9087,25 +9015,12 @@ def test_the_results_amounts_heading_names_the_project_total(burger):
     assert "**Amounts to make it (20 g)**" in headings, headings
 
 
-def test_the_sample_ships_with_a_hundred_gram_total(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.run()
-    _submit_button(at.main, "Try the sample project").click()
-    at.run()
-    assert not at.exception
-    assert FoodOptimizer(wording.SAMPLE_PROJECT_NAME).formulation_total == 100.0
-    assert _total_box(at).value == 100.0
-    assert not any("Default batch size ·" in t.value for t in at.text), \
-        [t.value for t in at.text]
-
-
 def test_the_sample_is_written_with_shares_that_add_up_to_a_hundred(
         tmp_path, monkeypatch):
     """Every setter saves, and add_objective deliberately does not
-    normalise, so the sample landed on disk holding weights of 1.0 and 1.5
-    under CLASS_VERSION 11 — a 0.5.0 file that read as a 0.4.x one, and a
-    saved copy of it downloaded that way."""
+    normalise, so a sample could land on disk holding weights that did not
+    add up under the current CLASS_VERSION — a file that read as an older
+    one, and a saved copy of it downloaded that way."""
     monkeypatch.chdir(tmp_path)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
@@ -9114,12 +9029,12 @@ def test_the_sample_is_written_with_shares_that_add_up_to_a_hundred(
     assert not at.exception
     # Read the FILE, not the loaded object: import_json normalises on the
     # way in, so the loaded project has always looked right.
-    written = json.loads(
-        (tmp_path / f"{wording.SAMPLE_PROJECT_NAME}.pkl").read_text())
-    weights = {o['name']: o['weight'] for o in written['objectives']}
-    assert weights == {"Juiciness": 35.0, "Firmness": 45.0,
-                       "Cook loss": 20.0}, weights
-    assert written['CLASS_VERSION'] == FoodOptimizer.CLASS_VERSION
+    for name in sample_projects.NAMES:
+        written = json.loads((tmp_path / f"{name}.pkl").read_text())
+        weights = {o['name']: o['weight'] for o in written['objectives']}
+        assert weights == {"Consistency": 25.0, "Creaminess": 25.0,
+                           "Tangy": 25.0, "Thickness uniformity": 25.0}, weights
+        assert written['CLASS_VERSION'] == FoodOptimizer.CLASS_VERSION
 
 
 def _warm_burger(opt):
@@ -9680,8 +9595,7 @@ def test_the_template_is_headers_and_one_example_row(burger):
     """A file arriving with a full ingredient list in it is an export."""
     frame = pd.read_excel(io.BytesIO(
         ingredients_template_workbook(
-            os.path.join(os.path.dirname(APP_PATH), "data",
-                         "sample_ingredients.csv"))))
+            str(sample_projects.TEMPLATE_CSV))))
     assert list(frame.columns)[:4] == ["Name", "Lowest", "Highest", "Unit"]
     assert len(frame) == 1
 
@@ -9813,42 +9727,37 @@ def test_the_starting_line_is_gone_once_the_app_has_drawn(tmp_path, monkeypatch)
         [i.value for i in at.info]
 
 
-def test_an_untouched_older_sample_is_rebuilt_as_the_current_one(
-        tmp_path, monkeypatch):
-    """A Mac that met an earlier version has that version's sample on disk:
-    no formulation total, no targets source. Reopening it unchanged is how a
-    sample ends up making batches at different weights, so a sample nobody
-    has used yet is rebuilt as the current one."""
-    monkeypatch.chdir(tmp_path)
-    old = FoodOptimizer(wording.SAMPLE_PROJECT_NAME)
-    # Not one of the sample's own eight, so its absence afterwards is proof
-    # the project was rebuilt rather than added to.
-    old.add_ingredient("Oat flour", 0, 100)
-    old.add_objective("Taste", 1.0, goal="max")
-    assert old.formulation_total is None and old.targets_source == ""
-
-    at = AppTest.from_file(APP_PATH, default_timeout=300)
-    at.run()
-    _submit_button(at.sidebar, wording.TRY_SAMPLE_LABEL).click()
+def _click_sample(at, where=None):
+    _submit_button(where or at.sidebar, wording.TRY_SAMPLE_LABEL).click()
     at.run()
     assert not at.exception
 
-    rebuilt = FoodOptimizer(wording.SAMPLE_PROJECT_NAME)
-    assert rebuilt.formulation_total == 100
-    assert rebuilt.targets_source == wording.SAMPLE_TARGETS_SOURCE
-    assert [o["name"] for o in rebuilt.objectives] == [
-        "Juiciness", "Firmness", "Cook loss"]
-    assert rebuilt.method == wording.SAMPLE_METHOD
-    # The old project's own set-up is gone, not added to.
-    assert "Oat flour" not in [v["name"] for v in rebuilt.variables]
-    assert len(rebuilt.variables) == 10
-    assert len(rebuilt.premixes) == 3
-    # It opens as the sample it now is, welcome line and all, and it is an
-    # opening: the project was already there.
-    assert any(s.value == wording.sample_project_rebuilt(
-        wording.SAMPLE_PROJECT_NAME)
+
+def _sample_file(tmp_path, name=sample_projects.ROUND6):
+    return tmp_path / f"{name}.pkl"
+
+
+def test_an_older_sample_on_disk_is_opened_as_it_stands_never_rebuilt(
+        tmp_path, monkeypatch):
+    """A Mac that met an earlier version has that version's sample on disk.
+    Try the sample project used to rebuild one nobody had used; it now opens
+    whatever is on disk, because only Start this sample over puts it back."""
+    monkeypatch.chdir(tmp_path)
+    old = FoodOptimizer(sample_projects.ROUND6)
+    old.add_ingredient("Oat flour", 0, 100)
+    old.add_objective("Taste", 1.0, goal="max")
+    before = _sample_file(tmp_path).read_text()
+
+    at = AppTest.from_file(APP_PATH, default_timeout=300)
+    at.run()
+    _click_sample(at)
+
+    kept = FoodOptimizer(sample_projects.ROUND6)
+    assert [v["name"] for v in kept.variables] == ["Oat flour"]
+    assert [o["name"] for o in kept.objectives] == ["Taste"]
+    assert _sample_file(tmp_path).read_text() == before
+    assert any(s.value == wording.project_opened(sample_projects.ROUND6)
                for s in at.success), [s.value for s in at.success]
-    assert wording.SAMPLE_INTRO_LINE in [c.value for c in at.tabs[0].caption]
 
 
 def test_a_sample_with_a_result_is_opened_exactly_as_it_stands(
@@ -9856,18 +9765,16 @@ def test_a_sample_with_a_result_is_opened_exactly_as_it_stands(
     """The moment the sample holds a result it is the user's own project.
     Rebuilding it would throw away their work."""
     monkeypatch.chdir(tmp_path)
-    old = FoodOptimizer(wording.SAMPLE_PROJECT_NAME)
+    old = FoodOptimizer(sample_projects.ROUND6)
     old.add_ingredient("Water", 0, 100)
     old.add_objective("Taste", 1.0, goal="max")
     old.tell({"Water": 50.0}, {"Taste": 7.0})
 
     at = AppTest.from_file(APP_PATH, default_timeout=300)
     at.run()
-    _submit_button(at.sidebar, wording.TRY_SAMPLE_LABEL).click()
-    at.run()
-    assert not at.exception
+    _click_sample(at)
 
-    kept = FoodOptimizer(wording.SAMPLE_PROJECT_NAME)
+    kept = FoodOptimizer(sample_projects.ROUND6)
     assert [v["name"] for v in kept.variables] == ["Water"]
     assert [o["name"] for o in kept.objectives] == ["Taste"]
     assert len(kept.X_history) == 1
@@ -9879,7 +9786,7 @@ def test_a_sample_whose_only_batch_was_never_scored_is_left_alone(
     """A row generated and then ticked Not scored leaves X_history empty but
     `skipped` filled. That is a sample someone has used: leave it alone."""
     monkeypatch.chdir(tmp_path)
-    old = FoodOptimizer(wording.SAMPLE_PROJECT_NAME)
+    old = FoodOptimizer(sample_projects.ROUND6)
     old.add_ingredient("Water", 0, 100)
     old.add_objective("Taste", 1.0, goal="max")
     old.record_skipped(1, 1, {"Water": 50.0})
@@ -9887,11 +9794,9 @@ def test_a_sample_whose_only_batch_was_never_scored_is_left_alone(
 
     at = AppTest.from_file(APP_PATH, default_timeout=300)
     at.run()
-    _submit_button(at.sidebar, wording.TRY_SAMPLE_LABEL).click()
-    at.run()
-    assert not at.exception
+    _click_sample(at)
 
-    kept = FoodOptimizer(wording.SAMPLE_PROJECT_NAME)
+    kept = FoodOptimizer(sample_projects.ROUND6)
     assert [v["name"] for v in kept.variables] == ["Water"]
     assert kept.skipped
 
@@ -9902,7 +9807,7 @@ def test_a_sample_with_an_open_batch_is_left_exactly_as_it_is(
     someone's bench and the formulations in it have been numbered. That is
     work, and rebuilding the sample would take it away."""
     monkeypatch.chdir(tmp_path)
-    old = FoodOptimizer(wording.SAMPLE_PROJECT_NAME)
+    old = FoodOptimizer(sample_projects.ROUND6)
     old.add_ingredient("Oat flour", 0, 100)
     old.add_objective("Taste", 1.0, goal="max")
     old.set_pending_batch([{"Oat flour": 50.0}])
@@ -9911,11 +9816,9 @@ def test_a_sample_with_an_open_batch_is_left_exactly_as_it_is(
 
     at = AppTest.from_file(APP_PATH, default_timeout=300)
     at.run()
-    _submit_button(at.sidebar, wording.TRY_SAMPLE_LABEL).click()
-    at.run()
-    assert not at.exception
+    _click_sample(at)
 
-    kept = FoodOptimizer(wording.SAMPLE_PROJECT_NAME)
+    kept = FoodOptimizer(sample_projects.ROUND6)
     assert [v["name"] for v in kept.variables] == ["Oat flour"]
     assert kept.pending_batch == old.pending_batch
     assert kept.formulation_total is None
@@ -9926,7 +9829,7 @@ def test_a_sample_whose_batch_was_made_and_deleted_is_left_alone(
     """A number already issued is the trace a deleted batch leaves: history
     the user made, even though nothing is on file under it."""
     monkeypatch.chdir(tmp_path)
-    old = FoodOptimizer(wording.SAMPLE_PROJECT_NAME)
+    old = FoodOptimizer(sample_projects.ROUND6)
     old.add_ingredient("Oat flour", 0, 100)
     old.add_objective("Taste", 1.0, goal="max")
     old.set_pending_batch([{"Oat flour": 50.0}])
@@ -9935,11 +9838,35 @@ def test_a_sample_whose_batch_was_made_and_deleted_is_left_alone(
 
     at = AppTest.from_file(APP_PATH, default_timeout=300)
     at.run()
-    _submit_button(at.sidebar, wording.TRY_SAMPLE_LABEL).click()
+    _click_sample(at)
+    assert [v["name"] for v in FoodOptimizer(
+        sample_projects.ROUND6).variables] == ["Oat flour"]
+
+
+def test_start_this_sample_over_puts_the_shipped_copy_back_and_keeps_the_edit(
+        tmp_path, monkeypatch):
+    """The one way back: the edited sample is archived, then replaced by the
+    shipped copy, and the other sample is not touched."""
+    monkeypatch.chdir(tmp_path)
+    old = FoodOptimizer(sample_projects.ROUND6)
+    old.add_ingredient("Oat flour", 0, 100)
+    at = AppTest.from_file(APP_PATH, default_timeout=300)
+    at.run()
+    _click_sample(at)
+    other_before = _sample_file(tmp_path, sample_projects.ALL10).read_text()
+
+    _submit_button(at.sidebar, wording.START_SAMPLE_OVER_LABEL).click()
+    at.run()
+    _submit_button(at.sidebar, wording.YES_START_SAMPLE_OVER).click()
     at.run()
     assert not at.exception
-    assert [v["name"] for v in FoodOptimizer(
-        wording.SAMPLE_PROJECT_NAME).variables] == ["Oat flour"]
+
+    restored = FoodOptimizer(sample_projects.ROUND6)
+    assert "Oat flour" not in [v["name"] for v in restored.variables]
+    assert len(restored.X_history) == 15
+    assert any("Oat flour" in p.read_text()
+               for p in tmp_path.glob("*pre_restore*.pkl"))
+    assert _sample_file(tmp_path, sample_projects.ALL10).read_text() == other_before
 
 
 # ------------------------------------------------------------------ #
@@ -10249,38 +10176,6 @@ def test_a_worked_out_row_is_greyed_on_the_own_form_and_weighed_in_the_round(
 
 
 
-def test_opening_the_sample_again_keeps_its_default_batch_size(tmp_path,
-                                                               monkeypatch):
-    """Opening a project parks every box of the one being left, the default
-    batch size among them. The box's own seed then read its mark — stamped
-    while the SAME project was on screen a moment ago — as up to date, drew
-    empty, and wrote the blank back over the 100 g every formulation is made
-    to. The round built to it went with it.
-
-    Found in the browser on the sample, whose Water is `= rest`: a worked-out
-    row has nothing to be the rest OF once the batch size has gone, so
-    Generate then refused. The bug is older than the formula; the sample is
-    what made it visible.
-    """
-    monkeypatch.chdir(tmp_path)
-    at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.run()
-    _submit_button(at.main, "Try the sample project").click()
-    at.run()
-    assert not at.exception
-    sample = FoodOptimizer(wording.SAMPLE_PROJECT_NAME)
-    assert sample.formulation_total == 100.0
-    _submit_button(at.sidebar, "Try the sample project").click()
-    at.run()
-    assert not at.exception
-    opened = FoodOptimizer(wording.SAMPLE_PROJECT_NAME)
-    assert opened.formulation_total == 100.0
-    # The batch size's own limit, and the one the sample writes over the
-    # six rows that carry the solids.
-    assert [qc.get('source') for qc in opened.quantity_constraints] == [
-        'formulation_total', None]
-
-
 def test_round_table_is_read_only_until_edit_is_requested(worked_out):
     """The round table on tab 2 gains no editing of its own — a worked-out
     row's amount is drawn like any other, never typed over — and the
@@ -10409,37 +10304,6 @@ def test_a_weighed_group_can_be_limited_from_the_screen(burger):
     qc = next(q for q in opt.quantity_constraints if q.get('source') == 'premix:Fat phase')
     assert qc['ingredients'] == ["Coconut oil", "Sunflower oil"]
     assert opt.limit_label(qc) == "Fat phase"
-
-
-def test_sample_premixes_show_four_rows_and_generate_a_hundred_grams(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    at = AppTest.from_file(APP_PATH, default_timeout=180).run()
-    _submit_button(at.main, wording.TRY_SAMPLE_LABEL).click()
-    at.run()
-    assert not at.exception
-    opt = at.session_state['optimizer']
-    # The rows read in the order the method adds them: the texturates and
-    # their water, the bowl's own water, then what goes into it.
-    assert list(opt.ingredient_grid_frame()[wording.NAME_LABEL]) == [
-        'Textured pea protein', 'Textured soy protein', 'Hydration water', 'Remaining water',
-        'Dry blend', 'Wheat gluten', 'Seasoning blend', 'Fats and oils', 'Mixing time after fat']
-    assert {name: p['mode'] for name, p in opt.premixes.items()} == {
-        'Dry blend': 'portioned', 'Fats and oils': 'weighed', 'Seasoning blend': 'portioned'}
-    assert sum(len(p['parts']) for p in opt.premixes.values()) == 10
-    for name in ('Dry blend', 'Seasoning blend'):
-        assert sum(p['share'] for p in opt.premix_parts(name)) == 100
-    assert any(c.value == wording.BLEND_OILS_EXAMPLE for c in at.caption)
-    assert opt.premix_mode('Fats and oils') == wording.PREMIX_MADE_AS_WEIGHED
-    assert opt._by_name()['Seasoning blend']['bounds'] == (2.2, 2.2)
-    assert opt.formulation_total == 100
-    for recipe in opt.ask(3):
-        ingredients = {k: v for k, v in recipe.items()
-                       if k != 'Mixing time after fat'}
-        assert sum(ingredients.values()) == pytest.approx(100)
-        assert recipe['Seasoning blend'] == 2.2
-        assert recipe['Remaining water'] >= 0
-        assert recipe['Hydration water'] == pytest.approx(2.2 * (recipe['Textured pea protein'] + recipe['Textured soy protein']))
-        assert 45 <= recipe['Mixing time after fat'] <= 150
 
 
 def test_manual_result_drafts_survive_reopening_and_save_one_formulation(open_batch):
