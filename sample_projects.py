@@ -1,55 +1,70 @@
-"""One guided teaching example; no measured results or validated recipe."""
+"""The app's samples: a real yogurt-style pilot, shipped as two projects.
+
+Rounds 1-2 were the team's starting set; Rounds 3-10 were chosen by EGBO,
+an earlier version of this engine. The files under data/samples/yogurt_pilot
+are rebuilt from the pilot's CSVs by build.py there, and
+tests/test_sample_projects.py checks they still match. Nothing here touches
+a project that is not one of the two sample names."""
+import json
 from pathlib import Path
-import pandas as pd
-import custom_records
-from food_bo import FoodOptimizer
-import wording
 
-OPTIONS = ['Burger formulation']
-NAMES = {OPTIONS[0]: wording.SAMPLE_PROJECT_NAME}
-
-# The six rows that carry the solids. A formed plant-based patty is 55-65 %
-# moisture; six bands moving independently add up to 25 g of swing on the
-# dry side, and the row that fills to the total hands every gram of it to
-# the water. Holding the solids between 36 and 43 g is how a formulator
-# writes that down — and it is the only way to write it, because the two
-# water rows are calculated and cannot carry a limit.
-SOLIDS = ['Textured pea protein', 'Textured soy protein', 'Dry blend',
-          'Wheat gluten', 'Coconut oil', 'Sunflower oil']
-# Cook loss is (raw − cooked) / raw × 100, so the bench needs two weights to
-# work it out and a place to write them; the two temperatures are what a
-# methylcellulose system stands or falls on.
-BENCH_RECORDS = ['Raw weight (g)', 'Cooked weight (g)',
-                 'Water temperature at addition (°C)',
-                 'Mass temperature out of the bowl (°C)']
+_ROOT = Path(__file__).resolve().parent
+SAMPLE_DIR = _ROOT / "data" / "samples" / "yogurt_pilot"
+ROUND6 = "Yogurt pilot - Round 6 to score"
+ALL10 = "Yogurt pilot - all 10 Rounds"
+NAMES = (ROUND6, ALL10)
+ROUND6_RESULTS_FILE_NAME = "Round 6 results (pilot).xlsx"
+ROUND6_RESULTS = SAMPLE_DIR / ROUND6_RESULTS_FILE_NAME
+TEMPLATE_CSV = _ROOT / "data" / "ingredients_template.csv"
+OPEN_NEXT_KEY = "_open_sample_next"
+_ROUND6_ROWS = {16, 17, 18}     # the pilot's Round 6: Formulations 16-18
+_RECORDED_AFTER_ROUND6 = 18
 
 
-def build(kind, name, fresh_storage, storage):
-    if kind not in OPTIONS:
-        raise ValueError('Choose the burger teaching example.')
-    opt = FoodOptimizer(name, storage=fresh_storage)
-    opt.storage = storage
-    opt.set_amount_unit('g')
-    opt.load_ingredients_from_csv(pd.read_csv(Path(__file__).parent / 'data' / 'sample_ingredients.csv'))
-    # 5 s because that is what a planetary mixer's dial does; 109.04 s is a
-    # number nobody can set.
-    opt.add_process_parameter('Mixing time after fat', 45, 150, unit='s', step=5)
-    opt.add_objective('Juiciness', 1, goal='target', target=7, min_val=0, max_val=10, unit='/10')
-    opt.add_objective('Firmness', 1, goal='target', target=6, min_val=0, max_val=10, unit='/10')
-    # 0-40, not 0-100: a real patty runs 15-25 % cook loss, and on a 0-100
-    # scale the whole interesting range moved the score by two points.
-    opt.add_objective('Cook loss', 1, goal='min', min_val=0, max_val=40, unit='%')
-    opt.set_shares({'Firmness': 45, 'Juiciness': 35, 'Cook loss': 20})
-    opt.set_formulation_total(100)
-    opt.add_constraint('Fat per 100 g', max_val=16)
-    opt.add_chosen_quantity_constraint(SOLIDS, min_val=36, max_val=43)
-    # 150 g, not the 100 g floor: at exactly 100 g a pre-mix page prints
-    # Amount (g) and Composition (%) as the same column twice.
-    opt.set_premix_smallest_quantity('Dry blend', 150)
-    opt.set_records('lot', True)
-    opt.set_records('actual', True)
-    for field in BENCH_RECORDS:
-        custom_records.add_field(opt, field, 'formulation')
-    opt.set_targets_source(wording.SAMPLE_TARGETS_SOURCE)
-    opt.set_method(wording.SAMPLE_METHOD)
-    return opt
+def available():
+    return ROUND6_RESULTS.is_file() and all(
+        (SAMPLE_DIR / f"{n}.json").is_file() for n in NAMES)
+
+
+def is_sample(name):
+    return name in NAMES
+
+
+def shipped_state(name):
+    if not is_sample(name):
+        raise ValueError(f"{name!r} is not a sample")
+    with open(SAMPLE_DIR / f"{name}.json", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def ensure(storage):
+    """Write each sample that is not on disk; never overwrite one that is."""
+    written = []
+    for name in NAMES:
+        if not storage.exists(name):
+            storage.save(name, shipped_state(name))
+            written.append(name)
+    return written
+
+
+def restore(name, storage):
+    """Start this sample over: keep the current file as a copy, then put the
+    shipped one back. Returns the copy's name, or None if there was no file."""
+    state = shipped_state(name)          # refuses a non-sample before any write
+    archived = storage.archive(name, "pre_restore", copy=False)
+    storage.save(name, state)
+    return archived
+
+
+def round6_results_bytes():
+    return ROUND6_RESULTS.read_bytes()
+
+
+def offers_round6_download(opt):
+    rows = opt.pending_batch or []
+    return (opt.project_name == ROUND6
+            and {r.get("formulation") for r in rows} == _ROUND6_ROWS)
+
+
+def offers_what_next(opt):
+    return opt.project_name == ROUND6 and len(opt.X_history) >= _RECORDED_AFTER_ROUND6

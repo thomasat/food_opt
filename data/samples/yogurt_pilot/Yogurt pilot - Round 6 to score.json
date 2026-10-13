@@ -1,0 +1,688 @@
+{
+  "project_name": "Yogurt pilot - Round 6 to score",
+  "variables": [
+    {
+      "name": "Coconut cream",
+      "type": "continuous",
+      "bounds": [
+        48.0,
+        61.0
+      ],
+      "category": "ingredient",
+      "vendor": "",
+      "sku": "",
+      "formula": "",
+      "balance": false
+    },
+    {
+      "name": "Tap water",
+      "type": "continuous",
+      "bounds": [
+        25.0,
+        42.0
+      ],
+      "category": "ingredient",
+      "vendor": "",
+      "sku": "",
+      "formula": "",
+      "balance": false
+    },
+    {
+      "name": "Lemon juice",
+      "type": "continuous",
+      "bounds": [
+        0.0,
+        3.0
+      ],
+      "category": "ingredient",
+      "vendor": "",
+      "sku": "",
+      "formula": "",
+      "balance": false
+    },
+    {
+      "name": "Salt",
+      "type": "continuous",
+      "bounds": [
+        0.0,
+        1.8
+      ],
+      "category": "ingredient",
+      "vendor": "",
+      "sku": "",
+      "formula": "",
+      "balance": false
+    },
+    {
+      "name": "Nutritional yeast",
+      "type": "continuous",
+      "bounds": [
+        0.0,
+        2.5
+      ],
+      "category": "ingredient",
+      "vendor": "",
+      "sku": "",
+      "formula": "",
+      "balance": false
+    },
+    {
+      "name": "Tapioca starch",
+      "type": "continuous",
+      "bounds": [
+        1.0,
+        2.6
+      ],
+      "category": "ingredient",
+      "vendor": "",
+      "sku": "",
+      "formula": "",
+      "balance": false
+    },
+    {
+      "name": "Xanthan gum",
+      "type": "continuous",
+      "bounds": [
+        0.1,
+        0.65
+      ],
+      "category": "ingredient",
+      "vendor": "",
+      "sku": "",
+      "formula": "",
+      "balance": false
+    }
+  ],
+  "objectives": [
+    {
+      "name": "Consistency",
+      "weight": 25.0,
+      "goal": "target",
+      "target": 12.0,
+      "min_val": 0.0,
+      "max_val": 15.0,
+      "unit": "/15",
+      "not_for": []
+    },
+    {
+      "name": "Creaminess",
+      "weight": 25.0,
+      "goal": "target",
+      "target": 5.0,
+      "min_val": 0.0,
+      "max_val": 15.0,
+      "unit": "/15",
+      "not_for": []
+    },
+    {
+      "name": "Tangy",
+      "weight": 25.0,
+      "goal": "target",
+      "target": 5.0,
+      "min_val": 0.0,
+      "max_val": 15.0,
+      "unit": "/15",
+      "not_for": []
+    },
+    {
+      "name": "Thickness uniformity",
+      "weight": 25.0,
+      "goal": "target",
+      "target": 13.0,
+      "min_val": 0.0,
+      "max_val": 15.0,
+      "unit": "/15",
+      "not_for": []
+    }
+  ],
+  "premixes": {},
+  "ingredient_properties": {},
+  "property_names": [],
+  "constraints": [],
+  "quantity_constraints": [
+    {
+      "ingredients": [
+        "Coconut cream",
+        "Tap water",
+        "Lemon juice",
+        "Salt",
+        "Nutritional yeast",
+        "Tapioca starch",
+        "Xanthan gum"
+      ],
+      "min": 97.6,
+      "max": 98.7,
+      "name": "Batch total (inferred from the pilot)"
+    }
+  ],
+  "robust": false,
+  "X_history": [
+    [
+      53.12660789489746,
+      35.072907865047455,
+      1.5823334693908693,
+      0.5649331390857697,
+      2.3902295529842377,
+      1.0416138030588626,
+      0.1993817441165447
+    ],
+    [
+      57.075531244277954,
+      25.00561451539397,
+      2.8171890258789065,
+      1.1842167377471924,
+      0.5529626831412315,
+      1.7815611064434052,
+      0.4385269522666931
+    ],
+    [
+      57.624349653720856,
+      39.95564180612564,
+      0.0554635941982269,
+      0.064430147409439,
+      0.809653028845787,
+      2.483954936265945,
+      0.3719773530960083
+    ],
+    [
+      59.01627308130264,
+      34.17705172300339,
+      0.8696794509887695,
+      1.6422592878341675,
+      2.417153418064117,
+      2.382721883058548,
+      0.4547605156898499
+    ],
+    [
+      55.04710978269577,
+      30.92281210422516,
+      2.577953147888184,
+      0.6415516197681427,
+      1.3020163774490356,
+      1.7881605923175812,
+      0.3443028271198273
+    ],
+    [
+      51.0256621837616,
+      40.57025730609894,
+      0.716540288925171,
+      1.1437700986862185,
+      0.1836508512496948,
+      1.5188614934682847,
+      0.5773076951503754
+    ],
+    [
+      53.41610593687727,
+      41.40846881008449,
+      0.0,
+      0.6427793618580279,
+      0.3021295595621915,
+      2.3708865988963286,
+      0.550140197302003
+    ],
+    [
+      60.82035860584071,
+      35.206871766131506,
+      0.0,
+      0.0,
+      0.0,
+      2.215037493935027,
+      0.4482431340927526
+    ],
+    [
+      52.6684446574474,
+      42.0,
+      0.0,
+      1.2711967037749674,
+      0.0675409687026816,
+      2.302501585226293,
+      0.380826084848643
+    ],
+    [
+      51.83989696507791,
+      41.22124858530436,
+      0.6021646205650684,
+      0.2083912661513379,
+      1.7253668714084696,
+      2.5160472746036047,
+      0.5773947803363051
+    ],
+    [
+      52.57029512385252,
+      42.0,
+      0.0,
+      0.8658574367955804,
+      0.163664245406517,
+      2.6,
+      0.4906869025726545
+    ],
+    [
+      50.51363451638589,
+      41.99999999999996,
+      0.0,
+      1.7999999999999905,
+      1.3524401933107302,
+      2.6,
+      0.4244359587781892
+    ],
+    [
+      52.156326220543264,
+      41.99999999999608,
+      0.0,
+      0.0,
+      1.8036498136383416,
+      2.102481137746965,
+      0.6280529975140419
+    ],
+    [
+      51.23448447790571,
+      41.99999999999999,
+      2.1931345845121046,
+      0.0,
+      0.0687350503000858,
+      2.5999999999999988,
+      0.5941561481140385
+    ],
+    [
+      54.0049050357578,
+      39.01351540869355,
+      0.0,
+      0.0,
+      2.4999999999577813,
+      2.5999999999993517,
+      0.5720896275174484
+    ]
+  ],
+  "Y_history": [
+    77.5,
+    83.33333333333333,
+    91.66666666666666,
+    88.33333333333333,
+    83.33333333333333,
+    89.99999999999999,
+    92.49999999999999,
+    85.0,
+    90.0,
+    95.0,
+    91.66666666666666,
+    88.33333333333333,
+    93.33333333333333,
+    90.0,
+    88.33333333333334
+  ],
+  "recipe_history": [
+    {
+      "Coconut cream": 53.12660789489746,
+      "Tap water": 35.072907865047455,
+      "Lemon juice": 1.5823334693908693,
+      "Salt": 0.5649331390857697,
+      "Nutritional yeast": 2.3902295529842377,
+      "Tapioca starch": 1.0416138030588626,
+      "Xanthan gum": 0.1993817441165447
+    },
+    {
+      "Coconut cream": 57.075531244277954,
+      "Tap water": 25.00561451539397,
+      "Lemon juice": 2.8171890258789065,
+      "Salt": 1.1842167377471924,
+      "Nutritional yeast": 0.5529626831412315,
+      "Tapioca starch": 1.7815611064434052,
+      "Xanthan gum": 0.4385269522666931
+    },
+    {
+      "Coconut cream": 57.624349653720856,
+      "Tap water": 39.95564180612564,
+      "Lemon juice": 0.0554635941982269,
+      "Salt": 0.064430147409439,
+      "Nutritional yeast": 0.809653028845787,
+      "Tapioca starch": 2.483954936265945,
+      "Xanthan gum": 0.3719773530960083
+    },
+    {
+      "Coconut cream": 59.01627308130264,
+      "Tap water": 34.17705172300339,
+      "Lemon juice": 0.8696794509887695,
+      "Salt": 1.6422592878341675,
+      "Nutritional yeast": 2.417153418064117,
+      "Tapioca starch": 2.382721883058548,
+      "Xanthan gum": 0.4547605156898499
+    },
+    {
+      "Coconut cream": 55.04710978269577,
+      "Tap water": 30.92281210422516,
+      "Lemon juice": 2.577953147888184,
+      "Salt": 0.6415516197681427,
+      "Nutritional yeast": 1.3020163774490356,
+      "Tapioca starch": 1.7881605923175812,
+      "Xanthan gum": 0.3443028271198273
+    },
+    {
+      "Coconut cream": 51.0256621837616,
+      "Tap water": 40.57025730609894,
+      "Lemon juice": 0.716540288925171,
+      "Salt": 1.1437700986862185,
+      "Nutritional yeast": 0.1836508512496948,
+      "Tapioca starch": 1.5188614934682847,
+      "Xanthan gum": 0.5773076951503754
+    },
+    {
+      "Coconut cream": 53.41610593687727,
+      "Tap water": 41.40846881008449,
+      "Lemon juice": 0.0,
+      "Salt": 0.6427793618580279,
+      "Nutritional yeast": 0.3021295595621915,
+      "Tapioca starch": 2.3708865988963286,
+      "Xanthan gum": 0.550140197302003
+    },
+    {
+      "Coconut cream": 60.82035860584071,
+      "Tap water": 35.206871766131506,
+      "Lemon juice": 0.0,
+      "Salt": 0.0,
+      "Nutritional yeast": 0.0,
+      "Tapioca starch": 2.215037493935027,
+      "Xanthan gum": 0.4482431340927526
+    },
+    {
+      "Coconut cream": 52.6684446574474,
+      "Tap water": 42.0,
+      "Lemon juice": 0.0,
+      "Salt": 1.2711967037749674,
+      "Nutritional yeast": 0.0675409687026816,
+      "Tapioca starch": 2.302501585226293,
+      "Xanthan gum": 0.380826084848643
+    },
+    {
+      "Coconut cream": 51.83989696507791,
+      "Tap water": 41.22124858530436,
+      "Lemon juice": 0.6021646205650684,
+      "Salt": 0.2083912661513379,
+      "Nutritional yeast": 1.7253668714084696,
+      "Tapioca starch": 2.5160472746036047,
+      "Xanthan gum": 0.5773947803363051
+    },
+    {
+      "Coconut cream": 52.57029512385252,
+      "Tap water": 42.0,
+      "Lemon juice": 0.0,
+      "Salt": 0.8658574367955804,
+      "Nutritional yeast": 0.163664245406517,
+      "Tapioca starch": 2.6,
+      "Xanthan gum": 0.4906869025726545
+    },
+    {
+      "Coconut cream": 50.51363451638589,
+      "Tap water": 41.99999999999996,
+      "Lemon juice": 0.0,
+      "Salt": 1.7999999999999905,
+      "Nutritional yeast": 1.3524401933107302,
+      "Tapioca starch": 2.6,
+      "Xanthan gum": 0.4244359587781892
+    },
+    {
+      "Coconut cream": 52.156326220543264,
+      "Tap water": 41.99999999999608,
+      "Lemon juice": 0.0,
+      "Salt": 0.0,
+      "Nutritional yeast": 1.8036498136383416,
+      "Tapioca starch": 2.102481137746965,
+      "Xanthan gum": 0.6280529975140419
+    },
+    {
+      "Coconut cream": 51.23448447790571,
+      "Tap water": 41.99999999999999,
+      "Lemon juice": 2.1931345845121046,
+      "Salt": 0.0,
+      "Nutritional yeast": 0.0687350503000858,
+      "Tapioca starch": 2.5999999999999988,
+      "Xanthan gum": 0.5941561481140385
+    },
+    {
+      "Coconut cream": 54.0049050357578,
+      "Tap water": 39.01351540869355,
+      "Lemon juice": 0.0,
+      "Salt": 0.0,
+      "Nutritional yeast": 2.4999999999577813,
+      "Tapioca starch": 2.5999999999993517,
+      "Xanthan gum": 0.5720896275174484
+    }
+  ],
+  "results_history": [
+    {
+      "Consistency": 5.5,
+      "Creaminess": 3.0,
+      "Tangy": 9.0,
+      "Thickness uniformity": 12.0
+    },
+    {
+      "Consistency": 6.0,
+      "Creaminess": 4.0,
+      "Tangy": 8.0,
+      "Thickness uniformity": 13.0
+    },
+    {
+      "Consistency": 8.0,
+      "Creaminess": 4.0,
+      "Tangy": 5.0,
+      "Thickness uniformity": 13.0
+    },
+    {
+      "Consistency": 10.0,
+      "Creaminess": 4.0,
+      "Tangy": 8.0,
+      "Thickness uniformity": 12.0
+    },
+    {
+      "Consistency": 8.0,
+      "Creaminess": 3.0,
+      "Tangy": 8.0,
+      "Thickness uniformity": 12.0
+    },
+    {
+      "Consistency": 9.0,
+      "Creaminess": 4.0,
+      "Tangy": 6.0,
+      "Thickness uniformity": 12.0
+    },
+    {
+      "Consistency": 10.0,
+      "Creaminess": 4.5,
+      "Tangy": 6.0,
+      "Thickness uniformity": 12.0
+    },
+    {
+      "Consistency": 9.0,
+      "Creaminess": 4.0,
+      "Tangy": 1.0,
+      "Thickness uniformity": 12.0
+    },
+    {
+      "Consistency": 9.0,
+      "Creaminess": 4.0,
+      "Tangy": 7.0,
+      "Thickness uniformity": 13.0
+    },
+    {
+      "Consistency": 12.0,
+      "Creaminess": 5.0,
+      "Tangy": 7.0,
+      "Thickness uniformity": 12.0
+    },
+    {
+      "Consistency": 13.0,
+      "Creaminess": 6.0,
+      "Tangy": 5.0,
+      "Thickness uniformity": 10.0
+    },
+    {
+      "Consistency": 13.0,
+      "Creaminess": 6.0,
+      "Tangy": 7.0,
+      "Thickness uniformity": 10.0
+    },
+    {
+      "Consistency": 12.0,
+      "Creaminess": 7.0,
+      "Tangy": 6.0,
+      "Thickness uniformity": 12.0
+    },
+    {
+      "Consistency": 13.0,
+      "Creaminess": 6.0,
+      "Tangy": 3.0,
+      "Thickness uniformity": 11.0
+    },
+    {
+      "Consistency": 13.0,
+      "Creaminess": 7.0,
+      "Tangy": 7.0,
+      "Thickness uniformity": 11.0
+    }
+  ],
+  "timestamps_history": [
+    "2026-10-13T22:27:08.386856+00:00",
+    "2026-10-13T22:27:08.387165+00:00",
+    "2026-10-13T22:27:08.387478+00:00",
+    "2026-10-13T22:27:08.389022+00:00",
+    "2026-10-13T22:27:08.389343+00:00",
+    "2026-10-13T22:27:08.389664+00:00",
+    "2026-10-13T22:27:08.391262+00:00",
+    "2026-10-13T22:27:08.391593+00:00",
+    "2026-10-13T22:27:08.391922+00:00",
+    "2026-10-13T22:27:08.393740+00:00",
+    "2026-10-13T22:27:08.394137+00:00",
+    "2026-10-13T22:27:08.394534+00:00",
+    "2026-10-13T22:27:08.396462+00:00",
+    "2026-10-13T22:27:08.396880+00:00",
+    "2026-10-13T22:27:08.397322+00:00"
+  ],
+  "formulation_ids": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+  ],
+  "batch_history": [
+    1,
+    1,
+    1,
+    2,
+    2,
+    2,
+    3,
+    3,
+    3,
+    4,
+    4,
+    4,
+    5,
+    5,
+    5
+  ],
+  "notes_history": [
+    "Pilot starting set 1.1",
+    "Pilot starting set 1.2",
+    "Pilot starting set 1.3",
+    "Pilot starting set 2.1",
+    "Pilot starting set 2.2",
+    "Pilot starting set 2.3",
+    "Pilot batch 3.1 \u00b7 EGBO",
+    "Pilot batch 3.2 \u00b7 EGBO",
+    "Pilot batch 3.3 \u00b7 EGBO",
+    "Pilot batch 4.1 \u00b7 EGBO",
+    "Pilot batch 4.2 \u00b7 EGBO",
+    "Pilot batch 4.3 \u00b7 EGBO",
+    "Pilot batch 5.1 \u00b7 EGBO",
+    "Pilot batch 5.2 \u00b7 EGBO",
+    "Pilot batch 5.3 \u00b7 EGBO"
+  ],
+  "skipped": [],
+  "set_aside": [],
+  "next_formulation_no": 19,
+  "next_batch_number": 7,
+  "sobol_seed": null,
+  "pending_batch_no": 6,
+  "pending_batch_created": "2026-10-13",
+  "pending_batch_discarded": [],
+  "pending_batch_total": null,
+  "formulation_total": null,
+  "lots": {},
+  "batch_totals": {
+    "1": null,
+    "2": null,
+    "3": null,
+    "4": null,
+    "5": null
+  },
+  "batch_generated_totals": {},
+  "round_generation": {},
+  "amount_unit": "g",
+  "targets_source": "",
+  "bench_records": {},
+  "custom_records": {
+    "fields": [],
+    "values": {}
+  },
+  "recorded_fields": {
+    "vendor": false,
+    "sku": false,
+    "lot": false,
+    "actual": false
+  },
+  "method": "",
+  "pending_batch": [
+    {
+      "formulation": 16,
+      "recipe": {
+        "Coconut cream": 51.27343054217871,
+        "Tap water": 41.99999999999997,
+        "Lemon juice": 0.5515381039727557,
+        "Salt": 0.3795000748296624,
+        "Nutritional yeast": 1.2830791279166918,
+        "Tapioca starch": 2.6,
+        "Xanthan gum": 0.6029617616186138
+      },
+      "note": "Pilot batch 6.1 \u00b7 EGBO"
+    },
+    {
+      "formulation": 17,
+      "recipe": {
+        "Coconut cream": 50.24132180487013,
+        "Tap water": 41.99999999999983,
+        "Lemon juice": 0.7592723887037408,
+        "Salt": 0.1595346348829444,
+        "Nutritional yeast": 1.3518112656053072,
+        "Tapioca starch": 2.6,
+        "Xanthan gum": 0.5785709059378734
+      },
+      "note": "Pilot batch 6.2 \u00b7 EGBO"
+    },
+    {
+      "formulation": 18,
+      "recipe": {
+        "Coconut cream": 52.26920005898152,
+        "Tap water": 40.913972443892405,
+        "Lemon juice": 0.4466307982238557,
+        "Salt": 0.5506850951593737,
+        "Nutritional yeast": 1.2600141221686476,
+        "Tapioca starch": 2.5999999999999988,
+        "Xanthan gum": 0.65
+      },
+      "note": "Pilot batch 6.3 \u00b7 EGBO"
+    }
+  ],
+  "result_drafts": {},
+  "bo_config": null,
+  "CLASS_VERSION": 17
+}
