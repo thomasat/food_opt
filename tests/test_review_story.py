@@ -37,7 +37,7 @@ from tests import demo_projects as D
 from tests.test_app_ui import APP_PATH
 from tests.test_food_bo import _BANNED
 from tests.test_review_cards import _install, _leaves, _text, cards, section, strip
-from tests.test_review_diag import ALL10, PILOT, R6, needs_pilot
+from tests.test_review_diag import ALL10, R6
 
 # Review critique (fix 5, re-pinned): Are we improving?, What next?, What has
 # the model learned? (the Forecast check above it), What have we tried?;
@@ -442,15 +442,15 @@ def test_story_strings_pass_the_vocabulary_guard():
 
 
 # ------------------------------------------------------------------ #
-#  The yogurt pilot (confidential: skips without it)
+#  The yogurt pilot (shipped samples)
 # ------------------------------------------------------------------ #
 
 @pytest.fixture(scope="module")
-def pilot(tmp_path_factory):
+def pilot(tmp_path_factory, pilot_dir):
     here = os.getcwd()
     work = tmp_path_factory.mktemp("review-story-pilot")
     for n in (R6, ALL10):
-        shutil.copy(PILOT / f"{n}.pkl", work)
+        shutil.copy(pilot_dir / f"{n}.pkl", work)
     os.chdir(work)
     try:
         with bo_views.fresh():
@@ -459,7 +459,6 @@ def pilot(tmp_path_factory):
         os.chdir(here)
 
 
-@needs_pilot
 def test_pilot_story(pilot):
     opt = FoodOptimizer(ALL10)
     s, r0, b, rb, _ = U.story_numbers(opt)

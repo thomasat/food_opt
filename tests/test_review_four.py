@@ -27,7 +27,7 @@ from tests import demo_projects as D
 from tests.test_app_ui import APP_PATH
 from tests.test_food_bo import _BANNED
 from tests.test_review_cards import _leaves, _text, cards, screens  # noqa: F401 (fixture)
-from tests.test_review_diag import ALL10, PILOT, R5, R6, needs_pilot
+from tests.test_review_diag import ALL10, R5, R6
 
 # Review learned: "What has the model learned?" took Q1's place.
 # Slim Review (owner, 2026-10-08, re-pinned): the model's verdicts folded into
@@ -428,15 +428,15 @@ def _defaults(line_a):
 
 
 # ------------------------------------------------------------------ #
-#  The yogurt pilot (skipped without it)
+#  The yogurt pilot (shipped samples)
 # ------------------------------------------------------------------ #
 
 @pytest.fixture(scope="module")
-def pilot(tmp_path_factory):
+def pilot(tmp_path_factory, pilot_dir):
     here = os.getcwd()
     work = tmp_path_factory.mktemp("review-four-pilot")
     for n in (R5, R6, ALL10):
-        shutil.copy(PILOT / f"{n}.pkl", work)
+        shutil.copy(pilot_dir / f"{n}.pkl", work)
     os.chdir(work)
     try:
         with bo_views.fresh():
@@ -455,7 +455,6 @@ def _open(name):
     return at
 
 
-@needs_pilot
 def test_pilot_cards_on_the_overall_score(pilot):
     p = cards(_open(R5))[0]
     # Review learned: the Model item, by the ordering rule (no pilot names
