@@ -19,12 +19,17 @@ First-time setup downloads about **1 GB** and needs about **6 GB of free space**
 
 ## Start with the example
 
-Choose **Try the sample project**. The 100 g burger example demonstrates pre-mixes with fixed ingredient percentages, oils whose amounts vary separately, water calculated from two protein ingredients, remaining water, mixing time, measurements and a finished-product limit. Its ingredient amounts, targets and property values are illustrative.
+Choose **Try the sample project**. It opens **Yogurt pilot - Round 6 to score** on **4 · Review**: a real yogurt-style pilot with 15 formulations scored and Round 6 made, waiting for its results. The pilot's data is public.
 
-1. Review the tables in **Set up**. Open **Blend compositions** to review component ingredients, and **Preparation and records** for the shared preparation method.
-2. Generate formulations in **Make a round** and download the workbook.
-3. Use **Round overview** for the plan, **Preparation** for pre-mixes, and **Results** for measurements.
-4. Upload the completed workbook, review the imported values, and save the results. Editing the workbook alone does not update the app. You can also enter measurements directly in the app.
+1. Go to **2 · Make a round** and open **Or upload results from a file**.
+2. Choose **Download the pilot's Round 6 results**, then upload that file.
+3. Review the imported values and choose **Save uploaded results**.
+4. Open **4 · Review**. After Round 6 it says to stop, or change the target.
+5. Choose **See what happened next** to open **Yogurt pilot - all 10 Rounds**: the pilot's Rounds 7–10.
+
+To try it again, choose **Manage project → Start this sample over**. Your version is kept in **Saved copies**.
+
+For your own project, generate formulations in **Make a round** and download the workbook. Use **Round overview** for the plan, **Preparation** for pre-mixes, and **Results** for measurements. Upload the completed workbook, review the imported values, and save the results. Editing the workbook alone does not update the app. You can also enter measurements directly in the app.
 
 The included **Start Here.txt** explains installation and the first-round workflow. In Numbers, select the sheet tabs if workbook links do not open.
 
@@ -34,9 +39,9 @@ The included **Start Here.txt** explains installation and the first-round workfl
 
 ## Ingredients, calculations and limits
 
-Use **Lowest** and **Highest** to define allowed amounts or settings. Enter the same value in both cells to keep a value fixed. A **Calculation** calculates an ingredient amount—for example, `= 2.2 * (Textured pea protein + Textured soy protein)`. Choose **Edit calculation → Fill to total** for the ingredient that supplies the remaining amount. Existing `= rest` calculations remain supported. **Edit calculation** provides ingredient suggestions, insertion buttons and validation in a larger panel. Choose **Use calculation**, then **Save changes** in the table. **Supported calculations** lists the accepted syntax. Examples explain the arithmetic; select relationships and values for your own protocol.
+Use **Lowest** and **Highest** to define allowed amounts or settings. Enter the same value in both cells to keep a value fixed. A **Calculation** calculates an ingredient amount—for example, `= 0.2 * (Tapioca starch + Xanthan gum)`. Choose **Edit calculation → Fill to total** for the ingredient that supplies the remaining amount. Existing `= rest` calculations remain supported. **Edit calculation** provides ingredient suggestions, insertion buttons and validation in a larger panel. Choose **Use calculation**, then **Save changes** in the table. **Supported calculations** lists the accepted syntax. Examples explain the arithmetic; select relationships and values for your own protocol.
 
-The **Preparation** column offers **Single ingredient**, **Pre-mix: keep proportions fixed**, and **Blend: vary each ingredient**. A pre-mix keeps the same ingredient percentages while the amount used can change. For a blend, set Lowest and Highest for each ingredient; the app chooses each amount separately. In the sample, Fats and oils groups coconut oil and sunflower oil. Their proportions and combined amount can change between formulations.
+The **Preparation** column offers **Single ingredient**, **Pre-mix: keep proportions fixed**, and **Blend: vary each ingredient**. A pre-mix keeps the same ingredient percentages while the amount used can change. For a blend, set Lowest and Highest for each ingredient; the app chooses each amount separately. Both the proportions and the combined amount can change between formulations.
 
 Ingredient limits can restrict combined amounts or finished-product properties. An empty minimum or maximum imposes no restriction on that side. Missing property values are unknown, rather than zero; complete the values before generating formulations with a limit on that property.
 

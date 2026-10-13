@@ -17,8 +17,8 @@ ROUND6_RESULTS_FILE_NAME = "Round 6 results (pilot).xlsx"
 ROUND6_RESULTS = SAMPLE_DIR / ROUND6_RESULTS_FILE_NAME
 TEMPLATE_CSV = _ROOT / "data" / "ingredients_template.csv"
 OPEN_NEXT_KEY = "_open_sample_next"
-_ROUND6_ROWS = {16, 17, 18}     # the pilot's Round 6: Formulations 16-18
-_RECORDED_AFTER_ROUND6 = 18
+RESET_LABEL = "sample_reset"    # the archive label Start this sample over writes
+_ROUND6 = 6                     # the pilot's Round 6, open in the shipped file
 
 
 def available():
@@ -49,9 +49,11 @@ def ensure(storage):
 
 def restore(name, storage):
     """Start this sample over: keep the current file as a copy, then put the
-    shipped one back. Returns the copy's name, or None if there was no file."""
+    shipped one back. Returns the copy's name, or None if there was no file.
+    The copy is labelled sample_reset, which Saved copies lists as its own
+    reason (wording.SAFETY_COPY_REASONS)."""
     state = shipped_state(name)          # refuses a non-sample before any write
-    archived = storage.archive(name, "pre_restore", copy=False)
+    archived = storage.archive(name, RESET_LABEL, copy=False)
     storage.save(name, state)
     return archived
 
@@ -60,11 +62,19 @@ def round6_results_bytes():
     return ROUND6_RESULTS.read_bytes()
 
 
+def _round6_open(opt):
+    return opt.pending_batch_no == _ROUND6 and bool(opt.pending_batch)
+
+
 def offers_round6_download(opt):
-    rows = opt.pending_batch or []
-    return (opt.project_name == ROUND6
-            and {r.get("formulation") for r in rows} == _ROUND6_ROWS)
+    """The Round 6 sample while its Round 6 is open, whatever rows the
+    reader added to it or moved out of it."""
+    return opt.project_name == ROUND6 and _round6_open(opt)
 
 
 def offers_what_next(opt):
-    return opt.project_name == ROUND6 and len(opt.X_history) >= _RECORDED_AFTER_ROUND6
+    """The Round 6 sample once its Round 6 is recorded and closed, even if
+    a row of it was moved to Not scored or Round 7 was made after it."""
+    return (opt.project_name == ROUND6
+            and _ROUND6 in {int(b) for b in opt.batch_history if b is not None}
+            and not _round6_open(opt))

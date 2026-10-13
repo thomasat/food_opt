@@ -9740,8 +9740,8 @@ def _sample_file(tmp_path, name=sample_projects.ROUND6):
 def test_an_older_sample_on_disk_is_opened_as_it_stands_never_rebuilt(
         tmp_path, monkeypatch):
     """A Mac that met an earlier version has that version's sample on disk.
-    Try the sample project used to rebuild one nobody had used; it now opens
-    whatever is on disk, because only Start this sample over puts it back."""
+    Try the sample project opens whatever is on disk: only Start this
+    sample over puts the shipped copy back."""
     monkeypatch.chdir(tmp_path)
     old = FoodOptimizer(sample_projects.ROUND6)
     old.add_ingredient("Oat flour", 0, 100)
@@ -9762,8 +9762,8 @@ def test_an_older_sample_on_disk_is_opened_as_it_stands_never_rebuilt(
 
 def test_a_sample_with_a_result_is_opened_exactly_as_it_stands(
         tmp_path, monkeypatch):
-    """The moment the sample holds a result it is the user's own project.
-    Rebuilding it would throw away their work."""
+    """A sample holding a result is opened as it stands; only Start this
+    sample over puts the shipped copy back."""
     monkeypatch.chdir(tmp_path)
     old = FoodOptimizer(sample_projects.ROUND6)
     old.add_ingredient("Water", 0, 100)
@@ -9805,7 +9805,7 @@ def test_a_sample_with_an_open_batch_is_left_exactly_as_it_is(
         tmp_path, monkeypatch):
     """Nothing is scored and nothing was ticked Not scored, but a batch is on
     someone's bench and the formulations in it have been numbered. That is
-    work, and rebuilding the sample would take it away."""
+    work: Try the sample project opens it as it is."""
     monkeypatch.chdir(tmp_path)
     old = FoodOptimizer(sample_projects.ROUND6)
     old.add_ingredient("Oat flour", 0, 100)
@@ -9864,9 +9864,9 @@ def test_start_this_sample_over_puts_the_shipped_copy_back_and_keeps_the_edit(
     restored = FoodOptimizer(sample_projects.ROUND6)
     assert "Oat flour" not in [v["name"] for v in restored.variables]
     assert len(restored.X_history) == 15
-    copies = list(tmp_path.glob("*pre_restore*.pkl"))
+    copies = list(tmp_path.glob("*sample_reset*.pkl"))
     assert copies and all(
-        c.name.startswith(f"{sample_projects.ROUND6}_pre_restore")
+        c.name.startswith(f"{sample_projects.ROUND6}_sample_reset")
         for c in copies)
     assert any("Oat flour" in c.read_text() for c in copies)
     assert _sample_file(tmp_path, sample_projects.ALL10).read_text() == other_before

@@ -18,10 +18,11 @@ from datetime import datetime
 # pre_rewind and pre_undo are no longer written — the acts they named are
 # now Delete, which archives as pre_delete — but a project archived by an
 # earlier version still wears them, and a copy that stops reading as a copy
-# would reappear in the project list.
+# would reappear in the project list. sample_reset is Start this sample
+# over's copy (sample_projects.restore).
 ARCHIVE_SUFFIX_RE = re.compile(
     r"_(archived|deleted|pre_rewind|pre_restore|pre_delete|pre_edit"
-    r"|pre_correction|pre_undo)(_\d+)?$"
+    r"|pre_correction|pre_undo|sample_reset)(_\d+)?$"
 )
 
 

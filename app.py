@@ -224,8 +224,8 @@ def _reset_project_session():
 def _open_project(name, create=False, made=False, tab=None):
     """Open a project. `create` makes an empty one first; `made` says the
     project was built a moment ago by another handler (the sample), so the
-    user is told it was created rather than opened. `tab`, when given, is where it opens instead of where
-    the landing rule would put it."""
+    user is told it was created rather than opened. `tab`, when given, is
+    where it opens instead of where the landing rule would put it."""
     if create:
         new_opt = FoodOptimizer(name, storage=STORAGE)
         new_opt.set_amount_unit("g")     # the default unit for a new project
@@ -617,9 +617,11 @@ with st.sidebar:
                     except (OSError, storage_backend.StorageError) as e:
                         st.error(str(e))
                     else:
+                        _reset_project_session()
+                        # What happened, then where the reader's version went.
+                        flash("success", wording.sample_restored(_target))
                         if archived:
                             flash("info", wording.copy_saved_as(archived))
-                        _reset_project_session()
                         st.session_state["_loaded_project"] = _target
                         st.session_state["_land_on_open"] = True
                         st.session_state["_pending_tab"] = wording.TAB_INSIGHTS
