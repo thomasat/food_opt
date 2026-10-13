@@ -50,10 +50,18 @@ def test_scanner_sees_the_insights_chain():
     assert {"ui_insights", "learned", "insights"} <= _app_modules()
 
 
-def test_the_insights_worker_script_and_sample_data_are_packaged():
+def test_build_script_ships_the_sample_data():
     # Run by path, never imported, so the import scan cannot see it.
     assert "insights_worker.py" in _packaged()
-    assert "data/sample_ingredients.csv" in BUILD
+    SHIPPED_DATA = [
+        "data/ingredients_template.csv",
+        "data/samples/yogurt_pilot/Yogurt pilot - Round 6 to score.json",
+        "data/samples/yogurt_pilot/Yogurt pilot - all 10 Rounds.json",
+        "data/samples/yogurt_pilot/Round 6 results (pilot).xlsx",
+    ]
+    for rel in SHIPPED_DATA:
+        assert rel.split("/")[-1] in BUILD, rel
+    assert "sample_ingredients.csv" not in BUILD
 
 
 def test_source_runs_disable_usage_stats():
