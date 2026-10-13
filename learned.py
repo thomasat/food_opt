@@ -396,7 +396,7 @@ def overall_noise(opt):
     the Repeats' SD from YARDSTICK_DF degrees of freedom, else the assumed
     1 point."""
     sd = _repeat_noise(opt, insights.SCORE)
-    return (sd, False) if sd is not None else (insights.ASSUMED_NOISE_SD, True)
+    return (sd, False) if sd is not None else (insights.assumed_noise(opt), True)
 
 
 def points_per_unit(obj):
@@ -737,7 +737,7 @@ def noise_of(opt, name, fitted, checks=()):
         known = [v for v in (fitted_sd, forecast_miss(checks, name)) if v is not None]
         value = max(known) if known else None
     if name == insights.SCORE:
-        value = max(value or 0.0, insights.ASSUMED_NOISE_SD)
+        value = max(value or 0.0, insights.assumed_noise(opt))
     return value
 
 

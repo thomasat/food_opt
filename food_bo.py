@@ -1596,6 +1596,19 @@ def _generation_records_from(raw):
     return out
 
 
+def valid_tasting_noise(value):
+    """Final demo (B5): a saved tasting noise as a positive number of
+    points, else None (the assumed 1 point): an older file has none, and a
+    damaged value never stops a project opening."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    return v if math.isfinite(v) and v > 0 else None
+
+
 class FoodOptimizer:
     CLASS_VERSION = 17  # bump when adding methods/attrs to force session refresh
 
@@ -1647,6 +1660,10 @@ class FoodOptimizer:
         self.quantity_constraints = []
         self.screening_model = None
         self.bo_config = None  # None => library defaults; dict => expert-chosen (arm 3)
+        # Final demo (B5): the Overall score's tasting noise SD the Review
+        # judges by while Repeats give under 3 df; None = the assumed 1 point.
+        # Review-side only: suggestions never read it.
+        self.tasting_noise = None
 
         self.X_history = []
         self.Y_history = []
@@ -12662,6 +12679,10 @@ class FoodOptimizer:
             'bo_config': self.bo_config,
             'CLASS_VERSION': self.CLASS_VERSION,
         }
+        # Final demo (B5): written only when set, so a project at the
+        # assumed 1 point saves exactly as before.
+        if getattr(self, 'tasting_noise', None) is not None:
+            state['tasting_noise'] = float(self.tasting_noise)
         return json.loads(json.dumps(state, default=_make_serializable))
 
     @staticmethod
@@ -13045,6 +13066,7 @@ class FoodOptimizer:
         self.quantity_constraints = state.get('quantity_constraints', [])
         self.robust = state.get('robust', False)
         self.bo_config = validate_bo_config(state.get('bo_config', None))
+        self.tasting_noise = valid_tasting_noise(state.get('tasting_noise'))
         self.recipe_history = state.get('recipe_history', [])
         self.results_history = state.get('results_history', [])
         self.timestamps_history = state.get('timestamps_history', [])

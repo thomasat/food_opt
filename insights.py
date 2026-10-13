@@ -824,7 +824,7 @@ def _noise_floor(opt, name, matches=None, without=()):
     if (spread.sd is not None and spread.sd >= REPEAT_SD_SHOWN
             and spread.df >= YARDSTICK_DF):
         return spread.sd
-    return 1.0 if name == SCORE else 0.0
+    return assumed_noise(opt) if name == SCORE else 0.0
 
 
 def steady_bias(opt, checks, flagged=None):
@@ -946,7 +946,8 @@ def details(opt, checks, fitted=None, flagged=None):
         f = (fitted or {}).get(name)
         full = [c.measured - c.predicted for c in mine if c.fully_measured]
         floor = (spread.sd if spread.sd is not None and spread.sd >= REPEAT_SD_SHOWN
-                 and spread.df >= YARDSTICK_DF else 1.0 if name == SCORE else 0.0)
+                 and spread.df >= YARDSTICK_DF else assumed_noise(opt) if name == SCORE
+                 else 0.0)
         gp = f.model if f is not None else None
         noise = None if gp is None or tiny else fitted_noise_sd(gp)
         rows.append(DetailRow(
@@ -1028,9 +1029,33 @@ class Disagreement:
 # The Overall score's noise SD while Repeats have fewer than YARDSTICK_DF
 # degrees of freedom: the assumed 1 point (noise_yardstick's fallback).
 ASSUMED_NOISE_SD = 1.0
+# Final demo (B5): the tasting noise choices on What next? (points, 1 SD).
+TASTING_NOISE_CHOICES = (0.5, 1.0, 2.0, 3.0)
 
 
-def repeat_sigma(noise, spread):
+def assumed_noise(opt):
+    """Final demo (B5): the Overall score's noise SD while Repeats give
+    under YARDSTICK_DF df — the project's own tasting noise when set
+    (FoodOptimizer.tasting_noise), else the assumed 1 point. Review-side
+    only: suggestions never read it."""
+    v = getattr(opt, "tasting_noise", None) if opt is not None else None
+    try:
+        v = None if v is None or isinstance(v, bool) else float(v)
+    except (TypeError, ValueError):
+        v = None
+    return v if v is not None and math.isfinite(v) and v > 0 else ASSUMED_NOISE_SD
+
+
+def set_tasting_noise(opt, value):
+    """Store the project's tasting noise (None or the assumed 1 point: back
+    to the default, None) and save. Nothing else changes."""
+    v = None if value is None or abs(float(value) - ASSUMED_NOISE_SD) < 1e-9 else float(value)
+    opt.tasting_noise = v
+    opt.save()
+    return v
+
+
+def repeat_sigma(noise, spread, assumed=ASSUMED_NOISE_SD):
     """(σ, basis) for the Repeat check (ftue fix A, cold read I7): the larger
     of the model's fitted noise SD `noise` (None when not fitted) and the
     Overall score's noise SD without the pair tested: `spread`'s sd from
@@ -1041,7 +1066,7 @@ def repeat_sigma(noise, spread):
     disagree."""
     usable = (spread is not None and spread.sd is not None
               and spread.sd >= REPEAT_SD_SHOWN and spread.df >= YARDSTICK_DF)
-    rep, basis = (spread.sd, "repeats") if usable else (ASSUMED_NOISE_SD, "assumed")
+    rep, basis = (spread.sd, "repeats") if usable else (assumed, "assumed")
     if noise is not None and noise > rep:
         return noise, "model"
     return rep, basis
@@ -1094,7 +1119,7 @@ def disagreeing_repeat(opt, checks, matches=None):
                 sigma, basis, predictive = spread.sd, "repeats", None
                 limit = math.sqrt(2) * t_critical(spread.df) * sigma
             else:
-                sigma, basis = repeat_sigma(noise, spread)
+                sigma, basis = repeat_sigma(noise, spread, assumed_noise(opt))
                 # The half-width shown for that check, its I1 widening included.
                 half = Z95 * c.sd * c.widen if c.sd else (c.high - c.low) / 2
                 predictive = math.sqrt(2) * half
@@ -1119,7 +1144,7 @@ def noise_yardstick(opt, checks=(), name=SCORE):
     spread = repeat_sd(opt, name, None)
     usable = (spread.sd is not None and spread.sd >= REPEAT_SD_SHOWN
               and spread.df >= YARDSTICK_DF)
-    fallback = 1.0 if name == SCORE else None
+    fallback = assumed_noise(opt) if name == SCORE else None
     return Yardstick(spread.sd if usable else fallback, spread.sd, spread.pairs, usable,
                      assumed=name == SCORE and spread.df < YARDSTICK_DF,
                      df=spread.df, groups=spread.groups, left_out=0)
@@ -2044,7 +2069,7 @@ def improvement(opt, facts=None, spread=None, yardstick=None):
         return None
     rise = f.score - max(earlier)
     q = sum(1 for i in opt.best_candidates() if opt.batch_history[i] == f.round)
-    threshold = rise_threshold(sd if sd is not None else 1.0, q, df)
+    threshold = rise_threshold(sd if sd is not None else assumed_noise(opt), q, df)
     barely = round(rise, 2) < round(threshold, 2)
     return Improvement("barely" if barely else "yes", rise, sd, 0, threshold, q, df)
 
