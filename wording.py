@@ -195,9 +195,9 @@ TRY_SAMPLE_HELP = (
 SAMPLE_PROVENANCE_CAPTION = "Real yogurt-style pilot; earlier engine chose Rounds 3–10."
 SAMPLE_PROVENANCE_HELP = (
     "Rounds 1–2 were the team's starting set; Rounds 3–10 were chosen by "
-    "EGBO, an earlier version of this engine (Feb–May 2026). Ingredient "
-    "limits and the batch-total limit are inferred from the pilot's own "
-    "batches. Tasting noise is assumed at 1 point unless you set it.")
+    "EGBO, an earlier version of this engine (Feb–May 2026). Limits on the "
+    "ingredients and their total are inferred from the pilot's own "
+    "formulations. Tasting noise is assumed at 1 point unless you set it.")
 
 
 # The project-level Method: one text area in More settings, printed on the
@@ -272,6 +272,7 @@ SAFETY_COPY_REASONS = {
     'pre_correction': "Before correcting a recorded formulation",
     'pre_delete': "Before a deletion",
     'pre_restore': "Before opening a saved copy",
+    'sample_reset': "Before Start this sample over",
     'archived': "Before clearing project contents",
     'deleted': "Before deleting the project",
     # Two labels no version writes any more; a folder that met an earlier
@@ -406,6 +407,11 @@ YES_START_SAMPLE_OVER = "Yes, start over"
 def start_sample_over_warning(name):
     return (f"{name} goes back to how it shipped. Your version is kept "
             "in Saved copies.")
+
+
+def sample_restored(name):
+    """The status after Start this sample over."""
+    return f"{name} is back as shipped."
 
 
 def start_over_warning(project_name, held_text=None):

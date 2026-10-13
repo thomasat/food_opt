@@ -15,19 +15,23 @@ an app update may need another software download.
 Updating? Quit the old app, then replace it in Applications. Your saved
 projects are stored separately and are retained.
 
+TRY THE SAMPLE
+1. Click “Try the sample project.” It opens “Yogurt pilot - Round 6 to
+   score” on 4 · Review. It is a real yogurt-style pilot: 15 formulations
+   scored, and Round 6 made and waiting for its results.
+2. Go to 2 · Make a round and open “Or upload results from a file.”
+3. Click “Download the pilot's Round 6 results,” then upload that file.
+4. Review the imported values and click “Save uploaded results.”
+5. Open 4 · Review. After Round 6 it says to stop, or change the target.
+6. Click “See what happened next.” It opens “Yogurt pilot - all 10
+   Rounds”: the pilot went on to Rounds 7–10.
+To try it again, open Manage project and click “Start this sample over.”
+Your version is kept in Saved copies.
+
 YOUR FIRST ROUND
-1. Click “Try the sample project.” It is a 100 g burger teaching example
-   with illustrative ingredients and targets, not a validated formulation.
-2. On Set up, review the ingredients and measurements. Open a blend under
-   Blend compositions to see its parts. Dry blend has fixed percentages;
-   Fats and oils lets the component amounts vary separately.
-3. Hydration water follows a calculation based on the two proteins. Remaining
-   water brings each formulation to 100 g. Their Lowest and Highest cells
-   are empty because the calculations determine the amounts. “Calculation help”
-   explains this with examples.
-4. Open “Preparation and records” to read the preparation method. Then
-   click “Generate formulations” and choose how many to make.
-5. Download the round sheets (Excel). The workbook has three tabs:
+1. Set up your own project (see below). On 2 · Make a round, click
+   “Generate formulations” and choose how many to make.
+2. Download the round sheets (Excel). The workbook has three tabs:
    • Round overview — the plan and shared preparation method.
    • Preparation — pre-mixes to prepare for the round.
    • Results — measurements and any actual amounts you want to record.
@@ -36,12 +40,12 @@ YOUR FIRST ROUND
    "Include individual formulation pages for printing" gives a different
    file instead: one sheet per formulation, with the round sheet and a page
    for each pre-mix.
-6. Prepare each formulation separately and enter your measurements in
+3. Prepare each formulation separately and enter your measurements in
    the workbook's input cells. Return to Make a round, upload the workbook,
-   review the imported values, and click Save results. Editing the
+   review the imported values, and click Save uploaded results. Editing the
    workbook alone does not update the app. You can also type results
    directly into the app.
-7. Review the results and start another round. The app uses your saved
+4. Review the results and start another round. The app uses your saved
    results to suggest what to try next.
 
 SETTING UP YOUR OWN PROJECT
@@ -52,8 +56,8 @@ an amount or setting fixed. Use different values to let the app vary it.
 
 “Pre-mix: keep proportions fixed” keeps the same ingredient percentages.
 “Blend: vary each ingredient” lets the app choose each ingredient amount
-separately. In the sample, Fats and oils groups coconut oil and sunflower
-oil; their proportions and combined amount can change between formulations.
+separately, so both the proportions and the combined amount can change
+between formulations.
 
 “Preparation and records” holds the batch size, steps shared by all
 formulations, references, and recording options. Lot is entered per ingredient in Make a round → Ingredient lot numbers
@@ -65,7 +69,7 @@ Operator or Expiry date. Choose whether to record a value for each
 formulation/trial or each ingredient in the round. Enter values in the
 app or on the workbook’s Results tab. These records do not affect scores.
 Use Measurements and targets for outcomes you want scored. Ingredient limits are optional restrictions
-such as a maximum fat content; the example already includes one. An empty
+such as a maximum fat content; the sample limits its ingredient total. An empty
 minimum or maximum adds no restriction on that side. Missing ingredient
 property values must be filled in before generating with a property limit.
 
@@ -77,8 +81,7 @@ pH at 6 h and pH at 24 h.
 
 You can edit an unrecorded formulation in the round table before making it.
 Use actual amounts/settings to record what you made if it differs from the
-plan. The example enables Lot and recording changes from planned amounts.
-Your own projects start with optional records turned off.
+plan. New projects start with optional records turned off.
 
 YOUR FILES AND HELP
 Projects are saved on your Mac in ~/FoodOptimizer. File → Open Projects

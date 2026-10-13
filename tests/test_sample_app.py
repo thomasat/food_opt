@@ -66,8 +66,17 @@ def test_start_this_sample_over_restores_and_archives(at):
     _click(at, wording.START_SAMPLE_OVER_LABEL)
     _click(at, wording.YES_START_SAMPLE_OVER)
     assert "tasting_noise" not in json.loads(Path(f"{sp.ROUND6}.pkl").read_text())
-    assert Path(f"{sp.ROUND6}_pre_restore.pkl").exists()
+    assert Path(f"{sp.ROUND6}_sample_reset.pkl").exists()
     assert at.session_state["main_tab"] == wording.TAB_INSIGHTS
+    assert [s.value for s in at.success] == [wording.sample_restored(sp.ROUND6)]
+    assert [i.value for i in at.info] == [
+        wording.copy_saved_as(f"{sp.ROUND6}_sample_reset")]
+
+
+def test_the_restored_line_is_short_and_names_the_sample():
+    line = wording.sample_restored(sp.ROUND6)
+    assert line == f"{sp.ROUND6} is back as shipped."
+    assert len(line.replace(sp.ROUND6, "X").split()) <= 10
 
 
 def test_own_project_keeps_clear_contents_not_sample_restore(at):

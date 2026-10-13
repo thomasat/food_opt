@@ -4446,8 +4446,6 @@ _FTUE_ALLOWED = _FTUE_BO_TERMS | _FTUE_TRIAL_CELLS
 _ALLOWED_EXACT = {
     # The glossary and Model and method (above): exact strings, one scope.
     *_FTUE_ALLOWED,
-    # the yogurt sample's notes say 'Pilot batch i.k · EGBO'; this help defines it
-    wording.SAMPLE_PROVENANCE_HELP,
     # Custom records apply to formulations and process-only trials.
     wording.CUSTOM_FIELD_HELP, wording.CUSTOM_SCOPE_NAMES["formulation"],
     wording.CUSTOM_SECTION_NAMES["formulation"],
