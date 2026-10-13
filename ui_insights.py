@@ -7207,7 +7207,11 @@ PROGRESS_ROUND_PLACE = "insights_progress_round"   # the section's Replay panel 
 # with Back to latest; the section's answer line above and What next? below
 # stay about today. Leaving the tab, or another project, is today again.
 REPLAY_STATE = "insights_replay"        # {"project", "round"}: an earlier Round on view
-REPLAY_PLAY = "insights_replay_play"    # the project while Replay steps
+# The project while Play steps. Final demo (B4): its own key, not the Play
+# button's ("insights_replay_play"): Streamlit drops an undrawn widget's
+# state after a click's run, so a second click (Stop) while Play stepped
+# ended the run a Round later.
+REPLAY_PLAY = "_insights_replay_playing"
 REPLAY_STEP_SECS = 2.0                  # Play: one Round every 2 s (final demo B2), then stops
 REPLAY_T = "_insights_replay_t"         # {"play", "stop", "end"}: when each last happened
 STOP_GUARD_SECS = 0.8                   # a Stop this soon after Play is ignored (B4)

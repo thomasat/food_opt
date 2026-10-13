@@ -438,6 +438,14 @@ def test_a_play_right_after_stop_or_the_end_is_ignored(clock, monkeypatch):
     assert (U.STOP_GUARD_SECS, U.PLAY_GUARD_SECS) == (0.8, 1.0)
 
 
+def test_the_play_state_is_not_the_play_buttons_widget_state():
+    """Streamlit drops an undrawn widget's state after a click's run: with
+    the Play button's own key as the playing flag, a second click (an
+    ignored Stop) ended Play a Round later."""
+    assert U.REPLAY_PLAY != "insights_replay_play"
+    assert 'key="insights_replay_play"' in inspect.getsource(U._replay_bar)
+
+
 # ------------------------------------------------------------------ #
 #  B1 · the stop callout; no primary button at the stop
 # ------------------------------------------------------------------ #
