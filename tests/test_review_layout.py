@@ -151,8 +151,10 @@ def test_replay_tick_waits_then_reruns_only_the_fragment(state, monkeypatch):
         r = U.shown_round(a, rounds)
         path.append(r)
     assert path == [1, 2, 3]
-    # Final demo (B2), re-pinned: each wait is 2 s, in short slices.
-    assert sum(slept) == pytest.approx(2 * U.REPLAY_STEP_SECS) and U.REPLAY_STEP_SECS == 2.0
+    # Final demo (B2), re-pinned: each wait is 2 s from the step before (the
+    # drawing between counts, a few ms here), in short slices.
+    assert sum(slept) == pytest.approx(2 * U.REPLAY_STEP_SECS, abs=0.05)
+    assert U.REPLAY_STEP_SECS == 2.0
     assert max(slept) <= U.REPLAY_SLICE_SECS <= 0.1
     assert reruns == ["fragment", "fragment"]
     assert U.shown_round(a, rounds) == 3 and U.REPLAY_STATE not in state

@@ -7318,7 +7318,7 @@ def _on_play(opt, rounds):
         return
     show_round(opt, rounds, rounds[0])
     st.session_state[REPLAY_PLAY] = _replay_project(opt)
-    t["play"] = time.monotonic()
+    t["play"] = t["step"] = time.monotonic()
 
 
 def _on_stop(opt=None, rounds=None, r=None):
@@ -7376,11 +7376,18 @@ def _replay_tick(opt, rounds, r):
     # latest) waits for this run to end — Streamlit never lets a fragment's
     # own click cut its run short — so the wait ends early and the step is
     # not taken; the click's callback then decides the Round.
+    # Final demo (B2): the pace is REPLAY_STEP_SECS from the step before
+    # (its rerun asked for), the drawing between included, so a Round
+    # shows about 2 s, not 2 s plus the drawing.
+    t = _replay_times()
+    since = time.monotonic() - t["step"] if "step" in t else 0.0
+    step = max(0.0, REPLAY_STEP_SECS - since) if 0.0 <= since < REPLAY_STEP_SECS else \
+        REPLAY_STEP_SECS
     waited = 0.0
-    while waited < REPLAY_STEP_SECS - 1e-9:
+    while waited < step - 1e-9:
         if _click_pending():
             return
-        time.sleep(min(REPLAY_SLICE_SECS, REPLAY_STEP_SECS - waited))
+        time.sleep(min(REPLAY_SLICE_SECS, step - waited))
         waited += REPLAY_SLICE_SECS
     if _click_pending():
         return
@@ -7388,7 +7395,10 @@ def _replay_tick(opt, rounds, r):
     show_round(opt, rounds, nxt)
     if not still:
         st.session_state.pop(REPLAY_PLAY, None)
-        _replay_times()["end"] = time.monotonic()
+        t["end"] = time.monotonic()
+        t.pop("step", None)
+    else:
+        t["step"] = time.monotonic()
     st.rerun(scope="fragment")
 
 
