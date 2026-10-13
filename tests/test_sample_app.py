@@ -48,8 +48,12 @@ def test_try_sample_keeps_a_used_sample_as_it_is(tmp_path, monkeypatch):
     state = sp.shipped_state(sp.ROUND6)
     state["tasting_noise"] = 2.0
     Path(f"{sp.ROUND6}.pkl").write_text(json.dumps(state))
+    before = Path(f"{sp.ROUND6}.pkl").read_text()
     app = AppTest.from_file(APP, default_timeout=120); app.run()
     _click(app, wording.TRY_SAMPLE_LABEL)
+    assert app.session_state["_loaded_project"] == sp.ROUND6
+    assert Path(f"{sp.ALL10}.pkl").exists()          # written alongside
+    assert Path(f"{sp.ROUND6}.pkl").read_text() == before
     assert json.loads(Path(f"{sp.ROUND6}.pkl").read_text())["tasting_noise"] == 2.0
 
 

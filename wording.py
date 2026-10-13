@@ -192,7 +192,7 @@ TRY_SAMPLE_LABEL = "Try the sample project"
 TRY_SAMPLE_HELP = (
     "A real yogurt-style pilot: 15 formulations scored, Round 6 made and "
     "waiting for its results.")
-SAMPLE_PROVENANCE_CAPTION = "Real yogurt-style pilot; Rounds 3–10 chosen by an earlier engine."
+SAMPLE_PROVENANCE_CAPTION = "Real yogurt-style pilot; earlier engine chose Rounds 3–10."
 SAMPLE_PROVENANCE_HELP = (
     "Rounds 1–2 were the team's starting set; Rounds 3–10 were chosen by "
     "EGBO, an earlier version of this engine (Feb–May 2026). Ingredient "
@@ -465,7 +465,7 @@ YES_START_SAMPLE_OVER = "Yes, start over"
 
 def start_sample_over_warning(name):
     return (f"{name} goes back to how it shipped. Your version is kept "
-            "as a copy in the project backups.")
+            "in Saved copies.")
 
 
 def start_over_warning(project_name, held_text=None):
