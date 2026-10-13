@@ -9864,9 +9864,46 @@ def test_start_this_sample_over_puts_the_shipped_copy_back_and_keeps_the_edit(
     restored = FoodOptimizer(sample_projects.ROUND6)
     assert "Oat flour" not in [v["name"] for v in restored.variables]
     assert len(restored.X_history) == 15
-    assert any("Oat flour" in p.read_text()
-               for p in tmp_path.glob("*pre_restore*.pkl"))
+    copies = list(tmp_path.glob("*pre_restore*.pkl"))
+    assert copies and all(
+        c.name.startswith(f"{sample_projects.ROUND6}_pre_restore")
+        for c in copies)
+    assert any("Oat flour" in c.read_text() for c in copies)
     assert _sample_file(tmp_path, sample_projects.ALL10).read_text() == other_before
+
+
+def test_opening_a_project_again_keeps_its_default_batch_size(burger):
+    """Opening a project parks every box of the one being left, the default
+    batch size among them. The box's own seed then read its mark -- stamped
+    while the SAME project was on screen a moment ago -- as up to date, drew
+    empty, and wrote the blank back over the total every formulation is made
+    to, and a worked-out (= rest) row had nothing to be the rest OF."""
+    burger.add_ingredient("Water", 0, 100)
+    burger.set_formulation_total(80)
+    burger.set_formula("Water", "= rest")
+    burger.set_formulation_total(100)
+    assert [qc.get('source') for qc in burger.quantity_constraints][:1] == [
+        'formulation_total']
+    FoodOptimizer("elsewhere").add_ingredient("Flour", 0, 100)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "burger"
+    at.run()
+    assert not at.exception
+    assert _total_box(at).value == 100.0
+    # Open is dark while the box names the open project, so leave and come
+    # back: each Open parks every box of the project being left, this one's
+    # batch size included, and the way back must seed it from the file.
+    for name in ("elsewhere", "burger"):
+        at.selectbox(key="project_select").set_value(name).run()
+        _submit_button(at.sidebar, wording.OPEN_BUTTON).click()
+        at.run()
+        assert not at.exception
+        assert at.session_state["_loaded_project"] == name
+    opened = FoodOptimizer("burger")
+    assert opened.formulation_total == 100.0
+    assert _total_box(at).value == 100.0
+    assert [qc.get('source') for qc in opened.quantity_constraints][:1] == [
+        'formulation_total']
 
 
 # ------------------------------------------------------------------ #
