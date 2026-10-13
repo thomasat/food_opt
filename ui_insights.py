@@ -19,6 +19,7 @@ import insights
 import insights_cache
 import insights_jobs
 import learned
+import sample_projects
 import wording
 from food_bo import fmt_setting, join_unit, number_list
 from ui_helpers import (SCROLL_KEY, SETUP_CALLOUT_KEY, SETUP_CALLOUT_SLOT,
@@ -1133,6 +1134,7 @@ def _places(opt, gate=False):
         # Final demo (B5): the project's tasting noise, beside the stop.
         _noise_control(opt)
         p.preview = st.empty()
+        _what_happened_next(opt)
     # The model-free charts, at once (they need no fit).
     _progress_body(opt, p.q["progress"])
     _tried_section(opt, p.q["tried"])
@@ -1141,6 +1143,17 @@ def _places(opt, gate=False):
             with p.q[which].body:
                 st.caption(_say(opt, wording.Q_WAIT))
     return p
+
+
+def _what_happened_next(opt):
+    """The Round 6 sample, Round 6 recorded: the pilot's Rounds 7-10, at the
+    end of What next? (below the stop and the Tasting noise), secondary.
+    app.py opens the all-10 sample on the run the key asks for it."""
+    if sample_projects.offers_what_next(opt):
+        if st.button(wording.SEE_WHAT_HAPPENED_NEXT, key="sample_what_next"):
+            st.session_state[sample_projects.OPEN_NEXT_KEY] = True
+            st.rerun()
+        st.caption(wording.SEE_WHAT_HAPPENED_NEXT_CAPTION)
 
 
 def strip_line(opt, facts, which, card):
