@@ -1,5 +1,5 @@
 """The yogurt pilot samples: shipped data, provenance and install/restore."""
-import json, os, re, importlib.util
+import json, re, importlib.util
 from pathlib import Path
 import pytest
 import sample_projects as sp

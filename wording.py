@@ -200,66 +200,6 @@ SAMPLE_PROVENANCE_HELP = (
     "batches. Tasting noise is assumed at 1 point unless you set it.")
 
 
-# The burger sample is gone (0.8.0). The four strings below are no longer
-# shown anywhere; tests/test_food_bo.py names them at import time in its
-# _ALLOWED_EXACT list, so they go when that list is re-pointed.
-# The sample's own targets_source, set once when it is built.
-LEGACY_SAMPLE_TARGETS_SOURCE = (
-    "Illustrative training example; not a validated formulation or recorded panel study. "
-    "Firmness 6/10, juiciness 7/10 and their shares of the score are example choices. "
-    "Scientific background: Peñaranda et al. (2025), Plant-Based Burgers with Reduced "
-    "Texture Additives, https://doi.org/10.3390/foods14081373. That study compares "
-    "binders in soybean burgers; this pea-and-soy formulation, allowed values and targets are "
-    "adaptations, not values validated by that paper. Establish sensory anchors "
-    "and suitable allowed values with your own pilot work. Ingredient property figures "
-    "are illustrative; replace them with supplier data. The hydration ratio of 2.2 is an "
-    "illustrative assumption; establish a suitable ratio for the selected protein grades in pilot trials."
-)
-# Where firmness 6 and juiciness 7 came from. A trained panel handed a
-# 0-10 scale with no anchor and no reference product produces data that does
-# not replicate between sessions, which is the failure this field exists to
-# prevent — and what shipped in 0.7.1 was a disclaimer that answered "is
-# this real?" and never answered "where did the numbers come from?". The
-# disclaimer is kept, at the foot of the method, where a method's
-# reservations belong.
-SAMPLE_TARGETS_SOURCE = (
-    "Scores are against an 80/20 beef control cooked to 71 °C core, which our panel rates "
-    "firmness 6 and juiciness 7 on the anchored 0–10 scale (12 panellists, two sessions, "
-    "February 2026). Above firmness 7 the patty eats rubbery; below juiciness 5 it eats dry "
-    "and chalky. Contains soy and wheat (gluten)."
-)
-SAMPLE_REFERENCE = (
-    "Background reading: Peñaranda et al. (2025), Plant-Based Burgers with Reduced Texture "
-    "Additives, https://doi.org/10.3390/foods14081373. This paper provides background; "
-    "it does not validate this example."
-)
-
-
-# The sample's Method: how the bench makes one formulation, in the order it
-# is done. Printed on the Round sheet under the title, because three
-# formulations that must be made identically except for the amounts had
-# nothing on paper saying how.
-SAMPLE_METHOD = (
-    "1. Hydrate the textured pea and soy proteins in the Hydration water only "
-    "(2.2 × their combined mass), 10 min at 45 °C, covered. Do not drain.\n"
-    "2. Put the Remaining water in the bowl at ≤ 5 °C. Add the Dry blend, Wheat gluten "
-    "and Seasoning blend and mix 60 s on low. (The dry blend carries the "
-    "methylcellulose: it hydrates only cold.)\n"
-    "3. Add the hydrated proteins. Mix 30 s on low.\n"
-    "4. Add the fats and oils, coconut oil chopped to ~5 mm, and mix for this "
-    "formulation's Mixing time after fat.\n"
-    "5. Form 100 g patties, 100 mm across, 12 mm thick. Chill 20 min at 4 °C, covered.\n"
-    "6. Griddle at 180 °C, 3 min per side, to 74 °C core. Serve within 3 min.\n"
-    "Water temp at addition ____ °C (≤ 5)     Mass temp out of the bowl ____ °C (≤ 12)\n"
-    "Raw weight ____ g     Cooked and blotted weight ____ g     "
-    "Cook loss = (raw − cooked)/raw × 100\n"
-    "Contains soy and wheat (gluten).\n"
-    "Every formulation is made to the batch size printed above. These amounts and "
-    "targets demonstrate the app; confirm a suitable preparation and measurement "
-    "protocol before using them for real trials."
-)
-
-
 # The project-level Method: one text area in More settings, printed on the
 # Round sheet under the title.
 # The four things a project can record beside what it is asked to. All four
@@ -591,21 +531,8 @@ def project_created(name):
     return f"Created {name}."
 
 
-def sample_project_rebuilt(name):
-    """'Sample project put back the way it started.' — clicking Try the
-    sample project again on a sample nobody has made a round from rebuilds
-    it, which throws away every edit made to it. It said only "Opened
-    Sample project.", so the reader\'s own calculations and amounts were gone with
-    nothing on screen about it."""
-    return f"{name} restored to its original settings."
-
-
 def project_opened(name):
     return f"Opened {name}."
-
-
-def sample_project_failed(err):
-    return f"The sample project could not be created: {err}"
 
 
 def batch_line_open(no, n):
@@ -3630,7 +3557,6 @@ SETUP_INTRO = 'Define ingredients, process settings, and measurements. Then gene
 COMPOSITION_AMOUNTS_HELP = 'Enter ingredient amounts. Their proportions are saved as percentages; the preview calculates amounts for the quantity below.'
 COMPOSITION_ENTRY_LABEL = 'Enter ingredient amounts instead'
 COMPOSITION_PERCENTAGES = 'Percentages'
-TEACHING_EXAMPLE_CAPTION = 'Teaching example with illustrative values. See Preparation and records for the method and assumptions.'
 def composition_basis_caption(basis):
     return f"Composition is expressed as percentages {basis}. Weighing amounts are calculated below."
 
@@ -3664,7 +3590,6 @@ def workbook_result_conflict(number, key):
 SHARE_TOTAL = "Total: 100%"
 SHARE_PREVIEW_HELP = "Changing one share adjusts the others to keep the total at 100%. Preview the saved shares below."
 SCORING_DETAILS_CHECKBOX = "How the score is calculated"
-EXAMPLE_REFERENCES_LABEL = "Example assumptions and references"
 TARGET_REFERENCES_LABEL = "Targets and references"
 PROCESS_STUDY_INTRO = "Each trial is one set of process settings. Run each trial, then record its measurements."
 PROCESS_SETTINGS_HEADER = "Process settings"
@@ -3743,7 +3668,6 @@ LIMIT_BOUND_DETAIL = ("Leave a minimum or maximum empty for no restriction on th
 def missing_property_values(metric, names):
     return f"Complete {metric} for: {names}. Open Ingredient limits → Properties and enter the missing values (0 only if zero), or delete this property limit."
 
-BACKGROUND_REFERENCE_LABEL = "Background reference"
 
 
 # Results detail browsing and ingredient composition.
@@ -5154,7 +5078,6 @@ def setup_first_line(settings_only=False):
     return SETUP_FIRST_LINE
 MEASUREMENT_GOAL_CAPTION = "Each measurement's goal and share of score."
 MEASUREMENT_GOAL_HELP = "Set a goal for each measurement and how much it counts."
-SAMPLE_INTRO_LINE = f"A teaching example: review it, then select {NEXT_MAKE_A_ROUND}."
 
 
 # Charts on Insights (Plan B Task 5): Compare all's two bar lengths.

@@ -221,12 +221,10 @@ def _reset_project_session():
             st.session_state.pop(k, None)
 
 
-def _open_project(name, create=False, made=False, rebuilt=False, tab=None):
+def _open_project(name, create=False, made=False, tab=None):
     """Open a project. `create` makes an empty one first; `made` says the
     project was built a moment ago by another handler (the sample), so the
-    user is told it was created rather than opened; `rebuilt` says the
-    sample was put back the way it started, throwing away edits the reader
-    had made to it. `tab`, when given, is where it opens instead of where
+    user is told it was created rather than opened. `tab`, when given, is where it opens instead of where
     the landing rule would put it."""
     if create:
         new_opt = FoodOptimizer(name, storage=STORAGE)
@@ -244,9 +242,7 @@ def _open_project(name, create=False, made=False, rebuilt=False, tab=None):
     # previous project's name straight back, leaving the sidebar naming one
     # project, the box another, and Open lit over the project just abandoned.
     clear_selection("project_select")
-    if rebuilt:
-        line = wording.sample_project_rebuilt(name)
-    elif create or made:
+    if create or made:
         line = wording.project_created(name)
     else:
         line = wording.project_opened(name)

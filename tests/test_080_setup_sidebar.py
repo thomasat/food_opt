@@ -112,7 +112,7 @@ def test_the_sample_is_named_in_the_sidebar_and_setup_stays_quiet(tmp_path, monk
     captions = [c.value for c in at.tabs[0].caption]
     assert wording.SAMPLE_PROVENANCE_CAPTION in [c.value for c in at.sidebar.caption]
     assert not any(c.startswith("Learn the workflow") for c in captions)
-    assert wording.TEACHING_EXAMPLE_CAPTION not in captions
+    assert not any(c.startswith("Teaching example") for c in captions)
 
 
 # ------------------------------------------------------------------ #
