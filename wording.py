@@ -11440,17 +11440,39 @@ NO_FORECAST_HELP = ("No forecast: its 95 % range covers the measurement's whole 
                     "In, Above or Below.")
 
 
-def results_predicted_help(round_no, no_forecast=False):
-    help_ = (f"Each {FORMULATION} of {ROUND_CAP} {round_no} as the model expected it, rebuilt "
-             f"today from the {FORMULATION}s scored before {ROUND_CAP} {round_no} only (the "
-             f"Review's Forecast check), beside what was measured: the {OVERALL_SCORE_COLUMN} "
-             "and every measurement, each marked In, Above or Below its 95 % range. A forecast "
-             "at the highest possible value reads ≥ it.")
+# Fix round 1 (controller): "Rebuilt today" could be false (checks kept
+# from an earlier day); the label is as before and the "?" says exactly
+# what the forecasts are, true for any project.
+REBUILT_HOW = "Calculated by the app's current model from the Rounds before each one"
+REBUILT_NOT_SAVED = "not saved from when each Round was made"
+REBUILT_PILOT = "The pilot's own forecasts were not kept."
+
+
+def rebuilt_help(sample=False):
+    """The Forecast check label's "?": 'Calculated by the app's current
+    model from the Rounds before each one; not saved from when each Round
+    was made.' — and, on the two samples, 'The pilot's own forecasts were
+    not kept.'"""
+    out = f"{REBUILT_HOW}; {REBUILT_NOT_SAVED}."
+    return f"{out} {REBUILT_PILOT}" if sample else out
+
+
+def results_predicted_help(round_no, no_forecast=False, sample=False):
+    help_ = (f"Each {FORMULATION} of {ROUND_CAP} {round_no} as the model expected it, beside "
+             f"what was measured: the {OVERALL_SCORE_COLUMN} and every measurement, each "
+             "marked In, Above or Below its 95 % range. Calculated by the app's current model "
+             f"from the {FORMULATION}s scored before {ROUND_CAP} {round_no} only (the Review's "
+             f"Forecast check); not saved from when {ROUND_CAP} {round_no} was made. A "
+             "forecast at the highest possible value reads ≥ it.")
+    if sample:
+        help_ += f" {REBUILT_PILOT}"
     return f"{help_} {NO_FORECAST_HELP}" if no_forecast else help_
 
 
-REBUILT_LABEL = "Rebuilt today from earlier Rounds"
-RESULTS_PREDICTED_CAPTION = "Rebuilt today from earlier Rounds: the model's forecasts."
+REBUILT_LABEL = "Rebuilt from earlier Rounds"
+RESULTS_PREDICTED_CAPTION = "Rebuilt from earlier Rounds: what the model expected."
+CALLED_RULE = CALLED_RULE.replace(
+    "Rebuilt today from the", "Calculated from the", 1)
 
 
 # A verdict's pairs: how many were called, of all the pairs there are.

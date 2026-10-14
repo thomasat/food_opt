@@ -5239,7 +5239,7 @@ def predictions_spark_frame(opt, checks):
     """Per checked Round: the share of its Round-ahead results inside their
     95 % intervals (the verdict's values: the measurements)."""
     rows = []
-    values = [c for c in (checks or ()) if c.name != insights.SCORE]
+    values = [c for c in insights.ranged(checks) if c.name != insights.SCORE]
     for r in insights._ordered_rounds(values):
         mine = [c for c in values if c.round == r]
         if mine:
@@ -6247,7 +6247,8 @@ def learned_facts_from(opt, checks):
     r, calls = learned.called_it(opt, checks, None, noise)
     score_call = (None if r is None else
                   learned.round_call(checks, insights.SCORE, r, noise.get(insights.SCORE) or 0.0))
-    mine = [c for c in checks if c.name == insights.SCORE and c.round == r and c.fully_measured]
+    mine = [c for c in insights.ranged(checks)
+            if c.name == insights.SCORE and c.round == r and c.fully_measured]
     landing = (sum(c.inside for c in mine), sum(c.measured > c.high for c in mine),
                sum(c.measured < c.low for c in mine))
     inside, total = learned.coverage(checks)
@@ -6512,12 +6513,8 @@ def no_forecast(opt, c):
     of the Range's width of the Range's low, and its high as close to the
     Range's high: a range of the whole Range forecasts nothing (Creaminess
     0.0–15.0 on 0–15). False for a name with no Range."""
-    try:
-        lo, hi = insights._range_of(opt, c.name)
-    except KeyError:
-        return False
-    edge = wording.NO_FORECAST_EDGE * (float(hi) - float(lo))
-    return float(c.low) <= float(lo) + edge and float(c.high) >= float(hi) - edge
+    return bool(getattr(c, "no_forecast", False)) or insights.covers_range(
+        opt, c.name, c.low, c.high)
 
 
 def round_predicted_frame(opt, checks, r):
@@ -6777,7 +6774,9 @@ def _called_top(opt, slot, lf):
         # Round-2 fixes (P2 #9): its own section, right after What next?;
         # slim Review: the heading is the section's (_section).
         # Rebuilt framing: worked out again today, never kept from the time.
-        st.caption(_say(opt, wording.REBUILT_LABEL))
+        # Fix round 1: the "?" says exactly what the forecasts are.
+        st.caption(_say(opt, wording.REBUILT_LABEL), help=_say(opt, wording.rebuilt_help(
+            sample_projects.is_sample(getattr(opt, "project_name", None)))))
         st.markdown(line, help=called_detail(opt, lf))
         bias = check_bias_line(opt, lf)
         if bias:
@@ -9676,7 +9675,7 @@ def forecast_chart(opt, checks):
 def trust_counts(checks):
     """(inside, total, above, below) of the Overall score's Round-ahead
     checks: misses above and below their range counted apart."""
-    mine = [c for c in checks or () if c.name == insights.SCORE]
+    mine = [c for c in insights.ranged(checks) if c.name == insights.SCORE]
     inside = sum(bool(c.inside) for c in mine)
     above = sum(1 for c in mine if not c.inside and c.measured > c.high)
     below = sum(1 for c in mine if not c.inside and c.measured < c.low)

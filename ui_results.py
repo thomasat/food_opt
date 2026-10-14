@@ -11,6 +11,7 @@ import pandas as pd
 import streamlit as st
 
 import insights
+import sample_projects
 import storage as storage_backend
 import ui_insights
 import wording
@@ -314,7 +315,8 @@ def _round_predicted(opt):
     none = (frame[wording.for_project(opt, wording.RESULTS_PREDICTED_COLUMN)]
             == wording.for_project(opt, wording.NO_FORECAST)).any()
     st.caption(wording.for_project(opt, wording.RESULTS_PREDICTED_CAPTION),
-               help=wording.for_project(opt, wording.results_predicted_help(last, bool(none))))
+               help=wording.for_project(opt, wording.results_predicted_help(
+                   last, bool(none), sample_projects.is_sample(opt.project_name))))
 
 
 def _progress_line(opt):

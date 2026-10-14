@@ -119,7 +119,7 @@ EXPECTED = {
         # Review four, ruling 1: the Overall score missed 4 of 16 (tail
         # 0.007): Off, on the score the suggestions use.
         # Review learned: Model's word; the red miss line kept.
-        [("Model", "Predicts:", [":red[**4 / 16 missed**]"]),   # review critique: "Predicts:"
+        [("Model", "Predicts:", [":red[**4 / 10 missed**]"]),   # review critique: "Predicts:"
          ("Progress", "Within noise", ["· best 87.9 (+1.9)"]),
          ("Next", "Record Round 6", ["4 trials open", "Repeat Trial 21 to check noise"])],
         "How the app chose Round 6", [_HIDDEN + wording.HERO_HIDDEN["skill"]]),

@@ -294,7 +294,59 @@ def test_the_stops_set_up_question_mark_checks_first(monkeypatch):
         _clean(t)
 
 
-def test_rebuilt_says_today_within_the_limits():
-    assert wording.REBUILT_LABEL == "Rebuilt today from earlier Rounds"
+def test_rebuilt_label_is_as_before_and_its_question_mark_says_what_it_is():
+    # Fix round 1: "today" could be false; the "?" says exactly what it is.
+    assert wording.REBUILT_LABEL == "Rebuilt from earlier Rounds"
+    assert "today" not in wording.rebuilt_help(True)
     assert _words(wording.REBUILT_LABEL) <= 5
     assert _words(wording.RESULTS_PREDICTED_CAPTION) <= 8
+
+
+# ------------------------------------------------------------------ #
+#  Fix round 1 · no forecast is counted nowhere as inside or outside
+# ------------------------------------------------------------------ #
+
+def _round_of(r, whole, missed=0, name="Creaminess", start=1):
+    """Three checks of `name` in Round `r`: whole-Range ranges when
+    `whole`, else 4–6 with `missed` of them measured outside."""
+    out = []
+    for k in range(3):
+        low, high = (0.0, 15.0) if whole else (4.0, 6.0)
+        measured = 7.0 if k < missed else 5.0
+        out.append(_check(name, low, high, measured, 5.0, r=r, no=start + k))
+    return out
+
+
+def test_check_rounds_marks_each_whole_range_check():
+    opt = _opt()
+    marked = insights.mark_no_forecast(opt, [_check("Tangy", 0.0, 15.0), _check("Tangy", 0.1, 14.9),
+                                             _check("Tangy", 2.1, 10.3),
+                                             _check(insights.SCORE, 0.0, 100.0, 90.0, 90.0)])
+    assert [c.no_forecast for c in marked] == [True, True, False, True]
+    assert insights.NO_FORECAST_EDGE == wording.NO_FORECAST_EDGE == 0.01
+    assert insights.ranged(marked) == [marked[2]]
+    assert "mark_no_forecast(opt, nest_score_widen" in __import__("inspect").getsource(
+        insights.check_rounds)
+
+
+def test_the_coverage_counts_leave_no_forecast_out():
+    opt = _opt()
+    checks = insights.mark_no_forecast(opt, (
+        _round_of(3, False, 1, start=1) + _round_of(4, False, 1, start=4)
+        + _round_of(5, True, 0, start=7) + _round_of(5, False, 0, "Tangy", start=7)
+        + _round_of(3, False, 0, "Tangy", start=1) + _round_of(4, False, 0, "Tangy", start=4)))
+    h = insights.headline(opt, checks)
+    # The window is still the last three Rounds checked; Round 5's three
+    # Creaminess checks are no forecast, so 15 counted, not 18.
+    assert h.rounds == [3, 4, 5] and (h.inside, h.total) == (13, 15)
+    vm = insights.value_misses(opt, checks, h)
+    assert (vm.misses, vm.total) == (2, 15) and vm.items == [("Creaminess", 2, 6)]
+    rows = {r.name: (r.checked, r.inside) for r in insights.details(opt, checks)}
+    assert rows["Creaminess"] == (6, 4) and rows["Tangy"] == (9, 9)
+    # The Overall score's coverage and the spark leave them out too.
+    score = insights.mark_no_forecast(opt, [_check(insights.SCORE, 0.0, 100.0, 90.0, 90.0),
+                                            _check(insights.SCORE, 80.0, 95.0, 90.0, 90.0)])
+    assert learned.coverage(score) == (1, 1)
+    assert U.trust_counts(score)[:2] == (1, 1)
+    spark = U.predictions_spark_frame(opt, checks)
+    assert list(spark["text"]) == ["5 / 6", "5 / 6", "3 / 3"]   # Round 5: Tangy only

@@ -290,7 +290,7 @@ CARDS = {
     D.LINE_A: ("Partly:", ["Overall score (5/21 called), Firmness +1"]),
     # Review learned 2: the section repeats no old-card line.
     D.LINE_B: ("Partly:", [":red[**3 / 16 missed**]"]),     # round 2: Holm
-    D.PROCESS_ONLY: ("Predicts:", [":red[**4 / 16 missed**]"]),
+    D.PROCESS_ONLY: ("Predicts:", [":red[**4 / 10 missed**]"]),
     D.TIMING: ("Predicts:", ["Overall score (78/110 called), Firmness +3"]),
 }
 
