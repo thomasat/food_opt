@@ -314,6 +314,28 @@ def test_landing_tab_follows_the_spec_rule():
     assert landing_tab(fresh_batch) == TAB_BATCH
 
 
+def test_landing_tab_opens_a_sample_with_results_on_review():
+    """The two samples reopen where a demo starts; an own project with the
+    same contents keeps the rule above."""
+    import sample_projects as sp
+    ing = [{"name": "Water", "category": "ingredient"}]
+    meas = [{"name": "Firmness", "weight": 1.0}]
+    row = [{"formulation": 2, "recipe": {"Water": 1.0}}]
+    for name in sp.NAMES:
+        open_round = _FakeOpt(ing, meas, X_history=[[0.5]], pending_batch=row)
+        open_round.project_name = name
+        assert landing_tab(open_round) == wording.TAB_INSIGHTS
+        closed = _FakeOpt(ing, meas, X_history=[[0.5]])
+        closed.project_name = name
+        assert landing_tab(closed) == wording.TAB_INSIGHTS
+        empty = _FakeOpt(ing, meas, pending_batch=row)
+        empty.project_name = name
+        assert landing_tab(empty) == TAB_BATCH
+    own = _FakeOpt(ing, meas, X_history=[[0.5]], pending_batch=row)
+    own.project_name = "Mine"
+    assert landing_tab(own) == TAB_BATCH
+
+
 # The two halves of the move, in the same order as app.py: the pending target
 # is drained into the widget key BEFORE st.tabs, and on_change="rerun" is what
 # binds that key to the frontend at all.

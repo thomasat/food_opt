@@ -613,15 +613,14 @@ with st.sidebar:
                 ):
                     _target = opt.project_name
                     try:
-                        archived = sample_projects.restore(_target, STORAGE)
+                        sample_projects.restore(_target, STORAGE)
                     except (OSError, storage_backend.StorageError) as e:
                         st.error(str(e))
                     else:
                         _reset_project_session()
-                        # What happened, then where the reader's version went.
+                        # One line: what happened and where the reader's
+                        # version went (Saved copies lists it by reason).
                         flash("success", wording.sample_restored(_target))
-                        if archived:
-                            flash("info", wording.copy_saved_as(archived))
                         st.session_state["_loaded_project"] = _target
                         st.session_state["_land_on_open"] = True
                         st.session_state["_pending_tab"] = wording.TAB_INSIGHTS
@@ -867,7 +866,9 @@ if getattr(_opt, "pending_batch", None):
 # (the other six are go_to_tab's callers: Next: make a round, Back to set up,
 # Save results, Save uploaded results, Start the next round, Change a
 # measurement or an ingredient), and it fires only on the run that follows
-# opening a project.
+# opening a project. The two samples land on 4 · Review once they hold
+# results, where a demo starts; every other project follows the rule as
+# landing_tab states it.
 if st.session_state.pop("_land_on_open", False):
     st.session_state["main_tab"] = landing_tab(_opt)
     # Opening a project lands at the top of its tab too (T47 review minor 7).
@@ -892,8 +893,9 @@ if st.session_state.get("main_tab") == wording.TAB_INSIGHTS:
 drain_clears({"var_unit": _opt.amount_unit})
 
 # Insights is the fourth tab and not numbered: it is a view of the loop, not
-# a step in it. No flow moves the user there and landing_tab never names it;
-# links the user clicks may open it (ui_helpers.link, spec
+# a step in it. No step of the loop moves the user there, and landing_tab
+# names it only for the two samples; opening or starting a sample over, and
+# links the user clicks, open it (ui_helpers.link, spec
 # 2026-09-30-bo-views §5).
 tab_setup, tab_batch, tab_results, tab_insights = st.tabs(
     [TAB_SETUP, TAB_BATCH, TAB_RESULTS, wording.TAB_INSIGHTS],

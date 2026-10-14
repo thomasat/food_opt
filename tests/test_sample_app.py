@@ -68,15 +68,19 @@ def test_start_this_sample_over_restores_and_archives(at):
     assert "tasting_noise" not in json.loads(Path(f"{sp.ROUND6}.pkl").read_text())
     assert Path(f"{sp.ROUND6}_sample_reset.pkl").exists()
     assert at.session_state["main_tab"] == wording.TAB_INSIGHTS
+    # One line: what happened and where the reader's version went.
     assert [s.value for s in at.success] == [wording.sample_restored(sp.ROUND6)]
-    assert [i.value for i in at.info] == [
-        wording.copy_saved_as(f"{sp.ROUND6}_sample_reset")]
+    assert [i.value for i in at.info] == []
+    assert Path(sp.ROUND6_RESULTS_FILE_NAME).read_bytes() == sp.round6_results_bytes()
 
 
-def test_the_restored_line_is_short_and_names_the_sample():
+def test_the_restored_line_names_the_sample_and_the_copy():
     line = wording.sample_restored(sp.ROUND6)
-    assert line == f"{sp.ROUND6} is back as shipped."
-    assert len(line.replace(sp.ROUND6, "X").split()) <= 10
+    assert line == (f"{sp.ROUND6} is back as shipped. "
+                    "Your version is in Saved copies.")
+    # Owner-approved wording: two short statements, each within the status cap.
+    for sentence in line.replace(sp.ROUND6, "X").split(". "):
+        assert len(sentence.split()) <= 10
 
 
 def test_own_project_keeps_clear_contents_not_sample_restore(at):
@@ -112,3 +116,58 @@ def test_open_next_opens_all10_on_review(at):
     assert at.session_state["_loaded_project"] == sp.ALL10
     assert at.session_state["main_tab"] == wording.TAB_INSIGHTS
     assert sp.OPEN_NEXT_KEY not in at.session_state
+
+
+# A sample reopens where the demo starts: 4 · Review, whatever Round is open.
+
+@pytest.mark.parametrize("name", sp.NAMES)
+def test_reopening_a_sample_from_the_sidebar_lands_on_review(at, name):
+    _click(at, wording.TRY_SAMPLE_LABEL)
+    _write_own()
+    at.run()
+    _open(at, "Mine")
+    assert at.session_state["_loaded_project"] == "Mine"
+    _open(at, name)
+    assert not at.exception
+    assert at.session_state["_loaded_project"] == name
+    assert at.session_state["main_tab"] == wording.TAB_INSIGHTS
+
+
+@pytest.mark.parametrize("name", sp.NAMES)
+def test_launching_on_a_sample_lands_on_review(tmp_path, monkeypatch, name):
+    """A fresh run with the sample as the project to open, the way launch
+    sets _loaded_project and _land_on_open for the most recent project."""
+    monkeypatch.chdir(tmp_path)
+    sp.ensure(__import__("storage").LocalStorage())
+    app = AppTest.from_file(APP, default_timeout=120)
+    app.session_state["_loaded_project"] = name
+    app.session_state["_land_on_open"] = True
+    app.run()
+    assert not app.exception
+    assert app.session_state["main_tab"] == wording.TAB_INSIGHTS
+
+
+def test_launch_on_the_most_recent_sample_lands_on_review(tmp_path, monkeypatch):
+    import os
+    monkeypatch.chdir(tmp_path)
+    sp.ensure(__import__("storage").LocalStorage())
+    os.utime(f"{sp.ROUND6}.pkl", (2e9, 2e9))      # the most recent project
+    app = AppTest.from_file(APP, default_timeout=120)
+    app.run()
+    assert not app.exception
+    assert app.session_state["_loaded_project"] == sp.ROUND6
+    assert app.session_state["main_tab"] == wording.TAB_INSIGHTS
+
+
+def test_own_project_with_an_open_round_still_lands_on_make_a_round(at):
+    """The same contents under an own name keep the landing rule."""
+    from ui_helpers import TAB_BATCH
+    _click(at, wording.TRY_SAMPLE_LABEL)
+    state = sp.shipped_state(sp.ROUND6)           # Round 6 open, 5 recorded
+    state["project_name"] = "Mine"
+    Path("Mine.pkl").write_text(json.dumps(state))
+    at.run()
+    _open(at, "Mine")
+    assert not at.exception
+    assert at.session_state["_loaded_project"] == "Mine"
+    assert at.session_state["main_tab"] == TAB_BATCH

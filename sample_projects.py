@@ -37,13 +37,27 @@ def shipped_state(name):
         return json.load(fh)
 
 
+def _write_round6_results(storage, overwrite):
+    """A copy of the Round 6 results file beside the projects, so Browse
+    files opens on it. Its name is not <name>.pkl, so it is never listed as
+    a project or a copy. A storage with no folder on this disk gets none."""
+    folder = getattr(storage, "folder", None)
+    if folder is None:
+        return
+    target = Path(folder()) / ROUND6_RESULTS_FILE_NAME
+    if overwrite or not target.exists():
+        target.write_bytes(ROUND6_RESULTS.read_bytes())
+
+
 def ensure(storage):
-    """Write each sample that is not on disk; never overwrite one that is."""
+    """Write each sample that is not on disk; never overwrite one that is.
+    The Round 6 results file is written beside them the same way."""
     written = []
     for name in NAMES:
         if not storage.exists(name):
             storage.save(name, shipped_state(name))
             written.append(name)
+    _write_round6_results(storage, overwrite=False)
     return written
 
 
@@ -51,10 +65,13 @@ def restore(name, storage):
     """Start this sample over: keep the current file as a copy, then put the
     shipped one back. Returns the copy's name, or None if there was no file.
     The copy is labelled sample_reset, which Saved copies lists as its own
-    reason (wording.SAFETY_COPY_REASONS)."""
+    reason (wording.SAFETY_COPY_REASONS). The Round 6 sample also gets its
+    results file back as shipped, so a demo started over has it."""
     state = shipped_state(name)          # refuses a non-sample before any write
     archived = storage.archive(name, RESET_LABEL, copy=False)
     storage.save(name, state)
+    if name == ROUND6:
+        _write_round6_results(storage, overwrite=True)
     return archived
 
 

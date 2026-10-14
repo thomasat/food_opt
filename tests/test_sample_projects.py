@@ -215,3 +215,72 @@ def test_uploading_the_shipped_round6_file_records_the_pilots_results(store):
     assert not opt.pending_batch                # Round 6 closed
     assert sp.offers_what_next(opt)
     assert not sp.offers_round6_download(opt)
+
+
+# The Round 6 results file beside the projects, so Browse files lands on it.
+_R6_COPY = "Round 6 results (pilot).xlsx"
+
+
+def test_ensure_writes_the_round6_results_file_into_the_projects_folder(store, tmp_path):
+    assert store.folder() == str(tmp_path.resolve())
+    sp.ensure(store)
+    copy = Path(store.folder()) / _R6_COPY
+    assert copy.read_bytes() == sp.ROUND6_RESULTS.read_bytes()
+
+
+def test_ensure_never_overwrites_a_changed_results_file(store):
+    sp.ensure(store)
+    Path(_R6_COPY).write_bytes(b"changed")
+    Path(f"{sp.ALL10}.pkl").unlink()              # ensure has work to do
+    assert sp.ensure(store) == [sp.ALL10]
+    assert Path(_R6_COPY).read_bytes() == b"changed"
+    sp.ensure(store)
+    assert Path(_R6_COPY).read_bytes() == b"changed"
+
+
+def test_ensure_writes_the_results_file_when_only_it_is_missing(store):
+    sp.ensure(store)
+    Path(_R6_COPY).unlink()
+    assert sp.ensure(store) == []
+    assert Path(_R6_COPY).read_bytes() == sp.ROUND6_RESULTS.read_bytes()
+
+
+def test_restore_round6_rewrites_the_results_file(store):
+    sp.ensure(store)
+    Path(_R6_COPY).write_bytes(b"changed")
+    sp.restore(sp.ROUND6, store)
+    assert Path(_R6_COPY).read_bytes() == sp.ROUND6_RESULTS.read_bytes()
+    Path(_R6_COPY).unlink()
+    sp.restore(sp.ROUND6, store)
+    assert Path(_R6_COPY).read_bytes() == sp.ROUND6_RESULTS.read_bytes()
+
+
+def test_restore_all10_leaves_the_results_file(store):
+    sp.ensure(store)
+    Path(_R6_COPY).write_bytes(b"changed")
+    sp.restore(sp.ALL10, store)
+    assert Path(_R6_COPY).read_bytes() == b"changed"
+    Path(_R6_COPY).unlink()
+    sp.restore(sp.ALL10, store)
+    assert not Path(_R6_COPY).exists()
+
+
+def test_the_results_file_is_never_a_project_or_a_copy(store):
+    sp.ensure(store)
+    sp.restore(sp.ROUND6, store)
+    assert Path(_R6_COPY).exists()
+    listed = store.list_projects() + store.list_archives()
+    assert not [n for n in listed if "results" in n.lower()]
+    assert sorted(store.list_projects()) == sorted(sp.NAMES)
+
+
+@pytest.mark.parametrize("doc", ["README.md", "desktop/start_here.txt", "desktop/README.md"])
+def test_the_docs_say_what_the_screen_says(doc):
+    """The walkthrough names the stop by the callout's own headline and the
+    results file by the name it has in the FoodOptimizer folder."""
+    import wording
+    text = " ".join((Path(sp._ROOT) / doc).read_text().split())
+    assert wording.STOP_CALLOUT_HEAD in text
+    assert sp.ROUND6_RESULTS_FILE_NAME in text
+    assert "Browse files" in text and "FoodOptimizer" in text
+    assert "it says to stop, or change the target" not in text
