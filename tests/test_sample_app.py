@@ -171,3 +171,31 @@ def test_own_project_with_an_open_round_still_lands_on_make_a_round(at):
     assert not at.exception
     assert at.session_state["_loaded_project"] == "Mine"
     assert at.session_state["main_tab"] == TAB_BATCH
+
+
+def test_try_sample_opens_round6_when_the_results_file_cannot_be_written(at, monkeypatch):
+    def boom(self, data):
+        raise PermissionError("read-only")
+    monkeypatch.setattr(Path, "write_bytes", boom)
+    _click(at, wording.TRY_SAMPLE_LABEL)
+    assert not at.exception and not at.error
+    assert at.session_state["_loaded_project"] == sp.ROUND6
+    assert at.session_state["main_tab"] == wording.TAB_INSIGHTS
+    assert Path(f"{sp.ALL10}.pkl").exists()
+    assert not Path(sp.ROUND6_RESULTS_FILE_NAME).exists()
+
+
+def test_start_this_sample_over_when_the_results_file_cannot_be_written(at):
+    _click(at, wording.TRY_SAMPLE_LABEL)
+    st = json.loads(Path(f"{sp.ROUND6}.pkl").read_text())
+    st["tasting_noise"] = 3.0
+    Path(f"{sp.ROUND6}.pkl").write_text(json.dumps(st))
+    Path(sp.ROUND6_RESULTS_FILE_NAME).unlink()
+    Path(sp.ROUND6_RESULTS_FILE_NAME).mkdir()
+    at.run()
+    _click(at, wording.START_SAMPLE_OVER_LABEL)
+    _click(at, wording.YES_START_SAMPLE_OVER)
+    assert not at.exception and not at.error
+    assert "tasting_noise" not in json.loads(Path(f"{sp.ROUND6}.pkl").read_text())
+    assert [s.value for s in at.success] == [wording.sample_restored(sp.ROUND6)]
+    assert at.session_state["main_tab"] == wording.TAB_INSIGHTS

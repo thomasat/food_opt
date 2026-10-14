@@ -8,3 +8,6 @@ docs/
 .streamlit/secrets.toml
 .claude/*
 !.claude/settings.json
+# Try the sample copies the Round 6 results file into the projects folder
+# (the cwd when running from source).
+/Round 6 results (pilot).xlsx

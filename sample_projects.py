@@ -40,13 +40,22 @@ def shipped_state(name):
 def _write_round6_results(storage, overwrite):
     """A copy of the Round 6 results file beside the projects, so Browse
     files opens on it. Its name is not <name>.pkl, so it is never listed as
-    a project or a copy. A storage with no folder on this disk gets none."""
+    a project or a copy. A storage with no folder on this disk gets none.
+
+    A convenience only: a write that fails (a read-only folder, a folder of
+    that name) is left unsaid, never blocking the samples or a restore —
+    Download the pilot's Round 6 results is still on the screen. Returns
+    whether the file is in place."""
     folder = getattr(storage, "folder", None)
     if folder is None:
-        return
-    target = Path(folder()) / ROUND6_RESULTS_FILE_NAME
-    if overwrite or not target.exists():
-        target.write_bytes(ROUND6_RESULTS.read_bytes())
+        return False
+    try:
+        target = Path(folder()) / ROUND6_RESULTS_FILE_NAME
+        if overwrite or not target.exists():
+            target.write_bytes(ROUND6_RESULTS.read_bytes())
+    except OSError:
+        return False
+    return target.is_file()
 
 
 def ensure(storage):

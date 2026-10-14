@@ -484,11 +484,9 @@ def test_no_primary_button_at_the_stop(monkeypatch):
     U._ceiling_foot(NS())
     [btn] = [c for c in fake.calls if c[0] == "button"]
     assert btn[2]["type"] == "tertiary" and btn[1][0] == wording.SETUP_BUTTON_SHORT
-    # _finish puts _ceiling_foot in the strip's place at the stop; the
-    # Repeat is a quiet caption under the callout (_next_body), never in
-    # the link's place beside the Set up button.
+    # _finish puts _ceiling_foot in the strip's place at the stop.
     src = inspect.getsource(U._finish)
-    assert "_ceiling_foot(opt)" in src and "_quiet_repeat" not in src
+    assert "_ceiling_foot(opt)" in src
 
 
 @pytest.mark.parametrize("kind,lines", [

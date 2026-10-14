@@ -284,3 +284,41 @@ def test_the_docs_say_what_the_screen_says(doc):
     assert sp.ROUND6_RESULTS_FILE_NAME in text
     assert "Browse files" in text and "FoodOptimizer" in text
     assert "it says to stop, or change the target" not in text
+
+
+def _xlsx_write_fails(monkeypatch):
+    """Every write of the results file fails (a full or read-only disk);
+    the project files are written by LocalStorage.save, not this."""
+    def boom(self, data):
+        raise PermissionError("read-only")
+    monkeypatch.setattr(Path, "write_bytes", boom)
+
+
+def test_a_failed_results_file_write_never_blocks_the_samples(store, monkeypatch):
+    _xlsx_write_fails(monkeypatch)
+    assert sorted(sp.ensure(store)) == sorted(sp.NAMES)
+    assert all(Path(f"{n}.pkl").exists() for n in sp.NAMES)
+    assert not Path(_R6_COPY).exists()
+
+
+def test_a_failed_results_file_write_never_fails_a_restore(store, monkeypatch):
+    sp.ensure(store)
+    opt = FoodOptimizer(sp.ROUND6, storage=store)
+    opt.tasting_noise = 3.0
+    opt.save()
+    Path(_R6_COPY).unlink()
+    Path(_R6_COPY).mkdir()                      # a folder in its place
+    assert sp.restore(sp.ROUND6, store) == f"{sp.ROUND6}_sample_reset"
+    assert FoodOptimizer(sp.ROUND6, storage=store).tasting_noise is None
+    Path(_R6_COPY).rmdir()
+    _xlsx_write_fails(monkeypatch)              # or a disk that refuses it
+    assert sp.restore(sp.ROUND6, store) == f"{sp.ROUND6}_sample_reset_1"
+    assert FoodOptimizer(sp.ROUND6, storage=store).tasting_noise is None
+
+
+def test_a_project_write_failure_still_raises(store, monkeypatch):
+    def boom(name, state):
+        raise OSError("disk full")
+    monkeypatch.setattr(store, "save", boom)
+    with pytest.raises(OSError):
+        sp.ensure(store)
