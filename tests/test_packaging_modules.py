@@ -58,6 +58,7 @@ def test_build_script_ships_the_sample_data():
         "data/samples/yogurt_pilot/Yogurt pilot - Round 6 to score.json",
         "data/samples/yogurt_pilot/Yogurt pilot - all 10 Rounds.json",
         "data/samples/yogurt_pilot/Round 6 results (pilot).xlsx",
+        "data/samples/burger_setup/Example setup - plant-based burger.json",
     ]
     for rel in SHIPPED_DATA:
         assert rel.split("/")[-1] in BUILD, rel

@@ -160,12 +160,13 @@ done
 for f in "Yogurt pilot - Round 6 to score.json" "Yogurt pilot - all 10 Rounds.json" "Round 6 results (pilot).xlsx"; do
   assert "Resources/data/samples/yogurt_pilot/$f present" test -f "$DIST_APP/Contents/Resources/data/samples/yogurt_pilot/$f"
 done
+assert "Resources/data/samples/burger_setup/Example setup - plant-based burger.json present" test -f "$DIST_APP/Contents/Resources/data/samples/burger_setup/Example setup - plant-based burger.json"
 assert "no sample_ingredients.csv in the bundle" test ! -e "$DIST_APP/Contents/Resources/data/sample_ingredients.csv"
 assert "Info.plist present"   test -f "$DIST_APP/Contents/Info.plist"
 
 # The bundle deliberately ships Resources/data/ingredients_template.csv and yogurt pilot
 # sample data; anything else under a data dir is stray.
-STRAY="$(find "$DIST_APP" \( -name '*.pkl' -o -name '__pycache__' -o -name 'results' -o -name 'plots' \) 2>/dev/null; find "$DIST_APP/Contents/Resources/data" -type f \( ! -name 'ingredients_template.csv' ! -path '*/yogurt_pilot/*' \) 2>/dev/null; find "$DIST_APP" -name data -not -path '*/Contents/Resources/data' 2>/dev/null)"
+STRAY="$(find "$DIST_APP" \( -name '*.pkl' -o -name '__pycache__' -o -name 'results' -o -name 'plots' \) 2>/dev/null; find "$DIST_APP/Contents/Resources/data" -type f \( ! -name 'ingredients_template.csv' ! -path '*/yogurt_pilot/*' ! -path '*/burger_setup/*' \) 2>/dev/null; find "$DIST_APP" -name data -not -path '*/Contents/Resources/data' 2>/dev/null)"
 if [ -z "$STRAY" ]; then ok "no stray files in bundle"; else fail "no stray files in bundle ($STRAY)"; fi
 
 SIZE=$(stat -f%z "$DMG")

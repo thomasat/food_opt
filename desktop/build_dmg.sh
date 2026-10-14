@@ -47,6 +47,8 @@ cp "$REPO_DIR/data/ingredients_template.csv" "$APP_DIR/Contents/Resources/data/i
 for f in "Yogurt pilot - Round 6 to score.json" "Yogurt pilot - all 10 Rounds.json" "Round 6 results (pilot).xlsx"; do
   cp "$REPO_DIR/data/samples/yogurt_pilot/$f" "$APP_DIR/Contents/Resources/data/samples/yogurt_pilot/$f"
 done
+mkdir -p "$APP_DIR/Contents/Resources/data/samples/burger_setup"
+cp "$REPO_DIR/data/samples/burger_setup/Example setup - plant-based burger.json" "$APP_DIR/Contents/Resources/data/samples/burger_setup/Example setup - plant-based burger.json"
 cp "$DESKTOP_DIR/requirements.lock.txt" "$APP_DIR/Contents/Resources/requirements.lock.txt"
 cp "$DESKTOP_DIR/icon.icns" "$APP_DIR/Contents/Resources/icon.icns"
 
