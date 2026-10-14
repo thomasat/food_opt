@@ -558,7 +558,8 @@ def test_called_it_sits_at_the_top_as_charts(scored):
     # Rebuilt framing: right under its title, said to be rebuilt.
     assert texts[title + 1] == wording.REBUILT_LABEL
     called = [i for i, t in enumerate(texts)
-              if re.match(r"\*\*Round 5: (scored|.+ measured) ", t)]
+              if re.match(r"\*\*Round 5: (scored|.+ measured|all \d+ inside|.+, all \d+ inside"
+                       r"|inside its) ", t)]
     assert called and title < called[0] < first_heading
     line = texts[called[0]]
     # Persona fixes 2: where the scores landed, then the order of the

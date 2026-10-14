@@ -24,8 +24,8 @@ TRY THE SAMPLE
    “Round 6 results (pilot).xlsx”: it is already there. Or click
    “Download the pilot's Round 6 results,” then upload that file.
 4. Review the imported values and click “Save uploaded results.”
-5. Open 4 · Review. After Round 6, it says “Stop: within noise of the
-   top.”
+5. Open 4 · Review. After Round 6, it says “Stop: score within noise
+   of 100.”
 6. Click “See what happened next.” It opens “Yogurt pilot - all 10
    Rounds”: the pilot went on to Rounds 7–10.
 To try it again, open Manage project and click “Start this sample over.”

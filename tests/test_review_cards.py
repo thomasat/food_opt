@@ -59,7 +59,7 @@ EXPECTED = {
         # split over the measurements: the Overall score and Firmness now
         # lean right (Partly), not clearly; the strip reads "Partly:".
         # Specific wording (2026-10-12), re-pinned: each name with its pairs.
-        [("Model", "Partly:", ["Overall score (5/5), Firmness (12/16) +1"]),
+        [("Model", "Partly:", ["Overall score (5/21 called), Firmness +1"]),
          ("Progress", "No new best", ["· best 90.5 of 100"]),
          # Round 2: one form of the Repeat request.
          ("Next", "Record Round 6", ["4 formulations open", "Repeat Formulation 15 to check noise"])],
@@ -107,7 +107,7 @@ EXPECTED = {
     D.TIMING: (
         "Review after Round 12 · 60 formulations",
         # Specific wording (2026-10-12), re-pinned: each name with its pairs.
-        [("Model", "Predicts:", ["Overall score (64/78), Firmness (65/88) +3"]),   # review critique: "Predicts:"
+        [("Model", "Predicts:", ["Overall score (78/110 called), Firmness +3"]),   # review critique: "Predicts:"
          ("Progress", "Plateau since Round 5", ["· best 92.5 of 100"]),   # persona fixes 2
          ("Next", "Make Round 13", ["No Round open", f"**{wording.LEARNED_PREVIEW_TITLE}**"])],
         "Where the app looks next", ["Suggestions go where expected gain peaks."]),
@@ -396,9 +396,11 @@ def test_predictions_tooltip_says_the_coverage_and_skill_exactly(screens):
     # Review critique: the permutation test leaves the Overall score and
     # Firmness leaning right (Partly); the binomial is gone; about 120 words.
     # Specific wording (2026-10-12), re-pinned: the pairs behind Partly.
+    # Sceptic review (2026-10-14), re-pinned: called of all pairs, the right
+    # ones said where not every called pair was.
     assert plain.startswith("Forecasting each Round from earlier Rounds, the model leans right "
-                            "on the order of the Overall score (5 of 5 pairs), Firmness "
-                            "(12/16)")
+                            "on the order of the Overall score (5 of 21 pairs called, all 5 "
+                            "right), Firmness (16/24 called, 12 right)")
     assert "before tasting" not in help_text
     assert "binomial" not in help_text
     assert "Overall score: 13 of 15 landed in their predicted range" in plain

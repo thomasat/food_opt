@@ -509,9 +509,11 @@ def test_the_ceiling_stop_fires_on_a_rising_round(monkeypatch):
     tip = U.ceiling_tip(opt, facts)
     assert wording.CEILING_MEASURE in tip and _words(wording.brief(tip)) <= wording.TOOLTIP_WORDS
     # Round 2: what one new result can and cannot show, said exactly.
+    # Sceptic review (2026-10-14), re-pinned: no advice to move a target to
+    # chase a measurement; On target says which are beyond their noise.
     assert wording.CEILING_MEASURE == (
         "A single new result can't be told apart from this best in the Overall score; a "
-        "single measurement still can (change its target or Share of score to chase it).")
+        "single measurement still can (On target says which are beyond their noise).")
     # Below the threshold, Rising keeps Make Round 7.
     facts.best = NS(score=95.0, formulation=10)
     assert not U.ceiling_stop(opt, facts)

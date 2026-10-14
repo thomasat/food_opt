@@ -1284,7 +1284,7 @@ def _stop_callout(opt, facts):
     as rated and within noise of target), in a warm tinted box."""
     with st.container(key="insights_stop_callout", gap="xsmall"):
         with st.container(key="insights_stop_head", gap=None):
-            st.markdown(f"**{_say(opt, wording.STOP_CALLOUT_HEAD)}**")
+            st.markdown(f"**{_say(opt, stop_head_text(opt))}**")
         st.markdown(_say(opt, stop_line_text(opt, facts)),
                     help=wording.brief(ceiling_tip(opt, facts)))
         reason = stop_reason_text(opt)
@@ -1292,6 +1292,35 @@ def _stop_callout(opt, facts):
             best = opt.best_index()
             res = opt.results_history[best] if best is not None else {}
             st.markdown(reason, help=on_target_help_text(opt, res) or None)
+
+
+def stop_head_text(opt):
+    """Sceptic review: 'Stop: score within noise of 100' — the top score,
+    from the project."""
+    return wording.stop_callout_head(f"{float(opt.utility_ceiling()):g}")
+
+
+def noise_half(opt, name, noise=None):
+    """The ± band of `name` around its best value where 95 % of single
+    tastings land: Z95 × its noise (its Repeats' SD, else derived from the
+    project's tasting noise, learned.pair_noise) — within_noise_of_target's
+    band; None without a noise."""
+    noise = learned.pair_noise(opt) if noise is None else noise
+    sd = noise.get(name)
+    return insights.Z95 * float(sd) if sd else None
+
+
+def beyond_noise(opt, offs):
+    """[bool] for ideal_gaps' `offs`: whether each gap is beyond its own
+    band (noise_half, the "?"'s ±); None when any band is unknown."""
+    noise = learned.pair_noise(opt)
+    flags = []
+    for o, _amount, gap in offs:
+        half = noise_half(opt, o['name'], noise)
+        if half is None:
+            return None
+        flags.append(abs(float(gap)) > half + 1e-9)
+    return flags
 
 
 def stop_line_text(opt, facts):
@@ -1313,7 +1342,12 @@ def stop_reason_text(opt):
     on, n, offs, targets = gaps
     texts = [wording.spider_off(o['name'], amount, "short" if o.get('goal') != 'target'
                                 else "under" if gap < 0 else "over") for o, amount, gap in offs]
-    return _say(opt, wording.stop_on_target(on, n, texts, targets))
+    # Sceptic review: each off-target measurement against its own noise band.
+    try:
+        beyond = beyond_noise(opt, offs[:2])
+    except Exception:
+        beyond = None
+    return _say(opt, wording.stop_on_target(on, n, texts, targets, beyond))
 
 
 NOISE_KEY = "insights_tasting_noise"
@@ -1345,7 +1379,7 @@ def _noise_control(opt):
                        help=_say(opt, wording.TASTING_NOISE_MEASURED_HELP), width="content")
             return
         st.markdown(_say(opt, wording.TASTING_NOISE_LABEL), width="content",
-                    help=_say(opt, wording.TASTING_NOISE_HELP))
+                    help=_say(opt, tasting_noise_help_text(opt, yard)))
         want = insights.assumed_noise(opt)
         choices = list(insights.TASTING_NOISE_CHOICES)
         if all(abs(want - c) > 1e-9 for c in choices):
@@ -1357,6 +1391,73 @@ def _noise_control(opt):
                          v, insights.ASSUMED_NOISE_SD),
                      label_visibility="collapsed", width=200, on_change=_on_noise,
                      args=(opt,), disabled=confirmation_open())
+
+
+def noise_unit_text(opt):
+    """Sceptic review: what 1 point of the Overall score is in each scored
+    measurement's own units, the assumption the Review's measurement noise
+    is derived by (learned.derived_noise at 1 point): 'Here 1 point = 0.3
+    per measurement, in its own units (Range 0–15).'; '' with none."""
+    cells = []
+    for o in learned.scored_measurements(opt):
+        v = learned.derived_noise(opt, o['name'], 1.0)
+        if not v:
+            continue
+        text = _num(v)
+        exact = abs(float(text) - v) < 1e-9
+        rng = f"{float(o.get('min_val', 0.0)):g}–{float(o.get('max_val', 10.0)):g}"
+        # A unit like '/15' says the Range again; one like 'N' joins both.
+        unit = str(o.get('unit') or "")
+        if unit and not unit.startswith("/"):
+            text, rng = join_unit(text, unit), join_unit(rng, unit)
+        cells.append((o['name'], text if exact else f"≈{text}", rng))
+    return wording.noise_per_measurement(cells)
+
+
+def stop_noise_floor(opt, yard):
+    """Sceptic review: the tasting noise (points) over which the stop shows
+    — at_ceiling's rule, round(top − best, 2) < round(rise_threshold(σ, 1),
+    2), solved for σ by bisection (the rule rises with σ). None where the
+    stop does not rest on that rule alone: noise measured from Repeats, a
+    formulation made more than once (a disagreeing Repeat replaces the
+    stop), a Round open, fewer than MIN_ROWS scored, no Best so far."""
+    if yard is None or getattr(yard, "from_repeats", False) or getattr(yard, "groups", 0):
+        return None
+    if opt.complete_count() < insights.MIN_ROWS:
+        return None
+    if getattr(opt, "pending_batch", None) and open_rows(opt):
+        return None
+    best = insights.best_facts(opt)
+    if best is None:
+        return None
+    gap = round(float(opt.utility_ceiling()) - float(best.score), 2)
+
+    def holds(sigma):
+        return gap < round(insights.rise_threshold(sigma, 1), 2)
+    lo, hi = 0.0, 1.0
+    while not holds(hi):
+        lo, hi = hi, hi * 2
+        if hi > 1e6:
+            return None
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        lo, hi = (lo, mid) if holds(mid) else (mid, hi)
+    return hi
+
+
+def tasting_noise_help_text(opt, yard=None):
+    """The Tasting noise "?" (sceptic review): its unit, what 1 point is per
+    measurement here, and the noise over which the stop shows."""
+    try:
+        per = noise_unit_text(opt)
+    except Exception:
+        per = ""
+    try:
+        floor = stop_noise_floor(opt, yard)
+    except Exception:
+        floor = None
+    stop = wording.stop_holds_above(f"{floor:.2f}") if floor is not None else ""
+    return wording.tasting_noise_help(per, stop, f"{float(opt.utility_ceiling()):g}")
 
 
 def ceiling_tip(opt, facts):
@@ -1469,12 +1570,21 @@ def on_target_help_text(opt, res):
         gaps = ideal_gaps(opt, res)
         if gaps is None:
             return ""
-        on, n, _offs, targets = gaps
+        on, n, offs, targets = gaps
         w = within_noise_of_target(opt, res)
+        # Sceptic review: the ones beyond their band named, with it.
+        noise = learned.pair_noise(opt)
+        beyond = []
+        for o, amount, gap in offs:
+            h = noise_half(opt, o['name'], noise)
+            if h is not None and abs(float(gap)) > h + 1e-9:
+                kind = ("short" if o.get('goal') != 'target' else "under" if gap < 0 else "over")
+                beyond.append((wording.spider_off(o['name'], amount, kind), f"{h:.1f}"))
     except Exception:
         return ""
     within, half = (w[0], w[2]) if w is not None else (None, "")
-    return _say(opt, wording.on_target_help(on, n, within, half or None, targets))
+    return _say(opt, wording.on_target_help(on, n, within, half or None, targets,
+                                            beyond if w is not None else ()))
 
 
 def on_ideal(opt, name, gap):
@@ -2092,6 +2202,20 @@ def ceiling_stop(opt, facts):
     return at_ceiling(opt, facts)
 
 
+def ceiling_setup_text(opt):
+    """Sceptic review: the stop's Set up "?", checking first — 'To check
+    the stop, repeat Formulation 16: …' (Best so far, the formulation the
+    stop reads), then what a new target or Share of score does."""
+    try:
+        best = opt.best_index()
+        no = int(opt.formulation_ids[best]) if best is not None else None
+        assumed = not insights.noise_yardstick(opt).from_repeats
+        sd_text = noise_sd_text(opt)
+    except Exception:
+        return wording.CEILING_SETUP_HELP
+    return wording.ceiling_setup_help(no, sd_text, assumed)
+
+
 def _ceiling_foot(opt):
     """The strip's one primary at the top score: "Change on Set up", landing
     on Set up's callout (a target or a Share of score)."""
@@ -2099,10 +2223,10 @@ def _ceiling_foot(opt):
     # Round-2 fixes (P2 #16): secondary — stopping needs no button, and a
     # red Set up read as the next step.
     # Final demo (B1): tertiary — no primary, nor a button, at the stop.
+    tip = _say(opt, ceiling_setup_text(opt))
     if st.button(wording.SETUP_BUTTON_SHORT, type="tertiary",
-                 disabled=not lit, key="insights_foot_setup",
-                 help=_say(opt, wording.CEILING_SETUP_HELP)) and lit:
-        st.session_state[SETUP_CALLOUT_KEY] = _say(opt, wording.CEILING_SETUP_HELP)
+                 disabled=not lit, key="insights_foot_setup", help=tip) and lit:
+        st.session_state[SETUP_CALLOUT_KEY] = tip
         go_to_tab(TAB_SETUP, section=SETUP_CALLOUT_SLOT)
 
 
@@ -6083,10 +6207,14 @@ class LearnedFacts:
 
 
 def pair_counts(opt, orderings):
-    """Specific wording: {label: (right, counted pairs)} — the evidence a
-    verdict word carries wherever it shows ('Partly: Tangy (5 of 5
-    pairs)')."""
-    return {learned_label(opt, n): (o.right, o.pairs) for n, o in orderings.items()}
+    """Specific wording: {label: (right, called pairs, all pairs)} — the
+    evidence a verdict word carries wherever it shows, called of all
+    (sceptic review: 'Partly: Tangy (5 of 9 called)'; it read '(5 of 5
+    pairs)', the called ones only). All pairs: every pair within a checked
+    Round, ties and too-close ones too (the Forecast check's own total)."""
+    return {learned_label(opt, n): (o.right, o.pairs, o.pairs + getattr(o, "ties", 0)
+                                    + getattr(o, "close", 0))
+            for n, o in orderings.items()}
 
 
 def model_names(opt, orderings, verdict):
@@ -6364,15 +6492,32 @@ def called_line(opt, lf):
     r = lf.called[0]
     lead = next((it for it in lf.items if it[0] == insights.SCORE), lf.items[0])
     name, call, cks = lead
-    inside = sum(1 for c in cks if c.low <= c.measured <= c.high)
-    above = sum(1 for c in cks if c.measured > c.high)
-    below = sum(1 for c in cks if c.measured < c.low)
+    # Sceptic review: a range over the whole Range is no forecast, counted
+    # neither in nor outside.
+    ranged = [c for c in cks if not no_forecast(opt, c)]
+    inside = sum(1 for c in ranged if c.low <= c.measured <= c.high)
+    above = sum(1 for c in ranged if c.measured > c.high)
+    below = sum(1 for c in ranged if c.measured < c.low)
     # Review critique: measured ties are counted aloud too ("1 tie").
     order = wording.check_order(call.right, call.counted, call.close,
                                 tied=bool(cks) and learned.all_tied(cks) and len(cks) > 1,
                                 ties=call.ties)
     subject = None if name == insights.SCORE else learned_label(opt, name)
     return _short(opt, wording.check_line(r, inside, above, below, order, subject))
+
+
+def no_forecast(opt, c):
+    """Sceptic review: whether the 95 % range of check (or prediction) `c`
+    covers its result's whole Range — its low within NO_FORECAST_EDGE (1 %)
+    of the Range's width of the Range's low, and its high as close to the
+    Range's high: a range of the whole Range forecasts nothing (Creaminess
+    0.0–15.0 on 0–15). False for a name with no Range."""
+    try:
+        lo, hi = insights._range_of(opt, c.name)
+    except KeyError:
+        return False
+    edge = wording.NO_FORECAST_EDGE * (float(hi) - float(lo))
+    return float(c.low) <= float(lo) + edge and float(c.high) >= float(hi) - edge
 
 
 def round_predicted_frame(opt, checks, r):
@@ -6389,13 +6534,17 @@ def round_predicted_frame(opt, checks, r):
         for c in learned.round_checks(checks, name, r):
             side = ("above" if c.measured > c.high + 1e-9 else
                     "below" if c.measured < c.low - 1e-9 else "in")
+            # Sceptic review: a range over the whole Range forecasts nothing.
+            none = no_forecast(opt, c)
             rows.append({
                 _say(opt, wording.RESULTS_RESULT_COLUMN): learned_label(opt, name),
                 # Round-2 fixes (P3 #18): "F16" in tables and charts.
                 _say(opt, wording.FORMULATION_CAP): _short(opt, f"F{int(c.formulation)}"),
                 _say(opt, wording.MEASURED_COLUMN): f"{c.measured:.{d}f}",
-                _say(opt, wording.RESULTS_PREDICTED_COLUMN): capped_range(c, hi, d),
-                _say(opt, wording.RESULTS_LANDED_COLUMN): _say(opt, wording.RESULTS_LANDED[side])})
+                _say(opt, wording.RESULTS_PREDICTED_COLUMN): (
+                    _say(opt, wording.NO_FORECAST) if none else capped_range(c, hi, d)),
+                _say(opt, wording.RESULTS_LANDED_COLUMN): (
+                    wording.TOO_UNCERTAIN if none else _say(opt, wording.RESULTS_LANDED[side]))})
     return pd.DataFrame(rows) if rows else None
 
 
@@ -6713,7 +6862,7 @@ def learned_verdict_line(opt, lf):
                 wording.named_pairs_short(n, counts.get(n))) for i, n in enumerate(counted)}
     alone = [(w, [said.get(n) or wording.named_pairs_short(n, counts.get(n)) for n in names])
              for w, names in groups]
-    called = []
+    called, said_c = [], said
     if o is not None and o.pairs and score in said and total and total > o.pairs:
         # Final demo (A3): 'Overall score (5 of 12 pairs called, all 5 right)',
         # when it fits; else the form before.
@@ -6724,9 +6873,20 @@ def learned_verdict_line(opt, lf):
     # The count and as many groups as fit; else the groups alone with their
     # pairs, else bare (a verdict is never dropped for the count); else the
     # count alone.
+    # Sceptic review: the called-of-all forms run longer; before every count
+    # is dropped, the first name's count alone ('Partly: Overall score (15
+    # of 24 pairs called, 10 right), Consistency, Tangy.').
+    first = counted[0] if counted else None
+    long_ = said_c if called else said
+    lead = [(w, [long_.get(n) if n == first else n for n in names]) for w, names in groups]
+    # More verdict groups first: at each number of groups, every count, then
+    # the first count alone (named_pairs and score_pairs_called now read the
+    # same, so called and alone differ only in the Overall score's place).
     tries = [(count, beside[:k]) for k in range(len(groups), 0, -1) if count]
-    tries += [(None, called[:k]) for k in range(len(called), 0, -1)]
-    tries += [(None, alone[:k]) for k in range(len(groups), 0, -1)]
+    for k in range(len(groups), 0, -1):
+        tries += [(None, called[:k])] if k <= len(called) else []
+        tries += [(None, alone[:k])]
+        tries += [(None, lead[:k])] if first else []
     tries += [(None, groups[:k]) for k in range(len(groups), 0, -1)]
     tries += [(count, [])] if count else []
     line = next((t for t in (wording.learned_line(c, g) for c, g in tries)

@@ -48,16 +48,23 @@ def test_evidence_numbers_are_the_cards(screens):  # noqa: F811
     # Persona fixes 2: too-close pairs left out; Cook loss joins Firmness.
     # Review critique: Partly under the permutation test (Cook loss too: +1).
     # Specific wording (2026-10-12), re-pinned: each name with its pairs.
-    assert p["lines"] == ["Overall score (5/5), Firmness (12/16) +1"]
+    assert p["lines"] == ["Overall score (5/21 called), Firmness +1"]
     ev = p["help"].split("\n\n")[1]
     # Persona fixes 2: a result with no pair far enough apart is left out
     # (Line A's Overall score).
     assert ev.startswith("Evidence: pairs ordered right from earlier Rounds — ")
     # Round 2 (P3 #19): the coverage is the plain line's; the experts' line
     # keeps the skill figures and never repeats it.
-    plain_part, expert = p["help"].split("For experts:")[0], p["help"].split("For experts:")[1]
+    # Sceptic review (2026-10-14), re-pinned: the plain sentence carries each
+    # Partly name's pairs called of all (79 words with the evidence's 10), so
+    # the experts' first sentence (36 words) no longer fits the ~120 and is
+    # left to Method and definitions, as brief() does with any paragraph.
+    plain_part = p["help"].split("For experts:")[0]
     assert "Overall score: 13 of 15 landed in their predicted range" in plain_part
-    assert "13 of 15 inside" not in expert and "Skill over" in expert
+    assert "Overall score (5 of 21 pairs called, all 5 right), Firmness (16/24 called, " \
+           "12 right)" in plain_part
+    assert "For experts:" not in p["help"] and "Skill over" not in p["help"]
+    assert len(p["help"].split()) <= wording.TOOLTIP_WORDS
     assert "qLogNEI" in n["help"].split("\n\n")[1]
 
 

@@ -197,7 +197,9 @@ def test_called_it_off_orders_say_pairs_in_the_right_order(plain):
 def test_called_it_landing_words():
     assert wording.called_landing(3.8) == "scored about 4 above forecast"
     assert wording.called_landing(None, -2.2) == "scored about 2 below forecast"
-    assert wording.called_landing() == "scored as forecast"
+    # Sceptic review (2026-10-14): the count and the reference, not "as forecast".
+    assert wording.called_landing() == "all inside their 95 % range"
+    assert wording.called_landing(n=3) == "all 3 inside their 95 % range"
     assert wording.called_order([[16, 17], [18]]) == "F16, F17 above F18"
     assert wording.called_order([[1], [2], [3], [4]]) == "F1 top, F4 bottom"
 
@@ -422,9 +424,11 @@ def test_model_tooltip_opens_plain_and_ends_for_experts(monkeypatch):
     # Rebuilt framing: the forecast had none of that Round's results, which
     # is true live and in a replay; "before tasting" read as a timing claim.
     # Specific wording (2026-10-12), re-pinned: the pairs behind Predicts.
+    # Sceptic review (2026-10-14), re-pinned: called of all pairs (these
+    # hand-made orderings have no ties or too-close pairs: all = called).
     assert tip.startswith("Forecasting each Round from earlier Rounds, the model put the "
-                          "Overall score (10 of 11 pairs) and Consistency (8/8) in the right "
-                          "order")
+                          "Overall score (11 of 11 pairs called, 10 right) and Consistency "
+                          "(8/8 called) in the right order")
     assert "before tasting" not in tip
     assert "still very uncertain" not in tip
     assert "about as accurate as assuming each new formulation scores like your best" in tip

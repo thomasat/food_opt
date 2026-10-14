@@ -40,8 +40,10 @@ def test_rebuilt_strings_never_claim_the_time():
 
 
 def test_rebuilt_wording_pinned():
-    assert wording.REBUILT_LABEL == "Rebuilt from earlier Rounds"
-    assert wording.RESULTS_PREDICTED_CAPTION == "Rebuilt from earlier Rounds: what the model expected."
+    # Sceptic review (2026-10-14), re-pinned: rebuilt today, not at the time.
+    assert wording.REBUILT_LABEL == "Rebuilt today from earlier Rounds"
+    assert wording.RESULTS_PREDICTED_CAPTION == (
+        "Rebuilt today from earlier Rounds: the model's forecasts.")
     assert wording.LEARNED_FORECAST_TITLE == "Expected from earlier Rounds"
     # Review critique (fix 1): the rule describes the shared-axis chart.
     assert wording.CALLED_RULE.startswith("Rebuilt today from the formulations scored before "

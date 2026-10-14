@@ -310,8 +310,11 @@ def _round_predicted(opt):
     # Round-2 fixes (P2 #15): every row shown, no inner scroll.
     st.dataframe(frame, hide_index=True, key="round_predicted",
                  height=35 * (len(frame) + 1) + 3)
+    # Sceptic review: the "?" says what No forecast is, when a row reads it.
+    none = (frame[wording.for_project(opt, wording.RESULTS_PREDICTED_COLUMN)]
+            == wording.for_project(opt, wording.NO_FORECAST)).any()
     st.caption(wording.for_project(opt, wording.RESULTS_PREDICTED_CAPTION),
-               help=wording.for_project(opt, wording.results_predicted_help(last)))
+               help=wording.for_project(opt, wording.results_predicted_help(last, bool(none))))
 
 
 def _progress_line(opt):
