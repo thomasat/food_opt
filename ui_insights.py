@@ -1354,68 +1354,6 @@ def stop_reason_text(opt):
     return _say(opt, wording.stop_on_target(on, n, texts, targets, beyond))
 
 
-def noise_unit_text(opt):
-    """Sceptic review: what 1 point of the Overall score is in each scored
-    measurement's own units, the assumption the Review's measurement noise
-    is derived by (learned.derived_noise at 1 point): 'Here 1 point = 0.3
-    per measurement, in its own units (Range 0–15).'; '' with none."""
-    cells = []
-    for o in learned.scored_measurements(opt):
-        v = learned.derived_noise(opt, o['name'], 1.0)
-        if not v:
-            continue
-        text = _num(v)
-        exact = abs(float(text) - v) < 1e-9
-        rng = f"{float(o.get('min_val', 0.0)):g}–{float(o.get('max_val', 10.0)):g}"
-        # A unit like '/15' says the Range again; one like 'N' joins both.
-        unit = str(o.get('unit') or "")
-        if unit and not unit.startswith("/"):
-            text, rng = join_unit(text, unit), join_unit(rng, unit)
-        cells.append((o['name'], text if exact else f"≈{text}", rng))
-    return wording.noise_per_measurement(cells)
-
-
-def stop_noise_floor(opt, yard):
-    """Sceptic review: the tasting noise (points) over which the stop shows
-    — at_ceiling's rule, round(top − best, 2) < round(rise_threshold(σ, 1),
-    2), solved for σ by bisection (the rule rises with σ). None where the
-    stop does not rest on that rule alone: noise measured from Repeats, a
-    formulation made more than once (a disagreeing Repeat replaces the
-    stop), a Round open, fewer than MIN_ROWS scored, no Best so far."""
-    if yard is None or getattr(yard, "from_repeats", False) or getattr(yard, "groups", 0):
-        return None
-    if opt.complete_count() < insights.MIN_ROWS:
-        return None
-    if getattr(opt, "pending_batch", None) and open_rows(opt):
-        return None
-    best = insights.best_facts(opt)
-    if best is None:
-        return None
-    gap = round(float(opt.utility_ceiling()) - float(best.score), 2)
-
-    def holds(sigma):
-        return gap < round(insights.rise_threshold(sigma, 1), 2)
-    lo, hi = 0.0, 1.0
-    while not holds(hi):
-        lo, hi = hi, hi * 2
-        if hi > 1e6:
-            return None
-    for _ in range(60):
-        mid = (lo + hi) / 2
-        lo, hi = (lo, mid) if holds(mid) else (mid, hi)
-    return hi
-
-
-def stop_floor_text(floor):
-    """The floor as the "?" says it (fix round 2): rounded DOWN to the
-    hundredth, so it never reads above the true one; under 0.01 (Best so
-    far at the top): None, 'at any noise'."""
-    if floor is None:
-        return None
-    down = math.floor(floor * 100 + 1e-9) / 100
-    return None if down < 0.01 else f"{down:.2f}"
-
-
 def noise_basis_text(opt, facts):
     """The noise the stop rests on, in one plain line (spec §11: the
     Review has no noise control): measured from Repeats ('Results repeat
@@ -1423,13 +1361,17 @@ def noise_basis_text(opt, facts):
     use — the project's Tasting noise (Set up › More settings), else 1
     point — with the Repeat that would measure it ('Assumes results repeat
     within about 1 point until Repeats measure it. Repeat Formulation 16 to
-    check.')."""
+    check.'); Repeats from 3 df that agree closer than REPEAT_SD_SHOWN:
+    'Repeats agree within 0.1 point; using 1 point.'"""
     y = getattr(facts, "yardstick", None)
     if getattr(y, "from_repeats", False) and getattr(y, "value", None) is not None:
         return wording.noise_basis(f"{y.value:.1f}", measured=True, repeats=y.df)
+    if not getattr(y, "assumed", True):
+        # Repeats from YARDSTICK_DF df whose SD is under REPEAT_SD_SHOWN:
+        # the setting stays in use, and no Repeat is asked for.
+        return wording.noise_basis(noise_sd_text(opt), tight=True)
     best = getattr(facts, "best", None)
-    no = getattr(best, "formulation", None) if getattr(y, "assumed", True) else None
-    return wording.noise_basis(noise_sd_text(opt), repeat_no=no)
+    return wording.noise_basis(noise_sd_text(opt), repeat_no=getattr(best, "formulation", None))
 
 
 def ceiling_tip(opt, facts):
