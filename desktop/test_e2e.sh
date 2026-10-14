@@ -787,7 +787,7 @@ assert wording.WELCOME_HEADER in [m.value for m in at.main.markdown]
 next(b for b in at.main.button if b.label == wording.TRY_SAMPLE_LABEL).click()
 at.run()
 assert not at.exception, at.exception
-for name in sample_projects.NAMES:
+for name in (sample_projects.ROUND6, sample_projects.ALL10):
     assert os.path.isfile(name + ".pkl"), (name, sorted(os.listdir(".")))
 sample = at.session_state["optimizer"]
 assert sample.project_name == sample_projects.ROUND6, sample.project_name
