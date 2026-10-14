@@ -197,8 +197,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         let viewItem = NSMenuItem(); main.addItem(viewItem)
         let viewMenu = NSMenu(title: "View")
+        // Cmd+= is what people press; a "+" key equivalent only matches
+        // Cmd+Shift+=. Keep the visible "+" item and add a hidden "=" twin
+        // (allowsKeyEquivalentWhenHidden, macOS 13+) so both shortcuts zoom.
         viewMenu.addItem(NSMenuItem(title: "Bigger Text",
             action: #selector(zoomIn), keyEquivalent: "+"))
+        let zoomInEquals = NSMenuItem(title: "Bigger Text",
+            action: #selector(zoomIn), keyEquivalent: "=")
+        zoomInEquals.isHidden = true
+        zoomInEquals.allowsKeyEquivalentWhenHidden = true
+        viewMenu.addItem(zoomInEquals)
         viewMenu.addItem(NSMenuItem(title: "Smaller Text",
             action: #selector(zoomOut), keyEquivalent: "-"))
         viewMenu.addItem(NSMenuItem(title: "Actual Size",
