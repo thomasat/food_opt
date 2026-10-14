@@ -39,6 +39,11 @@ def _builder():
     return mod
 
 
+@pytest.fixture(autouse=True)
+def _isolate_cwd(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)          # a project saves into the cwd
+
+
 @pytest.fixture(scope="module")
 def samples(tmp_path_factory):
     """(Round 6 sample with Round 6 recorded, the all-10 sample)."""
@@ -153,7 +158,13 @@ def test_unchanged_rows_fold_into_one_line():
     assert [r["name"] for r in pic["rows"]] == ["Oil"]
     assert pic["unchanged"] == ["Salt", "Sugar"]
     assert wording.changes_unchanged(pic["unchanged"]) == "Unchanged: Salt and Sugar."
-    assert wording.changes_unchanged(["A", "B", "C", "D", "E"]) == "Unchanged: A, B and 3 more."
+    assert wording.changes_unchanged(["A", "B", "C", "D", "E"]) == "Unchanged: A, B, C, D and E."
+    # Past 8 words: the count; the "?" names them.
+    long = ["Nutritional yeast", "Lemon juice", "Tap water", "Tapioca starch"]
+    assert wording.changes_unchanged(long) == "Unchanged: 4 others."
+    assert "Unchanged: Nutritional yeast, Lemon juice, Tap water, Tapioca starch." in \
+        wording.changes_picture_help("Start (F1)", "Best so far (F2)", 1, unchanged=long)
+    assert "Unchanged:" not in wording.changes_picture_help("S", "B", 1, unchanged=["Salt"])
 
 
 # ------------------------------------------------------------------ #
@@ -226,7 +237,7 @@ def test_the_block_keeps_one_height_and_one_element_count(samples, monkeypatch):
         titles = [c[1][0] for c in fake.calls if c[0] == "markdown"]
         assert titles[0] == f"**{wording.changes_title(r)}**"
         assert not [t for t in titles if t.startswith("| ")]        # no table
-    assert counts == {3}
+    assert counts == {4}            # title, picture or line, two notes or held places
 
 
 # ------------------------------------------------------------------ #
@@ -246,8 +257,32 @@ def test_the_panel_shares_the_width_and_stacks_when_zoomed_in():
     assert f"flex: {grow_r} 1 {right}px" in U.REPLAY_STYLE
     # Never narrower than at 100 %; side by side at 125 %, stacked at 150 %.
     assert left >= WIDTH_AT_100
-    assert left + right + GAP <= CONTENT_1152 < 2 * CONTENT_1152
+    assert left + right + GAP <= CONTENT_1152
     assert left + right + GAP > CONTENT_960
+    # At 1152 px the extra width is shared 55:45: the score chart as measured.
+    extra = CONTENT_1152 - left - right - GAP
+    score_w = left + extra * grow_l / (grow_l + grow_r)
+    assert WIDTH_AT_100 <= score_w == pytest.approx(552, abs=2)
+
+
+def test_the_panel_style_has_no_tag_in_it():
+    # st.html reads anything like "<key>" inside the <style> as a tag and
+    # drops the rules after it (fix round 2): only the style tags themselves.
+    body = U.REPLAY_STYLE.strip()
+    assert body.startswith("<style>") and body.endswith("</style>")
+    assert "<" not in body[len("<style>"):-len("</style>")]
+    assert "/*" not in body
+
+
+def test_the_profile_answer_keeps_two_lines_room():
+    """Fix round 2: a long answer line wraps at 1152 px on some Rounds only
+    (all-10, Rounds 7-10); two lines are always kept, so the rings never
+    move during Play (measured: y 158 px at Rounds 1-9 at 1152 x 720)."""
+    assert f".st-key-{U.SPIDER_ANSWER_KEY} {{ min-height: {U.SPIDER_ANSWER_LINES_EM}em; }}" \
+        in U.REPLAY_STYLE
+    assert U.SPIDER_ANSWER_LINES_EM >= 2 * 1.5            # two lines of 0.94rem type
+    src = inspect.getsource(U._spider_block)
+    assert src.index("key=SPIDER_ANSWER_KEY") < src.index("spider_round_answer(")
 
 
 def test_the_score_chart_is_titled_plainly():
@@ -320,3 +355,57 @@ def test_the_score_chart_draws_no_noise_band_and_keeps_the_top_zone(samples):
         assert wording.TOP_ZONE in text
     assert "Blue band" not in wording.story_improving_help("84.2", "96.1", 1, 6, "2.3")
     assert not hasattr(wording, "noise_band")
+
+
+# ------------------------------------------------------------------ #
+#  Fix round 2: limits on several rows, beyond an end, choices
+# ------------------------------------------------------------------ #
+
+def test_a_limit_on_several_rows_is_said_under_the_picture(samples):
+    _, all10 = samples
+    lines = {r: _pic(all10, r)[1]["shared_line"] for r in (3, 5, 6, 7, 10)}
+    assert lines[5] == "Best sits at the Ingredient total (≤ 98.7 g)."
+    assert lines[3] == lines[6] == lines[5]
+    assert lines[10] == lines[7] == "Best sits at the Ingredient total (≥ 97.6 g)."
+    assert all(wording._note_words(t) <= 8 for t in lines.values())
+    # The "?" keeps the detail.
+    assert "the Ingredient total (≥ 97.6 g)" in U.what_changed(all10, 10).limits_help
+    assert wording.changes_shared(["the A + B (≤ 9 g)", "the Ingredient total (≤ 98.7 g)"]) == \
+        "Best sits at 2 limits on several rows."
+
+
+def test_beyond_an_end_is_said_beyond():
+    opt = FoodOptimizer("panel_beyond")
+    opt.set_amount_unit("g")
+    opt.add_ingredient("Oil", 0, 10)
+    opt.add_ingredient("Salt", 0, 10)
+    opt.add_objective("Firmness", 100, goal="target", target=6, min_val=0, max_val=10)
+    opt.tell({"Oil": 2.0, "Salt": 1.0}, {"Firmness": 3}, formulation_no=1, batch_no=1)
+    opt.tell({"Oil": 9.0, "Salt": 10.0}, {"Firmness": 6}, formulation_no=2, batch_no=2)
+    opt._var_by_name("Oil")['bounds'] = (0.0, 8.0)        # narrowed after F2 was made
+    rows = {r["name"]: r for r in _pic(opt, 2)[1]["rows"]}
+    assert (rows["Oil"]["label"], rows["Oil"]["past"]) == ("+7 g, beyond Highest", True)
+    assert rows["Oil"]["now"] == 1.0                        # drawn at the bar's end
+    assert (rows["Salt"]["label"], rows["Salt"]["past"]) == ("+9.0 g, at Highest", False)
+
+
+def test_a_long_choice_is_cut_on_the_face_and_whole_in_the_tooltip():
+    opt = FoodOptimizer("panel_choice")
+    opt.add_process_parameter("Proof time", 30, 90, unit="min")
+    long_a, long_b = "Compostable kraft tray", "Recyclable mono-material pouch"
+    opt.variables.append({'name': "Package", 'type': 'categorical',
+                          'options': [long_a, long_b], 'category': 'process'})
+    opt.add_objective("Volume", 100, goal="max", min_val=0, max_val=10)
+    for no, (r, t, pack, v) in enumerate(((1, 30, long_a, 3), (1, 60, long_a, 4),
+                                          (2, 60, long_b, 8)), 1):
+        opt.tell({"Proof time": float(t), "Package": pack}, {"Volume": v},
+                 formulation_no=no, batch_no=r)
+    pic = U.changes_picture(opt, U.what_changed(opt))
+    row = pic["rows"][0]
+    assert row["label"].endswith("…") and len(row["label"]) == U._CHOICE_CHARS
+    assert row["change_text"] == f"{long_a} → {long_b}"
+    # Choice rows only: no bar, so no Lowest/Highest header.
+    spec = U.changes_chart(opt, pic).to_dict()
+    assert all("axis" not in (l["encoding"].get("x") or {}) or l["encoding"]["x"]["axis"] is None
+               for l in _flat_layers(spec))
+    assert "'Lowest'" not in json.dumps(spec)

@@ -255,7 +255,9 @@ def test_a_replay_step_draws_as_many_elements_as_any_round():
     # Nothing of the Round before lingers (dimmed) while a step waits.
     # Round panel (spec §10, re-pinned): the title, the picture (or the
     # still-the-start line) and the Unchanged line, or a held place.
-    assert inspect.getsource(U._changes_block).count("_hold(1)") == 2
+    # Round panel (fix round 2): the notes row keeps two places at every Round.
+    assert inspect.getsource(U._changes_block).count("_changes_notes(") == 2
+    assert "_hold(1)" in inspect.getsource(U._changes_notes)
     assert "_hold(1)" in inspect.getsource(U._replay_bar)
 
 
@@ -332,13 +334,28 @@ def test_one_round_has_no_control_and_no_frame():
 #  Geometry: legible beside each other, no horizontal scroll
 # ------------------------------------------------------------------ #
 
+def _flat_layers(spec):
+    out = []
+    for layer in spec.get("layer", []):
+        out += _flat_layers(layer) if "layer" in layer else [layer]
+    return out
+
+
 def test_the_profile_stays_legible_beside_the_chart():
     # Round panel (spec §10, re-pinned): the profile is PANEL_SPIDER_H tall
     # and as wide as its column (fit), its rings as large as the column lets.
-    assert U.PANEL_SPIDER >= 340 and U.PANEL_SPIDER_H > U.PANEL_SPIDER
     opt = _spider_opt()
     data = U.spider_data(opt)
     spec = U.spider_chart(opt, data, 4, size=U.PANEL_SPIDER_H, fit=True).to_dict()
+    # The rings' radius in px at a column's plot width (the x domain's own
+    # expression): at least 100 px in the narrowest side-by-side column
+    # (393 px at 1152 x 720), the 340 px square's 155 px once there is room.
+    expr = next(l["encoding"]["x"]["scale"]["domain"][1]["expr"]
+                for l in _flat_layers(spec) if "scale" in l["encoding"].get("x", {}))
+    radius = lambda w: (w / 2) / eval(expr, {"width": w, "max": max, "min": min})  # noqa: E731
+    assert radius(393) >= 100
+    assert radius(600) == pytest.approx((U.PANEL_SPIDER_H / 2 - 19) / 1.08)
+    assert radius(600) >= U.PANEL_SPIDER / 2 / 1.1
     assert "width" not in spec and spec["height"] == U.PANEL_SPIDER_H + U._SPIDER_KEY_H
     # The side spokes' labels: the name, then the target on its own line;
     # top and bottom stay on one.

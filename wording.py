@@ -10586,23 +10586,43 @@ def changes_limits_help(items, beyond_lines):
 # amounts sit in each row's tooltip; how to read it, in the title's "?".
 PANEL_SCORE_TITLE = BEST_SO_FAR_COLUMN         # the score chart's title: 'Best so far'
 CHANGES_NONE = "No change: every amount and setting is as at Start."
-CHANGES_UNCHANGED_SHOWN = 3                    # names on the Unchanged line, at most
+CHANGES_NOTE_WORDS = 8                         # a caption under the picture, at most
 
 
-def changes_at_end(change, end):
-    """A row's right-hand label when Best so far sits at a limit:
-    '+2.0 g, at Highest'."""
-    return f"{change}, at {end}"
+def _note_words(text):
+    """Words in a caption, the amounts in brackets not counted: '(≤ 98.7 g)'
+    is the number the limit's name announces."""
+    import re
+    plain = re.sub(r"\([^)]*\)", "", str(text))
+    return len([w for w in plain.split() if any(ch.isalnum() for ch in w)])
+
+
+def changes_at_end(change, end, past=False):
+    """A row's right-hand label when Best so far sits at a limit: '+2.0 g,
+    at Highest'; past it (the limit narrowed since it was made): '+2.0 g,
+    beyond Highest'."""
+    return f"{change}, {'beyond' if past else 'at'} {end}"
 
 
 def changes_unchanged(names):
-    """'Unchanged: Salt, Sugar.'; past CHANGES_UNCHANGED_SHOWN names, the
-    first two and how many more: 'Unchanged: Salt, Sugar and 3 more.'"""
-    if len(names) > CHANGES_UNCHANGED_SHOWN:
-        return f"Unchanged: {', '.join(names[:2])}{AND_JOIN}{len(names) - 2} more."
-    if len(names) > 1:
-        return f"Unchanged: {', '.join(names[:-1])}{AND_JOIN}{names[-1]}."
-    return f"Unchanged: {names[0]}."
+    """'Unchanged: Salt and Sugar.'; when naming them all runs past
+    CHANGES_NOTE_WORDS, the count: 'Unchanged: 5 others.' (the "?" names
+    them)."""
+    listed = names[0] if len(names) == 1 else ", ".join(names[:-1]) + AND_JOIN + names[-1]
+    line = f"Unchanged: {listed}."
+    return line if _note_words(line) <= CHANGES_NOTE_WORDS else f"Unchanged: {len(names)} others."
+
+
+def changes_shared(texts):
+    """The limits on several rows Best so far sits at, under the picture:
+    'Best sits at the Ingredient total (≤ 98.7 g).'; when naming them runs
+    past CHANGES_NOTE_WORDS, the count: 'Best sits at 2 limits on several
+    rows.' (the "?" names them)."""
+    listed = texts[0] if len(texts) == 1 else ", ".join(texts[:-1]) + AND_JOIN + texts[-1]
+    line = f"Best sits at {listed}."
+    if _note_words(line) <= CHANGES_NOTE_WORDS:
+        return line
+    return f"Best sits at {len(texts)} limits on several rows."
 
 
 def changes_picture_help(start_label, best_label, start_round, fill=None, fixed=False,
@@ -10612,7 +10632,7 @@ def changes_picture_help(start_label, best_label, start_round, fill=None, fixed=
            f"Grey dot: {start_label}, the best of {ROUND_CAP} {start_round}. "
            f"Blue dot: {best_label}. Largest move first, as a share of the bar. "
            f"Hover a row for its amounts."]
-    if len(unchanged) > CHANGES_UNCHANGED_SHOWN:
+    if unchanged and changes_unchanged(unchanged).endswith(" others."):
         out.append("Unchanged: " + ", ".join(unchanged) + ".")
     if fill:
         out.append(f"{fill} fills to the total, so it follows the others and is left out.")
