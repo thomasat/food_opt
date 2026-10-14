@@ -40,7 +40,6 @@ ROWS = [
     (5, 13, 11, 5, 7, 12), (5, 14, 9, 4, 6, 12), (5, 15, 10, 5, 6, 11),
     (6, 16, 12, 5, 4, 13), (6, 17, 12, 5, 4, 12.5), (6, 18, 11, 5, 4, 13),
 ]
-NBSP = " "
 
 
 @pytest.fixture(autouse=True)
@@ -183,9 +182,9 @@ def test_the_texts_and_the_band_say_the_noise(sigma):
     opt = _opt(noise=None if sigma == 1 else sigma)
     pts = "1 point" if sigma == 1 else f"{sigma} points"
     assert U.noise_sd_text(opt) == f"{sigma}"
-    assert wording.noise_band(U.noise_sd_text(opt)) == f"±{pts}: assumed noise (1 SD)"
+    # Fix round (owner, 2026-10-14): no noise band on the score chart.
     spec = json.dumps(U.improving_chart(opt).to_dict(), ensure_ascii=False)
-    assert f"±{pts}: assumed noise (1 SD)" in spec
+    assert "assumed noise (1 SD)" not in spec and "Noise from Repeats" not in spec
     facts = _facts(opt)
     facts.next = None
     tip = U.ceiling_tip(opt, facts)
@@ -346,7 +345,7 @@ def test_an_earlier_round_draws_only_the_rounds_up_to_it():
 def test_what_changed_keeps_one_height_and_play_steps_every_two_seconds(monkeypatch):
     opt = _opt()
     assert U.changes_height(opt) == U.CHANGES_BASE_H + 2 * U.CHANGES_ROW_H
-    for r in (1, 2, 6):                     # Rounds 1-2: no table; Round 6: the table
+    for r in (1, 2, 6):                     # Rounds 1-2: no picture; Round 6: the picture
         fake = _FakeSt()
         monkeypatch.setattr(U, "st", fake)
         U._changes_block(opt, r)
@@ -579,15 +578,14 @@ def test_the_labels_name_the_best_after_the_round_and_its_own_round():
     # The profile's key and What changed's column.
     f = U.spider_frames(opt, data, 5)
     assert f["names"]["best"] == "Best after Round 5: F10 (Round 4)"
-    head = U.changes_table(opt, U.what_changed(opt, 5)).splitlines()[0]
-    assert "| Best after Round 5: F10 (Round 4) |" in head
-    head6 = U.changes_table(opt, U.what_changed(opt, 6), compact=True).splitlines()[0]
-    assert "| Best after Round 6: F16 |" in head6
+    # Round panel (spec §10, re-pinned): What changed's picture names it alike.
+    head = U.changes_picture(opt, U.what_changed(opt, 5))["best"]
+    assert head == "Best after Round 5: F10 (Round 4)"
+    assert U.changes_picture(opt, U.what_changed(opt, 6))["best"] == "Best after Round 6: F16"
     assert wording.best_after(10, 21, 7) == "Best after Round 10: F21 (Round 7)"
-    assert U._keep_together(wording.best_after(10, 21, 7)).endswith(f"(Round{NBSP}7)")
     # A Round whose best is still the start: the placeholder line.
     ch = U.what_changed(opt, 2)
-    assert ch.same and U.changes_answer(opt, ch) == "Best so far is still Round 1's best."
+    assert ch.same and wording.changes_same(ch.start_round) == "Best so far is still Round 1's best."
     for t in list(got.values()) + [f["names"]["best"], head]:
         _clean(t)
 
@@ -702,8 +700,8 @@ def test_every_final_demo_string_keeps_the_rules():
             wording.on_target_help(3, 4, 4, "0.6"),
             wording.pairs_called_help("Overall score", 5, 5, 12, 6, 1, "3 in 100", "15 in 100", 5),
             wording.ceiling_help("98.3", "100", "1.7", "2.3", "98.4", True, sd_text="2"),
-            wording.story_improving_help("84.2", "96.1", 1, 6, True, "2.3", "2"),
-            wording.noise_band("0.5"), wording.tip_threshold_assumed("2")]:
+            wording.story_improving_help("84.2", "96.1", 1, 6, "2.3"),
+            wording.tip_threshold_assumed("2")]:
         _clean(t)
     # Every status names what, how many and against what.
     assert re.fullmatch(r"[\d.]+ below top; [\d.]+ needed", wording.stop_strip_line("1.7", "2.3"))
@@ -711,5 +709,5 @@ def test_every_final_demo_string_keeps_the_rules():
     src = open(wording.__file__).read()
     tail = src[src.index("# --- final demo ---"):]
     for name in ("STOP_CALLOUT_HEAD", "TASTING_NOISE_LABEL", "SCORE_IS_MATCH", "def best_after",
-                 "def pairs_called_help", "def stop_marker", "def noise_band"):
+                 "def pairs_called_help", "def stop_marker"):
         assert name in tail, name

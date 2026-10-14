@@ -122,7 +122,7 @@ def test_round_4_follows_the_panels_round(samples):
     # Rounds 1 and 2: the best is still the start; no picture.
     for r in (1, 2):
         ch = U.what_changed(r6, r)
-        assert ch.same and U.changes_answer(r6, ch) == "Best so far is still Round 1's best."
+        assert ch.same and wording.changes_same(ch.start_round) == "Best so far is still Round 1's best."
 
 
 def test_all_10_rounds(samples):
@@ -259,10 +259,15 @@ def test_the_profile_fits_its_column(samples):
     r6, _ = samples
     data = U.spider_data(r6)
     spec = U.spider_chart(r6, data, 6, size=U.PANEL_SPIDER_H, fit=True).to_dict()
-    assert "width" not in spec and spec["height"] == U.PANEL_SPIDER_H
+    assert "width" not in spec and spec["height"] == U.PANEL_SPIDER_H + U._SPIDER_KEY_H
     assert spec["autosize"]["type"] == "fit-x"
     flat = json.dumps(spec)
     assert '"expr": "-width / 2 / max(30' in flat
+    # Fix round: the key centred under the rings, in the room kept for it.
+    legends = [l["encoding"]["color"]["legend"] for l in _flat_layers(spec)
+               if "legend" in l.get("encoding", {}).get("color", {})]
+    assert legends and all(g["orient"] == "none" and g["legendX"]["expr"].startswith("width / 2 - ")
+                           and g["legendY"] == U.PANEL_SPIDER_H + 10 for g in legends)
     # Side labels wrapped short enough for a narrow column.
     sides = {row["text"] for row in _datasets(spec)
              if "x1" in row and row.get("align") in ("left", "right")}
@@ -302,3 +307,16 @@ def test_succinct_and_no_banned_word(samples):
     assert "Start (F3), the best of Round 1" in help_ and "Best after Round 6: F16" in help_
     assert wording.changes_cause_help(3, 16).startswith(
         "Several things changed at once between Formulation 3 and Formulation 16")
+
+
+def test_the_score_chart_draws_no_noise_band_and_keeps_the_top_zone(samples):
+    """Fix round (owner, 2026-10-14): tasting noise is no longer a Review
+    concept; the grey zone near the top (what the stop refers to) stays."""
+    r6, all10 = samples
+    for opt in (r6, all10):
+        text = json.dumps(U.improving_chart(opt, height=U.PANEL_CHART_H).to_dict(),
+                          ensure_ascii=False)
+        assert "assumed noise" not in text and "Noise from Repeats" not in text
+        assert wording.TOP_ZONE in text
+    assert "Blue band" not in wording.story_improving_help("84.2", "96.1", 1, 6, "2.3")
+    assert not hasattr(wording, "noise_band")

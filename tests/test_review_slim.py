@@ -288,14 +288,16 @@ def test_what_changed_at_an_earlier_round_judges_limits_up_to_it():
     opt = _changes_opt()
     early = U.what_changed(opt, 2)
     assert (early.start_no, early.best_no, early.round_no) == (2, 4, 2)
-    assert early.limits == "Best so far sits at the Highest of Starch (5 g); nothing tested beyond."
+    # Round panel (spec §10, re-pinned): the limits are in the title's "?".
+    assert early.limits_help.startswith("Best so far sits at: Starch's Highest (5 g).")
+    assert "lies beyond" not in early.limits_help          # nothing tested beyond, by Round 2
     latest = U.what_changed(opt, 3)
     assert latest.best_no == 4
-    assert latest.limits == "Best so far sits at the Highest of Starch (5 g)."
+    assert latest.limits_help.startswith("Best so far sits at: Starch's Highest (5 g).")
     assert "Formulation 5 lies beyond Starch's Highest (5 g)." in latest.limits_help
     # Round 1: Best so far is still the start.
     first = U.what_changed(opt, 1)
-    assert first.same and U.changes_answer(opt, first) == "Best so far is still Round 1's best."
+    assert first.same and first.limits_help is None
     # The rows are Best so far at that Round minus the Start.
     row = next(r for r in early.rows if r.name == "Starch")
     assert (row.start, row.best, row.change) == ("2 g", "5 g", "+3 g")
@@ -305,28 +307,26 @@ def test_a_formulation_with_no_round_always_counts_as_recorded():
     opt = _changes_opt()
     opt.tell({"Oil": 9.0, "Sugar": 1.0, "Starch": 5.9}, {"Firmness": 2.0}, formulation_no=6)
     opt.batch_history[-1] = None
-    assert "nothing tested beyond" not in U.what_changed(opt, 2).limits
+    assert "lies beyond" in U.what_changed(opt, 2).limits_help
 
 
 def test_the_open_rounds_rows_count_only_at_the_latest_round():
     rows = CHANGE_ROWS[:4] + [(3, 5, 8.0, 1.0, 4.0, 4.0)]
     opt = _changes_opt(rows)
     opt.pending_batch = [{'formulation': 6, 'recipe': {"Oil": 8.0, "Sugar": 1.0, "Starch": 5.8}}]
-    assert "nothing tested beyond" not in U.what_changed(opt, 3).limits    # today
-    assert "nothing tested beyond" in U.what_changed(opt, 2).limits        # by Round 2
+    assert "lies beyond" in U.what_changed(opt, 3).limits_help             # today
+    assert "lies beyond" not in U.what_changed(opt, 2).limits_help         # by Round 2
 
 
-def test_the_table_and_title_name_the_round():
+def test_the_picture_and_title_name_the_round():
     opt = _changes_opt()
-    ch = U.what_changed(opt, 2)
-    table = U.changes_table(opt, ch)
-    # Final demo (A1), re-pinned.
-    assert table.startswith("| Ingredient | Start (F2) | Best after Round 2: F4 | Change |")
+    pic = U.changes_picture(opt, U.what_changed(opt, 2))
+    # Final demo (A1), re-pinned to the picture (spec §10).
+    assert (pic["start"], pic["best"]) == ("Start (F2)", "Best after Round 2: F4")
     assert wording.changes_title(2) == "What changed by Round 2"
     assert wording.changes_title(None) == wording.CHANGES_TITLE
-    # No slider: today's table, as before.
-    assert U.changes_table(opt, U.what_changed(opt)).startswith(
-        "| Ingredient | Start (F2) | Best so far (F4) | Change |")
+    # No slider: today's best, as before.
+    assert U.changes_picture(opt, U.what_changed(opt))["best"] == "Best so far (F4)"
 
 
 # ------------------------------------------------------------------ #
@@ -559,6 +559,6 @@ def test_no_banned_word():
              wording.changes_best_column(10, 4), wording.LEARNED_DETAILS_TITLE,
              wording.learned_verdicts_help(5), wording.learned_verdicts_help(1),
              wording.profiler_hidden_rule(), wording.profiler_hidden_rule(True),
-             *U.learned_verdict_line(_spider_opt(), lf), U.changes_table(opt, ch),
-             ch.limits, ch.limits_help]
+             *U.learned_verdict_line(_spider_opt(), lf), ch.limits_help,
+             *[r["label"] for r in U.changes_picture(opt, ch)["rows"]]]
     assert [(t, _banned(t)) for t in texts if _banned(t)] == []

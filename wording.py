@@ -9825,8 +9825,6 @@ def progress_rise_answer(before_text, best_text, rise_text, need_text, assumed=T
 
 
 STORY_IMPROVING_CAPTION = "Ink step: best so far, per Round."
-NOISE_BAND = "Assumed noise, ±1 point"
-NOISE_BAND_MEASURED = "Noise from Repeats"
 TOP_SCORE_LABEL = "Top"
 
 
@@ -10140,8 +10138,6 @@ def progress_need_plain(need_text, sd_text="1", assumed=True, q=1):
     return f"{need_text}: {who} must beat noise by this much. {why}"
 
 
-NOISE_BAND = "±1 point: assumed noise (1 SD)"
-NOISE_BAND_MEASURED = "Noise from Repeats (1 SD)"
 TOP_ZONE = "Within noise of top"
 STORY_IMPROVING_CAPTION = "Line: best so far. Bars: Round average."
 
@@ -10533,9 +10529,6 @@ def next_misses_short(repeat_no=None):
 # (The screen never says the old word for a formulation, so the title says formulation.)
 CHANGES_TITLE = "What changed in the formulation"
 CHANGES_CAPTION = "What changed, not proof of what caused it."
-CHANGES_NAME_INGREDIENT = "Ingredient"
-CHANGES_NAME_SETTING = "Setting"
-CHANGES_NAME_BOTH = "Ingredient or setting"
 CHANGES_CHANGE = "Change"
 CHANGES_CHOICE_CHANGED = "changed"
 CHANGES_CHOICE_SAME = "same"
@@ -10561,83 +10554,13 @@ def changes_title(round_no=None):
     return CHANGES_TITLE if round_no is None else f"What changed by {ROUND_CAP} {round_no}"
 
 
-def changes_item(name, change):
-    """'Coconut cream −6.4 g'; a choice: 'Culture A → B'."""
-    return f"{name} {change}"
-
-
 def changes_choice(start, best):
     return f"{start} → {best}"
-
-
-def changes_answer(items):
-    """At most 12 words: '**Biggest changes:** Coconut cream −6.4 g, Xanthan
-    gum +0.23 g.'"""
-    if not items:
-        return "**No change:** every amount and setting is as at Start."
-    word = "Biggest changes" if len(items) > 1 else "Biggest change"
-    return f"**{word}:** {', '.join(items)}."
 
 
 def changes_same(round_no):
     """Best so far IS the start."""
     return f"{BEST_SO_FAR_COLUMN} is still {ROUND_CAP} {round_no}'s best."
-
-
-def changes_help(start_no, best_no, start_round, fill=None, fixed=False, settings=False,
-                 near_zero=False):
-    """The caption's "?": why the table shows no cause, then how it is read."""
-    out = [f"Several things changed at once between {FORMULATION_CAP} {start_no} and "
-           f"{FORMULATION_CAP} {best_no}, so this table can't separate their effects. "
-           f"Repeats, and {ROUND_CAP}s that change one thing at a time, can.",
-           f"Start: {FORMULATION_CAP} {start_no}, the best of {ROUND_CAP} {start_round}, as in "
-           f"the chart above. Largest change first, as a share of each row's range "
-           f"(Highest − Lowest). Grey %: the change against Start."]
-    if near_zero:
-        out[-1] += " No % where the start amount was near zero."
-    if settings:
-        out[-1] += " Settings show no %."
-    if fill:
-        out.append(f"{fill} fills to the total, so it follows the others and is left out.")
-    if fixed:
-        out.append("Rows whose Lowest is their Highest never change and are left out.")
-    return "\n\n".join(out)
-
-
-def changes_end_group(end, items):
-    """'the Highest of Tap water (42 g) and Tapioca starch (2.6 g)'."""
-    named = items[0] if len(items) == 1 else ", ".join(items[:-1]) + AND_JOIN + items[-1]
-    return f"the {end} of {named}"
-
-
-def changes_multi_item(name_text, amount_text):
-    """A limit on several rows as the limits line names it: 'the Batch
-    total limit (≤ 98.7 g)'."""
-    return f"{name_text} limit {amount_text}"
-
-
-def changes_limits(untested, tested):
-    """The limits line under the table: every limit Best so far sits at;
-    'nothing tested beyond' only of the limits no recorded formulation lies
-    beyond (`untested`), the others (`tested`) named after 'also at'."""
-    def join(parts):
-        if len(parts) == 1:
-            return parts[0]
-        sep = ", and " if any(AND_JOIN in p for p in parts) else AND_JOIN
-        return ", ".join(parts[:-1]) + sep + parts[-1]
-    if untested and tested:
-        return (f"{BEST_SO_FAR_COLUMN} sits at {join(untested)}, nothing tested beyond; "
-                f"also at {join(tested)}.")
-    if untested:
-        return f"{BEST_SO_FAR_COLUMN} sits at {join(untested)}; nothing tested beyond."
-    return f"{BEST_SO_FAR_COLUMN} sits at {join(tested)}."
-
-
-def changes_limits_count(n, untested):
-    """The line when naming every limit runs long: the count; the "?"
-    names them."""
-    tail = "; nothing tested beyond" if untested == n else ""
-    return f"{BEST_SO_FAR_COLUMN} sits at {n} limits{tail}."
 
 
 def changes_beyond(numbers_text, many, limit_text):
@@ -10662,6 +10585,7 @@ def changes_limits_help(items, beyond_lines):
 # blue dot at the best so far, the change in grams at the right. The exact
 # amounts sit in each row's tooltip; how to read it, in the title's "?".
 PANEL_SCORE_TITLE = BEST_SO_FAR_COLUMN         # the score chart's title: 'Best so far'
+CHANGES_NONE = "No change: every amount and setting is as at Start."
 CHANGES_UNCHANGED_SHOWN = 3                    # names on the Unchanged line, at most
 
 
@@ -11050,32 +10974,19 @@ def progress_rise_answer(before_text, best_text, rise_text, need_text, assumed=T
     return f"Best {before_text} → {best_text} (+{rise_text}; needs {need_text}{clause})"
 
 
-def noise_band(sd_text="1"):
-    """The chart's band key: '±2 points: assumed noise (1 SD)'."""
-    return f"±{points_text(sd_text)}: assumed noise (1 SD)"
-
-
-NOISE_BAND = noise_band("1")
-
-
-def story_improving_help(first_avg, last_avg, first_round, last_round, assumed=True,
-                         need_text=None, sd_text="1"):
-    """Are we improving?'s "?": what is drawn, the Round averages, the noise
-    band, the top zone (the band at the project's tasting noise)."""
+def story_improving_help(first_avg, last_avg, first_round, last_round, need_text=None):
+    """Are we improving?'s "?": what is drawn, the Round averages and the
+    top zone. Fix round (owner, 2026-10-14): no noise band; tasting noise is
+    no longer a Review concept."""
     avg = ""
     if first_avg is not None and last_avg is not None and first_round != last_round:
         avg = (f" {ROUND_CAP} average: {first_avg} ({ROUND_CAP} {first_round}) → {last_avg} "
                f"({ROUND_CAP} {last_round}).")
-    band = (f"Blue band: ±{points_text(sd_text)} around the best, the tasting noise assumed "
-            "until Repeats measure it." if assumed else
-            "Blue band: ±the tasting noise your Repeats measured, around the best.")
     zone = (f" Grey zone: within {need_text} of the top score, where a higher result can't be "
             "told from this best." if need_text else "")
-    tail = f" {REPEAT_CONFIRMS}" if assumed else ""
     return (f"Grey dots: each {FORMULATION}'s measured {OVERALL_SCORE_COLUMN}. Line: "
             f"{BEST_SO_FAR_COLUMN}, stepping once per {ROUND_CAP}. Short grey bars: each "
-            f"{ROUND_CAP}'s average, printed under it.{avg} {band}{zone}{tail} Measured values "
-            "only.")
+            f"{ROUND_CAP}'s average, printed under it.{avg}{zone} Measured values only.")
 
 
 def tip_threshold_assumed(sd_text="1"):

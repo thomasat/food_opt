@@ -417,7 +417,7 @@ def test_critique_strings_pass_banned():
               wording.CEILING_TAIL, wording.CARD_CEILING, wording.drives_limited("Formulation total"),
               wording.target_moves(2, 1, [], ["0.5"]), wording.MAP_Y_TITLE,
               wording.MAP_GAIN_LEGEND, wording.PATH_AT_LIMIT, wording.PATH_GAP,
-              wording.widen_all(["a", "b"]), wording.REPEAT_CONFIRMS, wording.NOISE_BAND,
+              wording.widen_all(["a", "b"]), wording.REPEAT_CONFIRMS,
               wording.implied_line("90", "94"), wording.RESULTS_LANDED_COLUMN):
         assert not any(p.search(t) for p in _BANNED), t
         assert "spread" not in t.lower() and "interval" not in t.lower()

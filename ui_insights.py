@@ -7784,8 +7784,7 @@ def _panel_captions(opt):
                        one_decimal(first[3]) if first else None,
                        one_decimal(last[3]) if last else None,
                        first[0] if first else None, last[0] if last else None,
-                       assumed=getattr(insights.noise_yardstick(opt), "assumed", True),
-                       need_text=_top_zone_need(opt), sd_text=noise_sd_text(opt))))
+                       need_text=_top_zone_need(opt))))
         try:
             spider = spider_data(opt)
         except Exception:
@@ -8436,7 +8435,6 @@ def improving_chart(opt, highlight=None, height=None, upto=None):
             bi = at[upto]
             nums = (nums[0], nums[1], float(opt.Y_history[bi]), _round_of(opt, bi),
                     int(opt.formulation_ids[bi]))
-    noise = leader_noise(opt)
     # Review critique (fix 7): the top of the score drawn (a rule and its
     # tick) when it is near the data.
     show_top = ceiling >= hi and ceiling - hi <= max(hi - lo, 4.0)
@@ -8487,15 +8485,12 @@ def improving_chart(opt, highlight=None, height=None, upto=None):
     y = alt.Y(f"{score}:Q", title=y_title, scale=y_scale,
               axis=alt.Axis(values=ticks, labelExpr=top_tick if show_top else "datum.label"))
     layers = []
-    band_name = _say(opt, wording.noise_band(noise_sd_text(opt)) if getattr(
-        insights.noise_yardstick(opt), "assumed", True) else wording.NOISE_BAND_MEASURED)
     zone_name = _say(opt, wording.TOP_ZONE)
     kinds = alt.Scale(domain=[best_name, avg_name], range=[ink, mid])
-    # The two shaded areas have their own legend, a pale square each.
-    zone_fill = _ZONE_FILL[theme()]
-    area_names = [band_name] + ([zone_name] if show_top else [])
-    areas = alt.Scale(domain=area_names,
-                      range=[_BAND_FILL[theme()][0]] + ([zone_fill] if show_top else []))
+    # The shaded zone near the top has its own legend, a pale square.
+    # Fix round (owner, 2026-10-14): no ±noise band around Best so far any
+    # more; tasting noise is no longer a Review concept.
+    areas = alt.Scale(domain=[zone_name], range=[_ZONE_FILL[theme()]])
     area_legend = alt.Legend(title=None, orient="top", labelLimit=0, symbolType="square",
                              symbolOpacity=0.35, symbolStrokeWidth=0,
                              **({"columns": 1} if narrow else {}))
@@ -8514,15 +8509,6 @@ def improving_chart(opt, highlight=None, height=None, upto=None):
             x=alt.X("x:Q", scale=x_scale), x2="x2:Q",
             y=alt.Y("lo:Q", scale=y_scale, title=y_title), y2="hi:Q",
             fill=alt.Fill("what:N", scale=areas, legend=area_legend)))
-    if steps:
-        # The ±noise band around the best step, light, under everything;
-        # clipped at the top score (round-2 fixes, P1 #6).
-        sdf = pd.DataFrame([{"x": x, "lo": v - noise, "hi": min(ceiling, v + noise), "v": v,
-                             "what": band_name, best_name: v, "round": wording.round_tick(r)}
-                            for a, b, v, r in steps for x in (a, b)])
-        layers.append(alt.Chart(sdf).mark_area(opacity=0.25, tooltip=False).encode(
-            x=alt.X("x:Q", scale=x_scale), y=alt.Y("lo:Q", scale=y_scale, title=y_title),
-            y2="hi:Q", fill=alt.Fill("what:N", scale=areas, legend=area_legend)))
     if stop is not None and upto is None:
         layers += _stop_layers(opt, stop, x_scale, y_scale, y_title, bottom, data_bottom,
                                data_top)
@@ -9233,6 +9219,8 @@ def spider_frames(opt, data, r):
 _SPIDER_LINE_PX = 15        # px: one line of a spoke label (FONT_LABEL)
 _SPIDER_CHAR_PX = 6.6       # px per character of a spoke label
 _SPIDER_WRAP = 12           # characters a line of a side label, fitted to its column
+_SPIDER_KEY_SYMBOL_PX = 26  # px: a key entry's line symbol and the gap to its label
+_SPIDER_KEY_H = 56          # px under the rings, inside the plot, for the key (two rows)
 
 
 def _spider_side_label(text):
@@ -9242,11 +9230,12 @@ def _spider_side_label(text):
     return _wrap(name, _SPIDER_WRAP) + ("\n" + tail if sep else "")
 
 
-def spider_fit_domains(spokes, height):
+def spider_fit_domains(spokes, height, below=0):
     """Fit mode's x and y scale domains (rims), as expressions of the plot's
     own width: the rings stay round at any width, the radius the largest
     that keeps the side labels (`spokes`: spider_frames' rows, as drawn)
-    and the top and bottom ones inside the plot, which is `height` px tall."""
+    and the top and bottom ones inside the top `height` px of the plot;
+    `below` px more under them hold the key."""
     side = [t for t, a in zip((sp["text"] for sp in spokes), (sp["align"] for sp in spokes))
             if a != "center"]
     room = max([max(len(line) for line in t.split("\n")) for t in side] or [0])
@@ -9255,7 +9244,8 @@ def spider_fit_domains(spokes, height):
     radius = (f"max(30, min((width / 2 - {room}) / {_SPIDER_LABEL_AT}, "
               f"({height} / 2 - {top}) / {_SPIDER_LABEL_AT}))")
     return ([alt.ExprRef(f"-width / 2 / {radius}"), alt.ExprRef(f"width / 2 / {radius}")],
-            [alt.ExprRef(f"-{height} / 2 / {radius}"), alt.ExprRef(f"{height} / 2 / {radius}")])
+            [alt.ExprRef(f"-({height} / 2 + {below}) / {radius}"),
+             alt.ExprRef(f"{height} / 2 / {radius}")])
 
 
 def spider_chart(opt, data, r, size=SPIDER_SIZE, wrap=False, fit=False):
@@ -9279,10 +9269,23 @@ def spider_chart(opt, data, r, size=SPIDER_SIZE, wrap=False, fit=False):
         [names["earlier"]] if f["earlier"] else [])
     colour = alt.Scale(domain=kinds, range=[ink, blue, grey, _SPIDER_EARLIER[theme()]][:len(kinds)])
     dash = alt.Scale(domain=kinds, range=[[1, 0], [1, 0], [6, 4], [1, 0]][:len(kinds)])
-    legend = alt.Legend(title=None, orient="bottom", labelLimit=0, symbolType="stroke",
-                        symbolStrokeWidth=2.5, symbolSize=260, columns=2, columnPadding=24)
+    where = {"orient": "bottom"}
+    if fit:
+        # The key centred under the rings (fix round, 2026-10-14): placed
+        # at half the plot's width less half its own, worked out from its
+        # labels (two columns, row by row).
+        cols = [kinds[0::2], kinds[1::2]]
+        w = sum(_SPIDER_KEY_SYMBOL_PX + int(max(len(k) for k in c) * _SPIDER_CHAR_PX)
+                for c in cols if c) + 24
+        where = {"orient": "none", "direction": "horizontal",
+                 "legendX": alt.ExprRef(f"width / 2 - {w // 2}"),
+                 "legendY": size + 10}
+    legend = alt.Legend(title=None, labelLimit=0, symbolType="stroke",
+                        symbolStrokeWidth=2.5, symbolSize=260, columns=2, columnPadding=24,
+                        **where)
     domain = [-_SPIDER_PAD, _SPIDER_PAD]
-    x_dom, y_dom = spider_fit_domains(f["spokes"], size) if fit else (domain, domain)
+    x_dom, y_dom = (spider_fit_domains(f["spokes"], size, _SPIDER_KEY_H) if fit
+                    else (domain, domain))
     xs = alt.Scale(domain=x_dom, nice=False, zero=False)
     ys = alt.Scale(domain=y_dom, nice=False, zero=False)
     x, y = alt.X("x:Q", scale=xs, axis=None), alt.Y("y:Q", scale=ys, axis=None)
@@ -9351,7 +9354,7 @@ def spider_chart(opt, data, r, size=SPIDER_SIZE, wrap=False, fit=False):
                                                 lineBreak="\n")
                       .encode(x=x, y=y, text="text:N"))
     if fit:
-        chart = alt.layer(*layers).properties(height=size)
+        chart = alt.layer(*layers).properties(height=size + _SPIDER_KEY_H)
         return readable(chart.properties(autosize=alt.AutoSizeParams(
             type="fit-x", contains="padding"))).configure_view(strokeWidth=0)
     chart = alt.layer(*layers).properties(width=size, height=size)
@@ -9384,8 +9387,6 @@ def _spider_block(opt, data, r):
 # Best so far, one row per varied ingredient or process setting. Model-free:
 # the recorded make-ups only, at the Formulation total (insights.start_recipe).
 
-_CHANGE_WORDS = 12        # the answer line, at most
-_LIMIT_WORDS = 16         # the limits line, not counting the amounts in brackets
 _PERCENT_FROM = 0.10      # a % only from a Start of this share of the row's range
 
 
@@ -9397,7 +9398,6 @@ class ChangeRow:
     change: str
     percent: str            # '(+62 %)', '' with none
     share: float            # |change| as a share of Highest − Lowest (a choice: 0 or 1)
-    item: str               # the answer line's words: 'Coconut cream −6.4 g'
     setting: bool = False
     changed: bool = True    # False when the change reads as nothing
     near_zero: bool = False  # no %: Start under _PERCENT_FROM of the range
@@ -9420,8 +9420,7 @@ class Changes:
     same: bool              # Best so far is the start
     fill: str | None        # the Fill to total row, left out
     fixed: bool             # a fixed row was left out
-    limits: str | None      # the limits line, None when Best so far sits at none
-    limits_help: str | None
+    limits_help: str | None  # the limits Best so far sits at (limits_help); None at none
     round_no: int | None = None   # the Round on view (Best so far then); None: today
 
 
@@ -9445,7 +9444,6 @@ def _change_row(opt, var, a, b):
         return ChangeRow(name, str(a), str(b),
                          wording.CHANGES_CHOICE_CHANGED if moved else wording.CHANGES_CHOICE_SAME,
                          "", 1.0 if moved else 0.0,
-                         wording.changes_item(name, wording.changes_choice(a, b)),
                          setting=not insights._is_ingredient(var), changed=moved)
     a, b = float(a), float(b)
     delta = b - a
@@ -9476,7 +9474,7 @@ def _change_row(opt, var, a, b):
             else:
                 near_zero = True
     return ChangeRow(name, start, best, change, percent, share,
-                     wording.changes_item(name, change), setting=setting, changed=changed,
+                     setting=setting, changed=changed,
                      near_zero=near_zero, low=lo, high=hi, a=a, b=b)
 
 
@@ -9578,51 +9576,30 @@ def best_limits(opt, recipe, upto=None):
     return ends, others
 
 
-def limits_line(opt, recipe, upto=None):
-    """(the limits line, its "?") — None, None when Best so far sits at no
-    limit. The line names the limits on one row (an ingredient or a
-    setting); a limit on several rows (the Batch total) is named on the
-    line only when Best so far sits at no row's limit, and always in the
-    "?" with what lies beyond it. 'nothing tested beyond' only of the
-    limits no recorded formulation lies beyond (limits can change after a
-    formulation is made). `upto`: judged on the formulations recorded by
-    that Round (the section's Round control)."""
+def limits_help(opt, recipe, upto=None):
+    """What changed's limits for its title's "?": every limit `recipe` (Best
+    so far) sits at — the limits on one row (Highest first, then Lowest),
+    then those on several rows (the Batch total) — with the recorded
+    formulations that lie beyond each (by Round `upto` when given: the
+    section's Round control), and the widen fact; None at no limit."""
     ends, others = best_limits(opt, recipe, upto)
-    groups = []         # (text, every item's beyond list, [(item, beyond)])
+    items = []
     for kind, end in (("highest", "Highest"), ("lowest", "Lowest")):
         rows = ends[kind]
         for clear in (True, False):
-            part = [r for r in rows if (not r[2]) == clear]
-            if part:
-                groups.append((wording.changes_end_group(
-                    end, [f"{n} ({a})" for n, a, _ in part]), clear,
-                    [(f"{n}'s {end} ({a})", bey) for n, a, bey in part]))
-    multi = []
-    for text, bey in others:
-        m = re.match(r"^(.*) (\(.*\))$", text)
-        said = wording.changes_multi_item(m.group(1), m.group(2)) if m else text
-        multi.append((said, not bey, [(text, bey)]))
-    if not groups and not multi:
-        return None, None
-    shown = groups or multi
-    untested = [g[0] for g in shown if g[1]]
-    tested = [g[0] for g in shown if not g[1]]
-    line = wording.changes_limits(untested, tested)
-    items = [it for g in groups + multi for it in g[2]]
-    if limit_words(line) > _LIMIT_WORDS:
-        on_line = [it for g in shown for it in g[2]]
-        line = wording.changes_limits_count(len(on_line),
-                                            sum(1 for _, b in on_line if not b))
+            items += [(f"{n}'s {end} ({a})", bey) for n, a, bey in rows if (not bey) == clear]
+    items += list(others)
+    if not items:
+        return None
     beyond = [wording.changes_beyond(number_list(sorted(set(b))), len(set(b)) > 1, it)
               for it, b in items if b]
-    return (_say(opt, line),
-            _say(opt, wording.brief(wording.changes_limits_help([i for i, _ in items], beyond))))
+    return _say(opt, wording.brief(wording.changes_limits_help([i for i, _ in items], beyond)))
 
 
 def what_changed(opt, at_round=None):
     """Changes from Start to Best so far, or None with no start, no best or
     no varied row. `at_round`: Best so far by the end of that Round (the
-    section's Round control), its limits line judged on the formulations recorded
+    section's Round control), its limits judged on the formulations recorded
     by then; the latest Round is today's Best so far, judged on everything
     recorded."""
     s, b = story_start(opt), opt.best_index()
@@ -9639,7 +9616,7 @@ def what_changed(opt, at_round=None):
     fill = opt.balance_row_name()
     fixed = bool(opt.fixed_variables())
     if i == b:
-        return Changes(start_no, best_no, r0, [], True, fill, fixed, None, None, at_round)
+        return Changes(start_no, best_no, r0, [], True, fill, fixed, None, at_round)
     a, z = insights.start_recipe(opt, i), insights.start_recipe(opt, b)
     rows = []
     for at, var in enumerate(opt.varying_variables()):
@@ -9658,20 +9635,8 @@ def what_changed(opt, at_round=None):
         kind = ends.get(row.name)
         row.at_end = (None if kind is None else
                       wording.HIGHEST_LABEL if kind == "highest" else wording.LOWEST_LABEL)
-    limits, help_ = limits_line(opt, z, upto)
-    return Changes(start_no, best_no, r0, rows, False, fill, fixed, limits, help_, at_round)
-
-
-def changes_answer(opt, ch):
-    """The answer line: the two largest changes by share of range (one
-    when two run past _CHANGE_WORDS)."""
-    if ch.same:
-        return _say(opt, wording.changes_same(ch.start_round))
-    moved = [r.item for r in ch.rows if r.changed]
-    line = wording.changes_answer(moved[:2])
-    if limit_words(line) > _CHANGE_WORDS and len(moved) > 1:
-        line = wording.changes_answer(moved[:1])
-    return _say(opt, line)
+    return Changes(start_no, best_no, r0, rows, False, fill, fixed, limits_help(opt, z, upto),
+                   at_round)
 
 
 def _made_round(opt, no):
@@ -9680,37 +9645,6 @@ def _made_round(opt, no):
         if int(f) == int(no):
             return _round_of(opt, i)
     return None
-
-
-def _md_cell(text):
-    return re.sub(r"([\\|*_`\[\]<>])", r"\\\1", str(text))
-
-
-def _keep_together(text):
-    """'Best so far (F21, Round 10)' wrapping only before its bracket: the
-    bracket's spaces made non-breaking (a narrow column's header)."""
-    return re.sub(r"\(([^)]*)\)", lambda m: "(" + m.group(1).replace(" ", "\u00a0") + ")", text)
-
-
-def changes_table(opt, ch, compact=False):
-    """The table as Markdown: four columns, the numbers right-aligned, the
-    % in grey after the change (`compact`: a header wraps only before its
-    bracket)."""
-    kinds = {r.setting for r in ch.rows}
-    head = (wording.CHANGES_NAME_BOTH if len(kinds) > 1 else
-            wording.CHANGES_NAME_SETTING if kinds == {True} else wording.CHANGES_NAME_INGREDIENT)
-    cols = [_say(opt, head), _short(opt, wording.changes_start_column(ch.start_no)),
-            _short(opt, wording.changes_best_column(ch.best_no, ch.round_no,
-                                                    _made_round(opt, ch.best_no))),
-            wording.CHANGES_CHANGE]
-    if compact:
-        cols = [_keep_together(c) for c in cols]
-    lines = ["| " + " | ".join(_md_cell(c) for c in cols) + " |",
-             "| :-- | --: | --: | --: |"]
-    for r in ch.rows:
-        change = _md_cell(r.change) + (f" :gray[{_md_cell(r.percent)}]" if r.percent else "")
-        lines.append(f"| {_md_cell(r.name)} | {_md_cell(r.start)} | {_md_cell(r.best)} | {change} |")
-    return "\n".join(lines)
 
 
 # --- What changed as a picture (owner-approved 2026-10-14, spec §10) ---
@@ -9859,7 +9793,7 @@ def _changes_block(opt, r=None):
         title = f"**{_say(opt, wording.changes_title(ch.round_no))}**"
         if ch.same:
             st.markdown(title)
-            st.markdown(changes_answer(opt, ch))
+            st.markdown(_say(opt, wording.changes_same(ch.start_round)))
             _hold(1)
             return
         pic = changes_picture(opt, ch)
@@ -9875,8 +9809,10 @@ def _changes_block(opt, r=None):
                               lambda: changes_chart(opt, pic))
         except Exception:
             spec = None
-        if spec is None:
-            st.markdown(changes_answer(opt, ch))
+        if not pic["rows"]:
+            st.markdown(_say(opt, wording.CHANGES_NONE))
+        elif spec is None:
+            st.caption(_say(opt, wording.CHART_FAILED))
         else:
             show_spec(spec, clear=True)
         if pic["unchanged"]:

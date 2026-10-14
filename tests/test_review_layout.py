@@ -339,7 +339,7 @@ def test_the_profile_stays_legible_beside_the_chart():
     opt = _spider_opt()
     data = U.spider_data(opt)
     spec = U.spider_chart(opt, data, 4, size=U.PANEL_SPIDER_H, fit=True).to_dict()
-    assert "width" not in spec and spec["height"] == U.PANEL_SPIDER_H
+    assert "width" not in spec and spec["height"] == U.PANEL_SPIDER_H + U._SPIDER_KEY_H
     # The side spokes' labels: the name, then the target on its own line;
     # top and bottom stay on one.
     texts = [row["text"] for name, rows in spec["datasets"].items() for row in rows
@@ -352,16 +352,12 @@ def test_the_profile_stays_legible_beside_the_chart():
     assert len(drawn) == 2                        # the top and bottom spokes, one line
 
 
-def test_the_table_header_wraps_only_before_its_bracket():
+def test_what_changed_names_the_best_after_the_round():
     opt = _spider_opt()
     ch = U.what_changed(opt, 2)
-    head = U.changes_table(opt, ch, compact=True).splitlines()[0]
-    # Final demo (A1), re-pinned: 'Best after Round 2: F4' (made in Round 2;
-    # an earlier one adds its Round in brackets, kept together).
-    assert "Best after Round 2: F4" in head
-    assert "Best after Round 2: F4" in U.changes_table(opt, ch).splitlines()[0]
-    assert U._keep_together(wording.best_after(10, 21, 7)) == \
-        "Best after Round 10: F21 (Round\u00a07)"
+    # Final demo (A1), re-pinned to the picture (spec §10): 'Best after
+    # Round 2: F4' (made in Round 2; an earlier one adds its Round).
+    assert U.changes_picture(opt, ch)["best"] == "Best after Round 2: F4"
     # No chart toolbar pops over the control (a click meant for Replay).
     assert '[class*="st-key-insights_replay_panel"] [data-testid="stElementToolbar"]' \
         in U.REPLAY_STYLE
