@@ -57,6 +57,18 @@ def test_shipped_projects_carry_no_date(name):
     assert state["pending_batch_created"] is None
 
 
+
+def test_the_shipped_round6_results_file_carries_no_print_date():
+    """Its title says which Round of which project, not the day the file
+    was made: the pilot's sheets were never printed on that day."""
+    from openpyxl import load_workbook
+    book = load_workbook(sp.ROUND6_RESULTS)
+    assert book["Round overview"]["A1"].value == f"Round 6 · {sp.ROUND6}"
+    for sheet in book:
+        for row in sheet.iter_rows(values_only=True):
+            for value in row:
+                assert not (isinstance(value, str) and "Printed" in value)
+
 def _today_range(before, after):
     return {before.astimezone().strftime("%Y-%m-%d"),
             after.astimezone().strftime("%Y-%m-%d")}
