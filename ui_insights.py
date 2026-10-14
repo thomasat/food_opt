@@ -1081,7 +1081,6 @@ STRIP_STYLE = """<style>
   border-left: 4px solid #b7791f; border-radius: 0.5rem; padding: 0.7rem 1rem !important; }
 .st-key-insights_stop_callout [data-testid="stMarkdownContainer"] p { margin-bottom: 0.1rem; }
 .st-key-insights_stop_head [data-testid="stMarkdownContainer"] p { font-size: 1.2rem; }
-.st-key-insights_tasting_noise_row [data-testid="stSelectbox"] { min-width: 9.5rem; }
 </style>"""
 
 
@@ -1140,8 +1139,6 @@ def _places(opt, gate=False):
                 p.link = st.empty()
             with p.link.container():
                 p.why = _why_link(opt)
-        # Final demo (B5): the project's tasting noise, beside the stop.
-        _noise_control(opt)
         p.preview = st.empty()
         _what_happened_next(opt)
     # The model-free charts, at once (they need no fit).
@@ -1173,7 +1170,7 @@ def _example_setup(opt):
 
 def _what_happened_next(opt):
     """The Round 6 sample, Round 6 recorded: the pilot's Rounds 7-10, at the
-    end of What next? (below the stop and the Tasting noise), secondary.
+    end of What next? (below the stop), secondary.
     app.py opens the all-10 sample on the run the key asks for it."""
     if sample_projects.offers_what_next(opt):
         if st.button(wording.SEE_WHAT_HAPPENED_NEXT, key="sample_what_next"):
@@ -1376,131 +1373,32 @@ def stop_reason_text(opt):
     return _say(opt, wording.stop_on_target(on, n, texts, targets, beyond))
 
 
-NOISE_KEY = "insights_tasting_noise"
-
-
-def _on_noise(opt):
-    value = st.session_state.get(NOISE_KEY)
-    try:
-        insights.set_tasting_noise(opt, value)
-    except Exception:
-        pass
-
-
-def _noise_control(opt):
-    """Final demo (B5): the Overall score's tasting noise, in points (1 SD):
-    a choice of TASTING_NOISE_CHOICES, the assumed 1 point the default;
-    saved with the project. From YARDSTICK_DF Repeat df the measured value
-    instead, read-only. Review-side only: the rise and tie thresholds, the
-    stop, the derived measurement noise, too-close pairs, the band and the
-    "?"s follow it; suggestions never read it."""
-    try:
-        yard = insights.noise_yardstick(opt)
-    except Exception:
-        return
-    with st.container(horizontal=True, vertical_alignment="center", gap="small",
-                      key="insights_tasting_noise_row"):
-        if getattr(yard, "from_repeats", False) and yard.value is not None:
-            st.caption(_say(opt, wording.tasting_noise_measured(f"{yard.value:.1f}", yard.df)),
-                       help=_say(opt, wording.TASTING_NOISE_MEASURED_HELP), width="content")
-            return
-        st.markdown(_say(opt, wording.TASTING_NOISE_LABEL), width="content",
-                    help=_say(opt, tasting_noise_help_text(opt, yard)))
-        want = insights.assumed_noise(opt)
-        choices = list(insights.TASTING_NOISE_CHOICES)
-        if all(abs(want - c) > 1e-9 for c in choices):
-            choices = sorted(choices + [want])
-        if st.session_state.get(NOISE_KEY) != want:
-            st.session_state[NOISE_KEY] = want
-        st.selectbox(_say(opt, wording.TASTING_NOISE_LABEL), choices, key=NOISE_KEY,
-                     format_func=lambda v: wording.tasting_noise_option(
-                         v, insights.ASSUMED_NOISE_SD),
-                     label_visibility="collapsed", width=200, on_change=_on_noise,
-                     args=(opt,), disabled=confirmation_open())
-
-
-def noise_unit_text(opt):
-    """Sceptic review: what 1 point of the Overall score is in each scored
-    measurement's own units, the assumption the Review's measurement noise
-    is derived by (learned.derived_noise at 1 point): 'Here 1 point = 0.3
-    per measurement, in its own units (Range 0–15).'; '' with none."""
-    cells = []
-    for o in learned.scored_measurements(opt):
-        v = learned.derived_noise(opt, o['name'], 1.0)
-        if not v:
-            continue
-        text = _num(v)
-        exact = abs(float(text) - v) < 1e-9
-        rng = f"{float(o.get('min_val', 0.0)):g}–{float(o.get('max_val', 10.0)):g}"
-        # A unit like '/15' says the Range again; one like 'N' joins both.
-        unit = str(o.get('unit') or "")
-        if unit and not unit.startswith("/"):
-            text, rng = join_unit(text, unit), join_unit(rng, unit)
-        cells.append((o['name'], text if exact else f"≈{text}", rng))
-    return wording.noise_per_measurement(cells)
-
-
-def stop_noise_floor(opt, yard):
-    """Sceptic review: the tasting noise (points) over which the stop shows
-    — at_ceiling's rule, round(top − best, 2) < round(rise_threshold(σ, 1),
-    2), solved for σ by bisection (the rule rises with σ). None where the
-    stop does not rest on that rule alone: noise measured from Repeats, a
-    formulation made more than once (a disagreeing Repeat replaces the
-    stop), a Round open, fewer than MIN_ROWS scored, no Best so far."""
-    if yard is None or getattr(yard, "from_repeats", False) or getattr(yard, "groups", 0):
-        return None
-    if opt.complete_count() < insights.MIN_ROWS:
-        return None
-    if getattr(opt, "pending_batch", None) and open_rows(opt):
-        return None
-    best = insights.best_facts(opt)
-    if best is None:
-        return None
-    gap = round(float(opt.utility_ceiling()) - float(best.score), 2)
-
-    def holds(sigma):
-        return gap < round(insights.rise_threshold(sigma, 1), 2)
-    lo, hi = 0.0, 1.0
-    while not holds(hi):
-        lo, hi = hi, hi * 2
-        if hi > 1e6:
-            return None
-    for _ in range(60):
-        mid = (lo + hi) / 2
-        lo, hi = (lo, mid) if holds(mid) else (mid, hi)
-    return hi
-
-
-def stop_floor_text(floor):
-    """The floor as the "?" says it (fix round 2): rounded DOWN to the
-    hundredth, so it never reads above the true one; under 0.01 (Best so
-    far at the top): None, 'at any noise'."""
-    if floor is None:
-        return None
-    down = math.floor(floor * 100 + 1e-9) / 100
-    return None if down < 0.01 else f"{down:.2f}"
-
-
-def tasting_noise_help_text(opt, yard=None):
-    """The Tasting noise "?" (sceptic review): its unit, what 1 point is per
-    measurement here, and the noise over which the stop shows."""
-    try:
-        per = noise_unit_text(opt)
-    except Exception:
-        per = ""
-    try:
-        floor = stop_noise_floor(opt, yard)
-    except Exception:
-        floor = None
-    stop = wording.stop_holds_above(stop_floor_text(floor)) if floor is not None else ""
-    return wording.tasting_noise_help(per, stop, f"{float(opt.utility_ceiling()):g}")
+def noise_basis_text(opt, facts):
+    """The noise the stop rests on, in one plain line (spec §11: the
+    Review has no noise control): measured from Repeats ('Results repeat
+    within about 1.4 points, measured from 4 Repeats.'), else the value in
+    use — the project's Tasting noise (Set up › More settings), else 1
+    point — with the Repeat that would measure it ('Assumes results repeat
+    within about 1 point until Repeats measure it. Repeat Formulation 16 to
+    check.'); Repeats from 3 df that agree closer than REPEAT_SD_SHOWN:
+    'Repeats agree within 0.1 point; using 1 point.'"""
+    y = getattr(facts, "yardstick", None)
+    if getattr(y, "from_repeats", False) and getattr(y, "value", None) is not None:
+        return wording.noise_basis(f"{y.value:.1f}", measured=True, repeats=y.df)
+    if not getattr(y, "assumed", True):
+        # Repeats from YARDSTICK_DF df whose SD is under REPEAT_SD_SHOWN:
+        # the setting stays in use, and no Repeat is asked for.
+        return wording.noise_basis(noise_sd_text(opt), tight=True)
+    best = getattr(facts, "best", None)
+    return wording.noise_basis(noise_sd_text(opt), repeat_no=getattr(best, "formulation", None))
 
 
 def ceiling_tip(opt, facts):
     """The stop signal's "?" at the top score (round-2 fixes, P1 #5): the
-    gap to the top and the threshold, in numbers; the score a formulation
-    exactly on every target would get with tasting noise; what can still
-    move; the limits that bind (said here only)."""
+    gap to the top and the threshold, in numbers; the noise they rest on
+    (noise_basis_text); the score a formulation exactly on every target
+    would get with tasting noise; what can still move; the limits that
+    bind (said here only)."""
     need = tie_need(facts.yardstick)
     try:
         limits = binding_texts(opt, getattr(facts.next, "bindings", None) or [])
@@ -1516,7 +1414,7 @@ def ceiling_tip(opt, facts):
     return _say(opt, wording.ceiling_help(
         one_decimal(best), f"{top:g}", one_decimal(top - best), f"{need:.1f}",
         None if perfect is None else one_decimal(perfect), assumed, limits,
-        sd_text=noise_sd_text(opt)))
+        sd_text=noise_sd_text(opt), basis=noise_basis_text(opt, facts)))
 
 
 def ceiling_answer(opt, facts):

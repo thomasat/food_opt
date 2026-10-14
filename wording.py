@@ -224,7 +224,8 @@ SAMPLE_PROVENANCE_HELP = (
     "Rounds 1–2 were the team's starting set; Rounds 3–10 were chosen by "
     "EGBO, an earlier version of this engine (Feb–May 2026). Limits on the "
     "ingredients and their total are inferred from the pilot's own "
-    "formulations. Tasting noise is assumed at 1 point unless you set it.")
+    "formulations. Tasting noise is assumed at 1 point unless you set it in Set up › More "
+    "settings.")
 
 
 # The project-level Method: one text area in More settings, printed on the
@@ -11179,26 +11180,24 @@ def near_edge_item(no, margin_text):
     return f"F{no} in by {margin_text}"
 
 
-# A4 · the stop's "?": one tasting regresses to the mean.
+# A4 · the stop's "?": one tasting regresses to the mean; the noise it
+# rests on in one plain line (spec §11, noise_basis in B5 below).
 def ceiling_help(best_text, top_text, gap_text, need_text, perfect_text=None, assumed=True,
-                 limits=(), sd_text="1"):
-    """The stop signal's "?": the gap and the threshold in numbers; what a
+                 limits=(), sd_text="1", basis=None):
+    """The stop signal's "?": the gap and the threshold in numbers; the
+    noise they rest on (`basis`, else noise_basis from sd_text); what a
     formulation exactly on target averages, tasted once, with this noise;
-    what can still move; the limits that bind; what would measure the
-    noise."""
+    what can still move; the limits that bind."""
+    if basis is None:
+        basis = noise_basis(sd_text if assumed else None, measured=not assumed)
     lines = [f"{BEST_SO_FAR_COLUMN} {best_text} is {gap_text} below the top ({top_text}); "
-             f"{need_text} is needed to tell two single results apart."]
+             f"{need_text} is needed to tell two single results apart.", basis]
     if perfect_text is not None:
-        basis = (f"assumed noise of {points_text(sd_text)}" if assumed
-                 else "noise from your Repeats")
         lines.append(f"A {FORMULATION} exactly on target, tasted once, averages about "
-                     f"{perfect_text} with this noise ({basis}); single tastings scatter "
-                     "around it.")
+                     f"{perfect_text} with this noise; single tastings scatter around it.")
     lines.append(CEILING_MEASURE)
     if limits:
         lines.append(f"Limits the predicted best sits at: {', '.join(limits)}.")
-    if assumed:
-        lines.append(REPEAT_CONFIRMS)
     return " ".join(lines)
 
 
@@ -11254,26 +11253,61 @@ def stop_marker_help(round_no, best_text, now_text, gain_text, need_text):
             f"{need_text} of the top. Since then: {now_text}, +{gain_text}.")
 
 
-# B5 · the project's tasting noise.
+# B5 · the project's tasting noise. Since the 2026-10-14 addendum (§11) a
+# setting in Set up › More settings, off the Review: the value in use is
+# the setting, else 1 point, until Repeats (3 df) measure it; the stop's
+# "?" says which, in one plain line (noise_basis, read by A4's
+# ceiling_help).
 TASTING_NOISE_LABEL = "Tasting noise"
-TASTING_NOISE_HELP = ("Set this from your tasters' Repeats; until then 1 point is assumed. "
-                      "Higher noise: the app stops sooner. It changes the Review's reading "
-                      "only, never the suggestions.")
+SETUP_NOISE_HELP = (f"Points of the {OVERALL_SCORE_COLUMN}: how far two tastings of the same "
+                    f"{FORMULATION} usually differ. Used for when to stop. Repeats measure it; "
+                    "then this is ignored.")
 
 
 def tasting_noise_option(value, default=1.0):
-    """'1 point (assumed)', '2 points', '0.5 points'."""
-    text = noise_text(value)
-    return f"{text} (assumed)" if abs(float(value) - float(default)) < 1e-9 else text
+    """'1 point', '2 points', '0.5 points' — plain, the starting 1 point
+    unmarked."""
+    return noise_text(value)
 
 
-def tasting_noise_measured(sd_text, df):
-    """'Tasting noise: 1.4 points, measured from Repeats (4 df)'."""
-    return f"{TASTING_NOISE_LABEL}: {points_text(sd_text)}, measured from Repeats ({df} df)"
+def tasting_noise_measured(sd_text, df=None):
+    """'Tasting noise: 1.4 points, measured from Repeats' (read-only in
+    More settings)."""
+    return f"{TASTING_NOISE_LABEL}: {points_text(sd_text)}, measured from Repeats"
 
 
-TASTING_NOISE_MEASURED_HELP = ("Measured from your Repeats (3 degrees of freedom or more), so "
-                               "it replaces the setting.")
+def _repeats_text(n):
+    return "1 Repeat" if n == 1 else f"{n} Repeats"
+
+
+def tasting_noise_measured_help(repeats=None):
+    """The measured value's "?": 'Measured from your 4 Repeats, so the
+    setting is ignored.'"""
+    src = f"your {_repeats_text(repeats)}" if repeats else "your Repeats"
+    return f"Measured from {src}, so the setting is ignored."
+
+
+TASTING_NOISE_MEASURED_HELP = tasting_noise_measured_help()
+
+
+def noise_basis(sd_text="1", measured=False, repeats=None, repeat_no=None, tight=False):
+    """The noise a stop or a rise rests on, one plain line: 'Results repeat
+    within about 1.4 points, measured from 4 Repeats.'; assumed: 'Assumes
+    results repeat within about 1 point until Repeats measure it. Repeat
+    Formulation 16 to check.'; `tight` (Repeats from 3 df whose SD is under
+    insights.REPEAT_SD_SHOWN, so the setting stays in use): 'Repeats agree
+    within 0.1 point; using 1 point.'"""
+    if tight:
+        return f"Repeats agree within 0.1 point; using {points_text(sd_text)}."
+    if measured:
+        src = _repeats_text(repeats) if repeats else "your Repeats"
+        if sd_text is None:
+            return f"Noise measured from {src}."
+        return f"Results repeat within about {points_text(sd_text)}, measured from {src}."
+    out = f"Assumes results repeat within about {points_text(sd_text)} until Repeats measure it."
+    if repeat_no is not None:
+        out += f" Repeat {FORMULATION_CAP} {repeat_no} to check."
+    return out
 
 
 # --- sceptic review (2026-10-14) ---
@@ -11357,51 +11391,6 @@ def on_target_help(on, n, within, half_text, targets=True, beyond=(), inside=())
         out += (" Off target, within its noise: " + ", ".join(f"{t} (±{h})" for t, h in inside)
                 + ".")
     return out
-
-
-def noise_per_measurement(cells):
-    """What 1 point of the Overall score is in each measurement's own units,
-    from [(name, value text, Range text)]: one value and one Range for all,
-    'Here 1 point = 0.3 per measurement, in its own units (Range 0–15).';
-    else each named, 'Here 1 point = Tangy 0.3, Firmness 0.05 N, each in
-    its own units.' ('≈' when a value is rounded)."""
-    if not cells:
-        return ""
-    sign = "≈" if any(v.startswith("≈") for _, v, _ in cells) else "="
-    values = {v.lstrip("≈") for _, v, _ in cells}
-    spans = {r for _, _, r in cells}
-    if len(values) == 1 and len(spans) == 1:
-        return (f"Here 1 point {sign} {values.pop()} per measurement, in its own units "
-                f"(Range {spans.pop()}).")
-    listed = ", ".join(f"{n} {v.lstrip('≈')}" for n, v, _ in cells)
-    return f"Here 1 point {sign} {listed}, each in its own units."
-
-
-def stop_holds_above(sd_text=None):
-    """'The stop shows at noise over 0.72 points.'; with no floor (Best so
-    far at the top): 'The stop shows at any noise.'"""
-    if sd_text is None:
-        return "The stop shows at any noise."
-    return f"The stop shows at noise over {points_text(sd_text)}."
-
-
-def tasting_noise_help(per_text="", stop_text="", top_text="100"):
-    """The Tasting noise "?": the unit (points of the Overall score, 1 SD
-    of a single tasting), what 1 point is in each measurement's units here,
-    where it comes from, what it changes, and the noise over which the
-    stop shows."""
-    lines = [f"Points of the {OVERALL_SCORE_COLUMN} (0–{top_text}), 1 SD of a single tasting."]
-    if per_text:
-        lines.append(per_text)
-    lines.append("Set it from your tasters' Repeats; until then 1 point is assumed. Higher "
-                 "noise: the app stops sooner. It changes the Review's reading only, never "
-                 "the suggestions.")
-    if stop_text:
-        lines.append(stop_text)
-    return " ".join(lines)
-
-
-TASTING_NOISE_HELP = tasting_noise_help()
 
 
 # The Forecast check: its count and its reference, never 'as forecast'.

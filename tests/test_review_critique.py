@@ -163,8 +163,8 @@ def test_the_ceiling_card_says_stop_and_never_widen(monkeypatch):
     # Round 2: the gap and the threshold in numbers, and the noisy-perfect score.
     tip = wording.ceiling_help("99.2", "100", "0.8", "2.3", "98.4", True,
                                ["Water's Highest (42 g)"])
-    assert "Water's Highest (42 g)" in tip and "assumed noise" in tip
-    assert tip.endswith(wording.REPEAT_CONFIRMS)
+    assert "Water's Highest (42 g)" in tip
+    assert "Assumes results repeat within about 1 point until Repeats measure it." in tip
 
 
 def test_widening_names_every_limit_and_a_moved_pair():

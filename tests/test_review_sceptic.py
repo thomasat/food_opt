@@ -101,79 +101,68 @@ def test_the_callout_draws_the_new_head_and_line(monkeypatch):
 
 
 # ------------------------------------------------------------------ #
-#  2 · the tasting noise: its unit, per measurement, and the stop's floor
+#  2 · the tasting noise: the stop's "?" says the noise in use
 # ------------------------------------------------------------------ #
 
-def test_one_point_is_said_in_each_measurements_units():
-    opt = _opt()
-    # σ_a = σ × width ÷ (share × √k) = 1 × 15 ÷ (25 × 2) = 0.3.
-    assert learned.derived_noise(opt, "Tangy", 1.0) == pytest.approx(0.3)
-    assert U.noise_unit_text(opt) == (
-        "Here 1 point = 0.3 per measurement, in its own units (Range 0–15).")
-    # Different Ranges: each named, rounded values marked.
-    assert wording.noise_per_measurement([("A", "0.3", "0–15"), ("B", "≈0.67", "0–10 N")]) == (
-        "Here 1 point ≈ A 0.3, B 0.67, each in its own units.")
-    assert wording.noise_per_measurement([]) == ""
-
-
-def test_a_unit_joins_the_value_and_the_range(tmp_path):
-    from food_bo import FoodOptimizer
-    opt = FoodOptimizer("units")
-    opt.add_ingredient("Oil", 0, 20)
-    opt.add_objective("Firmness", 50, goal="target", target=5, min_val=0, max_val=10, unit="N")
-    opt.add_objective("Juiciness", 50, goal="target", target=5, min_val=0, max_val=10, unit="/10")
-    text = U.noise_unit_text(opt)
-    # 1 × 10 ÷ (50 × √2) = 0.1414…: rounded, so '≈'; 'N' joins, '/10' does not.
-    assert text == "Here 1 point ≈ Firmness 0.14 N, Juiciness 0.14, each in its own units."
-
-
 @pytest.mark.parametrize("sigma", [0.5, 1, 2, 3])
-def test_the_noise_question_mark_says_the_unit_and_where_the_stop_starts(sigma, monkeypatch):
+def test_the_stops_question_mark_says_the_noise_in_use(sigma):
+    # Spec §11 (the Tasting noise control left the Review for Set up): the
+    # stop's "?" says the noise it rests on — the project's setting, else
+    # 1 point — in one plain line, with the Repeat that would measure it.
     opt = _opt(noise=None if sigma == 1 else sigma)
-    fake = _FakeSt()
-    monkeypatch.setattr(U, "st", fake)
-    monkeypatch.setattr(U, "confirmation_open", lambda: False)
-    U._noise_control(opt)
-    help_ = next(c for c in fake.calls if c[0] == "markdown")[2]["help"]
-    assert help_.startswith("Points of the Overall score (0–100), 1 SD of a single tasting. "
-                            "Here 1 point = 0.3 per measurement, in its own units (Range 0–15).")
-    # The stop's floor does not move with the setting: it is where the stop starts.
-    assert help_.endswith("The stop shows at noise over 0.72 points.")
-    # The option labels are unchanged.
-    sb = next(c for c in fake.calls if c[0] == "selectbox")
-    assert [sb[2]["format_func"](v) for v in sb[1][1]] == [
-        "0.5 points", "1 point (assumed)", "2 points", "3 points"]
-    _clean(help_)
+    facts = _facts(opt)
+    facts.next = None
+    tip = U.ceiling_tip(opt, facts)
+    pts = wording.points_text(f"{sigma:g}")
+    line = (f"Assumes results repeat within about {pts} until Repeats measure it. "
+            "Repeat Formulation 16 to check.")
+    assert U.noise_basis_text(opt, facts) == line
+    assert tip.count("Repeats measure it") == 1 and line in tip
+    assert line in wording.brief(tip)
+    # The option labels, now in Set up, are plain.
+    assert [wording.tasting_noise_option(v) for v in insights.TASTING_NOISE_CHOICES] == [
+        "0.5 points", "1 point", "2 points", "3 points"]
+    _clean(tip)
 
 
-def test_the_stop_floor_is_the_stops_own_rule_solved_for_the_noise():
+def test_the_stop_moves_with_the_setting():
+    # The stop rule (at_ceiling) at the project's Tasting noise: Best so far
+    # 1.67 below the top shows the stop from about 0.72 points of noise.
     opt = _opt()
-    yard = insights.noise_yardstick(opt)
-    floor = U.stop_noise_floor(opt, yard)
     gap = round(100 - float(opt.Y_history[opt.best_index()]), 2)
     assert gap == 1.67
-    holds = lambda s: gap < round(insights.rise_threshold(s, 1), 2)  # noqa: E731
-    assert holds(floor) and not holds(floor - 1e-6)
-    assert f"{floor:.2f}" == "0.72"
-    # The rule the screen uses agrees on each side of the floor.
-    for s, want in ((floor + 1e-3, True), (floor - 1e-3, False), (3.0, True), (0.5, False)):
+    for s, want in ((0.73, True), (0.71, False), (3.0, True), (0.5, False)):
         insights.set_tasting_noise(opt, s)
         facts = NS(yardstick=insights.noise_yardstick(opt),
                    best=NS(score=float(opt.Y_history[opt.best_index()]), formulation=16))
         assert U.at_ceiling(opt, facts) is want, s
 
 
-def test_no_stop_floor_where_the_stop_rests_on_more_than_its_rule(monkeypatch):
-    opt = _opt()
+def test_repeats_that_agree_closer_than_shown_keep_the_setting_and_say_so():
+    # Fix round 1: Repeats from 3 df whose SD is under REPEAT_SD_SHOWN do
+    # not measure the noise (the setting stays in use), so the stop's "?"
+    # never says "until Repeats measure it" and asks for no Repeat.
+    opt = _opt(noise=2)
+    facts = _facts(opt)
+    facts.next = None
+    facts.yardstick = insights.Yardstick(2.0, 0.0, 3, False, assumed=False, df=3, groups=1,
+                                         left_out=0)
+    line = U.noise_basis_text(opt, facts)
+    assert line == "Repeats agree within 0.1 point; using 2 points."
+    assert insights.REPEAT_SD_SHOWN < 0.1 and _words(line) <= 10
+    tip = U.ceiling_tip(opt, facts)
+    assert line in tip and "until Repeats measure it" not in tip and "Repeat Formulation" not in tip
+    _clean(tip)
+    # A real project: one formulation tasted 4 times alike (3 df, SD 0).
+    same = {"Oil": 19.0, "Starch": 4.9}                   # made nowhere else
+    for j in range(4):
+        opt.tell(same, {"Consistency": 12, "Creaminess": 5, "Tangy": 5, "Thickness": 13},
+                 formulation_no=30 + j, batch_no=7)
     yard = insights.noise_yardstick(opt)
-    assert U.stop_noise_floor(opt, None) is None
-    assert U.stop_noise_floor(opt, NS(from_repeats=True, groups=0)) is None
-    assert U.stop_noise_floor(opt, NS(from_repeats=False, groups=1)) is None   # a Repeat made
-    monkeypatch.setattr(U, "open_rows", lambda o: [{"formulation": 19}])
-    opt.pending_batch = [{"formulation": 19}]
-    assert U.stop_noise_floor(opt, yard) is None                                # a Round open
-    few = _opt("few", rows=ROWS[:4])
-    assert U.stop_noise_floor(few, insights.noise_yardstick(few)) is None       # at the gate
+    assert yard.df == 3 and not yard.from_repeats and not yard.assumed and yard.value == 2.0
+    facts = _facts(opt)
+    facts.yardstick = yard
+    assert U.noise_basis_text(opt, facts) == "Repeats agree within 0.1 point; using 2 points."
 
 
 # ------------------------------------------------------------------ #
@@ -443,14 +432,6 @@ def test_the_all_10_samples_bias_numbers_are_as_at_a4e1420(tmp_path):
     h = insights.headline(opt, checks)
     assert insights.score_bias(opt, checks, h) is None
     assert not any(d.bias for d in insights.details(opt, checks))
-
-
-@pytest.mark.parametrize("floor, text", [(0.72005, "0.72"), (0.7299, "0.72"), (0.36001, "0.36"),
-                                         (0.0021, None), (None, None)])
-def test_the_stop_floor_rounds_down_and_says_any_noise_at_the_top(floor, text):
-    assert U.stop_floor_text(floor) == text
-    if floor is not None and text is None:
-        assert wording.stop_holds_above(None) == "The stop shows at any noise."
 
 
 def test_left_out_values_are_named_where_the_counts_show():

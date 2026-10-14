@@ -24,6 +24,7 @@ from streamlit.testing.v1 import AppTest
 import insights
 import learned
 import ui_insights as U
+import ui_setup
 import wording
 from food_bo import FoodOptimizer
 from tests.test_app_ui import APP_PATH
@@ -189,7 +190,10 @@ def test_the_texts_and_the_band_say_the_noise(sigma):
     facts = _facts(opt)
     facts.next = None
     tip = U.ceiling_tip(opt, facts)
-    assert f"assumed noise of {pts}" in tip
+    # Spec §11: the noise basis in one plain line, with the Repeat to check it.
+    assert (f"Assumes results repeat within about {pts} until Repeats measure it. "
+            "Repeat Formulation 16 to check.") in tip
+    assert "assumed noise of" not in tip and wording.REPEAT_CONFIRMS not in tip
     assert f"{U.tie_need(facts.yardstick):.1f} is needed to tell two single results apart" in tip
     assert wording.progress_rise_answer("95.0", "98.3", "3.3", f"{3 * sigma:.1f}",
                                         sd_text=f"{sigma}").endswith(
@@ -213,45 +217,71 @@ def test_the_measured_noise_takes_over_from_three_df(tmp_path):
     assert yard.value != 3 and yard.value < 1.5           # the Repeats', not the setting
     assert learned.overall_noise(opt)[1] is False
     assert insights.improvement(opt, yardstick=yard) is None or True
-    # The control shows it, read-only: a caption, no selectbox.
+    # Set up › More settings shows it, read-only: a caption, no selectbox.
     fake = _FakeSt()
-    U.st, real = fake, U.st
+    ui_setup.st, real = fake, ui_setup.st
     try:
-        U._noise_control(opt)
+        ui_setup._tasting_noise(opt)
     finally:
-        U.st = real
+        ui_setup.st = real
     kinds = [c[0] for c in fake.calls]
     assert "selectbox" not in kinds
-    cap = next(c for c in fake.calls if c[0] == "caption")[1][0]
-    assert cap == wording.tasting_noise_measured(f"{yard.value:.1f}", 3)
-    assert cap.endswith("measured from Repeats (3 df)") and _words(cap) <= 10
+    cap = next(c for c in fake.calls if c[0] == "caption")
+    assert cap[1][0] == wording.tasting_noise_measured(f"{yard.value:.1f}")
+    assert cap[1][0] == f"Tasting noise: {yard.value:.1f} points, measured from Repeats"
+    assert _words(cap[1][0]) <= 10
+    assert cap[2]["help"] == "Measured from your 3 Repeats, so the setting is ignored."
+    # The stop's "?" says the measured basis, with no Repeat to ask for.
+    facts = _facts(opt)
+    facts.yardstick = yard
+    assert U.noise_basis_text(opt, facts) == (
+        f"Results repeat within about {yard.value:.1f} points, measured from 3 Repeats.")
     assert k == 18
 
 
-def test_the_control_offers_the_four_choices_with_the_assumed_one_default(monkeypatch):
+def test_set_up_offers_the_four_choices_with_1_point_the_start(monkeypatch):
+    """Spec §11: Tasting noise in Set up › More settings, next to Default
+    batch size: 0.5 / 1 / 2 / 3 points, 1 point the start, said plainly."""
     opt = _opt()
     fake = _FakeSt()
-    monkeypatch.setattr(U, "st", fake)
-    monkeypatch.setattr(U, "confirmation_open", lambda: False)
-    U._noise_control(opt)
+    monkeypatch.setattr(ui_setup, "st", fake)
+    monkeypatch.setattr(ui_setup, "confirmation_open", lambda: False)
+    ui_setup._tasting_noise(opt)
     sb = next(c for c in fake.calls if c[0] == "selectbox")
     label, choices = sb[1]
     assert label == wording.TASTING_NOISE_LABEL == "Tasting noise"
     assert list(choices) == [0.5, 1.0, 2.0, 3.0]
-    assert fake.session_state[U.NOISE_KEY] == 1.0
+    assert fake.session_state[ui_setup.TASTING_NOISE_KEY] == 1.0
     fmt = sb[2]["format_func"]
-    assert [fmt(v) for v in choices] == ["0.5 points", "1 point (assumed)", "2 points",
-                                         "3 points"]
-    assert sb[2]["on_change"] is U._on_noise
-    help_ = next(c for c in fake.calls if c[0] == "markdown")[2]["help"]
-    # Sceptic review (2026-10-14), re-pinned: the unit, what 1 point is per
-    # measurement here, and the noise over which the stop shows.
-    assert help_ == wording.tasting_noise_help(
-        "Here 1 point = 0.3 per measurement, in its own units (Range 0–15).",
-        "The stop shows at noise over 0.72 points.")
-    assert help_.startswith("Points of the Overall score (0–100), 1 SD of a single tasting.")
-    assert "1 point is assumed" in help_ and "stops sooner" in help_
-    assert "never the suggestions" in help_
+    assert [fmt(v) for v in choices] == ["0.5 points", "1 point", "2 points", "3 points"]
+    assert sb[2]["on_change"] is ui_setup._on_tasting_noise
+    help_ = sb[2]["help"]
+    assert help_ == ("Points of the Overall score: how far two tastings of the same formulation "
+                     "usually differ. Used for when to stop. Repeats measure it; then this is "
+                     "ignored.")
+    assert help_.count(". ") + 1 <= 3                     # three short sentences
+    # A saved 2 points is what the box starts on; a choice is saved (not 1).
+    insights.set_tasting_noise(opt, 2.0)
+    fake.session_state.clear()
+    ui_setup._tasting_noise(opt)
+    assert fake.session_state[ui_setup.TASTING_NOISE_KEY] == 2.0
+    fake.session_state[ui_setup.TASTING_NOISE_KEY] = 3.0
+    ui_setup._on_tasting_noise(opt)
+    assert json.load(open("final_demo.pkl"))["tasting_noise"] == 3.0
+    fake.session_state[ui_setup.TASTING_NOISE_KEY] = 1.0
+    ui_setup._on_tasting_noise(opt)
+    assert "tasting_noise" not in json.load(open("final_demo.pkl"))
+    # In More settings, right after Default batch size.
+    src = inspect.getsource(ui_setup._more_settings)
+    assert src.index("_formulation_total(opt)") < src.index("_tasting_noise(opt)") \
+        < src.index("_method_editor(opt)")
+
+
+def test_the_review_has_no_noise_control():
+    assert not hasattr(U, "_noise_control") and not hasattr(U, "NOISE_KEY")
+    src = inspect.getsource(U)
+    assert "selectbox(_say(opt, wording.TASTING_NOISE_LABEL)" not in src
+    assert "insights_tasting_noise" not in src
 
 
 # ------------------------------------------------------------------ #
@@ -528,8 +558,9 @@ def test_the_stop_repeat_is_one_quiet_line_under_the_callout(monkeypatch, kind, 
 
 def test_the_review_at_the_stop_end_to_end():
     """The app itself: the callout leads What next?, the strip says Stop,
-    no primary button on the Review, and the Tasting noise choice moves
-    the stop's numbers and is saved."""
+    no primary button on the Review, no noise control on it (spec §11);
+    the Tasting noise in Set up › More settings moves the stop's numbers
+    and is saved."""
     opt = _opt("e2e")
     opt.save()
     at = AppTest.from_file(APP_PATH, default_timeout=900)
@@ -542,20 +573,35 @@ def test_the_review_at_the_stop_end_to_end():
     texts = [m.value for m in review.markdown]
     assert "**Stop: score within noise of 100**" in texts
     assert "1.7 below the top; 2.3 needed to tell two results apart." in texts
+    # The stop's "?" states its noise basis in one plain line.
+    line = next(m for m in review.markdown
+                if m.value == "1.7 below the top; 2.3 needed to tell two results apart.")
+    assert ("Assumes results repeat within about 1 point until Repeats measure it. Repeat "
+            "Formulation 16 to check.") in line.proto.help
     stop = next(b for b in review.button if (b.key or "").endswith("_next"))
     assert stop.label.startswith(":orange[**Stop**] 1.7 below top; 2.3 needed")
     assert not [b for b in review.button if b.proto.type == "primary"]
-    # Rising at 1 point; the Tasting noise to 3.
+    # Rising at 1 point; no noise control on the Review.
     assert any(t.startswith("**Rising.** Best 95.0 → 98.3 (+3.3; needs 3.0 if tasting noise ≈ "
                             "1 point)") for t in texts)
-    sb = at.selectbox(key=U.NOISE_KEY)
-    assert sb.value == 1.0
+    assert not [s for s in review.selectbox if s.label == wording.TASTING_NOISE_LABEL]
+    assert wording.TASTING_NOISE_LABEL not in texts
+    # The Tasting noise to 3, in Set up › More settings.
+    at.session_state["main_tab"] = wording.TAB_SETUP
+    at.run()
+    sb = at.selectbox(key=ui_setup.TASTING_NOISE_KEY)
+    assert sb.value == 1.0 and sb.label == wording.TASTING_NOISE_LABEL
     sb.set_value(3.0).run()
+    assert not at.exception, [e.message for e in at.exception]
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
     at.run()
     assert not at.exception, [e.message for e in at.exception]
     texts = [m.value for m in at.tabs[3].markdown]
     assert "1.7 below the top; 7.0 needed to tell two results apart." in texts
+    line = next(m for m in at.tabs[3].markdown
+                if m.value == "1.7 below the top; 7.0 needed to tell two results apart.")
+    assert "Assumes results repeat within about 3 points until Repeats measure it." \
+        in line.proto.help
     assert any(t.startswith("**Within noise.** Best 95.0 → 98.3 (+3.3; needs 9.0 if tasting "
                             "noise ≈ 3 points)") for t in texts)
     assert json.load(open("e2e.pkl"))["tasting_noise"] == 3.0
@@ -678,6 +724,14 @@ def test_the_score_caption():
 def test_every_final_demo_string_keeps_the_rules():
     statuses = [wording.stop_strip_line("1.7", "2.3"),
                 wording.tasting_noise_measured("1.4", 4)]
+    # Spec §11: the noise basis, one plain line each ("?" text, short).
+    bases = [wording.noise_basis("1", repeat_no=16), wording.noise_basis("3"),
+             wording.noise_basis("1.4", measured=True, repeats=4)]
+    assert bases[0] == ("Assumes results repeat within about 1 point until Repeats measure it. "
+                        "Repeat Formulation 16 to check.")
+    assert bases[2] == "Results repeat within about 1.4 points, measured from 4 Repeats."
+    for t in bases:
+        assert _words(t) <= 16, t
     headlines = [wording.STOP_CALLOUT_HEAD, wording.stop_callout_line("1.7", "2.3"),
                  wording.stop_on_target(3, 4, ["Tangy 1.0 under"]),
                  wording.stop_on_target(3, 4, ["Tangy 1.0 under"], True, [True]),
@@ -685,6 +739,7 @@ def test_every_final_demo_string_keeps_the_rules():
     captions = [wording.SCORE_IS_MATCH, wording.stop_marker(6), wording.after_stop("0.8")]
     labels = [wording.TASTING_NOISE_LABEL, wording.STOP_WORD,
               wording.tasting_noise_option(1.0), wording.tasting_noise_option(0.5)]
+    assert wording.tasting_noise_option(1.0) == "1 point"          # no "(assumed)"
     for t in statuses:
         assert _words(t) <= 10, t
     for t in headlines:
@@ -694,7 +749,8 @@ def test_every_final_demo_string_keeps_the_rules():
     for t in labels:
         assert _words(t) <= 5, t
     for t in statuses + headlines + captions + labels + [
-            wording.TASTING_NOISE_HELP, wording.TASTING_NOISE_MEASURED_HELP,
+            wording.SETUP_NOISE_HELP, wording.TASTING_NOISE_MEASURED_HELP,
+            wording.tasting_noise_measured_help(4), *bases,
             wording.stop_marker_help(4, "95.0", "98.3", "3.3", "7.0"),
             wording.on_target_help(3, 4, 4, "0.6"),
             wording.pairs_called_help("Overall score", 5, 5, 12, 6, 1, "3 in 100", "15 in 100", 5),
@@ -707,6 +763,7 @@ def test_every_final_demo_string_keeps_the_rules():
     # The final demo strings sit under their own heading in wording.py.
     src = open(wording.__file__).read()
     tail = src[src.index("# --- final demo ---"):]
-    for name in ("STOP_CALLOUT_HEAD", "TASTING_NOISE_LABEL", "SCORE_IS_MATCH", "def best_after",
+    for name in ("STOP_CALLOUT_HEAD", "TASTING_NOISE_LABEL", "SETUP_NOISE_HELP", "def noise_basis",
+                 "SCORE_IS_MATCH", "def best_after",
                  "def pairs_called_help", "def stop_marker", "def noise_band"):
         assert name in tail, name
