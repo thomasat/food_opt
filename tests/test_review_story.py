@@ -300,7 +300,7 @@ def test_trust_answer_on_line_a(screens):
     # Specific wording (2026-10-12), re-pinned: each name with its pairs.
     # Sceptic review (2026-10-14), re-pinned: called of all pairs; past 14
     # words with every count, so the first count alone, the names kept.
-    assert line == ("Partly: Overall score (5 of 21 pairs called, all 5 right), Firmness, "
+    assert line == ("Partly: Overall score (5 of 21 pairs called, 5 right), Firmness, "
                     "Cook loss.")
 
 
@@ -491,7 +491,8 @@ def test_pilot_story(pilot):
     assert re.fullmatch(r"· best \d+\.\d of 100", items[0]["line"]), items[0]
     # Specific wording (2026-10-12), re-pinned: each name with its pairs.
     # Sceptic review (2026-10-14), re-pinned: called of all pairs.
-    assert re.fullmatch(r"[A-Z][\w ]+ \((\d+ of \d+ called|\d+/\d+ called)\)"
+    # Fix round 2: one form, never hiding how many were right.
+    assert re.fullmatch(r"[A-Z][\w ]+ \(\d+ of \d+ called, \d+ right\)"
                         r"(, [A-Z][\w ]+)?( \+\d+)?", items[1]["line"]), items[1]
     # Slim Review (re-pinned): the verdict line in the Forecast check.
     # Sceptic review (2026-10-14), re-pinned: the verdict's own pairs, called
@@ -499,7 +500,7 @@ def test_pilot_story(pilot):
     line = next(t for k, t in got[wording.FORECAST_CHECK_TITLE]
                 if k == "markdown" and t.startswith("Predicts: "))
     # Other verdict groups follow, bare, when the line has room.
-    assert re.fullmatch(r"Predicts: [A-Z][\w ]+ \(\d+ of \d+ pairs called, (all )?\d+ right\)\."
+    assert re.fullmatch(r"Predicts: [A-Z][\w ]+ \(\d+ of \d+ pairs called, \d+ right\)\."
                         r"( (Partly|Not yet): [A-Z][\w ,]+\.)*", line), line
     # Review critique (fix 4): the profiler is a closed fold.
     assert wording.Q3_TITLE not in got

@@ -312,11 +312,13 @@ def _round_predicted(opt):
     st.dataframe(frame, hide_index=True, key="round_predicted",
                  height=35 * (len(frame) + 1) + 3)
     # Sceptic review: the "?" says what No forecast is, when a row reads it.
-    none = (frame[wording.for_project(opt, wording.RESULTS_PREDICTED_COLUMN)]
-            == wording.for_project(opt, wording.NO_FORECAST)).any()
+    try:
+        none = ui_insights.no_forecast_items(opt, checks, last)
+    except Exception:
+        none = []
     st.caption(wording.for_project(opt, wording.RESULTS_PREDICTED_CAPTION),
                help=wording.for_project(opt, wording.results_predicted_help(
-                   last, bool(none), sample_projects.is_sample(opt.project_name))))
+                   last, none or False, sample_projects.is_sample(opt.project_name))))
 
 
 def _progress_line(opt):

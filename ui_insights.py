@@ -303,7 +303,12 @@ def measured_vs_predicted_chart(opt, checks, height=None):
     ink, _ = mark("bar_latest")
     # Review plots: one legend for the whole figure — filled inside its 95 %
     # range, hollow outside; the latest Round dark, earlier ones lighter.
-    fills = alt.Scale(domain=[inside_name, outside_name], range=[ink, "transparent"])
+    none_name = _say(opt, wording.NO_FORECAST)
+    # Fix round 2: a whole-Range range is "No forecast" (neutral), keyed
+    # only when one is drawn.
+    nf = any(no_forecast(opt, c) for c in checks if c.name in names)
+    fills = alt.Scale(domain=[inside_name, outside_name] + ([none_name] if nf else []),
+                      range=[ink, "transparent"] + ([mark("neutral")[0]] if nf else []))
     whens = alt.Scale(domain=[latest_name, earlier_name], range=[1.0, 0.45])
     legend = alt.Legend(title=None, orient="top", labelLimit=0)
     panels = []
@@ -317,7 +322,8 @@ def measured_vs_predicted_chart(opt, checks, height=None):
             predicted: round(c.predicted, d), low: round(c.low, d), high: round(c.high, d),
             measured: round(c.measured, max(1, d)), "inside": c.inside,
             "latest": c.round == latest,
-            "state": inside_name if c.inside else outside_name,
+            "state": (none_name if no_forecast(opt, c) else
+                      inside_name if c.inside else outside_name),
             "when": latest_name if c.round == latest else earlier_name,
             "bo": wording.PLOT_BO_ROUND_AHEAD} for c in mine])
         x = alt.X(f"{predicted}:Q", title=predicted, scale=scale)
@@ -806,6 +812,7 @@ def track_text(t):
         counted = wording.track_measured_counted(m.misses, m.total, m.allowed)
         line = line.replace(wording._MEASURED_MORE, counted).replace(
             "; many more in the measured values", counted)
+        line = wording.with_left_out(line, getattr(m, "no_forecast", 0))
     return line + skill
 
 
@@ -1278,10 +1285,11 @@ def _next_body(opt, places, facts):
 
 
 def _stop_callout(opt, facts):
-    """Final demo (B1): 'Stop: within noise of the top', then '1.7 below
-    the top; 2.3 needed to tell two results apart.' (its "?" the stop's
-    numbers) and 'On target 3 of 4; Tangy 1.0 under.' (its "?" on target
-    as rated and within noise of target), in a warm tinted box."""
+    """Final demo (B1), sceptic review: 'Stop: score within noise of 100',
+    then '1.7 below the top; 2.3 needed to tell two results apart.' (its
+    "?" the stop's numbers) and 'On target 3 of 4; Tangy 1.0 under, beyond
+    noise.' (its "?" on target as rated and each miss against its noise
+    band), in a warm tinted box."""
     with st.container(key="insights_stop_callout", gap="xsmall"):
         with st.container(key="insights_stop_head", gap=None):
             st.markdown(f"**{_say(opt, stop_head_text(opt))}**")
@@ -1311,15 +1319,14 @@ def noise_half(opt, name, noise=None):
 
 
 def beyond_noise(opt, offs):
-    """[bool] for ideal_gaps' `offs`: whether each gap is beyond its own
-    band (noise_half, the "?"'s ±); None when any band is unknown."""
+    """[True / False / None] for ideal_gaps' `offs`: whether each gap is
+    beyond its own band (noise_half, the "?"'s ±); None for a measurement
+    with no noise (fix round 2: nothing is said about its noise)."""
     noise = learned.pair_noise(opt)
     flags = []
     for o, _amount, gap in offs:
         half = noise_half(opt, o['name'], noise)
-        if half is None:
-            return None
-        flags.append(abs(float(gap)) > half + 1e-9)
+        flags.append(None if half is None else abs(float(gap)) > half + 1e-9)
     return flags
 
 
@@ -1344,7 +1351,7 @@ def stop_reason_text(opt):
                                 else "under" if gap < 0 else "over") for o, amount, gap in offs]
     # Sceptic review: each off-target measurement against its own noise band.
     try:
-        beyond = beyond_noise(opt, offs[:2])
+        beyond = beyond_noise(opt, offs)
     except Exception:
         beyond = None
     return _say(opt, wording.stop_on_target(on, n, texts, targets, beyond))
@@ -1445,6 +1452,16 @@ def stop_noise_floor(opt, yard):
     return hi
 
 
+def stop_floor_text(floor):
+    """The floor as the "?" says it (fix round 2): rounded DOWN to the
+    hundredth, so it never reads above the true one; under 0.01 (Best so
+    far at the top): None, 'at any noise'."""
+    if floor is None:
+        return None
+    down = math.floor(floor * 100 + 1e-9) / 100
+    return None if down < 0.01 else f"{down:.2f}"
+
+
 def tasting_noise_help_text(opt, yard=None):
     """The Tasting noise "?" (sceptic review): its unit, what 1 point is per
     measurement here, and the noise over which the stop shows."""
@@ -1456,7 +1473,7 @@ def tasting_noise_help_text(opt, yard=None):
         floor = stop_noise_floor(opt, yard)
     except Exception:
         floor = None
-    stop = wording.stop_holds_above(f"{floor:.2f}") if floor is not None else ""
+    stop = wording.stop_holds_above(stop_floor_text(floor)) if floor is not None else ""
     return wording.tasting_noise_help(per, stop, f"{float(opt.utility_ceiling()):g}")
 
 
@@ -1572,19 +1589,22 @@ def on_target_help_text(opt, res):
             return ""
         on, n, offs, targets = gaps
         w = within_noise_of_target(opt, res)
-        # Sceptic review: the ones beyond their band named, with it.
+        # Sceptic review: each off-target one named with its band, beyond
+        # it or within it; one with no noise is named in neither.
         noise = learned.pair_noise(opt)
-        beyond = []
+        beyond, inside = [], []
         for o, amount, gap in offs:
             h = noise_half(opt, o['name'], noise)
-            if h is not None and abs(float(gap)) > h + 1e-9:
-                kind = ("short" if o.get('goal') != 'target' else "under" if gap < 0 else "over")
-                beyond.append((wording.spider_off(o['name'], amount, kind), f"{h:.1f}"))
+            if h is None:
+                continue
+            kind = ("short" if o.get('goal') != 'target' else "under" if gap < 0 else "over")
+            item = (wording.spider_off(o['name'], amount, kind), f"{h:.1f}")
+            (beyond if abs(float(gap)) > h + 1e-9 else inside).append(item)
     except Exception:
         return ""
     within, half = (w[0], w[2]) if w is not None else (None, "")
     return _say(opt, wording.on_target_help(on, n, within, half or None, targets,
-                                            beyond if w is not None else ()))
+                                            beyond, inside))
 
 
 def on_ideal(opt, name, gap):
@@ -2845,8 +2865,9 @@ def verdict_text(opt, h, state, bias=None, checks=()):
     callers). `checks`: for the over-wide rule's basis."""
     if state == "none":
         return wording.TRUST_NONE
+    left = getattr(h, "no_forecast", 0)
     if state == "early":
-        return wording.trust_early(h.total)
+        return wording.trust_early(h.total, left)
     if state == "wide":
         return wording.TRUST_WIDE
     allowed = insights.allowed_misses(h.total)
@@ -2856,9 +2877,10 @@ def verdict_text(opt, h, state, bias=None, checks=()):
         # no "too narrow" beside a "wide" line.
         line = wording.trust_misses_diag(h.rounds, h.inside, h.total,
                                          many=state == "unreliable", allowed=allowed)
-        return " ".join([line, wording.diag_detail(diag_items(opt, d), d.rounds, d.far,
-                                                   d.misses, d.far_checked, d.checked),
-                         wording.DIAG_READING[d.kind]])
+        return wording.with_left_out(" ".join([
+            line, wording.diag_detail(diag_items(opt, d), d.rounds, d.far, d.misses,
+                                      d.far_checked, d.checked),
+            wording.DIAG_READING[d.kind]]), left)
     if state in ("caution", "unreliable"):
         line = wording.trust_misses(len(h.rounds), h.rounds, h.inside, h.total,
                                     many=state == "unreliable", allowed=allowed)
@@ -2867,6 +2889,7 @@ def verdict_text(opt, h, state, bias=None, checks=()):
                                        insights.median_z(h, checks) if checks else None)
     else:
         line = wording.trust_within(h.inside, h.total, h.rounds, allowed=allowed)
+    line = wording.with_left_out(line, left)
     wide = _wide(opt, h)
     return f"{line} {wide}" if wide else line
 
@@ -4319,14 +4342,16 @@ def how_paragraphs(opt, computed):
     if checks:
         h = insights.headline(opt, checks)
         if h.total:
-            verdict = wording.how_verdict(h.total, insights.allowed_misses(h.total))
+            verdict = wording.with_left_out(
+                wording.how_verdict(h.total, insights.allowed_misses(h.total)),
+                getattr(h, "no_forecast", 0))
     return [wording.how_models(cfg.get("kernel"), cfg.get("noise")),
             wording.HOW_RANGE_FIXED_TINY if tiny else wording.HOW_RANGE,
             wording.how_checks(values=not opt.has_ingredients(),
                                total=opt.has_formulation_total()),
             verdict, wording.HOW_NOISE_THRESHOLD, wording.HOW_REGRESSION,
             wording.how_same_process(values=not opt.has_ingredients()),
-            wording.HOW_NO_P]
+            wording.HOW_NO_P, wording.HOW_FORECAST_WORDS]
 
 
 def _details_rows(opt, computed):
@@ -4515,10 +4540,11 @@ def _coverage_tip(opt, h):
     if h is None or h.state == "none":
         return wording.TIP_COVERAGE_NONE
     names = _verdict_names(opt, h)
+    left = getattr(h, "no_forecast", 0)
     if h.state == "early":
-        return wording.tip_coverage_early(names, h.rounds, h.total)
-    return wording.tip_coverage(names, h.rounds, h.inside, h.total,
-                                insights.allowed_misses(h.total))
+        return wording.tip_coverage_early(names, h.rounds, h.total, left)
+    return wording.with_left_out(wording.tip_coverage(names, h.rounds, h.inside, h.total,
+                                                      insights.allowed_misses(h.total)), left)
 
 
 def _skill_tip(opt, facts):
@@ -4954,7 +4980,9 @@ def misses_detail(facts):
     m = getattr(facts, "misses", None)
     if m is None or not m.total:
         return ""
-    return wording.values_missed_detail(m.rounds, m.items, m.misses, m.total, m.allowed)
+    return wording.with_left_out(
+        wording.values_missed_detail(m.rounds, m.items, m.misses, m.total, m.allowed),
+        getattr(m, "no_forecast", 0))
 
 
 def _check_round(opt):
@@ -6348,7 +6376,9 @@ def learned_rows(opt, lf):
     for name, o in lf.orderings.items():
         if not o.pairs and not o.ties and not o.close:
             continue
-        label = f"{learned_label(opt, name)} ({o.right}/{o.pairs})"
+        # Fix round 2: the one form of a verdict's pairs, on its own line.
+        counted = wording.called_of(o.right, o.pairs, o.pairs + o.ties + o.close)
+        label = f"{learned_label(opt, name)}|({counted})"
         few = o.pairs < learned.MIN_PAIRS
         lo, hi = (None, None) if few else o.chance_share()
         if hi is not None and hi >= 1.0 - 1e-9 and o.right >= o.pairs:
@@ -6360,7 +6390,7 @@ def learned_rows(opt, lf):
                      "lo": None if lo is None else 100 * lo,
                      "hi": None if hi is None else 100 * hi,
                      "verdict": wording.LEARNED_WORDS[o.verdict], "few": few,
-                     "n": f"{o.right}/{o.pairs}", "p": o.p,
+                     "n": counted, "p": o.p,
                      "chance": _say(opt, wording.LEARNED_KEY_CHANCE)})
     return rows
 
@@ -6427,9 +6457,9 @@ def learned_chart(opt, lf):
                          title=_say(opt, wording.LEARNED_CHART_X),
                          axis=alt.Axis(values=[0, 25, 50, 75, 100])),
             text="t:N"))
-    two = any("|" in str(n) for n in frame["name"])
+    extra = max(str(n).count("|") for n in frame["name"])
     return readable(alt.layer(*layers).properties(
-        width=_LEARNED_W, height=alt.Step(LEARNED_ROW_H + (12 if two else 0))))
+        width=_LEARNED_W, height=alt.Step(LEARNED_ROW_H + 12 * extra)))
 
 
 _LEARNED_W = 640
@@ -6444,7 +6474,7 @@ def measured_groups(cks):
 
 def score_landing(cks):
     """Persona fixes: where the Overall scores landed against their
-    forecast, as called_landing's arguments: the mean of measured −
+    forecast: the mean of measured −
     forecast over those above their 95 % range; else over those below."""
     above = [c.measured - c.predicted for c in cks if c.measured > c.high]
     below = [c.measured - c.predicted for c in cks if c.measured < c.low]
@@ -6504,7 +6534,8 @@ def called_line(opt, lf):
                                 tied=bool(cks) and learned.all_tied(cks) and len(cks) > 1,
                                 ties=call.ties)
     subject = None if name == insights.SCORE else learned_label(opt, name)
-    return _short(opt, wording.check_line(r, inside, above, below, order, subject))
+    return _short(opt, wording.check_line(r, inside, above, below, order, subject,
+                                          none=len(cks) - len(ranged)))
 
 
 def no_forecast(opt, c):
@@ -6543,6 +6574,23 @@ def round_predicted_frame(opt, checks, r):
                 _say(opt, wording.RESULTS_LANDED_COLUMN): (
                     wording.TOO_UNCERTAIN if none else _say(opt, wording.RESULTS_LANDED[side]))})
     return pd.DataFrame(rows) if rows else None
+
+
+def no_forecast_items(opt, checks, r):
+    """Fix round 2: [(name, Range text, widen text or None)] for each result
+    of Round `r` with a no-forecast 95 % range, for the Results "?" — the
+    fact (its Range) and, when the range was widened after earlier misses,
+    by how much."""
+    out = []
+    for name in learned.names(opt):
+        cks = [c for c in learned.round_checks(checks, name, r) if no_forecast(opt, c)]
+        if not cks:
+            continue
+        lo, hi = insights._range_of(opt, name)
+        f = max(float(getattr(c, "widen", 1.0) or 1.0) for c in cks)
+        out.append((learned_label(opt, name), f"{lo:g}–{hi:g}",
+                    f"{f:.1f}" if f > 1.0 + 1e-9 else None))
+    return out
 
 
 def called_so_far(opt, lf):
@@ -6655,13 +6703,15 @@ def check_frame(opt, name, cks):
     ranked = sorted(cks, key=lambda c: (-learned._rank_value(c), c.formulation))
     rows = []
     for k, c in enumerate(ranked):
-        side = ("above" if c.measured > c.high + 1e-9 else
+        # Fix round 2: a whole-Range range is "No forecast", neither side.
+        side = ("none" if no_forecast(opt, c) else
+                "above" if c.measured > c.high + 1e-9 else
                 "below" if c.measured < c.low - 1e-9 else "in")
         rows.append({"f": _short(opt, f"F{int(c.formulation)}"), "k": k,
                      "predicted": float(min(c.predicted, top)), "low": float(c.low),
                      "high": float(c.high), "measured": float(c.measured), "side": side,
                      # Round-2 fixes (P2 #9): a miss prints its value: "98.3 above".
-                     "miss": "" if side == "in" else
+                     "miss": "" if side in ("in", "none") else
                      f"{c.measured:.{d}f} {_say(opt, wording.CHECK_SIDE[side])}",
                      "range": capped_range(c, top, d),
                      "value": f"{c.measured:.{d}f}"})
@@ -6698,13 +6748,15 @@ def called_chart(opt, lf):
     blue, band = model_blue(), _CHECK_BAND[theme()]
     accent = outline_colour()
     names = [_say(opt, t) for t in (wording.CHECK_KEY_RANGE, wording.CHECK_KEY_FORECAST,
-                                     wording.CHECK_KEY_IN, wording.CHECK_KEY_OUT)]
+                                     wording.CHECK_KEY_IN, wording.CHECK_KEY_OUT,
+                                     wording.NO_FORECAST)]
     # Round-2 fixes (P2 #9): only the keys drawn, at full strength.
     frames = [check_frame(opt, name, cks) for name, _, cks in drawn]
     sides = {sd for f in frames if not f.empty for sd in f["side"]}
     used = names[:2] + ([names[2]] if "in" in sides else []) + (
-        [names[3]] if sides - {"in"} else [])
-    colour = alt.Scale(domain=used, range=[dict(zip(names, (band, blue, ink, accent)))[u]
+        [names[3]] if sides - {"in", "none"} else []) + ([names[4]] if "none" in sides else [])
+    colour = alt.Scale(domain=used, range=[dict(zip(names, (band, blue, ink, accent,
+                                                            mark("neutral")[0])))[u]
                                            for u in used])
     legend = alt.Legend(title=None, orient="bottom", labelLimit=0, symbolSize=90,
                         symbolOpacity=1)
@@ -6714,7 +6766,8 @@ def called_chart(opt, lf):
         if frame.empty:
             continue
         frame["k_range"], frame["k_fc"] = names[0], names[1]
-        frame["k_dot"] = [names[3] if s != "in" else names[2] for s in frame["side"]]
+        frame["k_dot"] = [names[2] if s == "in" else names[4] if s == "none" else names[3]
+                          for s in frame["side"]]
         lo_b, hi_b = insights._range_of(opt, name)
         xs = alt.Scale(domain=_check_domain(frame, lo_b, hi_b), nice=False, zero=False)
         rows = list(frame["f"])
@@ -6970,8 +7023,9 @@ def learned_card(opt, lf, card, facts=None):
     record = getattr(lf, "plain_line", "")
     h = getattr(facts, "headline", None) if facts is not None else None
     if h is not None and getattr(h, "total", 0):
-        record = (record + " " + wording.single_record(
-            h.inside, h.total, len(getattr(h, "rounds", None) or ()))).strip()
+        record = (record + " " + wording.with_left_out(wording.single_record(
+            h.inside, h.total, len(getattr(h, "rounds", None) or ())),
+            getattr(h, "no_forecast", 0))).strip()
     if rest and facts is not None and getattr(facts, "best", None) is not None:
         # The card's Repeat request, said plainly (it sits in What next?).
         # Round-2 fixes (P3 #18): the one form of the Repeat request.
@@ -9619,6 +9673,7 @@ def forecast_chart(opt, checks):
     formulation = _say(opt, wording.FORMULATION_CAP)
     inside_name = _say(opt, wording.STORY_LANDED_IN)
     outside_name = _say(opt, wording.STORY_LANDED_OUT)
+    none_name = _say(opt, wording.NO_FORECAST)
     band_name = wording.STORY_FORECAST
     blue = model_blue()
     band_c, _ = _BAND_FILL[theme()]
@@ -9627,7 +9682,8 @@ def forecast_chart(opt, checks):
         formulation: int(c.formulation), "round": wording.round_tick(c.round),
         "predicted": round(c.predicted, 1), "low": round(c.low, 1), "high": round(c.high, 1),
         "measured": round(c.measured, 1),
-        "state": inside_name if c.inside else outside_name, "band": band_name,
+        "state": (none_name if no_forecast(opt, c) else
+                  inside_name if c.inside else outside_name), "band": band_name,
         "bo": wording.PLOT_BO_ROUND_AHEAD} for c in mine])
     vals = [v for c in mine for v in (c.low, c.high, c.measured)]
     lo, hi = min(vals), max(vals)
@@ -9651,7 +9707,11 @@ def forecast_chart(opt, checks):
         color=alt.Color("band:N", scale=alt.Scale(domain=[band_name], range=[blue]),
                         legend=legend), tooltip=tip)
     # Round-2 fixes (P3 #18): a miss in orange, as on the Forecast check.
-    fills = alt.Scale(domain=[inside_name, outside_name], range=[ink, outline_colour()])
+    # Fix round 2: a whole-Range range is "No forecast" (neutral), keyed only
+    # when one is drawn.
+    nf = any(no_forecast(opt, c) for c in mine)
+    fills = alt.Scale(domain=[inside_name, outside_name] + ([none_name] if nf else []),
+                      range=[ink, outline_colour()] + ([mark("neutral")[0]] if nf else []))
     dots = alt.Chart(df).mark_point(size=46, strokeWidth=1.6, filled=True, opacity=1).encode(
         x=x, y=y, color=alt.Color("state:N", scale=fills, legend=legend), tooltip=tip)
     # The predicted value itself: a short blue tick across its bar.

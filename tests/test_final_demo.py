@@ -611,7 +611,7 @@ def _lf(right, pairs, close, ties, p=0.03, p_holm=0.15, tested=5):
 
 def test_the_pairs_line_says_called_of_all():
     assert wording.score_pairs_called("Overall score", 5, 5, 12) == \
-        "Overall score (5 of 12 pairs called, all 5 right)"
+        "Overall score (5 of 12 pairs called, 5 right)"   # fix round 2: one form
     assert wording.learned_count("Overall score", 7, 9, total=24) == \
         "Overall score 9 of 24 pairs called, 7 right"
     assert wording.learned_count_needed("Overall score", 4, 4, 5, total=12) == \

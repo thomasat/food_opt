@@ -331,7 +331,11 @@ def _check_without_repeat(at, name, word):
     callout = [line for line in n["lines"]
                if line.startswith("On target") or "needed to tell two results apart" in line]
     for line in p["lines"] + n["lines"]:
-        assert _words(line) <= (14 if line == stop else 12 if line in callout else 6), line
+        # Fix round 2 (coordinator): the Model line carries its counts with how
+        # many were right, within the owner's 10-word status (word + line).
+        model = line in p["lines"][:1] and "called" in line
+        assert _words(line) <= (14 if line == stop else 12 if line in callout
+                                else 10 - _words(p["word"]) if model else 6), line
     if name == R6:
         assert stop in n["lines"]
     opt = FoodOptimizer(name)

@@ -714,6 +714,9 @@ class Headline:
     verdict: str
     score: ScoreRecord | None = None
     wide: list = None       # outputs (SCORE included) whose likely range is wide
+    # Fix round 2: the measurements' values in the window with no forecast
+    # (left out of inside and total), so the screen can say so.
+    no_forecast: int = 0
 
 
 def _ordered_rounds(checks):
@@ -743,14 +746,16 @@ def headline(opt, checks):
     # fixes, review I1), not the verdict's window.
     record = score_record(checks, score_rounds)
     wide = wide_ranges(opt, [c for c in checks if c.round in chosen])
+    left = sum(1 for c in checks if c.name != SCORE and c.round in chosen
+               and getattr(c, "no_forecast", False))
     if len(picked) < 10:
         return Headline("early", chosen, sum(c.inside for c in picked),
-                        len(values), None, record, wide)
+                        len(values), None, record, wide, left)
     inside = sum(c.inside for c in picked)
     tail = binomial_tail(len(picked) - inside, len(picked))
     verdict = ("holding" if tail >= 0.10 else
                "caution" if tail >= 0.01 else "unreliable")
-    return Headline("verdict", chosen, inside, len(picked), verdict, record, wide)
+    return Headline("verdict", chosen, inside, len(picked), verdict, record, wide, left)
 
 
 def error_record(checks, name, rounds=None):
@@ -758,7 +763,10 @@ def error_record(checks, name, rounds=None):
     checked when None), fully measured formulations only; None with fewer
     than SCORE_RECORD_MIN. Its standard error takes each Round's mean error
     as one value from ROUND_UNIT_MIN Rounds, else each value (review B1)."""
-    mine = [c for c in ranged(checks) if c.name == name and c.fully_measured
+    # Sceptic review, fix round 2: no-forecast checks change the in/outside
+    # count only (inside, total from ranged); the mean miss, its sd, se and
+    # df are over every fully measured check, as before.
+    mine = [c for c in checks if c.name == name and c.fully_measured
             and (rounds is None or c.round in rounds)]
     if len(mine) < SCORE_RECORD_MIN:
         return None
@@ -773,7 +781,8 @@ def error_record(checks, name, rounds=None):
     else:
         se = None if sd is None else sd / math.sqrt(len(gaps))
         df = len(gaps) - 1
-    return ScoreRecord(sum(c.inside for c in mine), len(mine), sum(gaps) / len(gaps), sd,
+    counted = ranged(mine)
+    return ScoreRecord(sum(c.inside for c in counted), len(counted), sum(gaps) / len(gaps), sd,
                        order, se, df)
 
 
@@ -4030,6 +4039,7 @@ class ValueMisses:
     misses: int
     total: int
     items: list
+    no_forecast: int = 0    # fix round 2: values left out, no forecast
 
     @property
     def expected(self):
@@ -4059,4 +4069,5 @@ def value_misses(opt, checks, h=None):
         if missed:
             items.append((name, missed, len(mine)))
     items.sort(key=lambda it: -it[1])
-    return ValueMisses(list(h.rounds or []), sum(it[1] for it in items), len(values), items)
+    return ValueMisses(list(h.rounds or []), sum(it[1] for it in items), len(values), items,
+                       getattr(h, "no_forecast", 0))

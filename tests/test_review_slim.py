@@ -349,13 +349,14 @@ def test_the_verdict_line_merges_the_so_far_count():
     line, help_ = U.learned_verdict_line(opt, ten)
     # Specific wording (2026-10-12), re-pinned: each verdict name with its pairs.
     # Sceptic review (2026-10-14), re-pinned: called of all pairs.
-    assert line == ("So far: Overall score 7 of 9 pairs ordered right. "
-                    "Predicts: Consistency (11/11 called).")
+    # Fix round 2: past 14 words with the count beside it, the verdicts.
+    assert line == ("Predicts: Consistency (11 of 11 pairs called, 11 right). "
+                    "Partly: Overall score, Tangy.")
     six = _lf(score=(5, 5, H), Consistency=(3, 3, N), Creaminess=(2, 4, N), Tangy=(5, 6, H),
               Thickness_uniformity=(2, 3, N))
     line6, _ = U.learned_verdict_line(opt, six)
     # With the pairs, count and names would take 15 words: the names alone.
-    assert line6 == "Partly: Overall score (5 of 5 pairs called, all 5 right), Tangy."
+    assert line6 == "Partly: Overall score (5 of 5 pairs called, 5 right), Tangy."
     for text in (line, line6):
         assert _words(text) <= 14 == wording.LEARNED_LINE_WORDS
     # The "?" says the three words plainly and the adjustment.

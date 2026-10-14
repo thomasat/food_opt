@@ -195,11 +195,6 @@ def test_called_it_off_orders_say_pairs_in_the_right_order(plain):
 
 
 def test_called_it_landing_words():
-    assert wording.called_landing(3.8) == "scored about 4 above forecast"
-    assert wording.called_landing(None, -2.2) == "scored about 2 below forecast"
-    # Sceptic review (2026-10-14): the count and the reference, not "as forecast".
-    assert wording.called_landing() == "all inside their 95 % range"
-    assert wording.called_landing(n=3) == "all 3 inside their 95 % range"
     assert wording.called_order([[16, 17], [18]]) == "F16, F17 above F18"
     assert wording.called_order([[1], [2], [3], [4]]) == "F1 top, F4 bottom"
 
@@ -428,7 +423,7 @@ def test_model_tooltip_opens_plain_and_ends_for_experts(monkeypatch):
     # hand-made orderings have no ties or too-close pairs: all = called).
     assert tip.startswith("Forecasting each Round from earlier Rounds, the model put the "
                           "Overall score (11 of 11 pairs called, 10 right) and Consistency "
-                          "(8/8 called) in the right order")
+                          "(8 of 8 called, 8 right) in the right order")
     assert "before tasting" not in tip
     assert "still very uncertain" not in tip
     assert "about as accurate as assuming each new formulation scores like your best" in tip
@@ -436,8 +431,10 @@ def test_model_tooltip_opens_plain_and_ends_for_experts(monkeypatch):
     assert re.search(r"Single measurements(, last \d+ Rounds?)?: 27 of 36 in their 95\u00a0% "
                      r"range\.", tip)
     last = tip.split("\n\n")[-1]
-    assert last.startswith("For experts:") and "qLogNEI" in last
-    assert "posterior predictive" in last
+    # Fix round 2: the plain sentence carries every count with how many were
+    # right, so brief() keeps the experts' skill sentence and leaves the
+    # method's terms (qLogNEI, posterior predictive) to Method and definitions.
+    assert last.startswith("For experts:") and "Skill over 12 checks" in last
     # The plain part never says "Skill".
     assert "Skill" not in tip.split("For experts:")[0]
 
@@ -465,7 +462,7 @@ def test_persona_strings_pass_banned():
               wording.STOP_WIDEN, wording.misses_scoped(["A"], 1, 2),
               wording.model_plain(["A"], ["B"], ["C"]), wording.roles_help("15", "30"),
               wording.results_predicted_help(6), wording.stop_help("1.0 points"),
-              wording.called_score_head(6, "F1 above F2", wording.called_landing(4.0)),
+              wording.called_score_head(6, "F1 above F2", "scored about 4 above forecast"),
               wording.called_so_far([("Overall", 1, 2)]), wording.EXPERT_TERMS,
               wording.progress_need_plain("3.0"), wording.single_record(1, 2)]
     hits = [(t, p.pattern) for t in texts for p in _BANNED if p.search(t)]

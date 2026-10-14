@@ -48,7 +48,7 @@ def test_evidence_numbers_are_the_cards(screens):  # noqa: F811
     # Persona fixes 2: too-close pairs left out; Cook loss joins Firmness.
     # Review critique: Partly under the permutation test (Cook loss too: +1).
     # Specific wording (2026-10-12), re-pinned: each name with its pairs.
-    assert p["lines"] == ["Overall score (5/21 called), Firmness +1"]
+    assert p["lines"] == ["Overall score (5 of 21 called, 5 right) +2"]
     ev = p["help"].split("\n\n")[1]
     # Persona fixes 2: a result with no pair far enough apart is left out
     # (Line A's Overall score).
@@ -61,7 +61,7 @@ def test_evidence_numbers_are_the_cards(screens):  # noqa: F811
     # left to Method and definitions, as brief() does with any paragraph.
     plain_part = p["help"].split("For experts:")[0]
     assert "Overall score: 13 of 15 landed in their predicted range" in plain_part
-    assert "Overall score (5 of 21 pairs called, all 5 right), Firmness (16/24 called, " \
+    assert "Overall score (5 of 21 pairs called, 5 right), Firmness (16 of 24 called, " \
            "12 right)" in plain_part
     assert "For experts:" not in p["help"] and "Skill over" not in p["help"]
     assert len(p["help"].split()) <= wording.TOOLTIP_WORDS
