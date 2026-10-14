@@ -1247,7 +1247,14 @@ def _next_body(opt, places, facts):
             # Final demo (B1): the stop, the loudest thing here — a tinted
             # callout; the Repeat request a quiet line under it.
             _stop_callout(opt, facts)
-            for text, warn in card.lines + repeat_asks(opt, facts, card):
+            lines = card.lines + repeat_asks(opt, facts, card)
+            # The Repeat request the card does not say itself (the all-10
+            # sample's), in this same place, so it lines up with the one
+            # the card says (the Round 6 sample's).
+            quiet = quiet_repeat_text(opt, facts)
+            if quiet and not any(quiet in t for t, _ in lines):
+                lines.append((quiet, False))
+            for text, warn in lines:
                 if warn:
                     st.markdown(f":red[**{text}**]")
                 else:
@@ -1642,10 +1649,9 @@ def _finish(opt, places, facts):
         # R-I4's one link, by priority: Why (drawn with the places), then
         # the Repeat, then the Explored link (ftue fix C).
         with places.link.container():
-            if ceiling_stop(opt, facts):
-                # Final demo (B1): at the stop the Repeat is a quiet line.
-                _quiet_repeat(opt, facts)
-            elif not _repeat_link(opt, facts):
+            # Final demo (B1): at the stop the Repeat is a quiet line under
+            # the callout (_next_body), not here beside the Set up button.
+            if not ceiling_stop(opt, facts) and not _repeat_link(opt, facts):
                 explored_link(opt, facts.next)
     _answer(opt, places.q["progress"], facts, "progress", text=progress_answer_text(opt, facts))
 
@@ -2533,20 +2539,16 @@ def _why_link(opt):
 REPEAT_LINK_KEY = "insights_repeat_link"
 
 
-def _quiet_repeat(opt, facts):
-    """At the stop: the Repeat request _repeat_link would draw, as a quiet
-    caption (no button); nothing when What next? says it already."""
+def quiet_repeat_text(opt, facts):
+    """At the stop: the Repeat request _repeat_link would draw, as the text
+    of a quiet line (no button), or None. _next_body draws it under the
+    callout unless the card says it already."""
     step = getattr(facts, "next", None)
     best = getattr(facts, "best", None)
     if (step is None or step.kind not in _ASK_REPEAT or not getattr(step, "assumed", False)
             or best is None or _why_link_offered(opt)):
-        return False
-    card = card_for(opt, facts, "next")
-    text = _say(opt, wording.card_noise_repeat(best.formulation))
-    if card is not None and any(text in t for t, _ in card.lines):
-        return False
-    st.caption(text)
-    return True
+        return None
+    return _say(opt, wording.card_noise_repeat(best.formulation))
 
 
 def _repeat_link(opt, facts):

@@ -150,11 +150,16 @@ warnings entirely, and the checklist below gates distribution on that.
 6. Sample walkthrough: click "Try the sample project". "Yogurt pilot -
    Round 6 to score" opens on "4 · Review" (15 formulations scored, Round
    6 made and waiting). On "2 · Make a round", open "Or upload results
-   from a file", click "Download the pilot's Round 6 results", upload
-   that file and click "Save uploaded results". "4 · Review" now says to
-   stop; "See what happened next" opens "Yogurt pilot - all 10 Rounds" on
-   "4 · Review". Manage project → "Start this sample over" puts Round 6
-   back to waiting, and the old version is listed in Saved copies.
+   from a file", click "Browse files" and choose "Round 6 results
+   (pilot).xlsx" in ~/FoodOptimizer (it is already there; "Download the
+   pilot's Round 6 results" is the other way), then click "Save uploaded
+   results". "4 · Review" now says "Stop: within noise of the top"; "See
+   what happened next" opens "Yogurt pilot - all 10 Rounds" on "4 ·
+   Review". Manage project → "Start this sample over" puts Round 6 back
+   to waiting and the results file back in ~/FoodOptimizer, shows one
+   line ("… is back as shipped. Your version is in Saved copies."), and
+   the old version is listed in Saved copies. Quit and reopen the app:
+   a sample opens on "4 · Review" again.
 6a. UI walkthrough on a project of your own: create one with a default
    batch size of 100 g, Lot and actual amounts recorded (Preparation and
    records), and a Water row whose Rule cell says "= rest", so its

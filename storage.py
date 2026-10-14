@@ -55,6 +55,11 @@ class LocalStorage:
     def _path(self, name):
         return f"{name}.pkl"
 
+    def folder(self):
+        """The folder project files are written into, resolved the way
+        _path is: the process's working directory."""
+        return os.path.dirname(os.path.abspath(self._path("_")))
+
     def _stamp(self, name):
         try:
             return os.stat(self._path(name)).st_mtime_ns

@@ -22,9 +22,9 @@ First-time setup downloads about **1 GB** and needs about **6 GB of free space**
 Choose **Try the sample project**. It opens **Yogurt pilot - Round 6 to score** on **4 · Review**: a real yogurt-style pilot with 15 formulations scored and Round 6 made, waiting for its results. The pilot's data is public.
 
 1. Go to **2 · Make a round** and open **Or upload results from a file**.
-2. Choose **Download the pilot's Round 6 results**, then upload that file.
+2. Choose **Browse files** and open **Round 6 results (pilot).xlsx**: it is already in your **FoodOptimizer** folder. Or choose **Download the pilot's Round 6 results**, then upload that file.
 3. Review the imported values and choose **Save uploaded results**.
-4. Open **4 · Review**. After Round 6 it says to stop, or change the target.
+4. Open **4 · Review**. After Round 6, it says **Stop: within noise of the top**.
 5. Choose **See what happened next** to open **Yogurt pilot - all 10 Rounds**: the pilot's Rounds 7–10.
 
 To try it again, choose **Manage project → Start this sample over**. Your version is kept in **Saved copies**.

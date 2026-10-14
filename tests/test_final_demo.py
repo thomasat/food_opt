@@ -484,11 +484,38 @@ def test_no_primary_button_at_the_stop(monkeypatch):
     U._ceiling_foot(NS())
     [btn] = [c for c in fake.calls if c[0] == "button"]
     assert btn[2]["type"] == "tertiary" and btn[1][0] == wording.SETUP_BUTTON_SHORT
-    # _finish puts _ceiling_foot in the strip's place at the stop, and the
-    # Repeat is a quiet caption there.
+    # _finish puts _ceiling_foot in the strip's place at the stop.
     src = inspect.getsource(U._finish)
-    assert "_ceiling_foot(opt)" in src and "_quiet_repeat(opt, facts)" in src
-    assert "st.caption(text)" in inspect.getsource(U._quiet_repeat)
+    assert "_ceiling_foot(opt)" in src
+
+
+@pytest.mark.parametrize("kind,lines", [
+    ("misses", [("Repeat Formulation 16 to check noise", False)]),   # Round 6 sample
+    ("close", []),                                                   # all 10 sample
+])
+def test_the_stop_repeat_is_one_quiet_line_under_the_callout(monkeypatch, kind, lines):
+    """Both samples' What next? at the stop: the Repeat request sits in the
+    answer's place, under the callout, as one caption, whether the Next
+    card says it (Round 6's) or not (all 10's), so it lines up the same."""
+    fake = _FakeSt()
+    monkeypatch.setattr(U, "st", fake)
+    monkeypatch.setattr(U, "_say", lambda o, t: t)
+    card = U.Card("x", list(lines))
+    monkeypatch.setattr(U, "card_for", lambda o, f, w: card)
+    monkeypatch.setattr(U, "ceiling_stop", lambda o, f: True)
+    monkeypatch.setattr(U, "_stop_callout", lambda o, f: None)
+    monkeypatch.setattr(U, "repeat_asks", lambda o, f, c: [])
+    monkeypatch.setattr(U, "_why_link_offered", lambda o: False)
+    facts = NS(next=NS(kind=kind, assumed=True), best=NS(formulation=16))
+    U._next_body(NS(), None, facts)
+    captions = [c[1][0] for c in fake.calls if c[0] == "caption"]
+    assert captions == ["Repeat Formulation 16 to check noise"]
+    # Not assumed (a measured noise): no Repeat request at all.
+    fake.calls.clear()
+    card.lines = []
+    U._next_body(NS(), None, NS(next=NS(kind="close", assumed=False),
+                                best=NS(formulation=16)))
+    assert not [c for c in fake.calls if c[0] == "caption"]
 
 
 def test_the_review_at_the_stop_end_to_end():

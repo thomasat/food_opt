@@ -410,8 +410,8 @@ def start_sample_over_warning(name):
 
 
 def sample_restored(name):
-    """The status after Start this sample over."""
-    return f"{name} is back as shipped."
+    """The status after Start this sample over: the one line it shows."""
+    return f"{name} is back as shipped. Your version is in Saved copies."
 
 
 def start_over_warning(project_name, held_text=None):
