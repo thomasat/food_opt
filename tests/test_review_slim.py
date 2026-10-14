@@ -18,6 +18,7 @@
 
 Synthetic projects only."""
 import inspect
+from types import SimpleNamespace as NS
 import itertools
 import json
 import re
@@ -521,7 +522,11 @@ def test_method_says_when_the_profiler_is_hidden():
     assert wording.profiler_hidden_rule() == (
         "What drives each result? Hidden when most ingredients have too little room to move.")
     assert "settings" in wording.profiler_hidden_rule(settings_only=True)
-    assert "profiler_hidden_rule" in inspect.getsource(U._how_learned)
+    # Fix round 4: Method and definitions' ordering paragraphs come from
+    # how_learned_texts (behavioural, it replaces a getsource check).
+    for has in (True, False):
+        opt = NS(has_ingredients=lambda has=has: has)
+        assert wording.profiler_hidden_rule(settings_only=not has) in U.how_learned_texts(opt, None)
 
 
 # ------------------------------------------------------------------ #

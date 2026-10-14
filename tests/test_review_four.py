@@ -323,7 +323,8 @@ def test_a_disagreeing_repeat_stays_red_on_next(screens):  # noqa: F811
 
 def test_evidence_reports_both():
     assert wording.ev_predictions(10, 12, "0.69", 12, 27, 36) == (
-        "Overall score 10/12 in range, skill 0.69 (n = 12); measurements 27/36")
+        "Overall score 10 of 12 in range, skill 0.69 (n = 12); measurements 27 of 36 in "
+        "range")   # fix round 4: never a bare a/b
 
 
 # ------------------------------------------------------------------ #
