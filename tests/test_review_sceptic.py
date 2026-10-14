@@ -128,22 +128,24 @@ def test_a_unit_joins_the_value_and_the_range(tmp_path):
 
 
 @pytest.mark.parametrize("sigma", [0.5, 1, 2, 3])
-def test_the_noise_question_mark_says_the_unit_and_where_the_stop_starts(sigma, monkeypatch):
+def test_the_stops_question_mark_says_the_noise_in_use(sigma):
+    # Spec §11 (the Tasting noise control left the Review for Set up): the
+    # stop's "?" says the noise it rests on — the project's setting, else
+    # 1 point — in one plain line, with the Repeat that would measure it.
     opt = _opt(noise=None if sigma == 1 else sigma)
-    fake = _FakeSt()
-    monkeypatch.setattr(U, "st", fake)
-    monkeypatch.setattr(U, "confirmation_open", lambda: False)
-    U._noise_control(opt)
-    help_ = next(c for c in fake.calls if c[0] == "markdown")[2]["help"]
-    assert help_.startswith("Points of the Overall score (0–100), 1 SD of a single tasting. "
-                            "Here 1 point = 0.3 per measurement, in its own units (Range 0–15).")
-    # The stop's floor does not move with the setting: it is where the stop starts.
-    assert help_.endswith("The stop shows at noise over 0.72 points.")
-    # The option labels are unchanged.
-    sb = next(c for c in fake.calls if c[0] == "selectbox")
-    assert [sb[2]["format_func"](v) for v in sb[1][1]] == [
-        "0.5 points", "1 point (assumed)", "2 points", "3 points"]
-    _clean(help_)
+    facts = _facts(opt)
+    facts.next = None
+    tip = U.ceiling_tip(opt, facts)
+    pts = wording.points_text(f"{sigma:g}")
+    line = (f"Assumes results repeat within about {pts} until Repeats measure it. "
+            "Repeat Formulation 16 to check.")
+    assert U.noise_basis_text(opt, facts) == line
+    assert tip.count("Repeats measure it") == 1 and line in tip
+    assert line in wording.brief(tip)
+    # The option labels, now in Set up, are plain.
+    assert [wording.tasting_noise_option(v) for v in insights.TASTING_NOISE_CHOICES] == [
+        "0.5 points", "1 point", "2 points", "3 points"]
+    _clean(tip)
 
 
 def test_the_stop_floor_is_the_stops_own_rule_solved_for_the_noise():

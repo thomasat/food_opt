@@ -6,6 +6,7 @@ which asks app.py to open the all-10 sample (sample_projects.OPEN_NEXT_KEY).
 
 The pilot data is public; the samples are the shipped files."""
 import importlib.util
+import json
 
 import pytest
 from streamlit.testing.v1 import AppTest
@@ -15,6 +16,7 @@ import streamlit as st
 import sample_projects as sp
 import storage as storage_backend
 import ui_insights as U
+import ui_setup
 import wording
 from food_bo import WORKBOOK_MIME, FoodOptimizer
 from tests.test_app_ui import APP_PATH, _unknowns
@@ -143,11 +145,11 @@ def test_after_round6_see_what_happened_next_asks_for_the_all10_sample():
     assert btn.proto.type != "primary"
     assert wording.SEE_WHAT_HAPPENED_NEXT_CAPTION in [c.value for c in at.tabs[3].caption]
     assert btn.key == "sample_what_next"
-    # At the end of What next?: below the stop callout and the Tasting
-    # noise control, its caption right under it.
+    # At the end of What next?: below the stop callout (no Tasting noise
+    # control on the Review since spec §11), its caption right under it.
     order = _in_order(at.tabs[3])
     i = order.index(("button", "sample_what_next"))
-    assert order.index(("selectbox", U.NOISE_KEY)) < i
+    assert not [k for k in order if k[0] == "selectbox" and "noise" in str(k[1])]
     assert order[i + 1] == ("caption", wording.SEE_WHAT_HAPPENED_NEXT_CAPTION)
     # AppTest sends no tab with a click: the tab is set again, as
     # tests/test_final_demo.py does after its selectbox.
@@ -182,3 +184,38 @@ def test_what_next_recreates_a_deleted_all10_sample(tmp_path):
     assert (tmp_path / f"{sp.ALL10}.pkl").is_file()
     assert at.session_state["_loaded_project"] == sp.ALL10
     assert at.session_state["main_tab"] == wording.TAB_INSIGHTS
+
+
+def _stop_line_help(at, line):
+    return next(m for m in at.tabs[3].markdown if m.value == line).proto.help
+
+
+def test_three_points_in_set_up_moves_the_samples_stop():
+    """Spec §11: the Round 6 sample, Round 6 recorded. The Review has no
+    noise control; its stop's "?" says the noise it rests on. Tasting
+    noise 3 points in Set up › More settings: the first stop is Round 4
+    (the Latest chart's marker), and it is saved with the project."""
+    _record_round6()
+    at = _app(sp.ROUND6, wording.TAB_INSIGHTS)
+    assert not [s for s in at.tabs[3].selectbox if s.label == wording.TASTING_NOISE_LABEL]
+    line = "1.7 below the top; 2.3 needed to tell two results apart."
+    assert ("Assumes results repeat within about 1 point until Repeats measure it. Repeat "
+            "Formulation 16 to check.") in _stop_line_help(at, line)
+    assert U.stop_signal(FoodOptimizer(sp.ROUND6))[0] == 6
+    at.session_state["main_tab"] = wording.TAB_SETUP
+    at.run()
+    sb = at.selectbox(key=ui_setup.TASTING_NOISE_KEY)
+    assert sb.value == 1.0
+    sb.set_value(3.0).run()
+    assert not at.exception, [e.message for e in at.exception]
+    at.session_state["main_tab"] = wording.TAB_INSIGHTS
+    at.run()
+    assert not at.exception, [e.message for e in at.exception]
+    line = "1.7 below the top; 7.0 needed to tell two results apart."
+    assert ("Assumes results repeat within about 3 points until Repeats measure it."
+            in _stop_line_help(at, line))
+    saved = FoodOptimizer(sp.ROUND6)
+    assert saved.tasting_noise == 3.0 and U.stop_signal(saved)[0] == 4
+    # The Latest chart's marker (its text is in the chart's data).
+    assert "Stop signal (Round 4)" in json.dumps(U.improving_chart(saved).to_dict(),
+                                                 ensure_ascii=False)

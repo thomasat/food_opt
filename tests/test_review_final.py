@@ -237,11 +237,14 @@ def test_the_stop_help_gives_the_gap_the_threshold_and_the_noisy_perfect_score(
     # Final demo (A4), re-pinned: one tasting regresses to the mean; never
     # read as a score that beats perfect.
     assert ("A formulation exactly on target, tasted once, averages about 98.4 with this "
-            "noise (assumed noise of 1 point); single tastings scatter around it.") in text
+            "noise; single tastings scatter around it.") in text
+    # Spec §11: the noise basis in one plain line, right after the threshold.
+    assert ("2.3 is needed to tell two single results apart. Assumes results repeat within "
+            "about 1 point until Repeats measure it.") in text
     assert ("A single new result can't be told apart from this best in the Overall score; a "
             "single measurement still can") in text
     assert "Further Rounds" not in text
-    assert text.endswith("3 Repeats would measure the noise.")
+    assert text.endswith("(On target says which are beyond their noise).")
 
 
 def test_repeat_wording_is_one_form_everywhere():

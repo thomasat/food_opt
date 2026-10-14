@@ -315,10 +315,10 @@ def _title_of(at, label):
 
 
 def _next_rows(at):
-    # Final demo (B5): the Tasting noise control's label sits in What
-    # next? under the card's lines; it is a control, not a card line.
+    # Spec §11: no Tasting noise control in What next? (it is in Set up).
     rows = section(at, wording.Q5_TITLE)
-    return [(el, t) for el, t in rows if t != wording.TASTING_NOISE_LABEL]
+    assert wording.TASTING_NOISE_LABEL not in [t for _, t in rows]
+    return rows
 
 
 def outside(at):
