@@ -192,5 +192,6 @@ def test_opening_a_project_lands_at_the_top():
 def test_the_tab_and_link_rules_in_the_source():
     """04 §5: the comments say links may open Insights and no flow moves there."""
     app = pathlib.Path(APP_PATH).read_text()
-    assert "links the user clicks may open it" in app
+    assert "links the user clicks, open it" in app
+    assert "No step of the loop moves the user there" in app
     assert "no flow moves there on its own" in ui_helpers.go_to_tab.__doc__
