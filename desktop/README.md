@@ -147,7 +147,7 @@ warnings entirely, and the checklist below gates distribution on that.
 5. In-window plumbing: upload an ingredients file (file picker opens), save a
    copy (lands in ~/Downloads), Cmd-Q and window-close both stop the
    app completely (check Activity Monitor: no streamlit left).
-6. Sample walkthrough: click "Try the sample project". "Yogurt pilot -
+6. Sample walkthrough: click "Open the yogurt pilot". "Yogurt pilot -
    Round 6 to score" opens on "4 · Review" (15 formulations scored, Round
    6 made and waiting). On "2 · Make a round", open "Or upload results
    from a file", click "Browse files" and choose "Round 6 results
@@ -160,6 +160,11 @@ warnings entirely, and the checklist below gates distribution on that.
    line ("… is back as shipped. Your version is in Saved copies."), and
    the old version is listed in Saved copies. Quit and reopen the app:
    a sample opens on "4 · Review" again.
+   Example setup: "See an example setup" opens "Example setup -
+   plant-based burger" on "1 · Set up" (illustrative values, no results:
+   calculations, pre-mixes, a process setting, records, a formulation
+   total); its "4 · Review" says "No results: this example shows set-up
+   only." with "Open the yogurt pilot". It never appears unless opened.
 6a. UI walkthrough on a project of your own: create one with a default
    batch size of 100 g, Lot and actual amounts recorded (Preparation and
    records), and a Water row whose Rule cell says "= rest", so its
@@ -239,4 +244,5 @@ copies. Its confirmed cleanup keeps the newest three and the last seven days.
 For a process or fermentation study, use numeric process settings. Record
 separate measurements for different time points, such as pH at 6 h and pH at
 24 h. Named categories such as strain or vessel type are not varied by this
-version. The sample is a real, public yogurt-style pilot: its results were measured.
+version. The yogurt sample is a real, public yogurt-style pilot: its results were measured.
+The example setup (a plant-based burger) is illustrative: no results.

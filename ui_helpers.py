@@ -717,16 +717,17 @@ def readiness(opt, here=False):
 def landing_tab(opt):
     """Where opening a project lands: set-up while it is incomplete, the batch
     while one is unrecorded, set-up again while nothing has been made, and
-    results once the project holds some. The two samples are the exception:
-    once they hold recorded results they land on 4 · Review, where a demo
-    starts, even with a Round open.
+    results once the project holds some. The two yogurt samples are the
+    exception: once they hold recorded results they land on 4 · Review,
+    where a demo starts, even with a Round open. (The example setup holds
+    none, so it lands on set-up by the rule.)
 
     A project with no formulations sent the user to an empty Results tab, and
     the sample project skipped its own set-up entirely. Confirming the set-up
     is the step before making anything, so that is where those land. A
     not-scored formulation counts as one the project holds: it has a
     number, its amounts and a note, and tab 3 lists it."""
-    if (sample_projects.is_sample(getattr(opt, "project_name", None))
+    if (sample_projects.is_yogurt(getattr(opt, "project_name", None))
             and opt.X_history):
         return wording.TAB_INSIGHTS
     ready, _ = readiness(opt)

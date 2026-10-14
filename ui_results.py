@@ -318,7 +318,7 @@ def _round_predicted(opt):
         none = []
     st.caption(wording.for_project(opt, wording.RESULTS_PREDICTED_CAPTION),
                help=wording.for_project(opt, wording.results_predicted_help(
-                   last, none or False, sample_projects.is_sample(opt.project_name))))
+                   last, none or False, sample_projects.is_yogurt(opt.project_name))))
 
 
 def _progress_line(opt):

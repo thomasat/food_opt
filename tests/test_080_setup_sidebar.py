@@ -104,7 +104,7 @@ def test_the_calculation_line_is_said_once(burger):
 def test_the_sample_is_named_in_the_sidebar_and_setup_stays_quiet(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     at = _app()
-    next(b for b in at.main.button if b.label == wording.TRY_SAMPLE_LABEL).click()
+    next(b for b in at.main.button if b.label == wording.OPEN_YOGURT_LABEL).click()
     at.run()
     at.session_state["main_tab"] = wording.TAB_SETUP
     at.run()
@@ -124,7 +124,7 @@ def test_saved_copies_and_the_sample_are_inside_manage_project(scored):
     assert not at.exception
     [manage] = [e for e in at.sidebar.expander if e.label == wording.MANAGE_PROJECT]
     assert wording.SAVED_COPIES_HEADING in [m.value for m in manage.markdown]
-    assert wording.TRY_SAMPLE_LABEL in [b.label for b in manage.button]
+    assert wording.OPEN_YOGURT_LABEL in [b.label for b in manage.button]
     outside = [m.value for m in at.sidebar.markdown if m not in list(manage.markdown)]
     assert wording.SAVED_COPIES_HEADING not in outside
 

@@ -1,10 +1,18 @@
-"""The app's samples: a real yogurt-style pilot, shipped as two projects.
+"""The app's samples: a real yogurt-style pilot, shipped as two projects,
+and one example setup (a plant-based burger) with no results.
 
 Rounds 1-2 were the team's starting set; Rounds 3-10 were chosen by EGBO,
 an earlier version of this engine. The files under data/samples/yogurt_pilot
 are rebuilt from the pilot's CSVs by build.py there, and
-tests/test_sample_projects.py checks they still match. Nothing here touches
-a project that is not one of the two sample names."""
+tests/test_sample_projects.py checks they still match.
+
+The example setup (spec 2026-10-13 §9) shows how a project is set up:
+calculated rows, pre-mixes, a process setting, records and the formulation
+total, with illustrative values and no results. It is shipped from
+data/samples/burger_setup (rebuilt by build.py there; checked by
+tests/test_sample_burger.py) and is never part of the yogurt demo: opening
+one never writes the other. Nothing here touches a project that is not one
+of the three sample names."""
 import json
 from pathlib import Path
 
@@ -12,7 +20,10 @@ _ROOT = Path(__file__).resolve().parent
 SAMPLE_DIR = _ROOT / "data" / "samples" / "yogurt_pilot"
 ROUND6 = "Yogurt pilot - Round 6 to score"
 ALL10 = "Yogurt pilot - all 10 Rounds"
-NAMES = (ROUND6, ALL10)
+YOGURT_NAMES = (ROUND6, ALL10)
+BURGER_DIR = _ROOT / "data" / "samples" / "burger_setup"
+BURGER = "Example setup - plant-based burger"
+NAMES = YOGURT_NAMES + (BURGER,)
 ROUND6_RESULTS_FILE_NAME = "Round 6 results (pilot).xlsx"
 ROUND6_RESULTS = SAMPLE_DIR / ROUND6_RESULTS_FILE_NAME
 TEMPLATE_CSV = _ROOT / "data" / "ingredients_template.csv"
@@ -21,19 +32,34 @@ RESET_LABEL = "sample_reset"    # the archive label Start this sample over write
 _ROUND6 = 6                     # the pilot's Round 6, open in the shipped file
 
 
+def _shipped_path(name):
+    return (BURGER_DIR if name == BURGER else SAMPLE_DIR) / f"{name}.json"
+
+
 def available():
+    """The yogurt pilot's files are all here (Open the yogurt pilot)."""
     return ROUND6_RESULTS.is_file() and all(
-        (SAMPLE_DIR / f"{n}.json").is_file() for n in NAMES)
+        _shipped_path(n).is_file() for n in YOGURT_NAMES)
+
+
+def burger_available():
+    """The example setup's file is here (See an example setup)."""
+    return _shipped_path(BURGER).is_file()
 
 
 def is_sample(name):
     return name in NAMES
 
 
+def is_yogurt(name):
+    """One of the two yogurt pilot projects: real results, the demo."""
+    return name in YOGURT_NAMES
+
+
 def shipped_state(name):
     if not is_sample(name):
         raise ValueError(f"{name!r} is not a sample")
-    with open(SAMPLE_DIR / f"{name}.json", encoding="utf-8") as fh:
+    with open(_shipped_path(name), encoding="utf-8") as fh:
         return json.load(fh)
 
 
@@ -58,16 +84,25 @@ def _write_round6_results(storage, overwrite):
     return target.is_file()
 
 
-def ensure(storage):
-    """Write each sample that is not on disk; never overwrite one that is.
-    The Round 6 results file is written beside them the same way."""
+def ensure(storage, names=YOGURT_NAMES):
+    """Write each of `names` (the yogurt pilot by default) that is not on
+    disk; never overwrite one that is. With the Round 6 sample, its results
+    file is written beside them the same way."""
     written = []
-    for name in NAMES:
+    for name in names:
+        if not is_sample(name):
+            raise ValueError(f"{name!r} is not a sample")
         if not storage.exists(name):
             storage.save(name, shipped_state(name))
             written.append(name)
-    _write_round6_results(storage, overwrite=False)
+    if ROUND6 in names:
+        _write_round6_results(storage, overwrite=False)
     return written
+
+
+def ensure_burger(storage):
+    """The example setup alone: the yogurt pilot is never written by it."""
+    return ensure(storage, (BURGER,))
 
 
 def restore(name, storage):

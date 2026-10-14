@@ -29,7 +29,7 @@ def store(tmp_path, monkeypatch):
 
 def test_every_shipped_file_exists():
     assert sp.available()
-    for name in sp.NAMES:
+    for name in sp.YOGURT_NAMES:
         assert (sp.SAMPLE_DIR / f"{name}.json").is_file()
     assert sp.ROUND6_RESULTS.is_file()
     assert sp.ROUND6_RESULTS.name == sp.ROUND6_RESULTS_FILE_NAME == "Round 6 results (pilot).xlsx"
@@ -145,7 +145,7 @@ def test_is_sample_is_an_exact_match():
 
 
 def test_ensure_writes_only_what_is_missing(store):
-    assert sorted(sp.ensure(store)) == sorted(sp.NAMES)
+    assert sorted(sp.ensure(store)) == sorted(sp.YOGURT_NAMES)
     Path(f"{sp.ALL10}.pkl").unlink()
     before = Path(f"{sp.ROUND6}.pkl").stat().st_mtime_ns
     assert sp.ensure(store) == [sp.ALL10]
@@ -186,7 +186,7 @@ def test_the_restored_copy_is_a_saved_copy_not_a_project(store):
     archived = sp.restore(sp.ROUND6, store)
     assert archived in store.list_archives()
     assert archived not in store.list_projects()
-    assert sorted(store.list_projects()) == sorted(sp.NAMES)
+    assert sorted(store.list_projects()) == sorted(sp.YOGURT_NAMES)
     match = storage_backend.ARCHIVE_SUFFIX_RE.search(archived)
     assert storage_backend.ARCHIVE_SUFFIX_RE.sub("", archived) == sp.ROUND6
     assert wording.SAFETY_COPY_REASONS[match.group(1)] == "Before Start this sample over"
@@ -353,7 +353,7 @@ def test_the_results_file_is_never_a_project_or_a_copy(store):
     assert Path(_R6_COPY).exists()
     listed = store.list_projects() + store.list_archives()
     assert not [n for n in listed if "results" in n.lower()]
-    assert sorted(store.list_projects()) == sorted(sp.NAMES)
+    assert sorted(store.list_projects()) == sorted(sp.YOGURT_NAMES)
 
 
 @pytest.mark.parametrize("doc", ["README.md", "desktop/start_here.txt", "desktop/README.md"])
@@ -366,6 +366,9 @@ def test_the_docs_say_what_the_screen_says(doc):
     assert sp.ROUND6_RESULTS_FILE_NAME in text
     assert "Browse files" in text and "FoodOptimizer" in text
     assert "it says to stop, or change the target" not in text
+    # The welcome screen's two samples, by their own labels (spec §9).
+    assert wording.OPEN_YOGURT_LABEL in text and wording.SEE_EXAMPLE_SETUP_LABEL in text
+    assert sp.BURGER in text and "Try the sample project" not in text
 
 
 def _xlsx_write_fails(monkeypatch):
@@ -378,8 +381,8 @@ def _xlsx_write_fails(monkeypatch):
 
 def test_a_failed_results_file_write_never_blocks_the_samples(store, monkeypatch):
     _xlsx_write_fails(monkeypatch)
-    assert sorted(sp.ensure(store)) == sorted(sp.NAMES)
-    assert all(Path(f"{n}.pkl").exists() for n in sp.NAMES)
+    assert sorted(sp.ensure(store)) == sorted(sp.YOGURT_NAMES)
+    assert all(Path(f"{n}.pkl").exists() for n in sp.YOGURT_NAMES)
     assert not Path(_R6_COPY).exists()
 
 

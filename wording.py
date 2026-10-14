@@ -188,10 +188,29 @@ NAME_COLLIDES_WITH_ARCHIVE = ("That name is already used by a project or an "
 
 OPEN_PROJECT_LABEL = "Open project"
 
-TRY_SAMPLE_LABEL = "Try the sample project"
-TRY_SAMPLE_HELP = (
+# The built-in samples (spec 2026-10-13 §9, owner wording 2026-10-14): one
+# job each, named for that job, on the welcome screen and in Manage
+# project's Samples group alike. The yogurt pilot is the demo: real results,
+# opened on 4 · Review. The example setup is how to set a project up:
+# illustrative values, no results, opened on 1 · Set up.
+OPEN_YOGURT_LABEL = "Open the yogurt pilot"
+OPEN_YOGURT_CAPTION = "Real tasting data; when to stop."
+OPEN_YOGURT_HELP = (
     "A real yogurt-style pilot: 15 formulations scored, Round 6 made and "
     "waiting for its results.")
+SEE_EXAMPLE_SETUP_LABEL = "See an example setup"
+SEE_EXAMPLE_SETUP_CAPTION = "Illustrative burger; calculations and pre-mixes."
+SAMPLES_HEADING = "**Samples**"
+BURGER_PROVENANCE_CAPTION = "Example setup; illustrative values, no results."
+BURGER_PROVENANCE_HELP = (
+    "Every amount, property, limit and target here is illustrative, not "
+    "measured. It shows calculated rows (hydration water as 2.2 × the "
+    "protein, water as the rest), pre-mixes, a process setting, records and "
+    "a formulation total. It has no results; the yogurt pilot has real ones.")
+BURGER_NO_RESULTS = "No results: this example shows set-up only."
+# The names packaging checks (desktop/test_e2e.sh) still click by.
+TRY_SAMPLE_LABEL = OPEN_YOGURT_LABEL
+TRY_SAMPLE_HELP = OPEN_YOGURT_HELP
 SAMPLE_PROVENANCE_CAPTION = "Real yogurt-style pilot; earlier engine chose Rounds 3–10."
 SAMPLE_PROVENANCE_HELP = (
     "Rounds 1–2 were the team's starting set; Rounds 3–10 were chosen by "

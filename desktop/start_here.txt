@@ -16,7 +16,7 @@ Updating? Quit the old app, then replace it in Applications. Your saved
 projects are stored separately and are retained.
 
 TRY THE SAMPLE
-1. Click “Try the sample project.” It opens “Yogurt pilot - Round 6 to
+1. Click “Open the yogurt pilot.” It opens “Yogurt pilot - Round 6 to
    score” on 4 · Review. It is a real yogurt-style pilot: 15 formulations
    scored, and Round 6 made and waiting for its results.
 2. Go to 2 · Make a round and open “Or upload results from a file.”
@@ -30,6 +30,13 @@ TRY THE SAMPLE
    Rounds”: the pilot went on to Rounds 7–10.
 To try it again, open Manage project and click “Start this sample over.”
 Your version is kept in Saved copies.
+
+EXAMPLE SETUP
+Click “See an example setup” to open “Example setup - plant-based
+burger” on 1 · Set up. Its values are illustrative and it has no
+results. It shows calculations (hydration water as 2.2 × the protein,
+remaining water as the rest), pre-mixes, a process setting, records and
+a formulation total.
 
 YOUR FIRST ROUND
 1. Set up your own project (see below). On 2 · Make a round, click

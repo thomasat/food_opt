@@ -273,7 +273,7 @@ def test_first_run_creates_no_project_file(tmp_path, monkeypatch):
     assert any("Create your first project" in m.value for m in at.markdown), \
         [m.value for m in at.markdown]
     # the welcome panel already offers the sample; the sidebar must not duplicate it on a first run
-    assert not any(b.label == "Try the sample project" for b in at.sidebar.button), [b.label for b in at.sidebar.button]
+    assert not any(b.label == wording.OPEN_YOGURT_LABEL for b in at.sidebar.button), [b.label for b in at.sidebar.button]
 
 
 def test_create_project_rejects_bad_name(tmp_path, monkeypatch):
@@ -422,13 +422,13 @@ def test_sample_project_button_creates_ready_project(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    # The sidebar also offers "Try the sample project", so target the
+    # The sidebar also offers wording.OPEN_YOGURT_LABEL, so target the
     # welcome-panel button explicitly (scoped to at.main).
-    _submit_button(at.main, "Try the sample project").click()
+    _submit_button(at.main, wording.OPEN_YOGURT_LABEL).click()
     at.run()
     assert not at.exception
     # Both samples are written; Round 6 is the one that opens.
-    assert all((tmp_path / f"{n}.pkl").exists() for n in sample_projects.NAMES)
+    assert all((tmp_path / f"{n}.pkl").exists() for n in sample_projects.YOGURT_NAMES)
     opt = FoodOptimizer(sample_projects.ROUND6)
     assert [v["name"] for v in opt.variables] == [
         "Coconut cream", "Tap water", "Lemon juice", "Salt",
@@ -454,7 +454,7 @@ def test_the_sample_lists_its_four_measurements(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    _submit_button(at.main, "Try the sample project").click()
+    _submit_button(at.main, wording.OPEN_YOGURT_LABEL).click()
     at.run()
     # The sample opens on 4 · Review: it is a pilot that has been run, and
     # the first thing to read is what it found.
@@ -580,7 +580,7 @@ def test_sample_project_button_reopens_existing_without_recreating(tmp_path, mon
 
     # Scope to the welcome-panel button explicitly: the sidebar now also has
     # a same-labelled button.
-    _submit_button(at.main, "Try the sample project").click()
+    _submit_button(at.main, wording.OPEN_YOGURT_LABEL).click()
     at.run()
     assert not at.exception
 
@@ -597,7 +597,7 @@ def test_sidebar_sample_project_button_available_with_project_open(project_with_
     at.run()
     assert not at.exception
 
-    _submit_button(at.sidebar, "Try the sample project").click()
+    _submit_button(at.sidebar, wording.OPEN_YOGURT_LABEL).click()
     at.run()
     assert not at.exception
 
@@ -618,7 +618,7 @@ def test_sidebar_sample_project_button_reopens_without_recreating(project_with_h
     at.run()
     assert not at.exception
 
-    _submit_button(at.sidebar, "Try the sample project").click()
+    _submit_button(at.sidebar, wording.OPEN_YOGURT_LABEL).click()
     at.run()
     assert not at.exception
 
@@ -4176,7 +4176,7 @@ def test_the_sample_project_is_created_not_opened(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    _submit_button(at.main, "Try the sample project").click()
+    _submit_button(at.main, wording.OPEN_YOGURT_LABEL).click()
     at.run()
     assert not at.exception
     assert any(s.value == wording.project_created(sample_projects.ROUND6)
@@ -4185,7 +4185,7 @@ def test_the_sample_project_is_created_not_opened(tmp_path, monkeypatch):
     # it never claims the sample was put back, because nothing was.
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    _submit_button(at.sidebar, "Try the sample project").click()
+    _submit_button(at.sidebar, wording.OPEN_YOGURT_LABEL).click()
     at.run()
     assert any(s.value == wording.project_opened(sample_projects.ROUND6)
                for s in at.success), [s.value for s in at.success]
@@ -7434,7 +7434,7 @@ def test_opening_the_sample_after_creating_a_project_warns_about_nothing(
     at.sidebar.text_input[0].set_value("Mine")
     _submit_button(at, wording.CREATE_PROJECT).click()
     at.run()
-    _submit_button(at, wording.TRY_SAMPLE_LABEL).click()
+    _submit_button(at, wording.OPEN_YOGURT_LABEL).click()
     at.run()
     assert not at.exception
     assert [w.value for w in at.warning] == []
@@ -9024,12 +9024,12 @@ def test_the_sample_is_written_with_shares_that_add_up_to_a_hundred(
     monkeypatch.chdir(tmp_path)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    _submit_button(at.main, "Try the sample project").click()
+    _submit_button(at.main, wording.OPEN_YOGURT_LABEL).click()
     at.run()
     assert not at.exception
     # Read the FILE, not the loaded object: import_json normalises on the
     # way in, so the loaded project has always looked right.
-    for name in sample_projects.NAMES:
+    for name in sample_projects.YOGURT_NAMES:
         written = json.loads((tmp_path / f"{name}.pkl").read_text())
         weights = {o['name']: o['weight'] for o in written['objectives']}
         assert weights == {"Consistency": 25.0, "Creaminess": 25.0,
@@ -9728,7 +9728,7 @@ def test_the_starting_line_is_gone_once_the_app_has_drawn(tmp_path, monkeypatch)
 
 
 def _click_sample(at, where=None):
-    _submit_button(where or at.sidebar, wording.TRY_SAMPLE_LABEL).click()
+    _submit_button(where or at.sidebar, wording.OPEN_YOGURT_LABEL).click()
     at.run()
     assert not at.exception
 
@@ -9740,7 +9740,7 @@ def _sample_file(tmp_path, name=sample_projects.ROUND6):
 def test_an_older_sample_on_disk_is_opened_as_it_stands_never_rebuilt(
         tmp_path, monkeypatch):
     """A Mac that met an earlier version has that version's sample on disk.
-    Try the sample project opens whatever is on disk: only Start this
+    Open the yogurt pilot opens whatever is on disk: only Start this
     sample over puts the shipped copy back."""
     monkeypatch.chdir(tmp_path)
     old = FoodOptimizer(sample_projects.ROUND6)
@@ -9805,7 +9805,7 @@ def test_a_sample_with_an_open_batch_is_left_exactly_as_it_is(
         tmp_path, monkeypatch):
     """Nothing is scored and nothing was ticked Not scored, but a batch is on
     someone's bench and the formulations in it have been numbered. That is
-    work: Try the sample project opens it as it is."""
+    work: Open the yogurt pilot opens it as it is."""
     monkeypatch.chdir(tmp_path)
     old = FoodOptimizer(sample_projects.ROUND6)
     old.add_ingredient("Oat flour", 0, 100)

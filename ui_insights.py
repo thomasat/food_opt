@@ -975,6 +975,8 @@ def render(opt):
     a stub project) → Method and definitions."""
     # A formulation moved to Not scored counts for nothing here (review M-3).
     if len(opt.Y_history) == sum(map(opt.is_set_aside, range(len(opt.Y_history)))):
+        if _example_setup(opt):
+            return
         st.caption(_say(opt, wording.INSIGHTS_NONE))
         _foot(opt)
         return
@@ -1150,6 +1152,21 @@ def _places(opt, gate=False):
             with p.q[which].body:
                 st.caption(_say(opt, wording.Q_WAIT))
     return p
+
+
+def _example_setup(opt):
+    """The example setup's Review, which has no results by design (spec
+    2026-10-13 §9): says so, and offers the yogurt pilot, whose Review has
+    real ones (app.py opens it on the run the key asks for it). Whether
+    it drew anything."""
+    if getattr(opt, "project_name", None) != sample_projects.BURGER:
+        return False
+    st.caption(wording.BURGER_NO_RESULTS)
+    if st.button(wording.OPEN_YOGURT_LABEL, key="sample_open_yogurt",
+                 help=wording.OPEN_YOGURT_HELP):
+        st.session_state[sample_projects.OPEN_NEXT_KEY] = sample_projects.ROUND6
+        st.rerun()
+    return True
 
 
 def _what_happened_next(opt):
@@ -6852,7 +6869,7 @@ def _called_top(opt, slot, lf):
         # Rebuilt framing: worked out again today, never kept from the time.
         # Fix round 1: the "?" says exactly what the forecasts are.
         st.caption(_say(opt, wording.REBUILT_LABEL), help=_say(opt, wording.rebuilt_help(
-            sample_projects.is_sample(getattr(opt, "project_name", None)))))
+            sample_projects.is_yogurt(getattr(opt, "project_name", None)))))
         st.markdown(line, help=called_detail(opt, lf))
         bias = check_bias_line(opt, lf)
         if bias:
