@@ -244,7 +244,12 @@ def test_the_control_offers_the_four_choices_with_the_assumed_one_default(monkey
                                          "3 points"]
     assert sb[2]["on_change"] is U._on_noise
     help_ = next(c for c in fake.calls if c[0] == "markdown")[2]["help"]
-    assert help_ == wording.TASTING_NOISE_HELP
+    # Sceptic review (2026-10-14), re-pinned: the unit, what 1 point is per
+    # measurement here, and the noise over which the stop shows.
+    assert help_ == wording.tasting_noise_help(
+        "Here 1 point = 0.3 per measurement, in its own units (Range 0–15).",
+        "The stop shows at noise over 0.72 points.")
+    assert help_.startswith("Points of the Overall score (0–100), 1 SD of a single tasting.")
     assert "1 point is assumed" in help_ and "stops sooner" in help_
     assert "never the suggestions" in help_
 
@@ -458,13 +463,16 @@ def test_the_stop_callout_and_its_lines(monkeypatch):
     keys = [c[2].get("key") for c in fake.calls if c[0] == "container"]
     assert "insights_stop_callout" in keys
     md = [c[1][0] for c in fake.calls if c[0] == "markdown"]
-    assert md == ["**Stop: within noise of the top**",
+    # Sceptic review (2026-10-14), re-pinned: the score within noise of 100;
+    # Tangy's 1.0 under beyond its own ±0.6.
+    assert md == ["**Stop: score within noise of 100**",
                   "1.7 below the top; 2.3 needed to tell two results apart.",
-                  "On target 3 of 4; Tangy 1.0 under."]
+                  "On target 3 of 4; Tangy 1.0 under, beyond noise."]
     assert not [c for c in fake.calls if c[0] == "button"]
     helps = [c[2].get("help") for c in fake.calls if c[0] == "markdown"]
     assert "tasted once, averages about" in helps[1]
     assert helps[2].startswith("On target as rated: 3 of 4")
+    assert helps[2].endswith("Beyond its noise: Tangy 1.0 under (±0.6).")
     # Warm, never error-red; the headline larger.
     assert "rgba(214, 158, 46" in U.STRIP_STYLE and "#b7791f" in U.STRIP_STYLE
     assert ".st-key-insights_stop_head" in U.STRIP_STYLE
@@ -532,7 +540,7 @@ def test_the_review_at_the_stop_end_to_end():
     assert not at.exception, [e.message for e in at.exception]
     review = at.tabs[3]
     texts = [m.value for m in review.markdown]
-    assert "**Stop: within noise of the top**" in texts
+    assert "**Stop: score within noise of 100**" in texts
     assert "1.7 below the top; 2.3 needed to tell two results apart." in texts
     stop = next(b for b in review.button if (b.key or "").endswith("_next"))
     assert stop.label.startswith(":orange[**Stop**] 1.7 below top; 2.3 needed")
@@ -603,7 +611,7 @@ def _lf(right, pairs, close, ties, p=0.03, p_holm=0.15, tested=5):
 
 def test_the_pairs_line_says_called_of_all():
     assert wording.score_pairs_called("Overall score", 5, 5, 12) == \
-        "Overall score (5 of 12 pairs called, all 5 right)"
+        "Overall score (5 of 12 pairs called, 5 right)"   # fix round 2: one form
     assert wording.learned_count("Overall score", 7, 9, total=24) == \
         "Overall score 9 of 24 pairs called, 7 right"
     assert wording.learned_count_needed("Overall score", 4, 4, 5, total=12) == \
@@ -672,6 +680,7 @@ def test_every_final_demo_string_keeps_the_rules():
                 wording.tasting_noise_measured("1.4", 4)]
     headlines = [wording.STOP_CALLOUT_HEAD, wording.stop_callout_line("1.7", "2.3"),
                  wording.stop_on_target(3, 4, ["Tangy 1.0 under"]),
+                 wording.stop_on_target(3, 4, ["Tangy 1.0 under"], True, [True]),
                  wording.score_pairs_called("Overall score", 5, 5, 12)]
     captions = [wording.SCORE_IS_MATCH, wording.stop_marker(6), wording.after_stop("0.8")]
     labels = [wording.TASTING_NOISE_LABEL, wording.STOP_WORD,

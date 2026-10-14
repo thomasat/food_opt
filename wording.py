@@ -9153,18 +9153,6 @@ def _about(x):
     return f"about {x:.0f}" if x >= 1 else f"about {x:.1f}"
 
 
-def called_landing(above_gap=None, below_gap=None):
-    """Where the Overall scores landed against their forecast: 'scored about
-    4 above forecast' (the mean of measured − forecast over those
-    above their 95 % range); 'scored about 2 below forecast'; 'scored as
-    forecast' when every one landed in its range."""
-    if above_gap is not None:
-        return f"scored {_about(above_gap)} above forecast"
-    if below_gap is not None:
-        return f"scored {_about(below_gap)} below forecast"
-    return "scored as forecast"
-
-
 def called_score_head(round_no, order_text, landing_text="", off=()):
     """The earlier headline when the Overall score's order held: '**Round 6:
     order called right.** Overall: F16, F17 above F18; scored about 4
@@ -11140,8 +11128,8 @@ def on_target_help(on, n, within, half_text, targets=True):
 
 # A3 · the Forecast check's pairs, called of all.
 def score_pairs_called(label, right, called, total):
-    """'Overall score (5 of 12 pairs called, all 5 right)'."""
-    tail = (f"all {right} right" if right == called and called > 1 else f"{right} right")
+    """'Overall score (5 of 12 pairs called, 5 right)'."""
+    tail = f"{right} right"     # fix round 2: one form, 'x of N called, y right'
     return f"{label} ({called} of {total} pairs called, {tail})"
 
 
@@ -11149,7 +11137,7 @@ def learned_count(label, right, pairs, few=False, total=None):
     """'Overall score 5 of 12 pairs called, 4 right'; without the total,
     'Overall score 7 of 9 pairs ordered right'."""
     if total is not None and total > pairs:
-        tail = f"all {right} right" if right == pairs and pairs > 1 else f"{right} right"
+        tail = f"{right} right"
         out = f"{label} {pairs} of {total} pairs called, {tail}"
         return f"{out} (too few to judge)" if few else out
     if few:
@@ -11285,3 +11273,401 @@ def tasting_noise_measured(sd_text, df):
 
 TASTING_NOISE_MEASURED_HELP = ("Measured from your Repeats (3 degrees of freedom or more), so "
                                "it replaces the setting.")
+
+
+# --- sceptic review (2026-10-14) ---
+# Two expert reviewers (an R&D head, a sensory and statistics lead): every
+# number right, some words claiming more than the data shows. Owner-approved
+# wording: the stop says what is within noise (the Overall score, of 100)
+# and whether each off-target measurement is beyond its own noise; the
+# tasting noise says its unit; the Forecast check says its count and its
+# reference; a 95 % range over the whole Range is no forecast; a verdict's
+# pairs say how many were called of all; the stop's advice checks first.
+# Later definitions here replace the earlier ones of one name.
+def stop_callout_head(top_text="100"):
+    """'Stop: score within noise of 100' — the Overall score, not every
+    measurement (B1's head said 'within noise of the top')."""
+    return f"Stop: score within noise of {top_text}"
+
+
+STOP_CALLOUT_HEAD = stop_callout_head("100")
+BEYOND_NOISE = "beyond noise"
+WITHIN_NOISE = "within noise"
+
+
+def _noise_side(beyond):
+    return BEYOND_NOISE if beyond else WITHIN_NOISE
+
+
+STATUS_WORDS = 10     # the owner's limit for a status line
+
+
+def _status_words(text):
+    import re
+    return len([w for w in str(text).split() if re.search(r"\w", w)])
+
+
+def stop_on_target(on, n, offs, targets=True, beyond=None):
+    """'On target 3 of 4; Tangy 1.0 under, beyond noise.' `offs` ['Tangy
+    1.0 under'], largest first; `beyond` [True / False / None] for each:
+    its gap beyond its own noise band (the ± of the "?"), None where that
+    measurement has no noise (nothing is said about its noise). One off
+    target is always named with its gap and verdict (controller ruling: the
+    specific-wording rule outranks a one-word overage, so a long name may
+    reach 11 words); two or more: the counts alone, the names and amounts
+    in the "?" — 'On target 2 of 4; 2 beyond noise.', '…; 1 beyond, 1
+    within noise.'"""
+    head = f"On target {on} of {n}" if targets else f"At their best {on} of {n}"
+    offs = list(offs)
+    if not offs:
+        return f"{head}."
+    flags = list(beyond) if beyond is not None else [None] * len(offs)
+    flags += [None] * (len(offs) - len(flags))
+    if len(offs) == 1:
+        return (f"{head}; {offs[0]}." if flags[0] is None
+                else f"{head}; {offs[0]}, {_noise_side(flags[0])}.")
+    out, within = sum(f is True for f in flags), sum(f is False for f in flags)
+    if not out and not within:
+        return f"{head}; {len(offs)} off target."
+    if out and within:
+        return f"{head}; {out} beyond, {within} within noise."
+    return f"{head}; {out or within} {_noise_side(bool(out))}."
+
+
+def on_target_help(on, n, within, half_text, targets=True, beyond=(), inside=()):
+    """'On target as rated: 3 of 4 (the rating equals the target). Within
+    noise of target (±0.6, where 95 % of single tastings land): 3 of 4.
+    Beyond its noise: Tangy 1.0 under (±0.6).' — `beyond` [(off text, ±
+    text)], each measurement outside its own band; `inside` the ones off
+    target but within it ('Off target, within its noise: …')."""
+    word = "On target" if targets else "At their best"
+    out = f"{word} as rated: {on} of {n} (the rating equals the target)."
+    if within is not None:
+        width = f"±{half_text}, " if half_text else ""
+        out += (f" Within noise of target ({width}where 95 % of single tastings land): "
+                f"{within} of {n}.")
+    if beyond:
+        out += " Beyond its noise: " + ", ".join(f"{t} (±{h})" for t, h in beyond) + "."
+    if inside:
+        out += (" Off target, within its noise: " + ", ".join(f"{t} (±{h})" for t, h in inside)
+                + ".")
+    return out
+
+
+def noise_per_measurement(cells):
+    """What 1 point of the Overall score is in each measurement's own units,
+    from [(name, value text, Range text)]: one value and one Range for all,
+    'Here 1 point = 0.3 per measurement, in its own units (Range 0–15).';
+    else each named, 'Here 1 point = Tangy 0.3, Firmness 0.05 N, each in
+    its own units.' ('≈' when a value is rounded)."""
+    if not cells:
+        return ""
+    sign = "≈" if any(v.startswith("≈") for _, v, _ in cells) else "="
+    values = {v.lstrip("≈") for _, v, _ in cells}
+    spans = {r for _, _, r in cells}
+    if len(values) == 1 and len(spans) == 1:
+        return (f"Here 1 point {sign} {values.pop()} per measurement, in its own units "
+                f"(Range {spans.pop()}).")
+    listed = ", ".join(f"{n} {v.lstrip('≈')}" for n, v, _ in cells)
+    return f"Here 1 point {sign} {listed}, each in its own units."
+
+
+def stop_holds_above(sd_text=None):
+    """'The stop shows at noise over 0.72 points.'; with no floor (Best so
+    far at the top): 'The stop shows at any noise.'"""
+    if sd_text is None:
+        return "The stop shows at any noise."
+    return f"The stop shows at noise over {points_text(sd_text)}."
+
+
+def tasting_noise_help(per_text="", stop_text="", top_text="100"):
+    """The Tasting noise "?": the unit (points of the Overall score, 1 SD
+    of a single tasting), what 1 point is in each measurement's units here,
+    where it comes from, what it changes, and the noise over which the
+    stop shows."""
+    lines = [f"Points of the {OVERALL_SCORE_COLUMN} (0–{top_text}), 1 SD of a single tasting."]
+    if per_text:
+        lines.append(per_text)
+    lines.append("Set it from your tasters' Repeats; until then 1 point is assumed. Higher "
+                 "noise: the app stops sooner. It changes the Review's reading only, never "
+                 "the suggestions.")
+    if stop_text:
+        lines.append(stop_text)
+    return " ".join(lines)
+
+
+TASTING_NOISE_HELP = tasting_noise_help()
+
+
+# The Forecast check: its count and its reference, never 'as forecast'.
+def check_head(round_no, above, below, subject=None, total=None, none=0):
+    """'**Round 6: scored higher than forecast.**'; every one inside:
+    '**Round 10: all 3 inside their 95 % range.**' ('both inside' for two;
+    a measurement as the subject: '**Round 6: Consistency, all 3 inside
+    their 95 % range.**'); every range over the whole Range (`none` of
+    them): '**Round 6: Consistency, 3 values with no forecast range.**'."""
+    if total == 0:
+        who = f"{subject}, " if subject else ""
+        many = f"{none} values" if none != 1 else "1 value"
+        return f"**{ROUND_CAP} {round_no}: {who}{many} with no forecast range.**"
+    landing = check_landing(above, below)
+    if landing == "inside":
+        n = total if total is not None else 0
+        what = ("inside its 95 % range" if n == 1 else
+                "both inside their 95 % range" if n == 2 else
+                f"all {n} inside their 95 % range" if n else "inside their 95 % range")
+        if subject is not None:
+            what = f"{subject}, {what}"
+        return f"**{ROUND_CAP} {round_no}: {what}.**"
+    verb = "scored" if subject is None else f"{subject} measured"
+    what = {"higher": f"{verb} higher than forecast", "lower": f"{verb} lower than forecast",
+            "both": f"{verb} outside forecast, both ways"}[landing]
+    return f"**{ROUND_CAP} {round_no}: {what}.**"
+
+
+def check_line(round_no, inside, above, below, order_text="", subject=None, none=0):
+    """The Forecast check's headline: '**Round 6: scored higher than
+    forecast.** 2 of 3 above their range; order too close to call.'; every
+    one inside, the count is in the head: '**Round 10: all 3 inside their
+    95 % range.** Order right: 1 pair, 1 too close, 1 tie.' With no range
+    left (`none` values with no forecast) the order is not said beside it."""
+    total = inside + above + below
+    if total == 0:
+        return check_head(round_no, above, below, subject, total=0, none=none)
+    rng = "" if (not above and not below) else check_range(inside, above, below)
+    tail = "; ".join(t for t in (rng, order_text) if t)
+    head = check_head(round_no, above, below, subject, total=total)
+    return f"{head} {tail[:1].upper()}{tail[1:]}." if tail else head
+
+
+# A 95 % range over the measurement's whole Range forecasts nothing.
+NO_FORECAST = "No forecast"
+NO_FORECAST_EDGE = 0.01     # each end within 1 % of the Range's width of the Range's end
+NO_FORECAST_DEFINED = ("No forecast: a 95 % range that covers the measurement's whole "
+                       "Range (each end within 1 % of the Range's width of its end), so the "
+                       "value can't be in or out of it; it is counted neither way.")
+
+
+def no_forecast_help(items=()):
+    """The Results "?" on its No forecast rows: the fact, never a cause —
+    'No forecast: the 95 % range covers the whole Range (Creaminess 0–15),
+    so it can't be in or out. Widened ×2.1 after earlier misses.' `items`
+    [(name, Range text, widen text or None)], one per measurement."""
+    if not items:
+        return NO_FORECAST_DEFINED
+    where = ", ".join(f"{n} {r}" for n, r, _ in items)
+    out = (f"No forecast: the 95 % range covers the whole Range ({where}; each end within "
+           "1 % of the Range's width of its end), so it can't be in or out.")
+    wid = [(n, w) for n, _, w in items if w]
+    if len(wid) == 1 and len(items) == 1:
+        out += f" Widened ×{wid[0][1]} after earlier misses."
+    elif wid:
+        out += " Widened after earlier misses: " + ", ".join(f"{n} ×{w}" for n, w in wid) + "."
+    return out
+
+
+NO_FORECAST_HELP = NO_FORECAST_DEFINED
+
+
+def no_forecast_left_out(n):
+    """'12 values with no forecast left out.' ('' for none)."""
+    if not n:
+        return ""
+    return "1 value with no forecast left out." if n == 1 else \
+        f"{n} values with no forecast left out."
+
+
+def with_left_out(text, n):
+    """`text` with no_forecast_left_out(n) after it."""
+    tail = no_forecast_left_out(n)
+    return f"{text} {tail}".strip() if tail else text
+
+
+def trust_early(n, left=0):
+    """'Not judged yet: 4 values checked; the verdict needs 10.'; values
+    with no forecast: 'Not judged yet: 0 of 12 values checked had a
+    forecast; the verdict needs 10.'"""
+    if left:
+        return (f"Not judged yet: {n} of {n + left} values checked had a forecast; the "
+                "verdict needs 10.")
+    return f"Not judged yet: {_values(n)} checked; the verdict needs 10."
+
+
+def tip_coverage_early(names, rounds, n, left=0):
+    """Fewer than 10 values in the verdict's Rounds (with a forecast)."""
+    where = f", {rounds_span(rounds)}" if rounds else ""
+    if left:
+        return (f"Measurements ({', '.join(names)}){where}: {n} of {n + left} values checked "
+                "had a forecast; the coverage check needs 10.")
+    return (f"Measurements ({', '.join(names)}){where}: {_values(n)} checked; the coverage check "
+            "needs 10.")
+
+
+STORY_NO_FORECAST = "Before the first forecast"
+HOW_FORECAST_WORDS = (f"{NO_FORECAST_DEFINED} Before the first forecast: {FORMULATION}s made "
+                      f"before 5 were scored, with nothing earlier to forecast them from.")
+
+
+# Fix round 1 (controller): "Rebuilt today" could be false (checks kept
+# from an earlier day); the label is as before and the "?" says exactly
+# what the forecasts are, true for any project.
+REBUILT_HOW = "Calculated by the app's current model from the Rounds before each one"
+REBUILT_NOT_SAVED = "not saved from when each Round was made"
+REBUILT_PILOT = "The pilot's own forecasts were not kept."
+
+
+def rebuilt_help(sample=False):
+    """The Forecast check label's "?": 'Calculated by the app's current
+    model from the Rounds before each one; not saved from when each Round
+    was made.' — and, on the two samples, 'The pilot's own forecasts were
+    not kept.'"""
+    out = f"{REBUILT_HOW}; {REBUILT_NOT_SAVED}."
+    return f"{out} {REBUILT_PILOT}" if sample else out
+
+
+def results_predicted_help(round_no, no_forecast=False, sample=False):
+    """The Results table's "?"; `no_forecast`: False, True (the rule) or
+    no_forecast_help's items."""
+    help_ = (f"Each {FORMULATION} of {ROUND_CAP} {round_no} as the model expected it, beside "
+             f"what was measured: the {OVERALL_SCORE_COLUMN} and every measurement, each "
+             "marked In, Above or Below its 95 % range. Calculated by the app's current model "
+             f"from the {FORMULATION}s scored before {ROUND_CAP} {round_no} only (the Review's "
+             f"Forecast check); not saved from when {ROUND_CAP} {round_no} was made. A "
+             "forecast at the highest possible value reads ≥ it.")
+    if sample:
+        help_ += f" {REBUILT_PILOT}"
+    if not no_forecast:
+        return help_
+    return f"{help_} {no_forecast_help(no_forecast if isinstance(no_forecast, list) else ())}"
+
+
+REBUILT_LABEL = "Rebuilt from earlier Rounds"
+RESULTS_PREDICTED_CAPTION = "Rebuilt from earlier Rounds: what the model expected."
+CALLED_RULE = CALLED_RULE.replace(
+    "Rebuilt today from the", "Calculated from the", 1)
+
+
+# A verdict's pairs: how many were called, of all the pairs there are.
+CALLED_MEANS = ("Called: forecasts at least one tasting noise apart and measured values "
+                "unequal; counted of all pairs.")
+
+
+def _right_tail(right, called):
+    return f"{right} right"
+
+
+def _count_of(c):
+    """(right, called, total) from a count; an old (right, pairs) has no
+    total (None)."""
+    if c is None:
+        return None
+    c = tuple(c)
+    return (c[0], c[1], c[2]) if len(c) > 2 else (c[0], c[1], None)
+
+
+def called_of(right, called, total, unit=False):
+    """The one form of a verdict's pairs (fix round 2): '5 of 12 called,
+    5 right'; '9 of 24 called, 7 right'; `unit`: '5 of 12 pairs
+    called, …'."""
+    pairs = " pairs" if unit else ""
+    return f"{called} of {total}{pairs} called, {_right_tail(right, called)}"
+
+
+def named_pairs(names, counts, first_unit=True):
+    """'Tangy (5 of 9 pairs called, 5 right)'; after the first, without
+    the unit: 'Overall score (5 of 12 pairs called, 5 right), Tangy (5
+    of 9 called, 5 right)'. `counts` {name: (right, called, total)};
+    an old (right, pairs) reads '(5 of 5 pairs)'; a name with no count is
+    bare."""
+    out, unit_said = [], False
+    for name in names:
+        c = _count_of(counts.get(name))
+        if c is None or not c[1]:
+            out.append(name)
+            continue
+        right, called, total = c
+        if total is None:
+            unit = " pairs" if first_unit and not unit_said else ""
+            out.append(f"{name} ({right} of {called}{unit})")
+        else:
+            out.append(f"{name} ({called_of(right, called, total, first_unit and not unit_said)})")
+        unit_said = unit_said or first_unit
+    return ", ".join(out)
+
+
+def named_pairs_short(name, count):
+    """'Tangy (5 of 9 called, 5 right)' — the same form, no unit (fix
+    round 2: never the a/b notation, never the right ones left out). An old
+    (right, pairs): 'Tangy (5/5)'. Bare without a count."""
+    c = _count_of(count)
+    if c is None or not c[1]:
+        return name
+    right, called, total = c
+    if total is None:
+        return f"{name} ({right}/{called})"
+    return f"{name} ({called_of(right, called, total)})"
+
+
+def named_pairs_strip(name, count, short=False):
+    """The strip's form: named_pairs_short ('Consistency (11 of 24 called,
+    11 right)'). `short` is kept for callers."""
+    return named_pairs_short(name, count)
+
+
+def learned_strip_counted(predictable, partly, not_yet=(), counts=None):
+    """learned_strip with the evidence: ('Partly:', 'Tangy (5 of 9 called,
+    5 right)'); two names, the first one's count and the second named
+    while the item keeps to STATUS_WORDS words ('Overall score (5 of 12
+    called, 5 right), Tangy'), else the first and '+1'. The Not yet
+    names stay bare (they are the ones without evidence)."""
+    word, shown = learned_strip(predictable, partly, not_yet)
+    names = predictable or partly
+    if not names or not counts:
+        return word, shown
+    first = named_pairs_strip(names[0], counts.get(names[0]))
+    if len(names) == 1:
+        return word, first
+    rest = len(names) - 2
+    both = f"{first}, {names[1]}" + (f" +{rest}" if rest else "")
+    if _status_words(f"{word} {both}") <= STATUS_WORDS:
+        return word, both
+    return word, f"{first} +{len(names) - 1}"
+
+
+def learned_verdicts_help(n):
+    """The verdict line's "?": the three words in plain words, what a
+    called pair is, adjusted for checking several results."""
+    # Sceptic review: 'called' defined, within the "?"'s ~120 words beside
+    # the pairs line (the sentence on "Partly" a little shorter for it).
+    out = (f"A pair is two formulations of one {ROUND_CAP}; it is ordered right when its "
+           f"forecasts, from earlier {ROUND_CAP}s only, put it in the measured order. "
+           f"{CALLED_MEANS} Predicts: ordered right clearly more often than chance. Partly: "
+           f"right more than half the time, not yet clearly. Not yet: no better than chance "
+           f"so far, too few pairs, or the result barely varies.")
+    if n > 1:
+        out += (f" Adjusted for checking {n} results at once, so one that passes by luck "
+                "doesn't count as Predicts.")
+    return out
+
+
+# The stop's advice: check it first.
+def ceiling_setup_help(no=None, sd_text="1", assumed=True):
+    """The stop's Set up "?" (and its callout on Set up): 'To check the
+    stop, repeat Formulation 16: 3 Repeats measure your tasting noise
+    (assumed at 1 point until then). Changing a target or Share of score
+    changes what "best" means.' With the noise measured: '…repeat
+    Formulation 16: it adds to your Repeats' measure of tasting noise.'"""
+    check = ""
+    if no is not None:
+        why = (f"{YARDSTICK_REPEATS} Repeats give a first estimate of your tasting noise (assumed at "
+               f"{points_text(sd_text)} until then)" if assumed else
+               "it adds to your Repeats' measure of tasting noise")
+        check = f"To check the stop, repeat {FORMULATION_CAP} {no}: {why}. "
+    return (f"{check}Changing a target or Share of score changes what “best” "
+            "means.")
+
+
+CEILING_SETUP_HELP = ceiling_setup_help()
+CEILING_MEASURE = ("A single new result can't be told apart from this best in the Overall "
+                   "score; a single measurement still can (On target says which are beyond "
+                   "their noise).")

@@ -216,16 +216,19 @@ OPT = NS(objectives=[], study_kind=None)
 
 
 def test_the_strip_says_the_pairs_behind_its_word():
+    # Sceptic review (2026-10-14), re-pinned: (right, called, all) — the
+    # strip says called of all pairs.
     assert wording.learned_strip_counted([], ["Tangy"], ["Creaminess"],
-                                         {"Tangy": (7, 8)}) == ("Partly:", "Tangy (7 of 8 pairs)")
+                                         {"Tangy": (7, 8, 9)}) == ("Partly:", "Tangy (8 of 9 called, 7 right)")
     word, line = wording.learned_strip_counted(
         [], ["Overall score", "Tangy", "Consistency"], [],
-        {"Overall score": (5, 5), "Tangy": (5, 6), "Consistency": (3, 4)})
-    # Two names: the details chart's form, so the item stays ~7 words.
-    assert (word, line) == ("Partly:", "Overall score (5/5), Tangy (5/6) +1")
-    assert _words(f"{word} {line}") <= 8
+        {"Overall score": (5, 5, 12), "Tangy": (5, 6, 9), "Consistency": (3, 4, 9)})
+    # Fix round 2: the first one's count with how many right; the others
+    # as "+N" past the owner's 10 words.
+    assert (word, line) == ("Partly:", "Overall score (5 of 12 called, 5 right) +2")
+    assert _words(f"{word} {line}") <= 10
     # Not yet names stay bare: they are the ones without evidence.
-    assert wording.learned_strip_counted([], [], ["Tangy"], {"Tangy": (1, 3)}) == (
+    assert wording.learned_strip_counted([], [], ["Tangy"], {"Tangy": (1, 3, 6)}) == (
         "Not yet:", "Tangy")
 
 
@@ -244,19 +247,23 @@ def test_the_forecast_check_line_carries_the_pairs(monkeypatch):
     lines = {k: U.learned_verdict_line(OPT, lf)[0]
              for k, lf in (("ten", ten), ("six", six), ("few", few), ("none", none),
                                        ("long", long))}
-    assert lines["ten"] == ("So far: Overall score 7 of 9 pairs ordered right. "
-                            "Predicts: Consistency (11/11).")
+    # Sceptic review (2026-10-14), re-pinned throughout: called of all pairs
+    # (hand-made orderings have no ties or too-close pairs, so all = called).
+    assert lines["ten"] == ("Predicts: Consistency (11 of 11 pairs called, 11 right). "
+                            "Partly: Overall score, Tangy.")
     # The count and the Partly names would take 15 words: the names alone,
     # each with its pairs.
-    assert lines["six"] == "Partly: Overall score (5 of 5 pairs), Tangy (5/6)."
+    assert lines["six"] == "Partly: Overall score (5 of 5 pairs called, 5 right), Tangy."
 
     # Under the pairs a verdict needs: the count it needs (was "too few to judge").
-    assert lines["few"] == "So far: Overall score 4 of 4 pairs (needs 5). Partly: Tangy (5/5)."
+    # Fix round 2: with the right ones said, count and name run past 14
+    # words: the verdict with its pairs.
+    assert lines["few"] == "Partly: Tangy (5 of 5 pairs called, 5 right)."
     # No Overall-score pairs: the unit with the first count.
-    assert lines["none"] == "Partly: Tangy (5 of 6 pairs). Not yet: Overall score."
+    assert lines["none"] == "Partly: Tangy (6 of 6 pairs called, 5 right). Not yet: Overall score."
     # Count and three names would run past 14 words: the names, with pairs.
-    assert lines["long"] == ("Partly: Overall score (5 of 5 pairs), Firmness (12/16), "
-                             "Cook loss (5/5).")
+    assert lines["long"] == ("Partly: Overall score (5 of 5 pairs called, 5 right), "
+                             "Firmness, Cook loss.")
     for text in lines.values():
         assert _words(text) <= wording.LEARNED_LINE_WORDS == 14
         assert "too few" not in text

@@ -450,6 +450,38 @@ class Check:
     # (fitted_noise_sd); None when the noise is not fitted (fixed_tiny).
     # Ftue fix A, cold read I7: the Repeat check's σ.
     noise: float | None = None
+    # Sceptic review (fix round 1): a 95 % range covering the output's whole
+    # Range (each end within NO_FORECAST_EDGE of the Range's ends) is no
+    # forecast: never counted inside or outside (ranged). Set by check_rounds.
+    no_forecast: bool = False
+
+
+# Sceptic review: "whole Range" — each end within 1 % of the Range's width.
+NO_FORECAST_EDGE = 0.01
+
+
+def covers_range(opt, name, low, high):
+    """Whether a 95 % range [low, high] of output `name` covers its whole
+    Range: low ≤ Range low + NO_FORECAST_EDGE × width and high ≥ Range high
+    − NO_FORECAST_EDGE × width. False for a name with no Range."""
+    try:
+        lo, hi = _range_of(opt, name)
+    except KeyError:
+        return False
+    edge = NO_FORECAST_EDGE * (float(hi) - float(lo))
+    return float(low) <= float(lo) + edge and float(high) >= float(hi) - edge
+
+
+def mark_no_forecast(opt, checks):
+    """`checks` with no_forecast set from each one's final 95 % range."""
+    return [dataclasses.replace(c, no_forecast=covers_range(opt, c.name, c.low, c.high))
+            for c in checks]
+
+
+def ranged(checks):
+    """The checks that forecast something: every coverage count (inside or
+    outside a 95 % range, and its allowed misses) is over these only."""
+    return [c for c in checks or () if not getattr(c, "no_forecast", False)]
 
 
 def _row_key(opt, i):
@@ -553,7 +585,7 @@ def check_rounds(opt, cache=None, checking=None, only=None):
     if cache is not None and only is None:
         for gone in set(cache) - set(keys.values()):
             del cache[gone]
-    return nest_score_widen(opt, nest_measure_widen(opt, checks))
+    return mark_no_forecast(opt, nest_score_widen(opt, nest_measure_widen(opt, checks)))
 
 
 def widen_pairs(opt, pairs):
@@ -682,6 +714,9 @@ class Headline:
     verdict: str
     score: ScoreRecord | None = None
     wide: list = None       # outputs (SCORE included) whose likely range is wide
+    # Fix round 2: the measurements' values in the window with no forecast
+    # (left out of inside and total), so the screen can say so.
+    no_forecast: int = 0
 
 
 def _ordered_rounds(checks):
@@ -693,8 +728,11 @@ def _ordered_rounds(checks):
 
 
 def headline(opt, checks):
-    values = [c for c in checks if c.name != SCORE]
-    rounds = _ordered_rounds(values)
+    # Sceptic review (fix round 1): no-forecast checks are counted neither
+    # inside nor outside (ranged); the window is still the Rounds checked,
+    # and the wide-range rule still sees them.
+    rounds = _ordered_rounds([c for c in checks if c.name != SCORE])
+    values = [c for c in ranged(checks) if c.name != SCORE]
     score_rounds = _ordered_rounds([c for c in checks if c.name == SCORE])
     if not rounds:
         return Headline("none", [], 0, 0, None)
@@ -708,14 +746,16 @@ def headline(opt, checks):
     # fixes, review I1), not the verdict's window.
     record = score_record(checks, score_rounds)
     wide = wide_ranges(opt, [c for c in checks if c.round in chosen])
+    left = sum(1 for c in checks if c.name != SCORE and c.round in chosen
+               and getattr(c, "no_forecast", False))
     if len(picked) < 10:
         return Headline("early", chosen, sum(c.inside for c in picked),
-                        len(values), None, record, wide)
+                        len(values), None, record, wide, left)
     inside = sum(c.inside for c in picked)
     tail = binomial_tail(len(picked) - inside, len(picked))
     verdict = ("holding" if tail >= 0.10 else
                "caution" if tail >= 0.01 else "unreliable")
-    return Headline("verdict", chosen, inside, len(picked), verdict, record, wide)
+    return Headline("verdict", chosen, inside, len(picked), verdict, record, wide, left)
 
 
 def error_record(checks, name, rounds=None):
@@ -723,6 +763,9 @@ def error_record(checks, name, rounds=None):
     checked when None), fully measured formulations only; None with fewer
     than SCORE_RECORD_MIN. Its standard error takes each Round's mean error
     as one value from ROUND_UNIT_MIN Rounds, else each value (review B1)."""
+    # Sceptic review, fix round 2: no-forecast checks change the in/outside
+    # count only (inside, total from ranged); the mean miss, its sd, se and
+    # df are over every fully measured check, as before.
     mine = [c for c in checks if c.name == name and c.fully_measured
             and (rounds is None or c.round in rounds)]
     if len(mine) < SCORE_RECORD_MIN:
@@ -738,7 +781,8 @@ def error_record(checks, name, rounds=None):
     else:
         se = None if sd is None else sd / math.sqrt(len(gaps))
         df = len(gaps) - 1
-    return ScoreRecord(sum(c.inside for c in mine), len(mine), sum(gaps) / len(gaps), sd,
+    counted = ranged(mine)
+    return ScoreRecord(sum(c.inside for c in counted), len(counted), sum(gaps) / len(gaps), sd,
                        order, se, df)
 
 
@@ -951,7 +995,7 @@ def details(opt, checks, fitted=None, flagged=None):
         gp = f.model if f is not None else None
         noise = None if gp is None or tiny else fitted_noise_sd(gp)
         rows.append(DetailRow(
-            name, len(mine), sum(c.inside for c in mine),
+            name, len(ranged(mine)), sum(c.inside for c in ranged(mine)),
             statistics.median((c.high - c.low) / 2 for c in mine), miss,
             # sd 0: the Repeats agreed exactly, and there is no ratio.
             sd, None if not sd else miss / (MAD_OF_NORMAL * sd),
@@ -1242,7 +1286,7 @@ def miss_diagnosis(opt, checks, h=None):
     of them sit on their measurement's usual side (measurements with
     ONE_WAY_MIN misses or more); else "unexplained"."""
     h = h or headline(opt, checks)
-    values = [c for c in checks if c.name != SCORE and c.round in (h.rounds or [])]
+    values = [c for c in ranged(checks) if c.name != SCORE and c.round in (h.rounds or [])]
     misses = [c for c in values if not c.inside]
     if not misses:
         return None
@@ -3995,6 +4039,7 @@ class ValueMisses:
     misses: int
     total: int
     items: list
+    no_forecast: int = 0    # fix round 2: values left out, no forecast
 
     @property
     def expected(self):
@@ -4012,7 +4057,7 @@ class ValueMisses:
 def value_misses(opt, checks, h=None):
     """ValueMisses over the headline's Rounds; None with no value checked."""
     h = h or headline(opt, checks)
-    values = [c for c in checks if c.name != SCORE and c.round in (h.rounds or [])]
+    values = [c for c in ranged(checks) if c.name != SCORE and c.round in (h.rounds or [])]
     if not values:
         return None
     order = [n for n, _, _ in outputs(opt) if n != SCORE]
@@ -4024,4 +4069,5 @@ def value_misses(opt, checks, h=None):
         if missed:
             items.append((name, missed, len(mine)))
     items.sort(key=lambda it: -it[1])
-    return ValueMisses(list(h.rounds or []), sum(it[1] for it in items), len(values), items)
+    return ValueMisses(list(h.rounds or []), sum(it[1] for it in items), len(values), items,
+                       getattr(h, "no_forecast", 0))

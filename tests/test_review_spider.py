@@ -314,7 +314,8 @@ def test_start_is_what_changeds_start():
     # Final demo (A2), re-pinned: "on target" as rated, and within noise.
     assert U.spider_round_help(opt, data, 1) == (
         "On target as rated: 2 of 4 (the rating equals the target). Within noise of target "
-        "(±0.6, where 95 % of single tastings land): 2 of 4.\n\n"
+        "(±0.6, where 95 % of single tastings land): 2 of 4. Beyond its noise: "
+        "Firmness 4.0 under (±0.6), Sweetness 1.0 under (±0.6).\n\n"
         "Round 1's best is the Start (F2).")
 
 

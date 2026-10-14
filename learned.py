@@ -613,7 +613,7 @@ def skill_vs_best(opt, checks, name=insights.SCORE):
 
 
 def coverage(checks, name=insights.SCORE):
-    mine = [c for c in checks if c.name == name and (name != insights.SCORE or c.fully_measured)]
+    mine = [c for c in insights.ranged(checks) if c.name == name and (name != insights.SCORE or c.fully_measured)]
     return sum(c.inside for c in mine), len(mine)
 
 

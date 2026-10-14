@@ -11,6 +11,7 @@ import pandas as pd
 import streamlit as st
 
 import insights
+import sample_projects
 import storage as storage_backend
 import ui_insights
 import wording
@@ -310,8 +311,14 @@ def _round_predicted(opt):
     # Round-2 fixes (P2 #15): every row shown, no inner scroll.
     st.dataframe(frame, hide_index=True, key="round_predicted",
                  height=35 * (len(frame) + 1) + 3)
+    # Sceptic review: the "?" says what No forecast is, when a row reads it.
+    try:
+        none = ui_insights.no_forecast_items(opt, checks, last)
+    except Exception:
+        none = []
     st.caption(wording.for_project(opt, wording.RESULTS_PREDICTED_CAPTION),
-               help=wording.for_project(opt, wording.results_predicted_help(last)))
+               help=wording.for_project(opt, wording.results_predicted_help(
+                   last, none or False, sample_projects.is_sample(opt.project_name))))
 
 
 def _progress_line(opt):

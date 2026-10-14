@@ -154,7 +154,8 @@ def test_forecast_check_headline_order_counted(plain):
     line = U.called_line(opt, lf)
     # F17 > F18 counts (1.0 apart); F16-F18 too close; F16-F17 too close.
     # Round 2: no brackets inside the line.
-    assert line == ("**Round 6: scored as forecast.** All 3 in range; order right: 1 pair, "
+    # Sceptic review (2026-10-14), re-pinned: the count and the reference.
+    assert line == ("**Round 6: all 3 inside their 95 % range.** Order right: 1 pair, "
                     "2 too close.")
 
 
@@ -179,7 +180,6 @@ def test_misses_words():
     assert wording.called_range(1, 2, 0) == "1 of 3 in range; 2 misses, both higher than forecast."
     assert wording.check_range(0, 3, 0) == "all 3 above their range"
     assert wording.check_range(1, 0, 0) == "in range"
-    assert wording.called_landing(3.8) == "scored about 4 above forecast"
 
 
 def test_forecast_check_detail_says_too_close_and_the_noise(plain):

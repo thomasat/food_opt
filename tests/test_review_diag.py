@@ -233,7 +233,9 @@ def test_cv_widening_asks_for_a_repeat_not_the_panel(demos, name, line):
         # Review four, ruling 1: Off on the Overall score (4 of 16 missed);
         # the Repeat request is the Next card's alone. Review learned: the
         # word is the Model item's, the miss line still red.
-        assert p["word"] == "Predicts:" and p["lines"][0] == ":red[**4 / 16 missed**]"
+        # Sceptic review, fix round 1: 6 of its 16 Overall-score checks have a
+        # 95 % range over the whole Range (no forecast), counted nowhere.
+        assert p["word"] == "Predicts:" and p["lines"][0] == ":red[**4 / 10 missed**]"
         return
     assert "to check noise" in p["help"]     # round 2: the one form of the Repeat request
     assert ("the same values again" in p["help"]) == (name == D.PROCESS_ONLY)
@@ -329,7 +331,11 @@ def _check_without_repeat(at, name, word):
     callout = [line for line in n["lines"]
                if line.startswith("On target") or "needed to tell two results apart" in line]
     for line in p["lines"] + n["lines"]:
-        assert _words(line) <= (14 if line == stop else 12 if line in callout else 6), line
+        # Fix round 2 (coordinator): the Model line carries its counts with how
+        # many were right, within the owner's 10-word status (word + line).
+        model = line in p["lines"][:1] and "called" in line
+        assert _words(line) <= (14 if line == stop else 12 if line in callout
+                                else 10 - _words(p["word"]) if model else 6), line
     if name == R6:
         assert stop in n["lines"]
     opt = FoodOptimizer(name)

@@ -22,6 +22,7 @@ def _texts():
             wording.RESULTS_PREDICTED_SPINNER, wording.LEARNED_FORECAST_TITLE,
             wording.CALLED_RULE, wording.forecast_help(15, 6),
             wording.results_predicted_help(6), wording.STORY_TRUST_CAPTION,
+            wording.rebuilt_help(True), wording.results_predicted_help(6, True, True),
             wording.LEARNED_COL_PAIRS, wording.LEARNED_RULE,
             wording.learned_evidence([("Overall score", 10, 11)]),
             wording.learned_counts([("Overall score", 10, 11, 5.5)]),
@@ -40,13 +41,23 @@ def test_rebuilt_strings_never_claim_the_time():
 
 
 def test_rebuilt_wording_pinned():
+    # Sceptic review, fix round 1: the label as before; "today" could be
+    # false (checks kept from an earlier day), so the "?" says what they are.
     assert wording.REBUILT_LABEL == "Rebuilt from earlier Rounds"
     assert wording.RESULTS_PREDICTED_CAPTION == "Rebuilt from earlier Rounds: what the model expected."
+    assert wording.rebuilt_help() == ("Calculated by the app's current model from the Rounds "
+                                      "before each one; not saved from when each Round was made.")
+    assert wording.rebuilt_help(True).endswith(" The pilot's own forecasts were not kept.")
     assert wording.LEARNED_FORECAST_TITLE == "Expected from earlier Rounds"
     # Review critique (fix 1): the rule describes the shared-axis chart.
-    assert wording.CALLED_RULE.startswith("Rebuilt today from the formulations scored before "
+    assert wording.CALLED_RULE.startswith("Calculated from the formulations scored before "
                                           "this Round only.")
-    assert "rebuilt today" in wording.results_predicted_help(6)
+    assert "Calculated by the app's current model" in wording.results_predicted_help(6)
+    assert "not saved from when Round 6 was made" in wording.results_predicted_help(6)
+    assert "pilot" not in wording.results_predicted_help(6)
+    assert wording.REBUILT_PILOT in wording.results_predicted_help(6, sample=True)
+    for t in (wording.CALLED_RULE, wording.results_predicted_help(6), wording.rebuilt_help()):
+        assert "today" not in t
     assert "What the model expects" in wording.forecast_help(15, 6)
 
 
