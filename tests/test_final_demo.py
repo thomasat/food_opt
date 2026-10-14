@@ -353,8 +353,11 @@ def test_what_changed_keeps_one_height_and_play_steps_every_two_seconds(monkeypa
         styles = [c[1][0] for c in fake.calls if c[0] == "html"]
         assert styles == [f"<style>.st-key-insights_changes {{ min-height: "
                           f"{U.changes_height(opt)}px; }}</style>"]
-        drawn = [c[0] for c in fake.calls if c[0] in ("markdown", "empty")]
-        assert len(drawn) == 4                              # as many elements every Round
+        # Round panel (spec §10, re-pinned): the title, the picture or the
+        # still-the-start line, the Unchanged line or a held place.
+        drawn = [c[0] for c in fake.calls if c[0] in ("markdown", "empty", "vega_lite_chart",
+                                                      "caption")]
+        assert len(drawn) == 3                              # as many elements every Round
     same = [c for c in fake.calls]
     assert same
     assert U.REPLAY_STEP_SECS == 2.0

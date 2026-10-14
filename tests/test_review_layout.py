@@ -253,8 +253,9 @@ def test_the_poller_never_reruns_the_page_during_a_replay():
 
 def test_a_replay_step_draws_as_many_elements_as_any_round():
     # Nothing of the Round before lingers (dimmed) while a step waits.
-    assert "_hold(2)" in inspect.getsource(U._changes_block)
-    assert "_hold(1)" in inspect.getsource(U._changes_block)
+    # Round panel (spec §10, re-pinned): the title, the picture (or the
+    # still-the-start line) and the Unchanged line, or a held place.
+    assert inspect.getsource(U._changes_block).count("_hold(1)") == 2
     assert "_hold(1)" in inspect.getsource(U._replay_bar)
 
 
@@ -332,20 +333,22 @@ def test_one_round_has_no_control_and_no_frame():
 # ------------------------------------------------------------------ #
 
 def test_the_profile_stays_legible_beside_the_chart():
-    assert U.PANEL_SPIDER >= 340
+    # Round panel (spec §10, re-pinned): the profile is PANEL_SPIDER_H tall
+    # and as wide as its column (fit), its rings as large as the column lets.
+    assert U.PANEL_SPIDER >= 340 and U.PANEL_SPIDER_H > U.PANEL_SPIDER
     opt = _spider_opt()
     data = U.spider_data(opt)
-    spec = U.spider_chart(opt, data, 4, size=U.PANEL_SPIDER, wrap=True).to_dict()
-    flat = json.dumps(spec)
-    assert f'"width": {U.PANEL_SPIDER}' in flat and f'"height": {U.PANEL_SPIDER}' in flat
-    # The side spokes' labels on two lines (name, then target); top and
-    # bottom stay on one.
+    spec = U.spider_chart(opt, data, 4, size=U.PANEL_SPIDER_H, fit=True).to_dict()
+    assert "width" not in spec and spec["height"] == U.PANEL_SPIDER_H
+    # The side spokes' labels: the name, then the target on its own line;
+    # top and bottom stay on one.
     texts = [row["text"] for name, rows in spec["datasets"].items() for row in rows
              if isinstance(row, dict) and "text" in row and "align" in row
              and "x1" in row]
     sides = {t for t in texts if "\n" in t}
-    assert len(sides) == 2 and all(t.split("\n")[1].startswith("target") for t in sides)
-    drawn = {t for t in texts if U.SPOKE_SEP in t} - {t.replace("\n", U.SPOKE_SEP) for t in sides}
+    assert len(sides) == 2 and all(t.split("\n")[-1].startswith("target") for t in sides)
+    assert all(len(line) <= U._SPIDER_WRAP for t in sides for line in t.split("\n")[:-1])
+    drawn = {t for t in texts if U.SPOKE_SEP in t}
     assert len(drawn) == 2                        # the top and bottom spokes, one line
 
 
@@ -359,8 +362,6 @@ def test_the_table_header_wraps_only_before_its_bracket():
     assert "Best after Round 2: F4" in U.changes_table(opt, ch).splitlines()[0]
     assert U._keep_together(wording.best_after(10, 21, 7)) == \
         "Best after Round 10: F21 (Round\u00a07)"
-    # The cells never wrap (no horizontal scroll: the column fits them).
-    assert "white-space: nowrap" in U.REPLAY_STYLE
     # No chart toolbar pops over the control (a click meant for Replay).
     assert '[class*="st-key-insights_replay_panel"] [data-testid="stElementToolbar"]' \
         in U.REPLAY_STYLE

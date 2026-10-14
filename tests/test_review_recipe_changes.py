@@ -2,6 +2,7 @@
 against target, Start (the first Round's best, as that chart) against Best
 so far, one row per varied ingredient or setting — model-free, a fact about
 amounts, never a cause. Synthetic projects only."""
+import json
 import itertools
 
 import pytest
@@ -321,9 +322,16 @@ def test_the_review_draws_the_block_under_start_vs_best():
     # Replay panel (left, under the score chart; the profile on the right),
     # its header wrapping only before the bracket (non-breaking spaces).
     assert texts.index(f"**{wording.STORY_TARGET_TITLE}**") > k
-    assert texts[k + 1] == "**Biggest changes:** Starch +2 g, Sugar +0.6 g."
-    nb = "\u00a0"
-    # Final demo (A1), re-pinned: the best after the Round on view.
-    assert texts[k + 2].startswith(
-        "| Ingredient | Start (F2) | Best after Round 2: F4 | Change |")
+    # Round panel (spec §10, re-pinned): a picture, not a table — each row
+    # its change at the right, the legend naming Start and the best after
+    # the Round on view.
+    assert not [t for t in texts if t.startswith("| ")]
+    specs = [json.loads(e.proto.spec) for e in at.tabs[3].get("vega_lite_chart")]
+    pictures = [s for s in specs if "start_text" in json.dumps(s)]
+    assert len(pictures) == 1
+    assert wording.changes_best_column(4, 2) in json.dumps(pictures[0])
+    assert "Start (F2)" in json.dumps(pictures[0])
+    pic = U.changes_picture(opt, U.what_changed(opt, 2))
+    assert [(r["name"], r["label"]) for r in pic["rows"]][:2] == [
+        ("Starch", "+2 g"), ("Sugar", "+0.6 g")]
     assert wording.CHANGES_CAPTION in [c.value for c in at.tabs[3].caption]

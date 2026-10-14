@@ -81,6 +81,13 @@ def sections(at):
 
 # ------------------------------------------------------------------ #
 
+def _changes_drawn(opt):
+    """1 when What changed draws its picture (Best so far is not the start
+    and a row changed), else 0."""
+    ch = U.what_changed(opt)
+    return int(ch is not None and not ch.same and any(r.changed for r in ch.rows))
+
+
 @pytest.mark.parametrize("name", D.ALL)
 def test_four_questions_in_order_one_chart_each(screens, name):  # noqa: F811
     at = screens[name]
@@ -102,8 +109,9 @@ def test_four_questions_in_order_one_chart_each(screens, name):  # noqa: F811
             # was forecast) and the ordering chart in its closed fold.
             assert 1 <= charts <= 2, (q, items)
         elif q == wording.Q2_TITLE:
-            # Review story: the best so far and Closer to target, side by side.
-            assert charts == 2, (q, items)
+            # Review story: the best so far and Closer to target, side by side;
+            # Round panel (spec §10, re-pinned): What changed is a picture.
+            assert charts == 2 + _changes_drawn(D.load(name)), (q, items)
         elif q == wording.Q5_TITLE:
             assert charts == 0, (q, items)       # review story 2: words and buttons
         else:

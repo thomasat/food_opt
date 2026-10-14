@@ -127,7 +127,9 @@ def test_improving_has_two_charts_and_tried_has_its_toggle(screens, name):
     got = sections(screens[name])
     opt = D.load(name)
     improving = got[wording.for_project(opt, wording.Q2_TITLE)]
-    assert sum(t in CHART for t, _ in improving) == 2
+    # Round panel (spec §10, re-pinned): What changed is a picture.
+    from tests.test_review_four import _changes_drawn
+    assert sum(t in CHART for t, _ in improving) == 2 + _changes_drawn(opt)
     # Re-pinned (sensory profile, 2026-10-08): from U.SPIDER_MIN measurements
     # Start vs best's dot chart is the spider, under its own title.
     title = (wording.SPIDER_TITLE if len(opt.objectives) >= U.SPIDER_MIN

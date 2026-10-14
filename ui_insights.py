@@ -7492,8 +7492,17 @@ REPLAY_PANEL = "insights_replay_panel"  # + "_now" (the latest) or "_past" (fram
 REPLAY_BAR = "insights_replay_bar"
 PANEL_CHART_H = 150                     # px: the score chart's plot in the panel
 PANEL_PLOT_W = 320                      # px: its narrowest plot (1152 px), for label clearances
-PANEL_SPIDER = 340                      # px: the profile's square beside the chart
-PANEL_SPLIT = [0.44, 0.56]              # the columns: chart over What changed | profile
+PANEL_SPIDER = 340                      # px: the profile's plot height (it fits its column's width)
+# Zoom-proof panel (owner-approved 2026-10-14, spec §10): the two columns
+# share the width as PANEL_GROW, each from its least width; below both
+# (zoomed in) the profile wraps under the score chart and What changed, so
+# the score chart is never narrower than at 100 % (534 px at 1440 × 900).
+PANEL_ROW = "insights_panel_row"
+PANEL_LEFT = "insights_panel_score"     # Best so far over What changed
+PANEL_RIGHT = "insights_panel_profile"  # the sensory profile
+PANEL_SPIDER_H = PANEL_SPIDER + 2 * 19  # px: the profile's plot, its top and bottom labels inside
+PANEL_MIN_W = (536, 380)                # px: each column's least width
+PANEL_GROW = (55, 45)                   # how the width past those is shared
 
 REPLAY_STYLE = """<style>
 .st-key-insights_replay_panel_now, .st-key-insights_replay_panel_past { padding: 0.6rem 0.9rem !important; }
@@ -7504,12 +7513,14 @@ REPLAY_STYLE = """<style>
 .st-key-insights_replay_bar p { margin: 0; }
 [class*="st-key-insights_replay_panel"] [data-testid="stElementToolbar"] { display: none; }
 [class*="st-key-insights_replay_panel"] [data-testid="stMarkdownContainer"] p { font-size: 0.94rem; }
-.st-key-insights_changes table { font-size: 0.82rem; }
-.st-key-insights_changes th, .st-key-insights_changes td {
-  padding: 0.08rem 0.4rem !important; line-height: 1.35; }
-.st-key-insights_changes td { white-space: nowrap; }
 .st-key-insights_changes p { margin-bottom: 0.2rem; }
-</style>"""
+.st-key-insights_panel_row { flex-wrap: wrap !important; align-items: flex-start !important; }
+.st-key-insights_panel_row > :has(> .st-key-insights_panel_score) {
+  flex: %d 1 %dpx !important; min-width: min(%dpx, 100%%) !important; }
+.st-key-insights_panel_row > :has(> .st-key-insights_panel_profile) {
+  flex: %d 1 %dpx !important; min-width: min(%dpx, 100%%) !important; }
+</style>""" % (PANEL_GROW[0], PANEL_MIN_W[0], PANEL_MIN_W[0],
+                PANEL_GROW[1], PANEL_MIN_W[1], PANEL_MIN_W[1])
 
 
 def _replay_project(opt):
@@ -7751,12 +7762,12 @@ def _progress_fragment(opt):
                       key=f"{REPLAY_PANEL}_{'past' if past else 'now'}"):
         if control:
             _replay_bar(opt, rounds, r)
-        left, right = st.columns(PANEL_SPLIT, gap="medium")
-        with left:
-            _improving_part(opt, r if control else None)
-            _changes_block(opt, r if control else None)
-        with right:
-            _profile_part(opt, r)
+        with st.container(horizontal=True, gap="small", key=PANEL_ROW):
+            with st.container(gap="xsmall", key=PANEL_LEFT):
+                _improving_part(opt, r if control else None)
+                _changes_block(opt, r if control else None)
+            with st.container(gap="xsmall", key=PANEL_RIGHT):
+                _profile_part(opt, r)
     _panel_captions(opt)
     if control:
         _replay_tick(opt, rounds, r)
@@ -7788,10 +7799,7 @@ def _panel_captions(opt):
         ch = what_changed(opt, None)
         if ch is not None and not ch.same:
             st.caption(_say(opt, wording.CHANGES_CAPTION), width="content",
-                       help=_say(opt, wording.brief(wording.changes_help(
-                           ch.start_no, ch.best_no, ch.start_round, fill=ch.fill,
-                           fixed=ch.fixed, settings=any(x.setting for x in ch.rows),
-                           near_zero=any(x.near_zero for x in ch.rows)))))
+                       help=_say(opt, wording.changes_cause_help(ch.start_no, ch.best_no)))
     try:
         recipe = score_recipe_text(opt)
     except Exception:
@@ -7806,13 +7814,15 @@ def _panel_captions(opt):
 
 
 def _improving_part(opt, r):
-    """The score chart in the Replay panel: slim (PANEL_CHART_H), Round `r`
-    shaded with a marker on Best so far there (None: no highlight). Its
-    caption sits under the panel (_panel_captions)."""
+    """The score chart in the Replay panel, titled plainly "Best so far":
+    slim (PANEL_CHART_H), its column's width, Round `r` shaded with a
+    marker on Best so far there (None: no highlight). Its caption sits
+    under the panel (_panel_captions)."""
     try:
         spec = improving_spec(opt, r, height=PANEL_CHART_H)
     except Exception:
         spec = None
+    st.markdown(f"**{_say(opt, wording.PANEL_SCORE_TITLE)}**")
     if spec is None:
         st.caption(_say(opt, wording.CHART_FAILED))
         return
@@ -9220,12 +9230,46 @@ def spider_frames(opt, data, r):
     return out
 
 
-def spider_chart(opt, data, r, size=SPIDER_SIZE, wrap=False):
+_SPIDER_LINE_PX = 15        # px: one line of a spoke label (FONT_LABEL)
+_SPIDER_CHAR_PX = 6.6       # px per character of a spoke label
+_SPIDER_WRAP = 12           # characters a line of a side label, fitted to its column
+
+
+def _spider_side_label(text):
+    """A side spoke's label as fit mode draws it: the name in lines of about
+    _SPIDER_WRAP characters, then the target on its own line."""
+    name, sep, tail = text.partition(SPOKE_SEP)
+    return _wrap(name, _SPIDER_WRAP) + ("\n" + tail if sep else "")
+
+
+def spider_fit_domains(spokes, height):
+    """Fit mode's x and y scale domains (rims), as expressions of the plot's
+    own width: the rings stay round at any width, the radius the largest
+    that keeps the side labels (`spokes`: spider_frames' rows, as drawn)
+    and the top and bottom ones inside the plot, which is `height` px tall."""
+    side = [t for t, a in zip((sp["text"] for sp in spokes), (sp["align"] for sp in spokes))
+            if a != "center"]
+    room = max([max(len(line) for line in t.split("\n")) for t in side] or [0])
+    room = int(room * _SPIDER_CHAR_PX) + 6
+    top = _SPIDER_LINE_PX + 4
+    radius = (f"max(30, min((width / 2 - {room}) / {_SPIDER_LABEL_AT}, "
+              f"({height} / 2 - {top}) / {_SPIDER_LABEL_AT}))")
+    return ([alt.ExprRef(f"-width / 2 / {radius}"), alt.ExprRef(f"width / 2 / {radius}")],
+            [alt.ExprRef(f"-{height} / 2 / {radius}"), alt.ExprRef(f"{height} / 2 / {radius}")])
+
+
+def spider_chart(opt, data, r, size=SPIDER_SIZE, wrap=False, fit=False):
     """Sensory profile against target at Round r (spider_frames' layers):
     a square `size` plot, the legend under it. `wrap`: a side spoke's
     label on two lines (name, then target), so the chart stays narrow
-    beside What changed."""
+    beside What changed. `fit` (zoom-proof panel, spec §10): the plot
+    `size` px tall and as wide as its column, the rings round and as large
+    as the column lets them be (side labels wrapped to fit)."""
     f = spider_frames(opt, data, r)
+    if fit:
+        for sp in f["spokes"]:
+            if sp["align"] != "center":
+                sp["text"] = _spider_side_label(sp["text"])
     names = f["names"]
     ink, _ = mark("bar_latest")
     grey, _ = mark("neutral")
@@ -9238,8 +9282,9 @@ def spider_chart(opt, data, r, size=SPIDER_SIZE, wrap=False):
     legend = alt.Legend(title=None, orient="bottom", labelLimit=0, symbolType="stroke",
                         symbolStrokeWidth=2.5, symbolSize=260, columns=2, columnPadding=24)
     domain = [-_SPIDER_PAD, _SPIDER_PAD]
-    xs = alt.Scale(domain=domain, nice=False, zero=False)
-    ys = alt.Scale(domain=domain, nice=False, zero=False)
+    x_dom, y_dom = spider_fit_domains(f["spokes"], size) if fit else (domain, domain)
+    xs = alt.Scale(domain=x_dom, nice=False, zero=False)
+    ys = alt.Scale(domain=y_dom, nice=False, zero=False)
     x, y = alt.X("x:Q", scale=xs, axis=None), alt.Y("y:Q", scale=ys, axis=None)
     word = _say(opt, wording.FORMULATION_CAP)
 
@@ -9297,7 +9342,7 @@ def spider_chart(opt, data, r, size=SPIDER_SIZE, wrap=False):
         layers += _halo_text(part, x, y, "text:N", blue, fontSize=FONT_LABEL,
                              fontWeight="bold", align=align, baseline=baseline)
     sp = pd.DataFrame(f["spokes"])
-    if wrap:
+    if wrap and not fit:
         sp["text"] = [t.replace(SPOKE_SEP, "\n", 1) if a != "center" else t
                       for t, a in zip(sp["text"], sp["align"])]
     for (align, baseline), part in sp.groupby(["align", "baseline"]):
@@ -9305,6 +9350,10 @@ def spider_chart(opt, data, r, size=SPIDER_SIZE, wrap=False):
                                                 baseline=baseline, tooltip=False,
                                                 lineBreak="\n")
                       .encode(x=x, y=y, text="text:N"))
+    if fit:
+        chart = alt.layer(*layers).properties(height=size)
+        return readable(chart.properties(autosize=alt.AutoSizeParams(
+            type="fit-x", contains="padding"))).configure_view(strokeWidth=0)
     chart = alt.layer(*layers).properties(width=size, height=size)
     return readable(chart.properties(autosize=alt.AutoSizeParams(type="pad"))) \
         .configure_view(strokeWidth=0)
@@ -9312,22 +9361,22 @@ def spider_chart(opt, data, r, size=SPIDER_SIZE, wrap=False):
 
 def _spider_block(opt, data, r):
     """Sensory profile against target at Round `r`, in the Replay panel:
-    the title, the answer line and the chart — a PANEL_SPIDER square, its
-    side labels on two lines. Its caption and the score recipe sit under
-    the panel (_panel_captions)."""
+    the title, the answer line and the chart — PANEL_SPIDER_H tall, as wide
+    as its column (spider_chart's fit). Its caption and the score recipe
+    sit under the panel (_panel_captions)."""
     st.markdown(f"**{_say(opt, wording.SPIDER_TITLE)}**")
     with st.container(key="insights_spider", gap="small"):
         st.markdown(spider_round_answer(opt, data, r), help=spider_round_help(opt, data, r))
         try:
             spec = chart_spec(("spider", spider_key(opt), theme(), r,
-                               _say(opt, wording.ROUND_CAP), PANEL_SPIDER),
-                              lambda: spider_chart(opt, data, r, size=PANEL_SPIDER, wrap=True))
+                               _say(opt, wording.ROUND_CAP), PANEL_SPIDER_H, "fit"),
+                              lambda: spider_chart(opt, data, r, size=PANEL_SPIDER_H, fit=True))
         except Exception:
             spec = None
         if spec is None:
             st.caption(_say(opt, wording.CHART_FAILED))
         else:
-            show_spec(spec, width="content", clear=True)
+            show_spec(spec, clear=True)
 
 
 # --- What changed in the formulation (review, 2026-10-08) ---
@@ -9352,6 +9401,14 @@ class ChangeRow:
     setting: bool = False
     changed: bool = True    # False when the change reads as nothing
     near_zero: bool = False  # no %: Start under _PERCENT_FROM of the range
+    # The picture (spec §10): the row's Lowest and Highest, Start and Best so
+    # far as numbers (None for a choice), and the end Best so far sits at
+    # ("Highest" | "Lowest", insights.binding_limits' rule; None at neither).
+    low: float | None = None
+    high: float | None = None
+    a: float | None = None
+    b: float | None = None
+    at_end: str | None = None
 
 
 @dataclasses.dataclass
@@ -9420,7 +9477,7 @@ def _change_row(opt, var, a, b):
                 near_zero = True
     return ChangeRow(name, start, best, change, percent, share,
                      wording.changes_item(name, change), setting=setting, changed=changed,
-                     near_zero=near_zero)
+                     near_zero=near_zero, low=lo, high=hi, a=a, b=b)
 
 
 def _limit_amount(opt, name, value):
@@ -9595,6 +9652,12 @@ def what_changed(opt, at_round=None):
     if not rows:
         return None
     rows = [r for _, r in sorted(rows, key=lambda t: t[0])]
+    ends = {x.name: x.kind for x in insights.binding_limits(opt, z)
+            if x.kind in ("highest", "lowest")}
+    for row in rows:
+        kind = ends.get(row.name)
+        row.at_end = (None if kind is None else
+                      wording.HIGHEST_LABEL if kind == "highest" else wording.LOWEST_LABEL)
     limits, help_ = limits_line(opt, z, upto)
     return Changes(start_no, best_no, r0, rows, False, fill, fixed, limits, help_, at_round)
 
@@ -9650,9 +9713,137 @@ def changes_table(opt, ch, compact=False):
     return "\n".join(lines)
 
 
+# --- What changed as a picture (owner-approved 2026-10-14, spec §10) ---
+# The table read slowly. One row per changed ingredient or setting on its
+# own Lowest–Highest bar: a grey dot at Start (Round 1's best), a blue dot
+# at Best so far at the Round on view (the profile's colours beside it), a
+# line between, the change at the right ('−6.3 g', ', at Highest' when Best
+# so far sits there). Largest move first, as a share of the bar; unchanged
+# rows on one line under it. Exact amounts in each row's tooltip.
+
+CHANGES_ROW_H = 24            # px per row of the picture
+CHANGES_BASE_H = 100          # px: the title, the legend, the Lowest/Highest header, Unchanged
+_CHANGES_LABEL_PX = 7.0       # px per character of a right-hand label (FONT_LABEL)
+_CHANGES_GAP_PX = 10          # px between the axis labels and a bar's Lowest
+_CHANGES_ARROW_FROM = 0.06    # a move this share of the bar gets an arrowhead
+_CHANGES_ARROW = "M -0.95 0 L -2.5 -0.85 L -2.5 0.85 Z"   # just behind the dot
+
+
+def changes_picture(opt, ch):
+    """What the picture draws (pure; for changes_chart and its tests):
+    {"rows": [...], "unchanged": [names], "start": Start's name, "best":
+    Best so far's name}. One row per changed row of `ch`, in its order
+    (largest share of the bar first): `start` and `now` as shares of the
+    bar (0 at Lowest, 1 at Highest; clipped there; None for a choice), the
+    right-hand `label`, `at_end`, and the tooltip's exact texts."""
+    start = _short(opt, wording.changes_start_column(ch.start_no))
+    best = _short(opt, wording.changes_best_column(ch.best_no, ch.round_no,
+                                                   _made_round(opt, ch.best_no)))
+    rows, unchanged = [], []
+    for row in ch.rows:
+        if not row.changed:
+            unchanged.append(row.name)
+            continue
+        choice = row.a is None
+        span = None if choice else row.high - row.low
+
+        def share(v):
+            if span is None:
+                return None
+            return 0.5 if span <= 0 else min(1.0, max(0.0, (v - row.low) / span))
+        label = wording.changes_choice(row.start, row.best) if choice else row.change
+        if row.at_end:
+            label = wording.changes_at_end(label, row.at_end)
+        rows.append({"name": row.name, "k": len(rows), "start": share(row.a),
+                     "now": share(row.b), "label": label, "at_end": row.at_end,
+                     "start_text": row.start, "best_text": row.best,
+                     "low_text": "" if choice else _limit_amount(opt, row.name, row.low),
+                     "high_text": "" if choice else _limit_amount(opt, row.name, row.high),
+                     "change_text": (row.change + (f" {row.percent}" if row.percent else "")
+                                     if not choice else label)})
+    return {"rows": rows, "unchanged": unchanged, "start": start, "best": best}
+
+
+def changes_chart(opt, pic):
+    """The picture (changes_picture's rows), sized to its column: each row's
+    bar from a small gap after the names to the room kept for its label at
+    the right (a domain worked out from the chart's own width). None with
+    no row."""
+    rows = list(pic["rows"])
+    if not rows:
+        return None
+    names = [r["name"] for r in rows]
+    room = int(max(len(r["label"]) for r in rows) * _CHANGES_LABEL_PX) + 18
+    g = _CHANGES_GAP_PX
+    unit = f"max(40, width - {room + g})"          # px from Lowest to Highest
+    xs = alt.Scale(domain=[alt.ExprRef(f"-{g} / {unit}"), alt.ExprRef(f"(width - {g}) / {unit}")],
+                   nice=False, zero=False)
+    ink, _ = mark("bar_latest")
+    grey, _ = mark("neutral")
+    light, mid = _TRIED_GREYS[theme()]
+    blue = model_blue()
+    lowest, highest = wording.LOWEST_LABEL, wording.HIGHEST_LABEL
+    head = alt.Axis(orient="top", values=[0, 1], title=None, grid=False, ticks=False,
+                    domain=False, labelColor=muted(), labelFontSize=FONT_SMALL, labelPadding=2,
+                    labelExpr=f"datum.value < 0.5 ? '{lowest}' : '{highest}'",
+                    labelAlign={"condition": {"test": "datum.value > 0.5", "value": "right"},
+                                "value": "left"})
+    y = alt.Y("name:N", sort=names, title=None,
+              scale=alt.Scale(paddingInner=0.0, paddingOuter=0.15),
+              axis=alt.Axis(ticks=False, domain=False, labelLimit=170, labelPadding=4,
+                            labelFontSize=FONT_LABEL, labelColor=ink))
+    tips = [alt.Tooltip("name:N", title=" "),
+            alt.Tooltip("start_text:N", title=pic["start"]),
+            alt.Tooltip("best_text:N", title=pic["best"]),
+            alt.Tooltip("change_text:N", title=wording.CHANGES_CHANGE),
+            alt.Tooltip("low_text:N", title=lowest),
+            alt.Tooltip("high_text:N", title=highest)]
+    frame = pd.DataFrame([dict(r, x0=0.0, x1=1.0) for r in rows])
+    bars = frame[frame["start"].notna()]
+    layers = []
+    if not bars.empty:
+        layers.append(alt.Chart(bars).mark_rule(strokeWidth=8, strokeCap="round", color=light)
+                      .encode(x=alt.X("x0:Q", scale=xs, axis=head), x2="x1:Q", y=y,
+                              tooltip=tips))
+        ends = pd.DataFrame([{"name": r["name"], "x": x} for r in bars.to_dict("records")
+                             for x in (0.0, 1.0)])
+        layers.append(alt.Chart(ends).mark_tick(thickness=1.5, size=14, color=mid,
+                                                tooltip=False)
+                      .encode(x=alt.X("x:Q", scale=xs, axis=head), y=y))
+        moved = bars[(bars["now"] - bars["start"]).abs() > 1e-9]
+        layers.append(alt.Chart(moved).mark_rule(strokeWidth=2.5, color=blue, opacity=0.55,
+                                                 tooltip=False)
+                      .encode(x=alt.X("start:Q", scale=xs, axis=head), x2="now:Q", y=y))
+        far = moved[(moved["now"] - moved["start"]).abs() >= _CHANGES_ARROW_FROM].assign(
+            angle=lambda d: [0 if b > a else 180 for a, b in zip(d["start"], d["now"])])
+        if not far.empty:
+            layers.append(alt.Chart(far).mark_point(shape=_CHANGES_ARROW, filled=True,
+                                                    size=110, color=blue, opacity=1,
+                                                    tooltip=False)
+                          .encode(x=alt.X("now:Q", scale=xs, axis=head), y=y,
+                                  angle=alt.Angle("angle:Q", scale=None)))
+        kinds = alt.Scale(domain=[pic["start"], pic["best"]], range=[grey, blue])
+        legend = alt.Legend(title=None, orient="top", direction="horizontal", labelLimit=0,
+                            symbolType="circle", symbolSize=80, symbolStrokeWidth=0,
+                            columnPadding=18, padding=0, offset=4)
+        dots = pd.concat([bars.assign(at=bars["start"], what=pic["start"]),
+                          bars.assign(at=bars["now"], what=pic["best"])], ignore_index=True)
+        layers.append(alt.Chart(dots).mark_point(filled=True, size=85, opacity=1,
+                                                 strokeWidth=0)
+                      .encode(x=alt.X("at:Q", scale=xs, axis=head), y=y,
+                              color=alt.Color("what:N", scale=kinds, legend=legend),
+                              order=alt.Order("what:N", sort="descending"),
+                              tooltip=tips))
+    layers += _halo_text(frame, alt.X("x1:Q", scale=xs, axis=head), y, "label:N", ink,
+                         fontSize=FONT_LABEL, align="left", baseline="middle", dx=12)
+    chart = alt.layer(*layers).properties(height=CHANGES_ROW_H * len(rows))
+    return readable(chart)
+
+
 def _changes_block(opt, r=None):
     """'What changed by Round 4' in the Replay panel, under the score
-    chart: the answer, the table (compact), the limits line — at the
+    chart: the title (its "?" says how to read the picture and the limits
+    Best so far sits at), the picture, then the Unchanged line — at the
     panel's Round `r` (None: today). Always as many elements, whatever the
     Round (_hold). Its caption sits under the panel."""
     try:
@@ -9662,24 +9853,36 @@ def _changes_block(opt, r=None):
     if ch is None:
         return
     # Final demo (B2): the block keeps one height at every Round (a Round
-    # with no table reserves the table's room), so a step never moves the
-    # panel: the title, the answer, the table and a two-line limits line.
+    # with no picture reserves its room), so a step never moves the panel.
     st.html(f"<style>.st-key-insights_changes {{ min-height: {changes_height(opt)}px; }}</style>")
-    with st.container(key="insights_changes"):
-        st.markdown(f"**{_say(opt, wording.changes_title(ch.round_no))}**")
-        st.markdown(changes_answer(opt, ch))
+    with st.container(key="insights_changes", gap="xsmall"):
+        title = f"**{_say(opt, wording.changes_title(ch.round_no))}**"
         if ch.same:
-            _hold(2)
+            st.markdown(title)
+            st.markdown(changes_answer(opt, ch))
+            _hold(1)
             return
-        st.markdown(changes_table(opt, ch, compact=True))
-        if ch.limits:
-            st.markdown(ch.limits, help=ch.limits_help)
+        pic = changes_picture(opt, ch)
+        help_ = wording.changes_picture_help(pic["start"], pic["best"], ch.start_round,
+                                             fill=ch.fill, fixed=ch.fixed,
+                                             unchanged=pic["unchanged"])
+        if ch.limits_help:
+            help_ += "\n\n" + ch.limits_help
+        st.markdown(title, help=_say(opt, wording.brief(help_)))
+        try:
+            spec = chart_spec(("changes", insights.data_key(opt), insights.setup_key(opt),
+                               theme(), ch.round_no, _say(opt, wording.ROUND_CAP)),
+                              lambda: changes_chart(opt, pic))
+        except Exception:
+            spec = None
+        if spec is None:
+            st.markdown(changes_answer(opt, ch))
+        else:
+            show_spec(spec, clear=True)
+        if pic["unchanged"]:
+            st.caption(_say(opt, wording.changes_unchanged(pic["unchanged"])))
         else:
             _hold(1)
-
-
-CHANGES_BASE_H = 148          # px: What changed's title, answer, header and a 2-line limits line
-CHANGES_ROW_H = 21            # px per table row (0.82rem, 1152-1280 px)
 
 
 def changes_height(opt):

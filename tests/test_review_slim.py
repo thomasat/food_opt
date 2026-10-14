@@ -159,9 +159,10 @@ def test_one_control_drives_the_chart_the_profile_and_what_changed():
     # Final demo (A1), re-pinned: the best after Round 2, F4, made in it.
     assert any(t.startswith("Best so far, F4 (Round 2): on target") for t in texts)
     assert "**What changed by Round 2**" in texts
-    table = next(t for t in texts if t.startswith("| Ingredient"))
-    nb = "\u00a0"
-    assert "| Best after Round 2: F4 |" in table and "| Start (F2) |" in table
+    # Round panel (spec §10, re-pinned): What changed's picture names them.
+    pictures = [s for s in _specs(at) if "Best after Round 2: F4" in json.dumps(s)
+                and "Start (F2)" in json.dumps(s) and "start_text" in json.dumps(s)]
+    assert len(pictures) == 1
     # The chart: Round 2's Formulations shaded, the marker on F4 itself.
     band, marker = next((b, m) for b, m in map(_band_and_marker, _specs(at)) if b)
     assert band == (3.5, 6.5)

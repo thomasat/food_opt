@@ -10656,6 +10656,55 @@ def changes_limits_help(items, beyond_lines):
     return "\n\n".join(out)
 
 
+# --- the Round panel, read in one glance (owner-approved 2026-10-14, spec §10) ---
+# The score chart titled plainly; What changed as a picture, not a table: one
+# row per ingredient on its own Lowest–Highest bar, a grey dot at Start, a
+# blue dot at the best so far, the change in grams at the right. The exact
+# amounts sit in each row's tooltip; how to read it, in the title's "?".
+PANEL_SCORE_TITLE = BEST_SO_FAR_COLUMN         # the score chart's title: 'Best so far'
+CHANGES_UNCHANGED_SHOWN = 3                    # names on the Unchanged line, at most
+
+
+def changes_at_end(change, end):
+    """A row's right-hand label when Best so far sits at a limit:
+    '+2.0 g, at Highest'."""
+    return f"{change}, at {end}"
+
+
+def changes_unchanged(names):
+    """'Unchanged: Salt, Sugar.'; past CHANGES_UNCHANGED_SHOWN names, the
+    first two and how many more: 'Unchanged: Salt, Sugar and 3 more.'"""
+    if len(names) > CHANGES_UNCHANGED_SHOWN:
+        return f"Unchanged: {', '.join(names[:2])}{AND_JOIN}{len(names) - 2} more."
+    if len(names) > 1:
+        return f"Unchanged: {', '.join(names[:-1])}{AND_JOIN}{names[-1]}."
+    return f"Unchanged: {names[0]}."
+
+
+def changes_picture_help(start_label, best_label, start_round, fill=None, fixed=False,
+                         unchanged=()):
+    """The picture's title "?": how to read it, then what it leaves out."""
+    out = [f"Each bar runs from the row's {LOWEST_LABEL} to its {HIGHEST_LABEL}. "
+           f"Grey dot: {start_label}, the best of {ROUND_CAP} {start_round}. "
+           f"Blue dot: {best_label}. Largest move first, as a share of the bar. "
+           f"Hover a row for its amounts."]
+    if len(unchanged) > CHANGES_UNCHANGED_SHOWN:
+        out.append("Unchanged: " + ", ".join(unchanged) + ".")
+    if fill:
+        out.append(f"{fill} fills to the total, so it follows the others and is left out.")
+    if fixed:
+        out.append("Rows whose Lowest is their Highest never change and are left out.")
+    return "\n\n".join(out)
+
+
+def changes_cause_help(start_no, best_no):
+    """The panel caption's "?" (CHANGES_CAPTION): why the picture shows no
+    cause."""
+    return (f"Several things changed at once between {FORMULATION_CAP} {start_no} and "
+            f"{FORMULATION_CAP} {best_no}, so this picture can't separate their effects. "
+            f"Repeats, and {ROUND_CAP}s that change one thing at a time, can.")
+
+
 # --- sensory profile ---
 # Review (2026-10-08): "Sensory profile against target" replaces Start vs
 # best's dot chart from three measurements: one spoke per measurement, the
