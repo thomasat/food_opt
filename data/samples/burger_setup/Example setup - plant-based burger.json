@@ -431,7 +431,7 @@
   "batch_generated_totals": {},
   "round_generation": {},
   "amount_unit": "g",
-  "targets_source": "Scores are against an 80/20 beef control cooked to 71 \u00b0C core, which our panel rates firmness 6 and juiciness 7 on the anchored 0\u201310 scale (12 panellists, two sessions, February 2026). Above firmness 7 the patty eats rubbery; below juiciness 5 it eats dry and chalky. Contains soy and wheat (gluten).",
+  "targets_source": "Illustrative targets for this example; not from a panel.",
   "bench_records": {},
   "custom_records": {
     "fields": [
@@ -468,7 +468,7 @@
     "lot": true,
     "actual": true
   },
-  "method": "1. Hydrate the textured pea and soy proteins in the Hydration water only (2.2 \u00d7 their combined mass), 10 min at 45 \u00b0C, covered. Do not drain.\n2. Put the Remaining water in the bowl at \u2264 5 \u00b0C. Add the Dry blend, Wheat gluten and Seasoning blend and mix 60 s on low. (The dry blend carries the methylcellulose: it hydrates only cold.)\n3. Add the hydrated proteins. Mix 30 s on low.\n4. Add the fats and oils, coconut oil chopped to ~5 mm, and mix for this formulation's Mixing time after fat.\n5. Form 100 g patties, 100 mm across, 12 mm thick. Chill 20 min at 4 \u00b0C, covered.\n6. Griddle at 180 \u00b0C, 3 min per side, to 74 \u00b0C core. Serve within 3 min.\nWater temp at addition ____ \u00b0C (\u2264 5)     Mass temp out of the bowl ____ \u00b0C (\u2264 12)\nRaw weight ____ g     Cooked and blotted weight ____ g     Cook loss = (raw \u2212 cooked)/raw \u00d7 100\nContains soy and wheat (gluten).\nEvery formulation is made to the batch size printed above. These amounts and targets demonstrate the app; confirm a suitable preparation and measurement protocol before using them for real trials.",
+  "method": "Example method (illustrative)\n1. Hydrate the textured pea and soy proteins in the Hydration water only (2.2 \u00d7 their combined mass), 10 min at 45 \u00b0C, covered. Do not drain.\n2. Put the Remaining water in the bowl at \u2264 5 \u00b0C. Add the Dry blend, Wheat gluten and Seasoning blend and mix 60 s on low.\n3. Add the hydrated proteins. Mix 30 s on low.\n4. Add the fats and oils and mix for this formulation's Mixing time after fat.\n5. Form 100 g patties. Chill 20 min at 4 \u00b0C, covered.\n6. Griddle at 180 \u00b0C, 3 min per side, to 74 \u00b0C core.\nRaw weight ____ g     Cooked weight ____ g     Cook loss = (raw \u2212 cooked)/raw \u00d7 100\nEvery step, amount and target here is illustrative; write your own method before making real formulations.",
   "pending_batch": null,
   "result_drafts": {},
   "bo_config": null,

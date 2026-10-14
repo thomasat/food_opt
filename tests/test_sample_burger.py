@@ -86,6 +86,43 @@ def test_the_shipped_burger_carries_no_date_no_results_and_no_open_round():
     assert state["custom_records"]["values"] == {} and not state["lots"]
 
 
+_MONTHS = re.compile(
+    r"\b(January|February|March|April|May|June|July|August|September|October|"
+    r"November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\b")
+
+
+def test_nothing_in_the_burger_reads_as_measured_or_sourced():
+    """Beside the real yogurt pilot, the example never reads like real data
+    (controller ruling, 2026-10-14): no date, no year, no month, no panel
+    or panellists, no study."""
+    text = SHIPPED.read_text()
+    assert not TS.search(text)
+
+    def strings(node):
+        if isinstance(node, str):
+            yield node
+        elif isinstance(node, dict):
+            for k, v in node.items():
+                yield k
+                yield from strings(v)
+        elif isinstance(node, list):
+            for v in node:
+                yield from strings(v)
+
+    # Every text the project holds (an amount such as 2000 mg is a number,
+    # not a year).
+    words = "\n".join(strings(json.loads(text)))
+    assert not re.search(r"\b(19|20)\d\d\b", words)
+    assert not re.search(r"\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}", words)
+    assert not _MONTHS.search(words)
+    assert not re.search(r"panell?ists?", text, re.I)
+    for word in ("our panel", "et al", "doi.org", "study", "sessions"):
+        assert word not in text.lower(), word
+    state = json.loads(text)
+    assert state["targets_source"] == "Illustrative targets for this example; not from a panel."
+    assert state["method"].startswith("Example method (illustrative)\n")
+
+
 def test_the_burger_loads_at_this_class_version(store):
     state = sp.shipped_state(sp.BURGER)
     assert state["CLASS_VERSION"] == FoodOptimizer.CLASS_VERSION
@@ -123,13 +160,14 @@ def test_the_burger_shows_every_set_up_feature(store):
         (sorted(_builder().SOLIDS), 36.0, 43.0)]
     assert opt.records("lot") and opt.records("actual")
     assert [f["name"] for f in opt.custom_records["fields"]] == _builder().BENCH_RECORDS
-    assert opt.targets_source.startswith("Scores are against an 80/20 beef control")
+    assert opt.targets_source == "Illustrative targets for this example; not from a panel."
     method = "\n".join(opt.method_lines())
-    assert method.splitlines()[0].startswith("1. Hydrate")
+    assert method.splitlines()[0] == "Example method (illustrative)"
+    assert method.splitlines()[1].startswith("1. Hydrate")
     for fact in ("45 °C", "≤ 5 °C", "180 °C", "74 °C core", "60 s on low",
-                 "100 mm across, 12 mm thick", "Cook loss = (raw − cooked)/raw × 100"):
+                 "Cook loss = (raw − cooked)/raw × 100"):
         assert fact in method, fact
-    assert "demonstrate the app" in method.splitlines()[-1]
+    assert "illustrative" in method.splitlines()[-1]
 
 
 def test_suggestions_for_the_burger_add_up_and_keep_its_rules(store):

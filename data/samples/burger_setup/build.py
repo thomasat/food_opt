@@ -5,12 +5,13 @@ Run with the devenv python, from anywhere:
 It writes "Example setup - plant-based burger.json" (default: beside this
 file). tests/test_sample_projects.py checks the shipped file still matches.
 
-The set-up is the 0.7.x burger sample's (sample_projects.build at 994ac14),
-unchanged: calculated rows (Hydration water = 2.2 x the textured proteins,
-Remaining water "= rest"), three pre-mixes, one process setting, three
-measurements with targets and shares, a formulation total of 100 g, a fat
-limit, a limit on the solids, a pre-mix smallest quantity, Lot and Actual
-records, four bench records, where the targets came from and the method.
+The set-up is the 0.7.x burger sample's (sample_projects.build at 994ac14):
+calculated rows (Hydration water = 2.2 x the textured proteins, Remaining
+water "= rest"), three pre-mixes, one process setting, three measurements
+with targets and shares, a formulation total of 100 g, a fat limit, a limit
+on the solids, a pre-mix smallest quantity, Lot and Actual records and four
+bench records. Its targets note and method are plainly illustrative texts
+(TARGETS_SOURCE, METHOD), not the 0.7.x ones.
 
 Every value is illustrative: no ingredient property, limit or target was
 measured, and the project carries no results and no open Round (never fake
@@ -47,33 +48,27 @@ BENCH_RECORDS = ['Raw weight (g)', 'Cooked weight (g)',
                  'Water temperature at addition (°C)',
                  'Mass temperature out of the bowl (°C)']
 
-# The example's own texts (0.7.x wording.SAMPLE_TARGETS_SOURCE and
-# SAMPLE_METHOD). They are the project's data, shown wherever any project's
-# targets note and method are shown; nothing in the app names them.
-TARGETS_SOURCE = (
-    "Scores are against an 80/20 beef control cooked to 71 °C core, which our panel rates "
-    "firmness 6 and juiciness 7 on the anchored 0–10 scale (12 panellists, two sessions, "
-    "February 2026). Above firmness 7 the patty eats rubbery; below juiciness 5 it eats dry "
-    "and chalky. Contains soy and wheat (gluten)."
-)
+# The example's own texts. They are the project's data, shown wherever any
+# project's targets note and method are shown; nothing in the app names
+# them. Fix round 1 (controller ruling, 2026-10-14): beside the real yogurt
+# pilot, nothing here may read as measured or sourced — no panel, no
+# panellists, no dates, no study — so the 0.7.x texts are replaced by
+# plainly illustrative ones.
+TARGETS_SOURCE = "Illustrative targets for this example; not from a panel."
 METHOD = (
+    "Example method (illustrative)\n"
     "1. Hydrate the textured pea and soy proteins in the Hydration water only "
     "(2.2 × their combined mass), 10 min at 45 °C, covered. Do not drain.\n"
     "2. Put the Remaining water in the bowl at ≤ 5 °C. Add the Dry blend, Wheat gluten "
-    "and Seasoning blend and mix 60 s on low. (The dry blend carries the "
-    "methylcellulose: it hydrates only cold.)\n"
+    "and Seasoning blend and mix 60 s on low.\n"
     "3. Add the hydrated proteins. Mix 30 s on low.\n"
-    "4. Add the fats and oils, coconut oil chopped to ~5 mm, and mix for this "
-    "formulation's Mixing time after fat.\n"
-    "5. Form 100 g patties, 100 mm across, 12 mm thick. Chill 20 min at 4 °C, covered.\n"
-    "6. Griddle at 180 °C, 3 min per side, to 74 °C core. Serve within 3 min.\n"
-    "Water temp at addition ____ °C (≤ 5)     Mass temp out of the bowl ____ °C (≤ 12)\n"
-    "Raw weight ____ g     Cooked and blotted weight ____ g     "
+    "4. Add the fats and oils and mix for this formulation's Mixing time after fat.\n"
+    "5. Form 100 g patties. Chill 20 min at 4 °C, covered.\n"
+    "6. Griddle at 180 °C, 3 min per side, to 74 °C core.\n"
+    "Raw weight ____ g     Cooked weight ____ g     "
     "Cook loss = (raw − cooked)/raw × 100\n"
-    "Contains soy and wheat (gluten).\n"
-    "Every formulation is made to the batch size printed above. These amounts and "
-    "targets demonstrate the app; confirm a suitable preparation and measurement "
-    "protocol before using them for real trials."
+    "Every step, amount and target here is illustrative; write your own "
+    "method before making real formulations."
 )
 
 
