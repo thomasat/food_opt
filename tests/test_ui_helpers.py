@@ -321,7 +321,7 @@ def test_landing_tab_opens_a_sample_with_results_on_review():
     ing = [{"name": "Water", "category": "ingredient"}]
     meas = [{"name": "Firmness", "weight": 1.0}]
     row = [{"formulation": 2, "recipe": {"Water": 1.0}}]
-    for name in sp.NAMES:
+    for name in sp.YOGURT_NAMES:
         open_round = _FakeOpt(ing, meas, X_history=[[0.5]], pending_batch=row)
         open_round.project_name = name
         assert landing_tab(open_round) == wording.TAB_INSIGHTS

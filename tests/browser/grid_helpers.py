@@ -64,8 +64,8 @@ def open_sample(pw, viewport=None):
         accept_downloads=True).new_page()
     page.goto(URL, wait_until="domcontentloaded")
     settle(page, 5)
-    if "Try the sample project" in labels(page):
-        click(page, "Try the sample project", wait=6)
+    if "Open the yogurt pilot" in labels(page):
+        click(page, "Open the yogurt pilot", wait=6)
     assert not page.locator('[data-testid="stException"]').count()
     return browser, page
 rows = []

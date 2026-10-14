@@ -250,23 +250,51 @@ def _open_project(name, create=False, made=False, tab=None):
     st.rerun()
 
 
+def _sample_tab(name):
+    """Where a sample opens: the yogurt pilot on 4 · Review, where a demo
+    starts; the example setup on 1 · Set up, which is what it shows."""
+    return wording.TAB_INSIGHTS if sample_projects.is_yogurt(name) else TAB_SETUP
+
+
 def _open_sample(name=sample_projects.ROUND6):
-    """Open a sample on 4 · Review, writing whichever sample is missing.
-    A sample already on disk is opened exactly as it stands: Start this
-    sample over is the only thing that puts it back."""
+    """Open a sample on its own tab (_sample_tab), writing whichever of its
+    own set is missing: the yogurt pilot's two projects, or the example
+    setup alone — opening one never writes the other. A sample already on
+    disk is opened exactly as it stands: Start this sample over is the only
+    thing that puts it back."""
+    names = ((name,) if not sample_projects.is_yogurt(name)
+             else sample_projects.YOGURT_NAMES)
     try:
-        written = sample_projects.ensure(STORAGE)
+        written = sample_projects.ensure(STORAGE, names)
     except (OSError, storage_backend.StorageError) as e:
         st.error(str(e))
         return
-    _open_project(name, made=name in written, tab=wording.TAB_INSIGHTS)
+    _open_project(name, made=name in written, tab=_sample_tab(name))
 
 
-# A sample can ask, from inside a tab, for the other sample to be opened on
-# the next run. It is answered here, before the sidebar draws the project
+def _sidebar_samples():
+    """Manage project's Samples group: the welcome screen's two ways into
+    the samples, with the same labels and captions, both secondary."""
+    if sample_projects.available():
+        if st.button(wording.OPEN_YOGURT_LABEL, key="sample_project_sidebar",
+                     help=wording.OPEN_YOGURT_HELP):
+            _open_sample(sample_projects.ROUND6)
+        st.caption(wording.OPEN_YOGURT_CAPTION)
+    if sample_projects.burger_available():
+        if st.button(wording.SEE_EXAMPLE_SETUP_LABEL, key="sample_burger_sidebar",
+                     help=wording.BURGER_PROVENANCE_HELP):
+            _open_sample(sample_projects.BURGER)
+        st.caption(wording.SEE_EXAMPLE_SETUP_CAPTION)
+
+
+# A sample can ask, from inside a tab, for another sample to be opened on
+# the next run: True is the Round 6 sample's See what happened next (the
+# all-10 sample); a name is that sample (the example setup's Open the
+# yogurt pilot). It is answered here, before the sidebar draws the project
 # that asked.
-if st.session_state.pop(sample_projects.OPEN_NEXT_KEY, False):
-    _open_sample(sample_projects.ALL10)
+_open_next = st.session_state.pop(sample_projects.OPEN_NEXT_KEY, False)
+if _open_next:
+    _open_sample(sample_projects.ALL10 if _open_next is True else _open_next)
 
 
 def _safety_copies(opt):
@@ -575,9 +603,17 @@ with st.sidebar:
 
         st.divider()
         st.subheader(opt.project_name)
-        if sample_projects.is_sample(opt.project_name):
+        if sample_projects.is_yogurt(opt.project_name):
             st.caption(wording.SAMPLE_PROVENANCE_CAPTION,
                        help=wording.SAMPLE_PROVENANCE_HELP)
+        elif sample_projects.is_sample(opt.project_name):
+            # "No results" only while it is true (untouched_example).
+            if sample_projects.untouched_example(opt):
+                st.caption(wording.BURGER_PROVENANCE_CAPTION,
+                           help=wording.BURGER_PROVENANCE_HELP)
+            else:
+                st.caption(wording.BURGER_PROVENANCE_CAPTION_USED,
+                           help=wording.BURGER_PROVENANCE_HELP_USED)
 
         if getattr(opt, "save_error", None):
             st.error(opt.save_error)
@@ -594,12 +630,9 @@ with st.sidebar:
             # §5, audit V21): the sidebar itself is the projects, the
             # project's name and when it was saved.
             _saved_copies(opt)
-            if sample_projects.available():
-                if st.button(
-                    wording.TRY_SAMPLE_LABEL, key="sample_project_sidebar",
-                    help=wording.TRY_SAMPLE_HELP,
-                ):
-                    _open_sample()
+            if sample_projects.available() or sample_projects.burger_available():
+                st.markdown(wording.SAMPLES_HEADING)
+                _sidebar_samples()
             st.divider()
             if sample_projects.is_sample(opt.project_name):
                 # A sample goes back to how it shipped rather than to empty:
@@ -623,7 +656,7 @@ with st.sidebar:
                         flash("success", wording.sample_restored(_target))
                         st.session_state["_loaded_project"] = _target
                         st.session_state["_land_on_open"] = True
-                        st.session_state["_pending_tab"] = wording.TAB_INSIGHTS
+                        st.session_state["_pending_tab"] = _sample_tab(_target)
                         st.rerun()
             else:
                 if confirm_action(
@@ -790,17 +823,27 @@ render_flash(_FLASH_BOX)
 if opt is None:
     st.markdown(wording.WELCOME_HEADER)
     st.markdown(wording.welcome_steps())
+    # One primary: the yogurt pilot. The example setup beside it, and the
+    # ingredients template as a quiet link under both (spec 2026-10-13 §9).
     wc1, wc2 = st.columns(2)
     with wc1:
-        if sample_projects.available() and st.button(wording.TRY_SAMPLE_LABEL, type="primary"):
-            _open_sample()
+        if sample_projects.available():
+            if st.button(wording.OPEN_YOGURT_LABEL, type="primary",
+                         help=wording.OPEN_YOGURT_HELP):
+                _open_sample(sample_projects.ROUND6)
+            st.caption(wording.OPEN_YOGURT_CAPTION)
     with wc2:
-        if os.path.exists(_TEMPLATE_CSV):
-            st.download_button(
-                wording.DOWNLOAD_TEMPLATE,
-                data=ingredients_template_workbook(_TEMPLATE_CSV),
-                file_name=wording.INGREDIENTS_TEMPLATE_FILE_NAME,
-                mime=WORKBOOK_MIME)
+        if sample_projects.burger_available():
+            if st.button(wording.SEE_EXAMPLE_SETUP_LABEL,
+                         help=wording.BURGER_PROVENANCE_HELP):
+                _open_sample(sample_projects.BURGER)
+            st.caption(wording.SEE_EXAMPLE_SETUP_CAPTION)
+    if os.path.exists(_TEMPLATE_CSV):
+        st.download_button(
+            wording.DOWNLOAD_TEMPLATE,
+            data=ingredients_template_workbook(_TEMPLATE_CSV),
+            file_name=wording.INGREDIENTS_TEMPLATE_FILE_NAME,
+            mime=WORKBOOK_MIME, type="tertiary")
     st.stop()
 
 

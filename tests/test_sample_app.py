@@ -37,7 +37,7 @@ def _open(app, name):
 
 
 def test_welcome_try_sample_creates_both_and_opens_round6_on_review(at):
-    _click(at, wording.TRY_SAMPLE_LABEL)
+    _click(at, wording.OPEN_YOGURT_LABEL)
     assert Path(f"{sp.ROUND6}.pkl").exists() and Path(f"{sp.ALL10}.pkl").exists()
     assert at.session_state["_loaded_project"] == sp.ROUND6
     assert at.session_state["main_tab"] == wording.TAB_INSIGHTS
@@ -50,7 +50,7 @@ def test_try_sample_keeps_a_used_sample_as_it_is(tmp_path, monkeypatch):
     Path(f"{sp.ROUND6}.pkl").write_text(json.dumps(state))
     before = Path(f"{sp.ROUND6}.pkl").read_text()
     app = AppTest.from_file(APP, default_timeout=120); app.run()
-    _click(app, wording.TRY_SAMPLE_LABEL)
+    _click(app, wording.OPEN_YOGURT_LABEL)
     assert app.session_state["_loaded_project"] == sp.ROUND6
     assert Path(f"{sp.ALL10}.pkl").exists()          # written alongside
     assert Path(f"{sp.ROUND6}.pkl").read_text() == before
@@ -58,7 +58,7 @@ def test_try_sample_keeps_a_used_sample_as_it_is(tmp_path, monkeypatch):
 
 
 def test_start_this_sample_over_restores_and_archives(at):
-    _click(at, wording.TRY_SAMPLE_LABEL)
+    _click(at, wording.OPEN_YOGURT_LABEL)
     st = json.loads(Path(f"{sp.ROUND6}.pkl").read_text())
     st["tasting_noise"] = 3.0
     Path(f"{sp.ROUND6}.pkl").write_text(json.dumps(st))
@@ -95,7 +95,7 @@ def test_own_project_keeps_clear_contents_not_sample_restore(at):
 
 
 def test_provenance_caption_only_on_samples(at):
-    _click(at, wording.TRY_SAMPLE_LABEL)
+    _click(at, wording.OPEN_YOGURT_LABEL)
     assert wording.SAMPLE_PROVENANCE_CAPTION in [c.value for c in at.sidebar.caption]
     _write_own()
     at.run()
@@ -109,7 +109,7 @@ def test_welcome_still_offers_the_template(at):
 
 
 def test_open_next_opens_all10_on_review(at):
-    _click(at, wording.TRY_SAMPLE_LABEL)
+    _click(at, wording.OPEN_YOGURT_LABEL)
     at.session_state[sp.OPEN_NEXT_KEY] = True
     at.run()
     assert not at.exception
@@ -120,9 +120,9 @@ def test_open_next_opens_all10_on_review(at):
 
 # A sample reopens where the demo starts: 4 · Review, whatever Round is open.
 
-@pytest.mark.parametrize("name", sp.NAMES)
+@pytest.mark.parametrize("name", sp.YOGURT_NAMES)
 def test_reopening_a_sample_from_the_sidebar_lands_on_review(at, name):
-    _click(at, wording.TRY_SAMPLE_LABEL)
+    _click(at, wording.OPEN_YOGURT_LABEL)
     _write_own()
     at.run()
     _open(at, "Mine")
@@ -133,7 +133,7 @@ def test_reopening_a_sample_from_the_sidebar_lands_on_review(at, name):
     assert at.session_state["main_tab"] == wording.TAB_INSIGHTS
 
 
-@pytest.mark.parametrize("name", sp.NAMES)
+@pytest.mark.parametrize("name", sp.YOGURT_NAMES)
 def test_launching_on_a_sample_lands_on_review(tmp_path, monkeypatch, name):
     """A fresh run with the sample as the project to open, the way launch
     sets _loaded_project and _land_on_open for the most recent project."""
@@ -162,7 +162,7 @@ def test_launch_on_the_most_recent_sample_lands_on_review(tmp_path, monkeypatch)
 def test_own_project_with_an_open_round_still_lands_on_make_a_round(at):
     """The same contents under an own name keep the landing rule."""
     from ui_helpers import TAB_BATCH
-    _click(at, wording.TRY_SAMPLE_LABEL)
+    _click(at, wording.OPEN_YOGURT_LABEL)
     state = sp.shipped_state(sp.ROUND6)           # Round 6 open, 5 recorded
     state["project_name"] = "Mine"
     Path("Mine.pkl").write_text(json.dumps(state))
@@ -177,7 +177,7 @@ def test_try_sample_opens_round6_when_the_results_file_cannot_be_written(at, mon
     def boom(self, data):
         raise PermissionError("read-only")
     monkeypatch.setattr(Path, "write_bytes", boom)
-    _click(at, wording.TRY_SAMPLE_LABEL)
+    _click(at, wording.OPEN_YOGURT_LABEL)
     assert not at.exception and not at.error
     assert at.session_state["_loaded_project"] == sp.ROUND6
     assert at.session_state["main_tab"] == wording.TAB_INSIGHTS
@@ -186,7 +186,7 @@ def test_try_sample_opens_round6_when_the_results_file_cannot_be_written(at, mon
 
 
 def test_start_this_sample_over_when_the_results_file_cannot_be_written(at):
-    _click(at, wording.TRY_SAMPLE_LABEL)
+    _click(at, wording.OPEN_YOGURT_LABEL)
     st = json.loads(Path(f"{sp.ROUND6}.pkl").read_text())
     st["tasting_noise"] = 3.0
     Path(f"{sp.ROUND6}.pkl").write_text(json.dumps(st))
