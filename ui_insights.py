@@ -2750,8 +2750,11 @@ def score_line(opt, checks, h=None, yard=None):
     h = insights.headline(opt, checks) if h is None else h
     if h.score is None:
         return ""
-    return wording.score_gap_line(h.score.inside, h.score.total, h.score.mean_miss, "",
-                                  n=h.score.total, rounds=h.score.rounds)
+    nf = getattr(h.score, "no_forecast", 0)
+    return wording.with_left_out(
+        wording.score_gap_line(h.score.inside, h.score.total, h.score.mean_miss, "",
+                               n=h.score.total + nf, rounds=h.score.rounds),
+        nf, _say(opt, wording.OVERALL_SCORE_COLUMN))
 
 
 def _bias_size(opt, b):
@@ -5194,6 +5197,13 @@ def card_for(opt, facts, which):
         # Review critique: the assumed noise, and what would confirm it.
         head, _, rest = help_.partition("\n\n")
         help_ = f"{head} {wording.REPEAT_CONFIRMS}" + (f"\n\n{rest}" if rest else "")
+    if which == "predictions" and help_:
+        # Fix round 3: the Overall score's checks with no forecast, named
+        # beside its counts (the card's 'x / N missed').
+        nf = getattr(getattr(getattr(facts, "headline", None), "score", None), "no_forecast", 0)
+        head, _, rest = help_.partition("\n\n")
+        help_ = wording.with_left_out(head, nf, _say(opt, wording.OVERALL_SCORE_COLUMN)) + (
+            f"\n\n{rest}" if rest else "")
     card.help = wording.brief(help_)
     step = getattr(facts, "next", None)
     if which == "next" and card.tone != "off" and ceiling_stop(opt, facts):
@@ -6298,6 +6308,11 @@ def learned_facts_from(opt, checks):
     # Persona fixes: the same record in plain words, the terms of art last.
     lf.plain_line = wording.skill_plain(inside, total, None if fact is None else fact.value,
                                         None if best is None else best[0])
+    # Fix round 3: the Overall score's checks with no forecast, named.
+    left = sum(1 for c in checks if c.name == insights.SCORE and c.fully_measured
+               and getattr(c, "no_forecast", False))
+    lf.plain_line = wording.with_left_out(lf.plain_line, left,
+                                          _say(opt, wording.OVERALL_SCORE_COLUMN))
     return lf
 
 
@@ -6378,7 +6393,7 @@ def learned_rows(opt, lf):
             continue
         # Fix round 2: the one form of a verdict's pairs, on its own line.
         counted = wording.called_of(o.right, o.pairs, o.pairs + o.ties + o.close)
-        label = f"{learned_label(opt, name)}|({counted})"
+        label = f"{learned_label(opt, name)} ({counted})"
         few = o.pairs < learned.MIN_PAIRS
         lo, hi = (None, None) if few else o.chance_share()
         if hi is not None and hi >= 1.0 - 1e-9 and o.right >= o.pairs:
@@ -6472,19 +6487,6 @@ def measured_groups(cks):
     return [sorted(int(c.formulation) for c in cks if c.measured == v) for v in levels]
 
 
-def score_landing(cks):
-    """Persona fixes: where the Overall scores landed against their
-    forecast: the mean of measured −
-    forecast over those above their 95 % range; else over those below."""
-    above = [c.measured - c.predicted for c in cks if c.measured > c.high]
-    below = [c.measured - c.predicted for c in cks if c.measured < c.low]
-    if above:
-        return sum(above) / len(above), None
-    if below:
-        return None, sum(below) / len(below)
-    return None, None
-
-
 def _is_target(opt, name):
     if name == insights.SCORE:
         return False
@@ -6576,6 +6578,9 @@ def round_predicted_frame(opt, checks, r):
     return pd.DataFrame(rows) if rows else None
 
 
+WIDEN_SAID = 1.05      # a range's widening is said from this factor
+
+
 def no_forecast_items(opt, checks, r):
     """Fix round 2: [(name, Range text, widen text or None)] for each result
     of Round `r` with a no-forecast 95 % range, for the Results "?" — the
@@ -6588,8 +6593,9 @@ def no_forecast_items(opt, checks, r):
             continue
         lo, hi = insights._range_of(opt, name)
         f = max(float(getattr(c, "widen", 1.0) or 1.0) for c in cks)
+        # Fix round 3: widening named from ×1.05 (one decimal), never ×1.0.
         out.append((learned_label(opt, name), f"{lo:g}–{hi:g}",
-                    f"{f:.1f}" if f > 1.0 + 1e-9 else None))
+                    f"{f:.1f}" if f >= WIDEN_SAID else None))
     return out
 
 
@@ -6879,7 +6885,8 @@ def _line_words(text):
 def learned_verdict_line(opt, lf):
     """(line, its "?") — the Forecast check's one verdict line (slim
     Review, owner 2026-10-08), merged with its old "So far:" count: 'So
-    far: Overall score 7 of 9 pairs ordered right. Predicts: Consistency.'
+    far: Overall score 9 of 24 pairs called, 7 right. Predicts:
+    Consistency (11 of 24 called, 11 right).'
     — the Overall score's within-Round pairs, then the verdict groups
     (Predicts, Partly, Not yet; the Overall score named in its own) as
     many as keep the line to LEARNED_LINE_WORDS words, every word counted;
@@ -6905,10 +6912,11 @@ def learned_verdict_line(opt, lf):
     groups = [(w, names) for w, names in groups if names]
     # Specific wording: each name with its pairs. Beside the count (which
     # says "pairs" and gives the Overall score's), the details chart's
-    # form: 'Tangy (5/5)'.
+    # form: 'Tangy (5 of 12 called, 5 right)'.
     beside = [(w, [n if n == score else wording.named_pairs_short(n, counts.get(n))
                    for n in names]) for w, names in groups]
-    # Alone, the first says the unit: 'Overall score (5 of 5 pairs), Tangy (5/5)'.
+    # Alone, the first says the unit: 'Overall score (5 of 12 pairs called, 5
+    # right), Tangy (5 of 12 called, 5 right)'.
     counted = [n for w, names in groups for n in names if counts.get(n, (0, 0))[1]]
     said = {n: (wording.named_pairs([n], counts) if i == 0 else
                 wording.named_pairs_short(n, counts.get(n))) for i, n in enumerate(counted)}
@@ -6916,7 +6924,7 @@ def learned_verdict_line(opt, lf):
              for w, names in groups]
     called, said_c = [], said
     if o is not None and o.pairs and score in said and total and total > o.pairs:
-        # Final demo (A3): 'Overall score (5 of 12 pairs called, all 5 right)',
+        # Final demo (A3): 'Overall score (5 of 12 pairs called, 5 right)',
         # when it fits; else the form before.
         said_c = dict(said, **{score: wording.score_pairs_called(score, o.right, o.pairs,
                                                                  total)})
@@ -7017,7 +7025,8 @@ def learned_card(opt, lf, card, facts=None):
     # Specific wording: the opening sentence gives the Predicts and Partly
     # names' pairs; the evidence line the rest, so no count is said twice.
     named = set(lf.model_names(opt, learned.PREDICTABLE) + lf.model_names(opt, learned.PARTLY))
-    rows = [(learned_label(opt, n), o.right, o.pairs) for n, o in lf.orderings.items()
+    rows = [(learned_label(opt, n), o.right, o.pairs, o.pairs + getattr(o, "ties", 0)
+             + getattr(o, "close", 0)) for n, o in lf.orderings.items()
             if learned_label(opt, n) not in named or not o.pairs]
     ev = wording.learned_evidence(rows) if rows else wording.LEARNED_EVIDENCE_ABOVE
     record = getattr(lf, "plain_line", "")

@@ -4,6 +4,7 @@ their basis — the verdict's miss count, the Overall score's skill, the
 Repeat-based noise threshold — under noun headings; says expected
 improvement by Round in Progress; and stops stating noise as ingredient
 effects when its model is fitting noise."""
+import re
 import json
 import os
 
@@ -137,9 +138,17 @@ def test_method_and_details_define_the_new_terms(tabs):
     said = [m.value for m in how.markdown] + [c.value for c in how.caption]
     # T0 review I-1: Line A has a Formulation total.
     assert wording.how_checks() in said
-    for text in (wording.HOW_VERDICT, wording.HOW_NOISE_THRESHOLD, wording.how_skill("−0.20"),
-                 wording.HOW_EXPECTED_IMPROVEMENT, wording.why_role_rule()):
+    for text in (wording.HOW_NOISE_THRESHOLD, wording.how_skill("−0.20"),
+                 wording.HOW_EXPECTED_IMPROVEMENT, wording.why_role_rule(),
+                 wording.HOW_FORECAST_WORDS):
         assert text in said, text
+    # Sceptic review: the verdict rule's example counts the values with a
+    # forecast and names the ones left out (no forecast: a whole-Range range).
+    verdict = [t for t in said if t.startswith("Verdict rule:")]
+    assert len(verdict) == 1 and re.fullmatch(
+        re.escape(wording.how_verdict(0, 0)).replace(r"for\ 0\ values,\ up\ to\ 0\ misses",
+                                                     r"for\ \d+\ values,\ up\ to\ \d+\ misses?")
+        + r"( \d+ values? with no forecast left out\.)?", verdict[0]), verdict
     assert wording.details_window([2, 3, 4, 5], 3, [3, 4, 5]) in said
 
 
