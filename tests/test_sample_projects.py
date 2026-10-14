@@ -44,6 +44,76 @@ def test_shipped_project_equals_a_rebuild_from_the_csvs(tmp_path, name, scored, 
     assert _norm(rebuilt) == _norm(shipped)
 
 
+
+@pytest.mark.parametrize("name", [sp.ROUND6, sp.ALL10])
+def test_shipped_projects_carry_no_date(name):
+    """The pilot's CSVs date no Batch, so the shipped files carry no date at
+    all: not the day build.py ran as the day a pilot row was recorded, nor
+    as the day the open Round 6 was opened."""
+    text = (sp.SAMPLE_DIR / f"{name}.json").read_text()
+    assert not TS.search(text)
+    state = json.loads(text)
+    assert state["timestamps_history"] == [None] * len(state["results_history"])
+    assert state["pending_batch_created"] is None
+
+
+def _today_range(before, after):
+    return {before.astimezone().strftime("%Y-%m-%d"),
+            after.astimezone().strftime("%Y-%m-%d")}
+
+
+@pytest.mark.parametrize("name,n", [(sp.ROUND6, 15), (sp.ALL10, 30)])
+def test_pilot_rows_show_a_blank_date_recorded(store, name, n):
+    """3 · Results (history_frame, as ui_results draws it), the workbook and
+    the CSV (history_export_frame) show every pilot row's Date recorded as
+    a blank cell, never the build date, None or NaT."""
+    import wording
+    sp.ensure(store)
+    opt = FoodOptimizer(name, storage=store)
+    shown = opt.history_frame(include_amounts=True)
+    assert len(shown) == n
+    assert list(shown[wording.DATE_RECORDED_COLUMN]) == [""] * n
+    exported = opt.history_export_frame()
+    assert list(exported[wording.DATE_RECORDED_COLUMN]) == [""] * n
+    csv = opt.history_csv()
+    for bad in ("None", "NaT", "nan"):
+        assert bad not in csv
+    assert not re.search(r"20\d\d-\d\d-\d\d", csv)
+    assert opt.all_formulations_workbook()[:2] == b"PK"
+
+
+def test_a_result_recorded_now_gets_todays_date(store):
+    """Results the user records in the app are stamped as before: Round 6
+    scored now shows today on 3 · Results, beside 15 blank pilot dates.
+    Round 6's sheets, opened by the pilot on no known day, print today's
+    date, as does a formulation of the user's own added to it."""
+    from datetime import datetime, timezone
+    import wording
+    sp.ensure(store)
+    r6 = FoodOptimizer(sp.ROUND6, storage=store)
+    before = datetime.now(timezone.utc)
+    assert r6._sheet_date() in _today_range(before, datetime.now(timezone.utc))
+    r6.add_to_pending_batch(dict(r6.pending_batch[0]["recipe"]), "My own")
+    assert r6.pending_batch_created in _today_range(before, datetime.now(timezone.utc))
+    b = _builder()
+    by_note = {b.note_of(x): res for x, _, res, _ in b.pilot()[6]}
+    by_note["My own"] = by_note[r6.pending_batch[0]["note"]]
+    for row in list(r6.pending_batch):
+        r6.tell(row["recipe"], dict(by_note[row["note"]]),
+                formulation_no=row["formulation"], batch_no=6, note=row["note"])
+    r6.set_pending_batch(None)
+    today = _today_range(before, datetime.now(timezone.utc))
+    frame = r6.history_frame(order=wording.SORT_BATCH_ORDER)
+    dates = dict(zip(frame["Formulation"], frame[wording.DATE_RECORDED_COLUMN]))
+    assert all(dates[no] == "" for no in range(1, 16))
+    assert len(dates) == 19 and all(dates[no] in today for no in range(16, 20))
+    reloaded = FoodOptimizer(sp.ROUND6, storage=store)
+    exported = reloaded.history_export_frame()
+    assert sorted(no for no, d in zip(exported["Formulation"],
+                                      exported[wording.DATE_RECORDED_COLUMN])
+                  if d in today) == [16, 17, 18, 19]
+
+
 @pytest.mark.parametrize("name,n,open_rows", [(sp.ROUND6, 15, 3), (sp.ALL10, 30, 0)])
 def test_shipped_projects_load_at_this_class_version(store, name, n, open_rows):
     FoodOptimizer.validate_state(sp.shipped_state(name))

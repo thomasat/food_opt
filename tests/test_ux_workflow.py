@@ -537,7 +537,7 @@ def test_every_formulation_the_yogurt_sample_suggests_stays_inside_its_limit(
     nobody in the pilot could have made."""
     opt = _yogurt(tmp_path, monkeypatch)
     [limit] = opt.quantity_constraints
-    assert limit['name'] == 'Batch total (inferred from the pilot)'
+    assert limit['name'] == 'Ingredient total'
     assert sorted(limit['ingredients']) == sorted([
         'Coconut cream', 'Tap water', 'Lemon juice', 'Salt',
         'Nutritional yeast', 'Tapioca starch', 'Xanthan gum'])

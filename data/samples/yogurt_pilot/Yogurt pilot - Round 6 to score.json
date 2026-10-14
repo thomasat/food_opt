@@ -152,7 +152,7 @@
       ],
       "min": 97.6,
       "max": 98.7,
-      "name": "Batch total (inferred from the pilot)"
+      "name": "Ingredient total"
     }
   ],
   "robust": false,
@@ -540,21 +540,21 @@
     }
   ],
   "timestamps_history": [
-    "2026-10-13T22:27:08.386856+00:00",
-    "2026-10-13T22:27:08.387165+00:00",
-    "2026-10-13T22:27:08.387478+00:00",
-    "2026-10-13T22:27:08.389022+00:00",
-    "2026-10-13T22:27:08.389343+00:00",
-    "2026-10-13T22:27:08.389664+00:00",
-    "2026-10-13T22:27:08.391262+00:00",
-    "2026-10-13T22:27:08.391593+00:00",
-    "2026-10-13T22:27:08.391922+00:00",
-    "2026-10-13T22:27:08.393740+00:00",
-    "2026-10-13T22:27:08.394137+00:00",
-    "2026-10-13T22:27:08.394534+00:00",
-    "2026-10-13T22:27:08.396462+00:00",
-    "2026-10-13T22:27:08.396880+00:00",
-    "2026-10-13T22:27:08.397322+00:00"
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
   ],
   "formulation_ids": [
     1,
@@ -613,7 +613,7 @@
   "next_batch_number": 7,
   "sobol_seed": null,
   "pending_batch_no": 6,
-  "pending_batch_created": "2026-10-13",
+  "pending_batch_created": null,
   "pending_batch_discarded": [],
   "pending_batch_total": null,
   "formulation_total": null,

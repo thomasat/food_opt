@@ -444,7 +444,7 @@ def test_sample_project_button_creates_ready_project(tmp_path, monkeypatch):
     assert {o["goal"] for o in opt.objectives} == {"target"}
     # One limit on the whole batch, read back from the pilot's own recipes.
     assert [(c["name"], c["min"], c["max"]) for c in opt.quantity_constraints] \
-        == [("Batch total (inferred from the pilot)", 97.6, 98.7)]
+        == [("Ingredient total", 97.6, 98.7)]
     # Fifteen formulations scored; Round 6 open with Formulations 16-18.
     assert len(opt.X_history) == 15
     assert [r["formulation"] for r in opt.pending_batch] == [16, 17, 18]
