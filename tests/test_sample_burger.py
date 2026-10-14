@@ -390,7 +390,65 @@ def test_the_new_wording_keeps_the_owners_caps():
     for label in (wording.OPEN_YOGURT_LABEL, wording.SEE_EXAMPLE_SETUP_LABEL):
         assert len(label.split()) <= 5
     for caption in (wording.OPEN_YOGURT_CAPTION, wording.SEE_EXAMPLE_SETUP_CAPTION,
-                    wording.BURGER_PROVENANCE_CAPTION):
+                    wording.BURGER_PROVENANCE_CAPTION, wording.BURGER_PROVENANCE_CAPTION_USED):
         assert len(caption.split()) <= 8
     assert len(wording.BURGER_NO_RESULTS.split()) <= 10
     assert wording.BURGER_PROVENANCE_HELP.count(". ") <= 2
+
+
+# ------------------------------------------------------------------ #
+#  Fix round 2: every line stays true once the example is used
+# ------------------------------------------------------------------ #
+
+def _used_burger(state):
+    """The example with a Round open ("round") or one result recorded
+    ("result"), written to the cwd before the app opens it."""
+    store = storage_backend.LocalStorage()
+    opt = _burger(store)
+    recipes = opt.ask(3)                           # opens Round 1
+    assert opt.pending_batch and not sp.untouched_example(opt)
+    if state == "result":
+        row = opt.pending_batch[0]
+        opt.tell(row["recipe"], {"Juiciness": 6.5, "Firmness": 6.0, "Cook loss": 20.0},
+                 formulation_no=row["formulation"], batch_no=opt.pending_batch_no)
+        opt.set_pending_batch(None)
+        assert opt.X_history and not opt.pending_batch
+    opt.save()
+    return recipes
+
+
+def _app_on(name, tab):
+    app = AppTest.from_file(APP, default_timeout=300)
+    app.session_state["_loaded_project"] = name
+    app.run()
+    app.session_state["main_tab"] = tab
+    app.run()
+    assert not app.exception, [e.message for e in app.exception]
+    return app
+
+
+def test_untouched_example_is_the_shipped_state_only(store):
+    opt = _burger(store)
+    assert sp.untouched_example(opt)
+    sp.ensure(store)
+    assert not sp.untouched_example(FoodOptimizer(sp.ROUND6, storage=store))
+
+
+@pytest.mark.parametrize("state", ["round", "result"])
+def test_a_used_example_drops_no_results_and_shows_the_normal_review(
+        tmp_path, monkeypatch, state):
+    monkeypatch.chdir(tmp_path)
+    _used_burger(state)
+    at = _app_on(sp.BURGER, wording.TAB_INSIGHTS)
+    captions = {c.value: c for c in at.sidebar.caption}
+    assert "Example setup; illustrative values." in captions
+    assert wording.BURGER_PROVENANCE_CAPTION not in captions
+    assert "no results" not in captions["Example setup; illustrative values."].proto.help.lower()
+    review = at.tabs[3]
+    assert wording.BURGER_NO_RESULTS not in [c.value for c in review.caption]
+    assert "Open the yogurt pilot" not in [b.label for b in review.button]
+    if state == "round":
+        # The normal no-results Review, with its foot back to the open Round.
+        assert wording.INSIGHTS_NONE in [c.value for c in review.caption]
+        foot = next(b for b in review.button if b.key == "insights_foot")
+        assert foot.label == wording.back_to_batch_label(1, 3)

@@ -3,7 +3,7 @@
 Run with the devenv python, from anywhere:
     devenv/bin/python data/samples/burger_setup/build.py [OUT_DIR]
 It writes "Example setup - plant-based burger.json" (default: beside this
-file). tests/test_sample_projects.py checks the shipped file still matches.
+file). tests/test_sample_burger.py checks the shipped file still matches.
 
 The set-up is the 0.7.x burger sample's (sample_projects.build at 994ac14):
 calculated rows (Hydration water = 2.2 x the textured proteins, Remaining

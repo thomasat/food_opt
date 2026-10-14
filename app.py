@@ -607,8 +607,13 @@ with st.sidebar:
             st.caption(wording.SAMPLE_PROVENANCE_CAPTION,
                        help=wording.SAMPLE_PROVENANCE_HELP)
         elif sample_projects.is_sample(opt.project_name):
-            st.caption(wording.BURGER_PROVENANCE_CAPTION,
-                       help=wording.BURGER_PROVENANCE_HELP)
+            # "No results" only while it is true (untouched_example).
+            if sample_projects.untouched_example(opt):
+                st.caption(wording.BURGER_PROVENANCE_CAPTION,
+                           help=wording.BURGER_PROVENANCE_HELP)
+            else:
+                st.caption(wording.BURGER_PROVENANCE_CAPTION_USED,
+                           help=wording.BURGER_PROVENANCE_HELP_USED)
 
         if getattr(opt, "save_error", None):
             st.error(opt.save_error)

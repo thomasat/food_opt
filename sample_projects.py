@@ -56,6 +56,15 @@ def is_yogurt(name):
     return name in YOGURT_NAMES
 
 
+def untouched_example(opt):
+    """The example setup as it ships: no formulation recorded or set aside
+    and no Round open. Only then may the screen say it has no results."""
+    return (getattr(opt, "project_name", None) == BURGER
+            and not getattr(opt, "X_history", None)
+            and not getattr(opt, "skipped", None)
+            and not getattr(opt, "pending_batch", None))
+
+
 def shipped_state(name):
     if not is_sample(name):
         raise ValueError(f"{name!r} is not a sample")

@@ -1158,8 +1158,10 @@ def _example_setup(opt):
     """The example setup's Review, which has no results by design (spec
     2026-10-13 §9): says so, and offers the yogurt pilot, whose Review has
     real ones (app.py opens it on the run the key asks for it). Whether
-    it drew anything."""
-    if getattr(opt, "project_name", None) != sample_projects.BURGER:
+    it drew anything. Only while the example is as shipped — no result,
+    nothing set aside, no Round open; after that the normal Review (and
+    its foot back to the open Round) is the true one."""
+    if not sample_projects.untouched_example(opt):
         return False
     st.caption(wording.BURGER_NO_RESULTS)
     if st.button(wording.OPEN_YOGURT_LABEL, key="sample_open_yogurt",

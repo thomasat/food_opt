@@ -207,6 +207,14 @@ BURGER_PROVENANCE_HELP = (
     "measured. It shows calculated rows (hydration water as 2.2 × the "
     "protein, water as the rest), pre-mixes, a process setting, records and "
     "a formulation total. It has no results; the yogurt pilot has real ones.")
+# Once the example holds a Round or a result of the reader's own, "no
+# results" would be false: the caption and its "?" drop it.
+BURGER_PROVENANCE_CAPTION_USED = "Example setup; illustrative values."
+BURGER_PROVENANCE_HELP_USED = (
+    "Every amount, property, limit and target here is illustrative, not "
+    "measured. It shows calculated rows (hydration water as 2.2 × the "
+    "protein, water as the rest), pre-mixes, a process setting, records and "
+    "a formulation total.")
 BURGER_NO_RESULTS = "No results: this example shows set-up only."
 # The names packaging checks (desktop/test_e2e.sh) still click by.
 TRY_SAMPLE_LABEL = OPEN_YOGURT_LABEL
