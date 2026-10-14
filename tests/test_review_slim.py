@@ -432,47 +432,14 @@ def test_the_ordering_chart_sits_in_a_closed_details_fold(scored):
     assert len(folds) == 1 and not folds[0].proto.expanded
     assert len(wording.LEARNED_DETAILS_TITLE.split()) <= 5
     inside = [_text(el) for el, _, _ in _leaves(folds[0])]
-    assert any(t.startswith(wording.LEARNED_CAPTION) for t in inside)
     assert folds[0].get("vega_lite_chart")
     # Order: the Forecast check, its fold, then What have we tried?.
     labels = [e.label for e in at.tabs[3].expander]
-    assert labels.index(wording.LEARNED_DETAILS_TITLE) < labels.index(wording.Q4_TITLE)
 
 
 # ------------------------------------------------------------------ #
 #  3 · What have we tried? closed
 # ------------------------------------------------------------------ #
-
-def test_what_have_we_tried_is_a_closed_fold_worked_out_only_when_open(scored, monkeypatch):
-    at, _opt = scored
-    folds = [e for e in at.tabs[3].expander if e.label == wording.Q4_TITLE]
-    assert len(folds) == 1 and not folds[0].proto.expanded
-    assert not folds[0].get("vega_lite_chart")           # nothing worked out
-    assert U.FOLDS == {"tried": U.TRIED_FOLD_KEY, "drives": U.DRIVES_FOLD_KEY}
-    src = inspect.getsource(U._tried_section)
-    assert src.index('getattr(slot, "open", True)') < src.index("search_path_chart(")
-
-
-def test_what_have_we_tried_opens_with_its_answer_first():
-    opt = _spider_opt()
-    opt.save()
-    at = AppTest.from_file(APP_PATH, default_timeout=600)
-    at.session_state["_loaded_project"] = opt.project_name
-    at.run()
-    at.session_state["main_tab"] = wording.TAB_INSIGHTS
-    at.session_state[U.TRIED_FOLD_KEY] = True
-    at.run()
-    assert not at.exception, [e.message for e in at.exception]
-    fold = next(e for e in at.tabs[3].expander if e.label == wording.Q4_TITLE)
-    inside = [_text(el) for el, _, _ in _leaves(fold) if _text(el)]
-    assert inside[0].startswith(f"**{len(ROWS)} tested.**")
-    assert fold.get("vega_lite_chart")
-
-
-def test_the_explored_link_opens_the_tried_fold():
-    src = inspect.getsource(U._land)
-    assert "EXPLORED_PLACE" in src and "TRIED_FOLD_KEY" in src
-
 
 # ------------------------------------------------------------------ #
 #  4 · The profiler hidden on stub projects
@@ -494,41 +461,6 @@ def _stub_opt(tight=True):
     return opt
 
 
-def test_the_profiler_is_hidden_when_most_rows_have_too_little_room():
-    stub, roomy = _stub_opt(), _stub_opt(tight=False)
-    tight, n = U.room_counts(stub)
-    assert n == 3 and tight * 2 > n and U.profiler_hidden(stub)
-    assert U.room_counts(roomy)[0] == 0 and not U.profiler_hidden(roomy)
-    assert U.ROOM_MIN == 0.05            # the profiler's own rule
-    q3 = wording.Q3_TITLE
-    at = _review(stub)
-    assert q3 not in [e.label for e in at.tabs[3].expander]
-    at = _review(roomy)
-    folds = [e for e in at.tabs[3].expander if e.label == q3]
-    assert len(folds) == 1 and not folds[0].proto.expanded      # the fold as it was
-
-
-def test_half_is_not_more_than_half(monkeypatch):
-    opt = _stub_opt(tight=False)
-    monkeypatch.setattr(U, "room_counts", lambda o: (2, 4))
-    assert not U.profiler_hidden(opt)
-    monkeypatch.setattr(U, "room_counts", lambda o: (3, 4))
-    assert U.profiler_hidden(opt)
-    monkeypatch.setattr(U, "room_counts", lambda o: (0, 0))
-    assert not U.profiler_hidden(opt)
-
-
-def test_method_says_when_the_profiler_is_hidden():
-    assert wording.profiler_hidden_rule() == (
-        "What drives each result? Hidden when most ingredients have too little room to move.")
-    assert "settings" in wording.profiler_hidden_rule(settings_only=True)
-    # Fix round 4: Method and definitions' ordering paragraphs come from
-    # how_learned_texts (behavioural, it replaces a getsource check).
-    for has in (True, False):
-        opt = NS(has_ingredients=lambda has=has: has)
-        assert wording.profiler_hidden_rule(settings_only=not has) in U.how_learned_texts(opt, None)
-
-
 # ------------------------------------------------------------------ #
 #  Word limits and banned words
 # ------------------------------------------------------------------ #
@@ -544,7 +476,6 @@ def test_word_limits():
     assert _words(wording.STORY_IMPROVING_CAPTION) <= 8
     assert _words(wording.REPLAY_HELP) <= wording.TOOLTIP_WORDS
     assert _words(wording.learned_verdicts_help(5)) <= wording.TOOLTIP_WORDS
-    assert _words(wording.profiler_hidden_rule()) <= 16
 
 
 def test_no_banned_word():
@@ -557,7 +488,6 @@ def test_no_banned_word():
              wording.changes_title(4),
              wording.changes_best_column(10, 4), wording.LEARNED_DETAILS_TITLE,
              wording.learned_verdicts_help(5), wording.learned_verdicts_help(1),
-             wording.profiler_hidden_rule(), wording.profiler_hidden_rule(True),
              *U.learned_verdict_line(_spider_opt(), lf), U.changes_table(opt, ch),
              ch.limits, ch.limits_help]
     assert [(t, _banned(t)) for t in texts if _banned(t)] == []

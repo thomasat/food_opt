@@ -26,62 +26,6 @@ def _isolate_cwd(tmp_path, monkeypatch):
 #  widenings, as the ranges on screen carry both
 # ------------------------------------------------------------------ #
 
-def test_the_overall_score_row_shows_both_widenings(monkeypatch):
-    opt = _burger(rounds=5, noise=0.6)
-    monkeypatch.setattr(insights, "column_factor", lambda o, c: 2.5)
-    score = SimpleNamespace(name=insights.SCORE, widen=1.3)
-    firm = SimpleNamespace(name="Firmness", widen=1.3)
-    assert ui_insights.widen_cell(opt, score, []) == (
-        "×1.3, then ×2.5 for the predicted best and new formulations")
-    assert ui_insights.widen_cell(opt, firm, []) == "×1.3"
-    monkeypatch.setattr(insights, "column_factor", lambda o, c: 1.0)
-    assert ui_insights.widen_cell(opt, score, []) == "×1.3"          # nothing on top
-    assert ui_insights.widen_cell(opt, SimpleNamespace(name=insights.SCORE, widen=None),
-                                  []) == ""
-
-
-def test_the_how_table_carries_the_factor_the_screens_use():
-    opt = _burger(rounds=5, noise=0.6)
-    checks = insights.check_rounds(opt)
-    top = insights.column_factor(opt, checks)
-    assert top > 1.0
-    at = AppTest.from_file(APP_PATH, default_timeout=300)
-    at.session_state["_loaded_project"] = opt.project_name
-    at.run()
-    at.session_state["main_tab"] = wording.TAB_INSIGHTS
-    at.session_state[ui_insights.HOW_KEY] = True       # drawn only while open (T56 I5)
-    at.run()
-    assert not at.exception
-    [table] = [d for d in at.tabs[3].dataframe
-               if wording.DETAILS_COLUMNS_2[5] in d.value.columns]
-    cells = dict(zip(table.value[wording.DETAILS_COLUMNS_2[0]],
-                     table.value[wording.DETAILS_COLUMNS_2[5]]))
-    [score_cell] = [v for k, v in cells.items() if k == wording.OVERALL_SCORE_COLUMN]
-    assert score_cell.endswith(f", then {wording.widen_text(top)} for the predicted best and "
-                               "new formulations")
-    captions = [c.value for c in at.tabs[3].caption]
-    assert wording.HOW_WIDENED_SCORE in captions
-
-
-def test_the_caption_names_only_what_carries_both_widenings():
-    """Re-review R-1: the path chart carries the fit's own widening only;
-    the caption names what carries both, in plain words."""
-    assert wording.HOW_WIDENED_SCORE == (
-        "Overall score, second factor: the root-mean-square of the standardised Round-ahead "
-        "errors of earlier Rounds' Overall scores (at least 5, computed after the first "
-        "factor), floored at 1. Where formulations were chosen for a high predicted score it "
-        "widens their intervals, which partly restores coverage; it does not correct the "
-        "predicted value itself, which can still run high. It applies on top of the first "
-        "factor to the predicted best, Best so far's predicted Repeat and the Predicted "
-        "Overall score column on Make a round.")
-    assert "at the top" not in wording.score_widen_text(1.3, 2.5)
-
-
-def test_the_widening_words_pass_the_guard():
-    for text in (wording.score_widen_text(1.3, 2.5), wording.HOW_WIDENED_SCORE):
-        assert not any(p.search(text) for p in _BANNED), text
-
-
 # ------------------------------------------------------------------ #
 #  Final review M-2: mid-Round, answer 2's predicted best and Make a
 #  round's column carry one factor

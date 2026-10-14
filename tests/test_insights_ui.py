@@ -144,7 +144,6 @@ def test_every_insights_string_passes_the_vocabulary_guard():
     _check(wording.rounds_span(["3"]))
     _check(wording.rounds_span(["3", "4", "5"]))
     _check(wording.FOLD_MEASURED_CHART)
-    _check(wording.INGREDIENT_OR_SETTING)
     _check(wording.START_FROM)
     _check(wording.start_best(14))
     _check(wording.start_formulation(3))
@@ -157,12 +156,7 @@ def test_every_insights_string_passes_the_vocabulary_guard():
     _check(wording.FOLD_PROGRESS_CHART)
     _check(wording.FOLD_METHOD)
     _check(wording.HOW_MODELS)
-    _check(wording.HOW_RANGE)
-    _check(wording.HOW_RANGE_FIXED_TINY)
     _check(wording.HOW_CHECKS)
-    _check(wording.HOW_NO_P)
-    for c in wording.DETAILS_COLUMNS_2:
-        _check(c)
     _check(wording.TRACK_PREDICTED)
     _check(wording.TRACK_MEASURED)
     _check(wording.TRACK_LOW)
@@ -171,9 +165,6 @@ def test_every_insights_string_passes_the_vocabulary_guard():
     # Final fix wave
     _check(wording.INSIGHTS_FAILED)
     _check(wording.CHANGE_NONE)
-    _check(wording.DETAILS_NONE)
-    _check(wording.rounds_not_checked([1, 2]))
-    _check(wording.rounds_not_checked([1]))
     _check(wording.rounds_span([3, 5, 6]))
 
 
@@ -324,26 +315,14 @@ def test_gate_before_five_scored(scored):     # 2 scored rows
     assert wording.Q_TRUST not in md and wording.Q_NEXT not in md
 
 
-def test_how_section_default_wording(insights_scored):
-    # A fourth round, so each measurement has 5 or more values checked
-    # (Rounds 3 and 4) and the details table has its rows.
-    for no, (pea, mc) in enumerate(((10.0, 1.0), (16.0, 2.0), (22.0, 3.0)), start=10):
-        insights_scored.tell({"Pea protein": pea, "Methylcellulose": mc},
-                             {"Juiciness": 3 + 0.2 * pea, "Firmness": 1 + 0.25 * pea + mc},
-                             formulation_no=no, batch_no=4)
-    at = _open_how(_open_insights(_app()))
-    body = " ".join(m.value for m in at.tabs[3].markdown)
-    assert wording.HOW_RANGE in body and wording.HOW_RANGE_FIXED_TINY not in body
-    [frame] = _details_frames(at)
-    assert list(frame.columns) == list(ui_insights.DETAILS_ORDER)
-    assert frame.iloc[-1][wording.DETAILS_COLUMNS_2[0]] == wording.OVERALL_SCORE_COLUMN
-
-
 def test_how_section_fixed_tiny_wording(insights_fixed_tiny):
+    """One-glance Review: Method and definitions is one line per term,
+    whatever the model settings; the full method is in the README."""
     at = _open_how(_open_insights(_app()))
     assert not at.exception
     body = " ".join(m.value for m in at.tabs[3].markdown)
-    assert wording.HOW_RANGE_FIXED_TINY in body and wording.HOW_RANGE not in body
+    assert all(line in body for line in wording.METHOD_DEFINITIONS)
+    assert wording.METHOD_README in [c.value for c in at.tabs[3].caption]
 
 
 def test_insights_cache_does_not_follow_a_project_switch(insights_scored):
@@ -391,41 +370,12 @@ def test_rounds_span_contiguous_and_not():
     assert wording.rounds_span([3, 5, 6]) == "Rounds 3, 5 and 6"
 
 
-def test_rounds_not_checked_wording():
-    assert wording.rounds_not_checked([1, 2]) == (
-        "Rounds 1–2 are not checked: fewer than 5 formulations were recorded before them.")
-    assert wording.rounds_not_checked([1]) == (
-        "Round 1 is not checked: fewer than 5 formulations were recorded before it.")
-
-
-def test_final_wave_wording():
-    assert wording.INSIGHTS_WORKING == "Preparing the insights…"
-    assert wording.FOLD_METHOD == "Method and definitions"
-    assert wording.panel_failed("Firmness") == "Could not be predicted for Firmness."
-    assert wording.try_one_fold(True) == "Try one ingredient or process setting"
-    assert wording.try_one_fold(False) == "Try one ingredient"
-    assert wording.path_not_checked("Fat: at most 16 g", "Fat") == (
-        "Not checked: Fat: at most 16 g — some ingredients have no Fat value.")
-    # Re-pinned (stale since the fourth tab became "4 · Review").
-    assert wording.INSIGHTS_FAILED == "The review could not be prepared for this project."
-    assert wording.CHANGE_NONE == (
-        "Nothing to change yet: every ingredient and process setting is fixed.")
-    assert wording.DETAILS_NONE == "This table fills in once a Round has been checked."
-    for text in (wording.INSIGHTS_WORKING, wording.FOLD_METHOD, wording.panel_failed("X"),
-                 wording.TRUST_NONE, wording.STAND_LATEST, wording.stand_since(1),
-                 wording.stand_since(3), wording.HOW_MODELS, wording.try_one_fold(True),
-                 wording.try_one_fold(False), wording.INSIGHTS_FAILED, wording.CHANGE_NONE,
-                 wording.DETAILS_NONE, wording.rounds_not_checked([1, 2])):
-        assert "worked out" not in text.lower() and "working out" not in text.lower(), text
-
-
 def test_round_and_tab_words_come_from_constants(monkeypatch):
     # G3: rename the round word and the tab, and every Insights string follows.
     import importlib
     src = open(wording.__file__).read()
     assert 'f"2 · {TAB_BATCH_NAME}"' in src or "TAB_BATCH_NAME" in src
     assert wording.TAB_BATCH.endswith(wording.TAB_BATCH_NAME)
-    assert wording.TAB_BATCH_NAME in wording.HOW_WIDENED_SCORE
     for fn in ("TRUST_NONE", "STAND_LATEST", "stand_since", "HOW_MODELS"):
         block = src[src.index(fn + (" = " if fn.isupper() else "(")):][:400]
         assert " round" not in block.split("\n\n")[0].replace("{ROUND}", ""), (fn, block)
@@ -447,13 +397,6 @@ def test_band_and_amount_text_use_num():
 
 
 # The tab in the app ------------------------------------------------ #
-
-def _details_frames(at):
-    """The details table in "How these insights are made". Question 4's
-    table (wave B) is drawn above it, so it is found by its columns."""
-    return [d.value for d in at.tabs[3].dataframe
-            if list(d.value.columns) == list(ui_insights.DETAILS_ORDER)]
-
 
 def _tab_text(at):
     tab = at.tabs[3]
@@ -488,7 +431,7 @@ def test_section_2_failure_keeps_sections_1_and_3(insights_scored, monkeypatch, 
         import inspect
         caller = inspect.stack()[1].function
         # anchor_recipe: _change's own door to a start (BO views §3.3).
-        if caller in ("_change", "anchor_recipe"):
+        if caller in ("_change",):
             raise RuntimeError("no path")
         return real(*a, **k)
     monkeypatch.setattr(insights, where, boom)
@@ -527,7 +470,7 @@ def test_repeats_line_needs_a_spread_that_shows(insights_scored, monkeypatch, sd
                         insights.Improvement("yes", 2.0, None, 0))
     at = _open_insights(_app())
     # Method and details defines the noise threshold in the same words.
-    md = " ".join(_tab_text(at)[0]).replace(wording.HOW_NOISE_THRESHOLD, "")
+    md = " ".join(_tab_text(at)[0])
     assert ("Repeat SD of the Overall score" in md) == shown
     if shown:
         assert wording.stand_repeats("0.1", 1) in md
@@ -547,38 +490,6 @@ def insights_two_rounds(burger):
     return burger
 
 
-def test_details_table_empty_says_so(insights_two_rounds):
-    at = _open_how(_open_insights(_app()))
-    assert not at.exception
-    assert wording.DETAILS_NONE in _tab_text(at)[1]
-    assert not _details_frames(at)
-
-
-def test_details_table_shows_rows_after_one_checked_round(insights_scored):
-    at = _open_how(_open_insights(_app()))
-    [frame] = _details_frames(at)
-    assert len(frame) == 3                                        # 3 checked each
-    assert set(frame[wording.DETAILS_COLUMNS_2[6]]) == {"no Repeats yet"}
-    assert wording.DETAILS_NONE not in _tab_text(at)[1]
-
-
-def test_unchecked_rounds_caption(insights_scored):
-    at = _open_how(_open_insights(_app()))
-    assert wording.rounds_not_checked([1, 2]) in _tab_text(at)[1]
-
-
-def test_how_range_wording_says_the_range_is_widened():
-    """03 §5.7: the interval named, for one new value, its formula and its clipping."""
     # Ledger, statistician cold read I2 (fix round B): no "19 in 20" claim; the
     # plain reading gives the 95 % aim and the coverage measured on simulated projects.
     # Ftue fix A's re-run (I9 folds): 90 % of Overall scores (was 89 %).
-    assert wording.HOW_RANGE == (
-        "95 % interval: the model's 95 % prediction interval for one new measured value, "
-        "mean ± 1.96 × predictive SD × calibration factor. The predictive SD includes Repeat "
-        "noise, so the interval covers a single result, not the long-run mean. Its ends are "
-        "cut at the measurement's Range (0–100 for the Overall score). Plain reading: Aims for "
-        "95 %; measured about 91 % (measurements) / 90 % (Overall score) on simulated "
-        "projects.")
-    assert wording.HOW_RANGE_FIXED_TINY == (
-        "95 % interval: your model settings fix Repeat noise near zero, so the interval "
-        "reflects model uncertainty only, times the calibration factor.")

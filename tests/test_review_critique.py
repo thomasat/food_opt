@@ -92,46 +92,6 @@ def _lf(opt, checks, r, noise):
 #  1. Forecast check: shared axis, misses flagged, ties counted
 # ------------------------------------------------------------------ #
 
-def test_forecast_check_rows_follow_the_forecast_and_flag_misses(plain):
-    opt = _Obj()
-    cks = learned.round_checks(_round6(), insights.SCORE, 6)
-    frame = U.check_frame(opt, insights.SCORE, cks)
-    # Row order is the forecast order, highest first.
-    assert list(frame["f"]) == ["F17", "F16", "F18"]
-    assert dict(zip(frame["f"], frame["side"])) == {"F17": "above", "F16": "above", "F18": "in"}
-    # Round 2: a miss prints its measured value ("88.0 above").
-    assert set(frame["miss"]) == {"88.0 above", ""}
-
-
-def test_forecast_check_chart_is_one_axis_per_result_with_an_accent_for_misses(plain):
-    opt = _Obj()
-    lf = _lf(opt, _round6(), 6, {insights.SCORE: 1.0, "Consistency": 0.3})
-    spec = U.called_chart(opt, lf).to_dict()
-    panel = spec["vconcat"][0]     # round 2: panels one under another
-    marks = [layer["mark"]["type"] if isinstance(layer["mark"], dict) else layer["mark"]
-             for layer in panel["layer"]]
-    assert marks[:3] == ["bar", "tick", "point"] and marks.count("text") == 2
-    # One x scale: range, forecast and measured all on the same values.
-    xs = [layer["encoding"]["x"] for layer in panel["layer"]]
-    assert {x["field"] for x in xs} == {"low", "predicted", "measured"}
-    domains = {json.dumps(x["scale"]["domain"]) for x in xs}
-    assert len(domains) == 1
-    colour = panel["layer"][2]["encoding"]["color"]["scale"]
-    assert colour["domain"][-1] == wording.CHECK_KEY_OUT
-    assert colour["range"][-1] == U.outline_colour()
-    assert wording.CALLED_CAPTION == "Rows: forecast order, highest first."
-
-
-def test_the_check_line_counts_ties(plain):
-    opt = _Obj()
-    lf = _lf(opt, _round6(), 6, {insights.SCORE: 1.0, "Consistency": 0.3})
-    line = U.called_line(opt, lf)
-    # Round 2: no brackets inside the line (14 words at most).
-    assert "order right: 1 pair, 1 too close, 1 tie" in line
-    assert wording.check_order(1, 1, 1, ties=1) == "order right: 1 pair, 1 too close, 1 tie"
-    assert wording.check_order(0, 0, 2) == "order too close to call"
-
-
 # ------------------------------------------------------------------ #
 #  2. The stop signal at the top score
 # ------------------------------------------------------------------ #
@@ -227,25 +187,13 @@ def test_the_chance_range_and_the_verdict_always_agree(seed):
         assert beyond
 
 
-def test_too_few_pairs_draw_no_dot(plain):
-    opt = _Obj()
-    checks = _perfect(1)          # 3 pairs: under MIN_PAIRS
-    lf = NS(orderings={"Consistency": learned.ordering(checks, "Consistency", 0.0)})
-    [row] = U.learned_rows(opt, lf)
-    assert row["few"] and row["pct"] is None and row["lo"] is None
-    spec = json.dumps(U.learned_chart(opt, lf).to_dict())
     # Specific wording (2026-10-12), re-pinned: "under 5 pairs", not "too few".
-    assert wording.learned_too_few(learned.MIN_PAIRS) in spec
 
 
 def test_the_ordering_chart_has_a_legend_and_the_multiplicity_line(plain):
     opt = _Obj()
     lf = NS(orderings={"Consistency": learned.ordering(_perfect(3), "Consistency", 0.0)})
-    spec = json.dumps(U.learned_chart(opt, lf).to_dict())
-    assert wording.LEARNED_KEY_CHANCE in spec and '"orient": "bottom"' in spec
     # Round 2: Holm across the results checked.
-    assert wording.learned_multiplicity(5) == (
-        "Adjusted for 5 results checked: one alone could pass by chance.")
     assert "binomial" not in wording.LEARNED_RULE
 
 
@@ -374,24 +322,16 @@ def test_brief_keeps_about_120_words_plain_first_experts_last():
 
 
 def test_the_new_rules_fit():
-    for text in (wording.CALLED_RULE, wording.LEARNED_RULE,
-                 wording.story_path_help(), wording.story_target_help(3, 21, 1),
-                 wording.profiler_help("Best so far", 21, gain=True),
+    for text in (wording.LEARNED_RULE,
+                 wording.story_target_help(3, 21, 1),
                  wording.ceiling_help("99.2", "100", "2.3", ["a", "b", "c"]),
                  wording.story_improving_help("84.2", "96.7", 1, 10)):
         assert _words(text) <= wording.TOOLTIP_WORDS, text
-    assert "(as in the chart at the top)" not in wording.profiler_help("Best so far", 21)
-    assert "Lowest to its Highest" not in wording.profiler_help("Best so far", 21)
-    for caption in (wording.CALLED_CAPTION, wording.LEARNED_CAPTION,
-                    wording.STORY_TARGET_CAPTION, wording.STORY_PATH_CAPTION,
-                    wording.STORY_IMPROVING_CAPTION, wording.PROFILER_CAPTION):
+    for caption in (wording.STORY_TARGET_CAPTION, wording.STORY_IMPROVING_CAPTION):
         assert _words(caption) <= 10, caption
     assert _words(wording.answer_line(wording.CEILING_HEAD, wording.CEILING_TAIL)) <= 14
     assert wording.TRACK_VALUES_MISS == "Measurements: more misses than expected."
     # The tried gaps (owner, 2026-10-05): the count first, then the largest.
-    assert wording.tried_gaps(7, 7, "ingredient", wording.gap_span(
-        "Salt", "0.6", "1.0 g")) == (
-        "Gaps in all 7 ingredients; largest: Salt 0.6–1.0 g")
 
 
 def _critique_strings():
@@ -413,11 +353,9 @@ def test_critique_strings_pass_banned():
     bad = [t for t in texts if any(p.search(t) for p in _BANNED)
            and not t.lstrip().startswith(("Every", "The", "A ", "'", "Review"))]
     assert bad == []
-    for t in (wording.CALLED_RULE, wording.LEARNED_RULE, wording.CEILING_HEAD,
-              wording.CEILING_TAIL, wording.CARD_CEILING, wording.drives_limited("Formulation total"),
-              wording.target_moves(2, 1, [], ["0.5"]), wording.MAP_Y_TITLE,
-              wording.MAP_GAIN_LEGEND, wording.PATH_AT_LIMIT, wording.PATH_GAP,
-              wording.widen_all(["a", "b"]), wording.REPEAT_CONFIRMS, wording.NOISE_BAND,
+    for t in (wording.LEARNED_RULE, wording.CEILING_HEAD,
+              wording.CEILING_TAIL, wording.CARD_CEILING, wording.target_moves(2, 1, [], ["0.5"]), wording.MAP_Y_TITLE,
+              wording.MAP_GAIN_LEGEND, wording.widen_all(["a", "b"]), wording.REPEAT_CONFIRMS, wording.NOISE_BAND,
               wording.implied_line("90", "94"), wording.RESULTS_LANDED_COLUMN):
         assert not any(p.search(t) for p in _BANNED), t
         assert "spread" not in t.lower() and "interval" not in t.lower()
@@ -433,7 +371,7 @@ def test_show_as_lines_is_gone():
 # ------------------------------------------------------------------ #
 
 def test_section_order_constant():
-    assert U.SECTION_ORDER == ("progress", "next", "predictions", "tried", "drives")
+    assert U.SECTION_ORDER == ("progress", "next", "predictions")
 
 
 @pytest.fixture(scope="module")
@@ -472,8 +410,6 @@ def test_the_page_reads_in_the_ruled_order(line_a):
     model = say(wording.FORECAST_CHECK_TITLE)
     assert say(wording.LEARNED_TITLE) not in rest
     assert rest[:2] == [model, say(wording.LEARNED_DETAILS_TITLE)]
-    assert rest.index(say(wording.Q4_TITLE)) > rest.index(model)
-    assert rest.index(say(wording.Q3_TITLE)) == rest.index(say(wording.Q4_TITLE)) + 1
     assert rest[-1] == say(wording.FOLD_METHOD)
     # No toggle left on the tab.
     assert not [t for t in at.tabs[3].toggle]

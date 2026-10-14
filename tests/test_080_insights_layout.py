@@ -315,25 +315,6 @@ def test_a_process_only_project_names_settings(tmp_path):
 #  "How these insights are made" (review M5, M6, M10; audit V23)
 # ------------------------------------------------------------------ #
 
-def test_how_holds_the_method_lines_the_window_and_the_widening(insights_scored):
-    at = _open_how(_open_insights(_app()))
-    assert not at.exception
-    how = next(e for e in at.tabs[3].expander if e.label == wording.FOLD_METHOD)
-    said = [c.value for c in how.caption]
-    assert wording.rounds_not_checked([1, 2]) in said
-    assert wording.details_window([3], 1, [3]) in said
-    frame = how.dataframe[0].value
-    # 0.8.0 e2e fixes (review B1, B2): Mean error and Fitted noise SD.
-    assert list(frame.columns) == list(ui_insights.DETAILS_ORDER)
-    assert all(v == "" or v.startswith("×") for v in frame[wording.DETAILS_COLUMNS_2[5]])
-    assert set(frame[wording.DETAILS_COLUMNS_2[6]]) <= {"no Repeats yet", "under 3 pairs"}
-    for line in (wording.HOW_WIDENED, wording.HOW_REPEATS_COMPARED, wording.HOW_THRESHOLDS):
-        assert line in said
-    # PREDICTIONS_CAPTION restated how_checks and is gone (03 §5.7; BO views
-    # Task 8).
-    assert not hasattr(wording, "PREDICTIONS_CAPTION")
-
-
 # ------------------------------------------------------------------ #
 #  The predicted best's amounts: in a fold, only when clearly higher and
 #  not tested near (§2.3, review I7)

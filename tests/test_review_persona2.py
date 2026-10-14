@@ -126,39 +126,6 @@ def test_too_close_pairs_are_left_out_of_the_record_and_verdict():
     assert far.pairs == 0 and far.verdict == learned.NOT_YET and far.reason == "few"
 
 
-def test_forecast_check_headline_a_miss_above(plain):
-    opt = _Obj()
-    lf = _lf(opt, _round6(), 6, {insights.SCORE: 3.0, "Consistency": 1.0})
-    line = U.called_line(opt, lf)
-    assert line == ("**Round 6: scored higher than forecast.** 2 of 3 above their range; "
-                    "order too close to call.")
-    assert _words(line, numbers=False) <= 14
-    assert "better than forecast" not in line and "not a miss" not in line
-
-
-def test_forecast_check_headline_a_miss_below(plain):
-    opt = _Obj()
-    lf = _lf(opt, _round6(score_meas=(80.0, 86.0, 83.0)), 6, NOISE)
-    line = U.called_line(opt, lf)
-    assert line.startswith("**Round 6: scored lower than forecast.** 1 of 3 below its range")
-    # Both sides: a miss either way.
-    lf = _lf(opt, _round6(score_meas=(80.0, 89.0, 83.0)), 6, NOISE)
-    line = U.called_line(opt, lf)
-    assert line.startswith("**Round 6: scored outside forecast, both ways.** 2 of 3 outside "
-                           "their range")
-
-
-def test_forecast_check_headline_order_counted(plain):
-    opt = _Obj()
-    lf = _lf(opt, _round6(score_meas=(85.0, 85.5, 83.0)), 6, NOISE)
-    line = U.called_line(opt, lf)
-    # F17 > F18 counts (1.0 apart); F16-F18 too close; F16-F17 too close.
-    # Round 2: no brackets inside the line.
-    # Sceptic review (2026-10-14), re-pinned: the count and the reference.
-    assert line == ("**Round 6: all 3 inside their 95 % range.** Order right: 1 pair, "
-                    "2 too close.")
-
-
 def test_so_far_counts_only_pairs_that_count(plain):
     opt = _Obj()
     # Noise 1: Round 6's Overall pair F17 > F18 counts with Rounds 4-5's six.
@@ -173,42 +140,14 @@ def test_so_far_counts_only_pairs_that_count(plain):
     assert U.called_so_far(opt, lf) == "So far: every pair too close to call."
 
 
-def test_misses_words():
-    assert wording.check_misses(2, 0) == "2 misses, both higher than forecast"
-    assert wording.check_misses(0, 1) == "1 miss, lower than forecast"
-    assert wording.check_misses(1, 1) == "2 misses: 1 higher, 1 lower"
-    assert wording.called_range(1, 2, 0) == "1 of 3 in range; 2 misses, both higher than forecast."
-    assert wording.check_range(0, 3, 0) == "all 3 above their range"
-    assert wording.check_range(1, 0, 0) == "in range"
-
-
-def test_forecast_check_detail_says_too_close_and_the_noise(plain):
-    opt = _Obj()
-    lf = _lf(opt, _round6(), 6, {insights.SCORE: 3.0, "Consistency": 1.0})
-    detail = U.called_detail(opt, lf)
-    assert "Overall score: too close to call (2 pairs)" in detail
-    assert "2 misses, both higher than forecast" in detail
-    # (Review critique: the pairs one by one are its "For experts:" part,
-    # kept only when it fits about 120 words.)
-    # Review critique: the noise each claim had to reach, said as assumed.
-    assert "Tasting noise assumed: Overall score 3.0" in detail
-    assert wording.REPEAT_CONFIRMS in detail      # round 2: "3 Repeats would measure the noise."
-    assert "a miss, above or below" in detail
-    assert "better than forecast" not in detail and "not a miss" not in detail
-
-
 def test_bias_line(plain):
     opt = _Obj()
     # Consistency measured 2 below every forecast, with noise 1: a bias.
     checks = _round6(cons_pred=(14.0, 13.0, 15.0), cons_meas=(12.0, 11.0, 12.5))
     lf = _lf(opt, checks, 6, NOISE)
-    assert U.check_bias_line(opt, lf) == "Forecasts ran about 2 high on Consistency."
     # One on the other side, or within noise: no line.
     checks = _round6(cons_pred=(14.0, 13.0, 15.0), cons_meas=(12.0, 11.0, 15.5))
-    assert U.check_bias_line(opt, _lf(opt, checks, 6, NOISE)) == ""
     assert learned.round_bias(learned.round_checks(checks, "Consistency", 6), 0.0) is None
-    assert wording.check_bias([("Sour", -2.4), ("Firm", 1.1)]) == \
-        "Forecasts ran about 2 high on Sour, about 1 low on Firm."
 
 
 # Review critique (fix 1): no slopegraph; too close to call is said in the panel's
@@ -247,8 +186,6 @@ def test_pair_noise_is_the_tasting_noise(tmp_path, monkeypatch):
     monkeypatch.setattr(learned.insights, "repeat_sd", spread(insights.YARDSTICK_DF))
     assert learned.overall_noise(opt) == (2.0, False)
     assert learned.pair_noise(opt)["Sour"] == pytest.approx(2.0 * 15 / (25 * k ** 0.5))
-    assert wording.check_noise([("Overall score", "1.0")]) == (
-        "Tasting noise assumed: Overall score 1.0. 3 Repeats would measure the noise.")
 
 
 # ------------------------------------------------------------------ #
@@ -373,29 +310,12 @@ def _strings():
     return re.findall(r'"((?:[^"\\\n]|\\.)*)"', src)
 
 
-def test_persona2_strings_pass_banned():
-    texts = [t for t in _strings() if t.strip()]
-    texts += [wording.ENTERED_ROUND_CAPTION, wording.LEARNING_ROUND_WHY, wording.PLATEAU_RULE,
-              wording.CALLED_RULE, wording.CALLED_CAPTION, wording.LEARNED_RULE,
-              wording.check_line(6, 1, 2, 0, wording.check_order(0, 0, 2)),
-              wording.check_bias([("Sour", -2.4)]), wording.score_recipe("25", "15"),
-              wording.widen_reason("lowest", "Pea protein", "20 g", predicted=True),
-              wording.other_side("more", "Pea protein"), wording.plateau_word(7),
-              wording.check_noise([("Overall score", "1.0")]),
-              wording.check_noise([("Overall score", "1.0")], assumed=False),
-              wording.check_measure_line("Tangy", 1, 2, 1, False)]
-    hits = [(t, p.pattern) for t in texts for p in _BANNED if p.search(t)]
-    assert hits == []
-
-
 def test_persona2_wording_limits():
     assert _words(wording.FORECAST_CHECK_TITLE) <= 3
     assert _words(wording.LEARNING_ROUND_WHY) <= 10
     assert _words(wording.plateau_word(7), numbers=False) <= 5
-    assert _words(wording.check_bias([("Sour", -2.4)]), numbers=False) <= 10
     assert _words(wording.score_recipe("25", "15"), numbers=False) <= 10
-    assert _words(wording.CALLED_CAPTION) <= 10
-    for text in (wording.CALLED_RULE, wording.LEARNED_RULE, wording.ENTERED_ROUND_CAPTION):
+    for text in (wording.LEARNED_RULE, wording.ENTERED_ROUND_CAPTION):
         assert "better than forecast" not in text and "not a miss" not in text
         assert "only your own" not in text
 

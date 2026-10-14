@@ -341,12 +341,12 @@ def _method_facts_lines():
 
 
 def _everything():
-    texts = [_method_text(), *W.MODEL_LIMITS, W.HOW_RANGE, W.predicted_score_help(20, "1.6"),
-             W.HOW_WIDENED, W.HOW_WIDENED_SCORE, W.how_skill(), W.TIP_RELIABLE_LIMITS,
-             W.EXPECTED_IMPROVEMENT_HELP, W.HOW_EXPECTED_IMPROVEMENT, W.BASIS_PREDICTIONS,
-             W.BASIS_PROGRESS, W.HOW_NOISE_THRESHOLD, W.TIP_NOISE_THRESHOLD,
+    texts = [_method_text(), W.predicted_score_help(20, "1.6"),
+             W.TIP_RELIABLE_LIMITS,
+             W.EXPECTED_IMPROVEMENT_HELP, W.BASIS_PREDICTIONS,
+             W.BASIS_PROGRESS, W.TIP_NOISE_THRESHOLD,
              W.TIP_THRESHOLD_ASSUMED, W.gain_line("0.12", 6, W.beat_by())]
-    for rows in (W.GLOSSARY_ROWS, W.glossary_rows(True), W.status_rule_rows()):
+    for rows in (W.GLOSSARY_ROWS, W.status_rule_rows()):
         texts += [" ".join(r) for r in rows]
     return texts
 
@@ -371,45 +371,30 @@ def test_i2_the_coverage_aim_and_its_measured_rate_from_one_constant(monkeypatch
     # Ftue fix A's re-run (I9 folds): 90 % of Overall scores, was 89 %.
     assert reading == ("Aims for 95 %; measured about 91 % (measurements) / 90 % (Overall "
                        "score) on simulated projects.")
-    assert reading in W.HOW_RANGE
     assert W.predicted_score_help(20).endswith(reading)
     monkeypatch.setattr(W, "SIMULATED_COVERAGE", {"measurements": 92, "score": 88})
     assert "about 92 % (measurements) / 88 % (Overall score)" in W.coverage_reading()
 
 
-def test_i3_the_second_widening_widens_and_does_not_debias():
-    assert "corrects for" not in W.HOW_WIDENED_SCORE
-    assert "does not correct the predicted value" in W.HOW_WIDENED_SCORE
-
-
 def test_i4_the_skill_error_rates_are_exact_and_show_n():
-    for t in (W.MODEL_LIMITS[1], W.TIP_RELIABLE_LIMITS):
+    for t in (W.TIP_RELIABLE_LIMITS,):
         assert "24 simulated projects" in t, t
         assert "n = 10" in t and "n = 15" in t, t
         assert "about half the time" in t, t
-    assert "24 simulated projects" in W.how_skill()
-    assert "a correct model reads" not in W.how_skill()
-
-
-def test_i8_the_first_matching_row_wins():
-    assert W.STATUS_TABLE_ORDER == ("Within each line the rows are tried from top to bottom; "
-                                    "the first that holds is the status shown.")
 
 
 def test_i9_the_folds_are_grouped_by_round():
-    for t in (_method_text(), W.BASIS_PREDICTIONS, W.HOW_WIDENED,
-              next(r for r in W.GLOSSARY_ROWS if r[0] == "calibration factor")[2]):
+    for t in (_method_text(), W.BASIS_PREDICTIONS, next(r for r in W.GLOSSARY_ROWS if r[0] == "calibration factor")[2]):
         assert "grouped by Round" in t, t
 
 
 def test_i10_the_coverage_count_assumes_independent_misses():
-    assert any("not independent" in t for t in W.MODEL_LIMITS)
     off = next(r for r in W.status_rule_rows() if r[1].endswith("(coverage)"))
     assert "independent" in off[2]
 
 
 def test_i11_the_threshold_is_gated_on_degrees_of_freedom():
-    for t in (W.HOW_NOISE_THRESHOLD, W.BASIS_PROGRESS, W.TIP_NOISE_THRESHOLD,
+    for t in (W.BASIS_PROGRESS, W.TIP_NOISE_THRESHOLD,
               W.TIP_THRESHOLD_ASSUMED,
               next(r for r in W.GLOSSARY_ROWS if r[0] == "noise threshold")[2]):
         assert "3 pairs" not in t and "3 Repeat pairs" not in t, t
@@ -432,18 +417,15 @@ def test_i12_changed_settings_are_not_a_fair_test():
 
 
 def test_every_new_text_is_clean():
-    cells = [_method_facts_lines(), W.MODEL_LIMITS, W.status_rule_rows(), W.GLOSSARY_ROWS,
-             W.glossary_rows(True)]
+    cells = [_method_facts_lines(), W.status_rule_rows(), W.GLOSSARY_ROWS]
     for group in cells:
         for item in group:
             for t in (item if isinstance(item, tuple) else (item,)):
                 _clean(t)
-    for t in (W.HOW_RANGE, W.predicted_score_help(20, "1.6"), W.HOW_WIDENED,
-              W.HOW_WIDENED_SCORE, W.how_skill(), W.TIP_RELIABLE_LIMITS,
-              W.EXPECTED_IMPROVEMENT_HELP, W.HOW_EXPECTED_IMPROVEMENT, W.BASIS_PREDICTIONS,
-              W.BASIS_PROGRESS, W.HOW_NOISE_THRESHOLD, W.TIP_NOISE_THRESHOLD,
-              W.TIP_THRESHOLD_ASSUMED, W.gain_line("0.12", 6, W.beat_by()), W.STATUS_TABLE_ORDER,
-              W.coverage_reading()):
+    for t in (W.predicted_score_help(20, "1.6"), W.TIP_RELIABLE_LIMITS,
+              W.EXPECTED_IMPROVEMENT_HELP, W.BASIS_PREDICTIONS,
+              W.BASIS_PROGRESS, W.TIP_NOISE_THRESHOLD,
+              W.TIP_THRESHOLD_ASSUMED, W.gain_line("0.12", 6, W.beat_by()), W.coverage_reading()):
         _clean(t)
     _clean(W.pred_no_skill(("4.3", True), [W.clause_wide(["Cook loss"], cause=True)],
                            skill_text="−0.47"))

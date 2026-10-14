@@ -121,70 +121,6 @@ def test_an_unreliable_verdict_takes_the_expected_improvement_layer_away(monkeyp
     assert ui_insights.layers_offered(opt, fitted) == (wording.LAYER_SCORE, wording.LAYER_SD)
 
 
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_the_uncertainty_layer_goes_through_the_first_suggestion():
-    """Review I8: its default anchor is the open Round's first row still to
-    make, named in the caption; the Predicted score layer keeps Best so far."""
-    opt = _open_round()
-    first = ui_insights.suggested_numbers(opt)[0]
-    # Charts proto: the triangle is in Explored and unexplored.
-    at = _insights(opt, **{ui_insights.LAYER_KEY: wording.LAYER_SD,
-                           ui_insights.EXPLORED_KEY: True})
-    more = next(e for e in at.tabs[3].expander if e.label == wording.FOLD_EXPLORED)
-    titles = [l["encoding"]["color"]["title"] for s in _specs(more) for l in _all_layers(s)
-              if l.get("encoding", {}).get("color", {}).get("field") == "score"
-              and "scheme" in l["encoding"]["color"].get("scale", {})
-              and l["encoding"]["color"]["title"] != wording.OVERALL_SCORE_COLUMN]
-    assert titles == [wording.LAYER_SD_LEGEND]
-    # Review plots: a short reading under the chart, the full one in its "?".
-    caps = {c.value: c.proto.help for c in more.caption}
-    assert caps[wording.plot_caption_triangle(wording.LAYER_SD)] == wording.layer_caption(
-        wording.LAYER_SD, wording.start_suggested(first))
-    # The score layer's start is Best so far (T56 I6: was vacuous).
-    assert ui_insights._start_number(opt) == int(opt.formulation_ids[opt.best_index()])
-
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_the_layer_values_are_the_suggestion_models_own():
-    opt = _open_round()
-    fitted = insights.fit_all(opt)
-    recipes = [insights.start_recipe(opt, i) for i in range(3)]
-    sd = ui_insights.layer_values(opt, fitted, recipes, wording.LAYER_SD)
-    gain = ui_insights.layer_values(opt, fitted, recipes, wording.LAYER_GAIN)
-    model = ui_insights.layer_model(opt, fitted)
-    want = bo_views.evaluate_here(model, bo_views.points(opt, recipes))
-    assert sd == pytest.approx(want[1].tolist()) and gain == pytest.approx(want[2].tolist())
-
-
-@pytest.mark.skip(reason="review profiler prototype: pins Try one's path and Compare all, which the profiler replaces; reconcile at the final merge")
-def test_the_path_layer_starts_from_a_suggestion_and_says_so():
-    opt = _open_round()
-    first = ui_insights.suggested_numbers(opt)[0]
-    at = _insights(opt, insights_try_one=True,
-                   **{ui_insights.PATH_LAYER_KEY: wording.LAYER_GAIN})
-    fold = _try_one(at)
-    start = next(s for s in fold.selectbox if s.key == ui_insights.LAYER_START_KEY)
-    assert start.value == first
-    assert start.format_func(first) == wording.start_suggested(first)
-    [spec] = _specs(fold)
-    ys = [l["encoding"]["y"]["title"] for l in _all_layers(spec)
-          if l.get("encoding", {}).get("y", {}).get("field") == "v"]
-    assert ys == [wording.LAYER_GAIN_LEGEND]
-    assert wording.path_layer_caption(wording.LAYER_GAIN, wording.start_suggested(first)) in [
-        c.value for c in fold.caption]
-
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_the_score_path_names_its_prediction_as_the_current_models():
-    opt = _burger(rounds=3)
-    fitted = insights.fit_all(opt)
-    path = insights.build_path(opt, "Oil", insights.start_recipe(opt, opt.best_index()))
-    spec = ui_insights.path_chart(opt, path, insights.path_predictions(opt, fitted, path)).to_dict()
-    titles = {t["title"] for l in _all_layers(spec) for t in l.get("encoding", {}).get("tooltip", [])
-              if isinstance(t, dict)}
-    assert wording.PREDICTED in titles and wording.TRACK_PREDICTED not in titles
-
-
 # ------------------------------------------------------------------ #
 #  The Predicted score layer: the outline and the colour span (I6, M7, M14)
 # ------------------------------------------------------------------ #
@@ -242,25 +178,6 @@ def test_the_timing_check_outlines_nothing_while_progress_says_none():
     preds = insights.mixture_predictions(opt, fitted, mix)
     extra = ui_insights._mixture_extra(opt, fitted, mix, preds, wording.LAYER_SCORE)
     assert extra["outline"] and not any(extra["outline"])
-
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_the_caption_says_when_colours_are_within_the_models_uncertainty():
-    """Review M7: the span of the colours against the median 1.96 × the
-    model's own sd over the allowed points; a caption, never a rescale."""
-    opt = _open_round()
-    fitted = insights.fit_all(opt)
-    mix = insights.mixture_slice(opt, ["Pea", "Oil", "Water"],
-                                 insights.start_recipe(opt, opt.best_index()))
-    preds = insights.mixture_predictions(opt, fitted, mix)
-    extra = ui_insights._mixture_extra(opt, fitted, mix, preds, wording.LAYER_SCORE)
-    means = [p.mean for p in preds if p is not None]
-    assert extra["span"] == pytest.approx(max(means) - min(means))
-    model = ui_insights.layer_model(opt, fitted)
-    got = bo_views.evaluate(opt, model, bo_views.points(
-        opt, [p.recipe for p in mix.points if p.recipe is not None]))
-    halves = sorted((insights.Z95 * got.sd).tolist())
-    assert extra["half"] == pytest.approx(halves[len(halves) // 2])
 
 
 @pytest.mark.skip(reason=REVIEW_FOUR)
@@ -357,21 +274,6 @@ def test_qucb_offers_no_expected_gain_layer():
     ui_batch.ask_alone(opt, n_suggestions=3)
     assert ui_insights.layers_offered(opt, insights.fit_all(opt)) == (
         wording.LAYER_SCORE, wording.LAYER_SD)
-
-
-@pytest.mark.skip(reason="review profiler prototype: pins Try one's path and Compare all, which the profiler replaces; reconcile at the final merge")
-def test_try_one_has_one_anchor_under_a_layer():
-    """01 O10 (over T56 I3): the path follows the layers' anchor, and so do
-    the answer line and Compare all: one anchor per headline."""
-    opt = _open_round()
-    first = ui_insights.suggested_numbers(opt)[0]
-    at = _insights(opt, insights_try_one=True, **{ui_insights.PATH_LAYER_KEY: wording.LAYER_SD})
-    fold = _try_one(at)
-    said = [m.value for m in fold.markdown]
-    assert any(wording.start_suggested(first) in m for m in said), said
-    assert not any("Best so far" in m for m in said), said
-    assert wording.path_layer_caption(wording.LAYER_SD, wording.start_suggested(first)) in [
-        c.value for c in fold.caption]
 
 
 @pytest.mark.skip(reason=REVIEW_FOUR)

@@ -86,8 +86,9 @@ def test_the_method_is_one_click_away(screens):  # noqa: F811
     at = screens[D.LINE_A]
     [b] = [b for b in at.tabs[3].button if b.key == U.METHOD_LINK_KEY]
     assert b.label == wording.METHOD_LINK and b.proto.type == "tertiary"
-    for word in ("Gaussian-process", "qLogNEI", "Round-ahead", "noise threshold"):
-        assert word in wording.METHOD_LINK_HELP
+    # One-glance Review: the fold is one line per term; the full method is
+    # in the README.
+    assert wording.FOLD_METHOD in wording.METHOD_LINK_HELP
 
 
 def test_hidden_gain_is_one_deliberate_line():

@@ -156,20 +156,6 @@ def test_make_a_rounds_column_help_reads_as_insights_score_line():
         "points (measured minus predicted).")
 
 
-def test_how_says_the_bias_rule_in_plain_words():
-    """Re-review R1, as the 0.8.0 e2e fixes rule it (review B1): every Round
-    checked, the Round as the unit from 4 Rounds, and no advice."""
-    assert wording.HOW_BIAS == (
-        "Mean error: the average of measured minus predicted over every Round checked, for "
-        "the Overall score and each measurement (formulations with all results in, at least "
-        "5). It is a steady bias when its size exceeds the noise threshold (for a measurement, "
-        "its own Repeat SD once it has 3 df, else no floor) and 2 standard errors. From 4 Rounds "
-        "checked, each Round's mean error counts as one value, because a Round's formulations "
-        "sit close together and share the model's error; before that, each formulation "
-        "counts. A steady bias is reported as a fact, with no advice to check the bench.")
-    _clean(wording.HOW_BIAS)
-
-
 def test_the_width_sentence_follows_the_verdict():
     """Re-review R2, as the BO-views wave words it (03 §5.2): the verdict
     with its miss count, then the width sentence; the Overall score's bias
@@ -206,12 +192,8 @@ def test_a_pair_left_out_is_said_as_left_out():
     # Ftue fix A (cold read I7): the disagreeing pair now stays in.
     for r in rows.values():
         assert (r.pairs, r.left_out) == (1, 0)
-    assert wording.repeat_compare(None, None, 0, 1) == "1 pair left out (it disagreed)"
     kept = {r.name: r for r in insights.details(opt, checks)}
     assert all(r.left_out == 0 for r in kept.values())
-    assert wording.repeat_compare(None, None, 0) == "no Repeats yet"
-    assert wording.repeat_compare(None, None, 0, 2) == "2 pairs left out (they disagreed)"
-    _clean(wording.repeat_compare(None, None, 0, 1), wording.repeat_compare(None, None, 0, 2))
 
 
 # ------------------------------------------------------------------ #

@@ -177,21 +177,6 @@ def test_a_chain_of_near_matches_is_one_group():
     assert groups == [[0, 1, 2]]
 
 
-def test_the_ratio_column_bands():
-    """The 1.5 band stays (spec 2026-09-30 review M6); under 3 pairs there
-    is too little to compare with (review I5)."""
-    assert wording.repeat_compare(None, None, 0) == "no Repeats yet"
-    assert wording.repeat_compare(None, 0.0, 3) == "Repeats identical"
-    assert wording.repeat_compare(0.6, 1.0, 3) == "0.6"
-    assert wording.repeat_compare(1.5, 1.0, 3) == "1.5"
-    assert wording.repeat_compare(1.54, 1.0, 3) == "1.5"                # shown as 1.5
-    assert wording.repeat_compare(1.56, 1.0, 3) == "1.6 (lack of fit)"
-    assert wording.repeat_compare(2.04, 1.0, 3) == "2.0 (lack of fit)"
-    assert wording.repeat_compare(3.46, 1.0, 3) == "3.5 (lack of fit)"
-    assert wording.repeat_compare(3.46, 1.0, 2) == "under 3 pairs"
-    assert wording.DETAILS_COLUMNS_2[6] == "Error ÷ Repeat noise"
-
-
 def test_repeats_that_agreed_exactly_are_not_no_repeats():
     """A Repeat whose value matched to the last digit gives a spread of 0:
     there are Repeats, and nothing to divide by (found on the demo, Line A
@@ -203,7 +188,6 @@ def test_repeats_that_agreed_exactly_are_not_no_repeats():
     assert insights.repeat_sd(opt, "Juiciness").sd == 0.0
     [row] = insights.details(opt, [_check("Juiciness", measured=5.0, predicted=5.4)])
     assert row.repeat_sd == 0.0 and row.ratio is None
-    assert wording.repeat_compare(row.ratio, row.repeat_sd, row.pairs) == "Repeats identical"
 
 
 def test_details_compare_the_recipes_once_for_every_output(monkeypatch):
@@ -246,7 +230,6 @@ def test_the_tab_shows_the_new_header_verdict_and_record(insights_scored):
     text = " ".join(m.value for m in tab.markdown)
     # R² is named once, in Method and details, as the statistic not used
     # (review M6).
-    assert "holding up" not in text and "R²" not in text.replace(wording.HOW_NO_P, "")
 
 
 @pytest.fixture
@@ -287,12 +270,3 @@ def test_the_tab_shows_the_verdict_the_wide_line_and_the_record(verdict_project)
     assert bias == "" or bias in text
 
 
-def test_the_new_strings_pass_the_vocabulary_guard():
-    from tests.test_food_bo import _BANNED
-    texts = [wording.WIDE_EVERY, wording.wide_line("Cook loss"),
-             wording.score_gap_line(7, 8, -1.8), wording.repeat_compare(2.0, 1.0, 3),
-             wording.repeat_compare(None, 0.0, 3),
-             wording.DETAILS_COLUMNS_2[6]] + [wording.trust_misses(3, [4, 5, 6], 1, 2, many)
-                                              for many in (False, True)]
-    for text in texts:
-        assert not any(p.search(text) for p in _BANNED), text

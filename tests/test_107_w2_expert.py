@@ -457,29 +457,6 @@ def _cells(table):
 
 
 @pytest.mark.usefixtures("_isolate")
-def test_method_and_definitions_on_line_a():
-    opt, fold = _method(D.LINE_A)
-    said = [m.value for m in fold.markdown]
-    text = "\n".join(said)
-    # Model and method first, then the known limits, then the rule table,
-    # then the method paragraphs, the glossary last.
-    assert said[0] == f"**{W.MODEL_AND_METHOD}**"
-    for line in W.model_summary(insights.model_summary(opt)):
-        assert line in text, line
-    for line in W.MODEL_LIMITS:
-        assert line in text, line
-    assert W.HOW_REGRESSION in said
-    tables = list(fold.table)
-    assert len(tables) == 2
-    rules, glossary = tables
-    assert set(_cells(rules)) >= {c for r in W.status_rule_rows("−0.20") for c in r}
-    assert set(_cells(glossary)) == {c for r in W.GLOSSARY_ROWS for c in r}
-    order = [m for m in said if m.startswith("**")]
-    assert order == [f"**{W.MODEL_AND_METHOD}**", f"**{W.MODEL_LIMITS_HEADING}**",
-                     f"**{W.STATUS_TABLE}**", f"**{W.GLOSSARY}**"]
-
-
-@pytest.mark.usefixtures("_isolate")
 def test_method_and_definitions_on_the_process_only_study():
     """M4: the glossary's own process-settings form, never for_project."""
     opt, fold = _method(D.PROCESS_ONLY)
@@ -546,15 +523,3 @@ def test_the_why_columns_name_their_statistics(kind):
         assert not any(p.search(text) for p in _BANNED), text
 
 
-def test_the_details_columns_name_their_statistics():
-    """Method and definitions' details table: the plain help first, then the
-    standard term of the statistic each column shows."""
-    opt = D.load(D.LINE_A)
-    for column, tip in ((W.DETAILS_COLUMNS_2[1], W.TIP_ROUND_AHEAD),
-                        (W.DETAILS_COLUMNS_2[2], W.TIP_INTERVAL),
-                        (W.MEAN_ERROR_COLUMN, W.TIP_MEAN_ERROR), (W.SKILL_COLUMN, W.TIP_SKILL)):
-        text = ui_insights.details_help(opt, column)
-        assert text.startswith(W.DETAILS_HELP[column])
-        assert text.endswith(ui_insights.bo_term(tip)) and " BO term: " in text
-    assert ui_insights.details_help(opt, W.FITTED_NOISE_COLUMN) == W.DETAILS_HELP[
-        W.FITTED_NOISE_COLUMN]

@@ -123,36 +123,6 @@ def test_no_skill_is_the_next_step_on_line_c(tabs):
                                  rounds=[2, 3, 4, 5]) in md
 
 
-def test_each_output_has_its_skill_in_the_details_table(tabs):
-    how = next(e for e in tabs["A how"].tabs[3].expander
-               if e.label == wording.FOLD_METHOD)
-    [frame] = [d.value for d in how.dataframe if wording.SKILL_COLUMN in d.value.columns]
-    cells = dict(zip(frame[wording.DETAILS_COLUMNS_2[0]], frame[wording.SKILL_COLUMN]))
-    assert cells[wording.OVERALL_SCORE_COLUMN] == "0.36 (n = 15)"
-    assert cells["Juiciness (/10)"] == "−0.04 (n = 16)"
-
-
-def test_method_and_details_define_the_new_terms(tabs):
-    how = next(e for e in tabs["A how"].tabs[3].expander
-               if e.label == wording.FOLD_METHOD)
-    said = [m.value for m in how.markdown] + [c.value for c in how.caption]
-    # T0 review I-1: Line A has a Formulation total.
-    assert wording.how_checks() in said
-    for text in (wording.HOW_NOISE_THRESHOLD, wording.how_skill("−0.20"),
-                 wording.HOW_EXPECTED_IMPROVEMENT, wording.why_role_rule(),
-                 wording.HOW_FORECAST_WORDS):
-        assert text in said, text
-    # Sceptic review: the verdict rule's example counts the values with a
-    # forecast and names the ones left out (no forecast: a whole-Range range).
-    # Fix round 4: the exact line for this fixture (32 values with a
-    # forecast in the verdict's Rounds, 3 with none), the allowance worked
-    # out by the verdict's own rule.
-    verdict = [t for t in said if t.startswith("Verdict rule:")]
-    assert verdict == [wording.how_verdict(32, insights.allowed_misses(32))
-                       + " 3 values with no forecast left out."], verdict
-    assert wording.details_window([2, 3, 4, 5], 3, [3, 4, 5]) in said
-
-
 # ------------------------------------------------------------------ #
 #  §3.2 Expected gain by Round (review I4, I5, M8)
 # ------------------------------------------------------------------ #
@@ -351,7 +321,6 @@ def test_line_c_names_no_ingredient_effect(tabs):
     said = _all(_fold(tabs["C try one"]))
     assert wording.guard_line([wording.GUARD_FLOOR]) in said
     assert not any(t.startswith(("Largest local effect", "Local effect of")) for t in said)
-    assert wording.PATH_GUARD in said
     assert not [e for e in _fold(tabs["C try one"]).expander
                 if e.label.startswith("Compare all")]
 
@@ -361,7 +330,6 @@ def test_line_a_still_ranks_its_effects(tabs):
     said = _all(_fold(tabs["A try one"]))
     assert any(t.startswith(("Largest local effect", "Local effect of", "No ingredient"))
                for t in said)
-    assert wording.PATH_GUARD not in said and wording.PATH_GUARD_SKILL not in said
 
 
 def test_the_guard_says_setting_effects_for_a_process_only_study():
@@ -380,7 +348,9 @@ def test_method_and_details_is_drawn_only_while_open(tabs):
                 if e.label == wording.FOLD_METHOD)
     assert not fold.markdown and not fold.caption and not fold.dataframe
     fold = next(e for e in tabs["A how"].tabs[3].expander if e.label == wording.FOLD_METHOD)
-    assert fold.markdown and fold.dataframe
+    # One-glance Review: one line per term, no table.
+    assert [m.value for m in fold.markdown] == list(wording.METHOD_DEFINITIONS)
+    assert not fold.dataframe
 
 
 def test_measured_against_predicted_is_drawn_only_while_open(tabs):

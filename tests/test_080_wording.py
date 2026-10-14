@@ -58,10 +58,6 @@ def _new_lines():
         w.path_what(w.path_head_process("Cook temperature")),
         w.path_key(15, grey=True, targets=True), w.path_key(15),
         w.progress_caption_2(), w.progress_caption_2(True),
-        w.details_window([2, 3, 4, 5], 3), w.details_window([2, 3], 2), w.details_window([4], 1),
-        *w.DETAILS_COLUMNS_2, w.widen_text(2.1), w.HOW_WIDENED, w.HOW_REPEATS_COMPARED,
-        w.HOW_THRESHOLDS, w.repeat_compare(None, None, 0), w.repeat_compare(2.0, 1.0, 2),
-        w.repeat_compare(None, 0, 3), w.repeat_compare(2.34, 1.0, 4),
         w.TOO_UNCERTAIN, w.START_FROM_BEST_SO_FAR, w.HOW_CHOSEN_2, w.still_covering(5),
         w.waiting_line(1, "Cook loss"), w.waiting_line(2, "Cook loss and Aroma", True),
         w.waiting_line(3, ""), w.workbook_line(), w.workbook_line(True), w.WORKBOOK_TABS_HELP,
@@ -203,8 +199,6 @@ def test_exact_texts_from_the_spec():
     assert w.path_key(15, grey=True, targets=True) == (
         "Band: 95 % interval. Grey: not tested near here. Dotted: Formulation 15; dashed: "
         "target.")
-    assert w.details_window([2, 3, 4, 5], 3, [3, 4, 5]) == (
-        "Table: all Rounds checked (Rounds 2–5). Verdict: the last 3 (Rounds 3–5).")
     assert w.overall_score_line(90.45, 100) == "Overall score 90.45 of 100."
     # Concision round (2026-10-01): short, the threshold kept. Fix A
     # follow-up (ruling on ties): the q = 1 rise threshold, 1.2 × √2 × 2.35.

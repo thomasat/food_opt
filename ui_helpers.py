@@ -365,10 +365,9 @@ REVIEW_DOT_STYLE = """<style>
 # Ftue fix C: where the links land. A keyed expander carries no st-key-
 # class in the page (Streamlit 1.55), so each fold a link lands on sits in
 # a keyed container of its own, the place the page scrolls to: Make a
-# round's Why fold, Insights' Explored and unexplored fold, and Make a
-# round's "Add a formulation to this round" (keyed, so a link can open it).
+# round's Why fold and "Add a formulation to this round" (keyed, so a link
+# can open it).
 WHY_PLACE = "why_these_place"
-EXPLORED_PLACE = "insights_explored_place"
 ADD_OWN_KEY = "add_own_fold"
 ADD_OWN_PLACE = "add_own_place"
 # The Repeat link's one-shot request to Make a round (review R-I3, ftue

@@ -144,79 +144,9 @@ def _lf(opt, checks):
     return U.LearnedFacts(orderings, {}, (r, calls), score_call, landing, "", items)
 
 
-def test_called_it_leads_with_the_overall_score(plain):
-    opt = _Obj()
-    lf = _lf(opt, _round6())
-    line = U.called_line(opt, lf)
-    # Persona fixes 2: led by where the scores landed (a miss above its
-    # range is a miss), then the order of the pairs that count.
-    # Review critique: measured ties are counted aloud.
-    # Round 2: no brackets inside the line.
-    assert line == ("**Round 6: scored higher than forecast.** 2 of 3 above their range; "
-                    "order right: 2 pairs, 1 tie.")
-    assert "calls right" not in line and "highest" not in line
-    # The cumulative record, a second short line.
-    assert U.called_so_far(opt, lf) == "So far: Overall score 11 of 11, Consistency 11 of 11."
-    assert _words(U.called_so_far(opt, lf)) <= 12   # the coordinator's line
-
-
-def test_called_it_measurement_lines_never_say_highest_for_a_target(plain):
-    opt = _Obj("target")
-    detail = U.called_detail(opt, _lf(opt, _round6()))
-    assert "Consistency: order right (2 of 2 pairs)." in detail
-    assert "calls right" not in detail
-    cons = detail.split("Consistency:", 1)[1].split("\n\n", 1)[0]
-    assert "highest" not in cons.lower() and "lowest" not in cons.lower()
-    # A higher-is-better measurement may still name its top pick.
-    opt = _Obj("max")
-    detail = U.called_detail(opt, _lf(opt, _round6()))
-    # Review critique: the pairs and the top pick are the "?"'s expert part,
-    # kept when it fits the 120 words; the words themselves:
-    assert wording.called_top(18, [18], True) == "Forecast highest: F18 ✓"
-    assert "Consistency: order right (2 of 2 pairs)." in detail
-
-
-def test_called_it_off_orders_say_pairs_in_the_right_order(plain):
-    opt = _Obj()
-    lf = _lf(opt, _round6(cons_meas=(13, 12, 11)))      # Consistency reversed
-    line = U.called_line(opt, lf)
-    assert line.startswith("**Round 6: scored higher than forecast.**")
-    # Review critique: "; 1 tie" said too: at most 14 words besides numbers.
-    assert _words(re.sub(r"[\d–]+", "", line)) <= 16
-    assert "Consistency: 1 of 3 pairs in the right order." in U.called_detail(opt, lf)
-    # The Overall order off too, and misses both ways, said plainly.
-    lf = _lf(opt, _round6(score_meas=(90, 91, 97), cons_meas=(13, 12, 11)))
-    assert U.called_line(opt, lf) == ("**Round 6: scored outside forecast, both ways.** All 3 "
-                                      "outside their range; order right in 1 of 3 pairs.")
-    assert wording.called_record("Firm", 8, 8) == "**Firm: 8 of 8 pairs in the right order.**"
-
-
 def test_called_it_landing_words():
     assert wording.called_order([[16, 17], [18]]) == "F16, F17 above F18"
     assert wording.called_order([[1], [2], [3], [4]]) == "F1 top, F4 bottom"
-
-
-def test_slopegraph_heads_say_order(plain, monkeypatch):
-    opt = _Obj()
-    lf = _lf(opt, _round6())
-    chart = U.called_chart(opt, lf).to_dict()
-    texts = set()
-
-    def walk(node):
-        if isinstance(node, dict):
-            for v in node.values():
-                walk(v)
-        elif isinstance(node, list):
-            for v in node:
-                walk(v)
-        elif isinstance(node, str):
-            texts.add(node)
-    walk(chart)
-    # Review critique (fix 1): no slopegraph; one shared axis, its legend
-    # naming the range, the forecast and the measured value in or out.
-    assert {wording.CHECK_KEY_RANGE, wording.CHECK_KEY_FORECAST, wording.CHECK_KEY_IN,
-            wording.CHECK_KEY_OUT} <= texts
-    assert "Forecast order" not in texts
 
 
 # ------------------------------------------------------------------ #

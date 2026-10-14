@@ -128,26 +128,6 @@ def _called_opt():
     return _O()
 
 
-def test_called_it_is_honest_on_a_miss():
-    # Rounds 1-2 earn Predictable (6 of 6); Round 3 is called in reverse.
-    checks = []
-    for r, base in ((1, 0), (2, 3)):
-        checks += [_check(base + k, r, "Firm", 10 - k, 10 - k) for k in range(3)]
-        checks += [_check(base + 10 + k, r, "Firm", 5 - k, 5 - k) for k in range(1)]
-    checks += [_check(20 + k, 3, "Firm", 10 - k, 5 + k) for k in range(3)]
-    # No noise here (every pair counts): test_review_persona2 has the rule.
-    r, calls = learned.called_it(_called_opt(), checks, None, {})
-    assert r == 3 and [n for n, _ in calls] == ["Firm"]
-    call = calls[0][1]
-    assert (call.right, call.counted) == (0, 3)
-    assert wording.called_pairs("Firm", call.right, call.counted, len(call.pairs)) == \
-        "Firm: 0 of 3 pairs in the right order."
-    marks = [wording.called_pair(p.high, p.low, p.right) for p in call.pairs]
-    assert all(m.endswith("✗") for m in marks)
-    assert wording.called_top(call.top_predicted, call.top_measured, call.top_right) == \
-        "Forecast highest: F20 ✗ (measured: F22)"
-
-
 def test_called_it_picks_by_the_verdict_before_the_round():
     # Not Predictable before Round 3 (too few pairs): nothing is called.
     checks = [_check(1, 1, "Firm", 2, 2), _check(2, 1, "Firm", 1, 1),
@@ -156,11 +136,7 @@ def test_called_it_picks_by_the_verdict_before_the_round():
 
 
 def test_called_it_overall_score_landing_words():
-    assert wording.called_range(1, 2, 0) == \
-        "1 of 3 in range; 2 misses, both higher than forecast."
-    assert wording.called_range(2, 0, 1) == "2 of 3 in range; 1 miss, lower than forecast."
     # A measured tie is said as one; all equal: nothing to order.
-    assert wording.called_pair(17, 16, None) == "F16 = F17 (tie)"
     assert wording.called_pairs("Tangy", 0, 0, 3) == "Tangy: all measured the same, nothing to order."
 
 
@@ -201,7 +177,6 @@ def test_called_it_is_judged_on_order_not_range():
 def test_called_it_above_the_range_is_a_miss():
     got, _ = _answer(_items((97, 84, 79), (9.2, 8.1, 6.8)))
     assert got.verdict == learned.CALLED and got.above == 1
-    assert wording.called_range(2, 1, 0) == "2 of 3 in range; 1 miss, higher than forecast."
 
 
 def test_called_it_is_honest_on_a_miss_in_its_line():
@@ -220,7 +195,6 @@ def test_a_result_measured_all_the_same_is_left_out():
     got = learned.called_summary(items)
     assert [n for n, _, _ in learned.shown(items)] == [insights.SCORE]
     assert got.tied == ["Firm"] and got.lead == insights.SCORE
-    assert wording.called_tied("Tangy") == "Tangy: all measured the same, not drawn."
 
 
 # Review critique (fix 1): the slopegraphs were replaced by one shared axis per
@@ -480,7 +454,7 @@ def _section_leaves(at, title):
 def test_section_order(screen):
     # Review critique (fix 5): progress, What next?, the model, what was
     # tried; What drives each result? is a closed fold (no heading).
-    assert U.SECTION_ORDER == ("progress", "next", "predictions", "tried", "drives")
+    assert U.SECTION_ORDER == ("progress", "next", "predictions")
     # Slim Review (owner, 2026-10-08, re-pinned): no model section of its
     # own; the Forecast check heads the model's place; What have we tried?
     # is a closed fold.
@@ -494,31 +468,6 @@ def test_section_order(screen):
     # closed fold now.)
     # Round 6 is open: no Called it? until it is scored.
     assert "called it" not in text.lower() and "Round 5: partly" not in text
-
-
-def test_section_is_one_line_one_chart_one_caption(screen):
-    # Slim Review (re-pinned): Round 6 is open, so the Forecast check draws
-    # no panels: its section is the verdict line, then the ordering chart
-    # and its caption in the closed details fold.
-    els = _section_leaves(screen, wording.FORECAST_CHECK_TITLE)
-    kinds = [el.type for el in els]
-    assert not any(k in ("table", "dataframe", "arrow_data_frame", "arrow_table") for k in kinds)
-    texts = [_text(el) for el in els if _text(el)]
-    texts = [t for t in texts[:texts.index(wording.Q4_TITLE)]
-             if t != wording.LEARNED_DETAILS_TITLE]
-    assert len(texts) == 2, texts            # the verdict line and the caption
-    # Persona fixes 2: Line A's forecasts are too close to call.
-    assert texts[0].startswith(("So far: ", "Predicts:", "Partly:", "Not yet:"))
-    assert _words(texts[0]) <= 14
-    # Round 2: the caption says the Holm adjustment.
-    assert texts[1].startswith(wording.LEARNED_CAPTION)
-    assert sum("vega" in k or "chart" in k for k in kinds) == 1
-    fold = next(e for e in screen.tabs[3].expander if e.label == wording.LEARNED_DETAILS_TITLE)
-    assert not fold.proto.expanded
-    every = " | ".join(_text(el) for el, _, _ in _leaves(screen.tabs[3]))
-    for gone in ("Learned effects", "Raised by", "Lowered by", "Picked the top one",
-                 "Measurements miss more than expected"):
-        assert gone not in every
 
 
 @pytest.fixture(scope="module")
@@ -542,62 +491,31 @@ def scored(tmp_path_factory):
     mp.undo()
 
 
-def test_called_it_sits_at_the_top_as_charts(scored):
+def test_the_forecast_check_is_its_label_then_the_verdict_line(scored):
+    """One-glance Review (owner, 2026-10-14): under its heading, the Rebuilt
+    label, the one verdict line, then the closed Details fold; the Called
+    it? line and panels are gone."""
     leaves = [(el, _text(el)) for el, _, _ in _leaves(scored.tabs[3])]
     texts = [t for _, t in leaves]
-    # Review critique (fix 5): the Forecast check sits right above What has
-    # the model learned?, after What next?. Slim Review (re-pinned): that
-    # section is gone; its verdict line closes the check's lines, and the
-    # ordering chart follows in a closed fold.
-    first_heading = next(i for i, (el, _t) in enumerate(leaves) if el.type == "expander"
-                         and el.label == wording.LEARNED_DETAILS_TITLE)
-    # Round 2 (P2 #9): its own section heading, as the questions are.
+    details = next(i for i, (el, _t) in enumerate(leaves) if el.type == "expander"
+                   and el.label == wording.LEARNED_DETAILS_TITLE)
     assert texts.index(f"#### {wording.Q5_TITLE}") < texts.index(
         f"#### {wording.FORECAST_CHECK_TITLE}")
     title = texts.index(f"#### {wording.FORECAST_CHECK_TITLE}")
     # Rebuilt framing: right under its title, said to be rebuilt.
     assert texts[title + 1] == wording.REBUILT_LABEL
-    called = [i for i, t in enumerate(texts)
-              if re.match(r"\*\*Round 5: (scored|.+ measured|all \d+ inside|.+, all \d+ inside"
-                       r"|inside its) ", t)]
-    assert called and title < called[0] < first_heading
-    line = texts[called[0]]
-    # Persona fixes 2: where the scores landed, then the order of the
-    # pairs that count ("… 2 of 3 above their range; order too close to call").
-    # Review critique: measured ties counted aloud ("; 1 tie"); at most 14
-    # words besides the numbers.
-    assert _words(re.sub(r"[\d–]+", "", line)) <= 16, line
-    assert "calls right" not in line
-    # Visual: a chart and the caption, before the first heading.
-    between = leaves[called[0] + 1:first_heading]
-    assert any("vega" in el.type or "chart" in el.type for el, _ in between)
-    assert wording.CALLED_CAPTION in [t for _, t in between]
-    # The pairs, one ✓ or ✗ each, are in its "?", not on the page.
-    el = leaves[called[0]][0]
-    assert "✓" in el.help or "✗" in el.help or "tie" in el.help or "too close" in el.help
-    assert not any("✓" in t or "✗" in t for t in texts)
+    between = [t for t in texts[title + 2:details] if t]
+    assert len(between) == 1 and re.match(r"(Predicts|Partly|Not yet): ", between[0]), between
+    assert not any(re.match(r"\*\*Round \d+: ", t) for t in texts)
+    # The one chart sits in the fold, after one sentence per result with pairs.
+    inside = leaves[details + 1:]
+    assert any("vega" in el.type or "chart" in el.type for el, _ in inside)
+    assert any(" were far enough apart to call; " in t or "none could be called" in t
+               for _, t in inside)
 
 
-def test_called_chart_is_at_most_three_small_panels(scored):
-    # Any LearnedFacts the scored screen worked out: its chart's panels.
-    lf = scored.session_state[U.LEARNED_KEY][1]
-    drawn = learned.shown(lf.items)
-    assert 1 <= len(drawn) <= 1 + learned.CALLED_PANELS
-    assert lf.items[0][0] == insights.SCORE
     # Review readable: taller (120 -> 160 px) so 12 px end labels clear each other.
     # Round 2 (P2 #9): one full-width panel per row, 40 px per formulation.
-    assert U.CALLED_W >= 600 and U.CALLED_ROW_H == 40
-
-
-def test_profiler_headline_names_no_effect(screen):
-    # Review critique (fix 4): the profiler is a closed fold, worked out once
-    # opened; its answer names what bounds the lines, never an effect.
-    assert U.limiting_name(None) is None
-    # Round 2: the answer line adds the period (it read "total..").
-    assert wording.answer_line(wording.drives_limited("Formulation total"), "") == (
-        "**Single-ingredient moves are limited by the Formulation total.**")
-    for kind in ("ingredients", "settings", "both"):
-        assert _words(wording.profiler_guide(kind)) <= 8
 
 
 def answer_help(els):
@@ -625,13 +543,11 @@ def test_no_prediction_reads_100_on_the_review(screen):
 
 def test_wording_passes_banned_and_limits():
     texts = [wording.LEARNED_TITLE, wording.LEARNED_STRIP_LABEL, *wording.LEARNED_WORDS.values(),
-             *wording.LEARNED_REASONS.values(), wording.LEARNED_COL_RESULT,
-             wording.LEARNED_COL_VERDICT, wording.LEARNED_COL_PAIRS, wording.LEARNED_COL_TOP,
-             wording.LEARNED_CHART_X, wording.LEARNED_CHANCE,
-             wording.LEARNED_CAPTION, wording.LEARNED_NONE_YET,
-             wording.CALLED_CAPTION, wording.CALLED_RULE, *wording.CALLED_WORDS.values(),
-             wording.CALLED_TIP_FORECAST, wording.CALLED_TIP_MEASURED,
-             wording.called_answer(6, "called", "Thickness uniformity", (16, 18), 18),
+             *wording.LEARNED_REASONS.values(), wording.LEARNED_COL_PAIRS, wording.LEARNED_COL_TOP,
+             wording.LEARNED_CHANCE,
+             wording.LEARNED_NONE_YET,
+             *wording.CALLED_WORDS.values(),
+             wording.CALLED_TIP_FORECAST, wording.called_answer(6, "called", "Thickness uniformity", (16, 18), 18),
              wording.called_answer(10, "partly", right=["Consistency"],
                                    off=["Overall score", "Thickness uniformity"]),
              wording.called_answer(10, "missed", off=["Firmness"]),
@@ -639,10 +555,7 @@ def test_wording_passes_banned_and_limits():
              wording.learned_tops([("Overall score", 3, 4, 1.7)]),
              wording.LEARNED_FORECAST_TITLE, wording.LEARNED_FORECAST_NONE,
              wording.LEARNED_PREVIEW_TITLE, wording.LEARNED_PREVIEW_CAPTION,
-             wording.LEARNED_RULE, wording.LEARNED_TOP_RULE, wording.PROFILER_NO_CLAIM,
-             *(wording.profiler_guide(k) for k in ("ingredients", "settings", "both")),
-             wording.called_tied("Tangy"), wording.called_ranges(["F16 13.5 (11.1–≥ 15)"]),
-             wording.METHOD_LEARNED_TITLE, wording.METHOD_FORECAST_CHART,
+             wording.LEARNED_RULE, wording.called_ranges(["F16 13.5 (11.1–≥ 15)"]),
              wording.learned_answer(["Firmness"], ["Juiciness"], ["Cook loss"]),
              wording.learned_skill_line(22, 24, 0.61, -0.11, 24),
              wording.forecast_help(15, 6), wording.preview_help(3, 10),
@@ -653,11 +566,10 @@ def test_wording_passes_banned_and_limits():
         assert not any(p.search(t) for p in _BANNED), t
         assert not re.search(r"\bgain\b", t, re.I), t
     # Captions at most 8 words, labels at most 5, the strip at most 6.
-    for c in (wording.LEARNED_CAPTION, wording.CALLED_CAPTION,
-              wording.LEARNED_PREVIEW_CAPTION, wording.LEARNED_FORECAST_NONE):
+    for c in (wording.LEARNED_PREVIEW_CAPTION, wording.LEARNED_FORECAST_NONE):
         assert _words(c) <= 8, c
     for label in (wording.LEARNED_STRIP_LABEL, wording.LEARNED_COL_PAIRS, wording.LEARNED_COL_TOP,
-                  wording.LEARNED_CHART_X, wording.LEARNED_FORECAST_TITLE):
+                  wording.LEARNED_FORECAST_TITLE):
         assert _words(label) <= 5, label
     for line in (wording.called_answer(6, "called", "Thickness uniformity", (16, 18), 18),
                  wording.called_answer(10, "partly", right=["Consistency"],

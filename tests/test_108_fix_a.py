@@ -604,18 +604,3 @@ def test_ties_use_the_q1_rise_threshold(_cwd):
     assert ui_insights.tie_text(opt, insights.noise_yardstick(opt)) == ""
 
 
-def test_the_screen_s_figures_are_fix_a_s_re_measured_ones():
-    """Fix A re-measured (fix-a-report.md, I9): coverage on the 48 simulated
-    projects, all Rounds, 90.6 % of measured values and 90.0 % of Overall
-    scores before the second widening; the skill gate at n = 10 reads "no
-    better" for a correct model in 4.1 % of windows (was 6.9 %), below 0.20
-    in 12.5 % at n = 10 and 11.0 % at n = 15 (were 15.3 % and 12.3 %)."""
-    import wording as W
-    assert W.SIMULATED_COVERAGE == {"measurements": 91, "score": 90}
-    assert "about 91 % (measurements) / 90 %" in W.coverage_reading()
-    how = W.how_skill()
-    assert "in 4.1 % of windows of 10 checks (n = 10), and below 0.20 in 12.5 %" in how
-    assert "under 7 %" not in how and "about 15 %" not in how
-    for text in (W.TIP_RELIABLE_LIMITS, " ".join(W.MODEL_LIMITS)):
-        assert ("below 0.20 in 12.5 % of windows of 10 checks (n = 10) and 11.0 % of windows "
-                "of 15 (n = 15)") in text, text

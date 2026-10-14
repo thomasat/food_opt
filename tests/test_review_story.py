@@ -74,13 +74,9 @@ def sections(at):
             out[cur] = []
             continue
         if el.type == "expander":
-            # Slim Review: What have we tried? is a fold; the Forecast
-            # check's details fold stays in its section.
-            if el.label == wording.LEARNED_DETAILS_TITLE:
-                continue
-            cur = el.label if el.label == wording.Q4_TITLE and not folds else None
-            if cur is not None:
-                out[cur] = []
+            # The Forecast check's details fold stays in its section.
+            if el.label != wording.LEARNED_DETAILS_TITLE:
+                cur = None
             continue
         if cur is not None and (text or el.type in CHART or el.type == "toggle"):
             out[cur].append((el.type, text or getattr(el, "label", "")))
@@ -110,20 +106,19 @@ def screens(tmp_path_factory):
 def test_sections_and_cards_in_story_order(screens, name):
     at = screens[name]
     opt = D.load(name)
-    assert list(sections(at)) == [wording.for_project(opt, q) for q in STORY] + [
-        wording.for_project(opt, wording.Q4_TITLE)]
+    assert list(sections(at)) == [wording.for_project(opt, q) for q in STORY]
     # The cards in the same order, Next last.
     labels = [c["label"] for c in cards(at, order="screen")]
     # Review learned: Model once the model's verdicts are in (the gate
     # keeps Predictions).
     model = wording.CARD_PREDICTIONS if name == D.SNACK else wording.LEARNED_STRIP_LABEL
     assert labels == [wording.CARD_PROGRESS, model, wording.CARD_NEXT]
-    assert U.SECTION_ORDER == ("progress", "next", "predictions", "tried", "drives")
+    assert U.SECTION_ORDER == ("progress", "next", "predictions")
     assert U._STATUS_ORDER == ("progress", "predictions", "next")
 
 
 @pytest.mark.parametrize("name", [D.LINE_A, D.SNACK, D.PROCESS_ONLY])
-def test_improving_has_two_charts_and_tried_has_its_toggle(screens, name):
+def test_improving_has_two_charts(screens, name):
     got = sections(screens[name])
     opt = D.load(name)
     improving = got[wording.for_project(opt, wording.Q2_TITLE)]
@@ -133,11 +128,6 @@ def test_improving_has_two_charts_and_tried_has_its_toggle(screens, name):
     title = (wording.SPIDER_TITLE if len(opt.objectives) >= U.SPIDER_MIN
              else wording.STORY_TARGET_TITLE)
     assert ("markdown", f"**{wording.for_project(opt, title)}**") in improving
-    tried = got[wording.for_project(opt, wording.Q4_TITLE)]
-    # Slim Review (re-pinned): a closed fold, worked out only once opened.
-    assert sum(t in CHART for t, _ in tried) == 0
-    # Review critique (fix 5): no "Show as lines" toggle any more.
-    assert not any(t == "toggle" for t, _ in tried)
 
 
 @pytest.mark.parametrize("name", [D.LINE_A, D.SNACK, D.PROCESS_ONLY])
@@ -305,94 +295,6 @@ def test_trust_answer_on_line_a(screens):
 
 
 # ------------------------------------------------------------------ #
-#  What drives each result?
-# ------------------------------------------------------------------ #
-
-class _Col:
-    def __init__(self, name, effect, end=None):
-        self.name, self.effect, self.near_effect, self.end = name, effect, effect, end
-
-
-class _Prof:
-    def __init__(self, cols, ref="Best so far"):
-        self.columns, self.ref_label = cols, ref
-
-
-def test_the_finding_line():
-    fine, noise = insights.Guard([]), insights.Guard(["noise"])
-    p = _Prof([_Col("Oat flour", 9.0, "Highest"), _Col("Salt", 2.0)])
-    assert U.driver_finding(None, p, fine) == \
-        "**Oat flour matters most.** Best so far uses its Highest."
-    p = _Prof([_Col("Salt", 4.0), _Col("Pea protein", 2.0)], ref="Suggestion 1")
-    assert U.driver_finding(None, p, fine) == "**Salt matters most.** Then Pea protein."
-    assert U.driver_finding(None, _Prof([_Col("Salt", 4.0)]), fine) == "**Salt matters most.**"
-    for p, g in ((_Prof([_Col("Salt", 4.0)]), noise), (_Prof([_Col("Salt", 0.0)]), fine),
-                 (None, None)):
-        # Review story 3: one line for every no-leader case.
-        assert U.driver_finding(None, p, g) == f"**{wording.story_no_leader()}.**"
-    for line in ("**Oat flour matters most.** Best so far uses its Highest.",
-                 "**Textured soy protein matters most.** Then Methylcellulose."):
-        assert _words(line) <= 10
-
-
-def test_the_finding_is_not_the_next_cards_word(screens):
-    # Review critique (fix 4): Q3 is a closed fold, worked out once opened:
-    # nothing of it (and no Next word) on the closed screen.
-    at = screens[D.LINE_A]
-    assert wording.Q3_TITLE not in sections(at)
-    assert [e for e in at.tabs[3].expander if e.label == wording.Q3_TITLE]
-
-
-def test_the_profiler_defaults_to_four_columns():
-    assert U.PROFILE_COLUMNS == 4
-    # Review readable: at most PROFILE_WRAP (4) panels a row; more columns wrap
-    # into a second block, so 7 columns draw at the 4-column width.
-    assert U.panel_width(3) > U.panel_width(4) == U.panel_width(7) == U._PANEL_W
-
-
-# ------------------------------------------------------------------ #
-#  What have we tried? — the search path
-# ------------------------------------------------------------------ #
-
-def test_search_path_panels():
-    opt = D.load(D.LINE_A)
-    axes, lines = insights.tried_axes(opt), insights.tried_lines(opt)
-    chart = U.search_path_chart(opt, axes, lines)
-    spec = chart.to_dict()
-    assert len(spec["concat"]) == len(axes) and spec["columns"] == U.PATH_COLUMNS
-    titles = [p["title"]["text"] for p in spec["concat"]]
-    assert titles == [U._axis_label(a) for a in axes]
-    df = U.path_frame(opt, axes, lines)
-    # One dot per formulation per row; the open Round's suggestions in its row.
-    assert set(df["role"]) >= {wording.STORY_PATH_TESTED, wording.TRIED_BEST,
-                               wording.TRIED_SUGGESTED}
-    sugg = df[df["role"] == wording.TRIED_SUGGESTED]
-    assert set(sugg["round"]) == {opt.pending_batch_no}
-    best = df[df["role"] == wording.TRIED_BEST]
-    assert set(best["no"]) == {int(opt.formulation_ids[opt.best_index()])}
-    # Each continuous panel spans its allowed Lowest–Highest.
-    text = json.dumps(spec)
-    for a in axes:
-        if a.options is None:
-            assert json.dumps([a.low, a.high]) in text
-    # Palette: ink Best so far, orange suggestions, greys; no score ramp.
-    for colour in (U.mark("bar_latest")[0], U.outline_colour(), U._TRIED_GREYS[U.theme()][1]):
-        assert colour in text
-    assert not any(c in text for c in U.score_colours())
-    # Rounds down, the first at the top.
-    rounds = sorted(set(df["round"]))
-    assert spec["concat"][0]["layer"][1]["encoding"]["y"]["scale"]["domain"] == \
-        [wording.round_tick(r) for r in rounds]
-
-
-def test_search_path_on_settings_only_and_empty():
-    opt = D.load(D.PROCESS_ONLY)
-    assert U.search_path_chart(opt, insights.tried_axes(opt), insights.tried_lines(opt))
-    assert "trial" in wording.for_project(opt, wording.STORY_PATH_CAPTION)
-    assert U.search_path_chart(opt, [], []) is None
-
-
-# ------------------------------------------------------------------ #
 #  Vocabulary and word limits
 # ------------------------------------------------------------------ #
 
@@ -409,11 +311,7 @@ def _story_strings():
             wording.STORY_NO_FORECAST, wording.STORY_TRUST_CAPTION,
             wording.story_trust_answer(13, 15), wording.story_trust_so_far(7, 7, 10),
             wording.story_misses(2, 0), wording.story_trust_help(13, 15, "x"),
-            wording.story_driver("Salt"), wording.story_driver_end("Best so far", "Highest"),
-            wording.story_driver_then("Salt"), wording.STORY_NO_DRIVER,
-            wording.story_driver_help("Best so far"), wording.STORY_PATH_CAPTION,
-            wording.STORY_PATH_TESTED,
-            wording.story_path_help(), wording.story_path_help(True), wording.STORY_VALUE]
+            wording.STORY_VALUE]
 
 
 def test_story_strings_pass_the_vocabulary_guard():
@@ -427,11 +325,11 @@ def test_story_strings_pass_the_vocabulary_guard():
     for label in (wording.STORY_ROUND_AVERAGE, wording.story_target_start(1),
                   wording.STORY_TARGET_TITLE, wording.STORY_FORECAST, wording.STORY_LANDED_IN,
                   wording.STORY_LANDED_OUT, wording.STORY_NO_FORECAST,
-                  wording.STORY_PATH_TESTED, wording.story_target_row("Textured pea protein",
+                  wording.story_target_row("Textured pea protein",
                                                                       "target", 13)):
         assert _words(label) <= 5, label
     for caption in (wording.STORY_IMPROVING_CAPTION, wording.STORY_TARGET_CAPTION,
-                    wording.STORY_TRUST_CAPTION, wording.STORY_PATH_CAPTION):
+                    wording.STORY_TRUST_CAPTION):
         assert _words(caption) <= 8, caption
     for status in (wording.card_progress("87.8", "90.5", "+2.5 (beat 2.0)"),
                    wording.card_checked_so_far(7, 7, 10), wording.story_trust_answer(13, 15),
@@ -475,7 +373,7 @@ def test_pilot_story(pilot):
     at = _open(ALL10)
     got = sections(at)
     # Round 2 (P2 #9): the Forecast check is its own section after What next?.
-    assert list(got) == STORY + [wording.Q4_TITLE]       # slim Review
+    assert list(got) == STORY       # one-glance Review: three sections
     line = next(t for k, t in got[wording.Q2_TITLE] if k == "markdown")
     # Review story 2: "of 100", so Flat at 96.4 reads as near the ceiling.
     # Persona fixes 2: Flat after a rise reads "Plateau since Round N".
@@ -502,8 +400,6 @@ def test_pilot_story(pilot):
     # Other verdict groups follow, bare, when the line has room.
     assert re.fullmatch(r"Predicts: [A-Z][\w ]+ \(\d+ of \d+ pairs called, \d+ right\)\."
                         r"( (Partly|Not yet): [A-Z][\w ,]+\.)*", line), line
-    # Review critique (fix 4): the profiler is a closed fold.
-    assert wording.Q3_TITLE not in got
     before = cards(_open(R6), order="screen")
     assert [c["word"] for c in before[:2]] == ["No new best", "Partly:"]
 
