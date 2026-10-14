@@ -253,8 +253,11 @@ def test_the_poller_never_reruns_the_page_during_a_replay():
 
 def test_a_replay_step_draws_as_many_elements_as_any_round():
     # Nothing of the Round before lingers (dimmed) while a step waits.
-    assert "_hold(2)" in inspect.getsource(U._changes_block)
-    assert "_hold(1)" in inspect.getsource(U._changes_block)
+    # Round panel (spec §10, re-pinned): the title, the picture (or the
+    # still-the-start line) and the Unchanged line, or a held place.
+    # Round panel (fix round 2): the notes row keeps two places at every Round.
+    assert inspect.getsource(U._changes_block).count("_changes_notes(") == 2
+    assert "_hold(1)" in inspect.getsource(U._changes_notes)
     assert "_hold(1)" in inspect.getsource(U._replay_bar)
 
 
@@ -331,36 +334,47 @@ def test_one_round_has_no_control_and_no_frame():
 #  Geometry: legible beside each other, no horizontal scroll
 # ------------------------------------------------------------------ #
 
+def _flat_layers(spec):
+    out = []
+    for layer in spec.get("layer", []):
+        out += _flat_layers(layer) if "layer" in layer else [layer]
+    return out
+
+
 def test_the_profile_stays_legible_beside_the_chart():
-    assert U.PANEL_SPIDER >= 340
+    # Round panel (spec §10, re-pinned): the profile is PANEL_SPIDER_H tall
+    # and as wide as its column (fit), its rings as large as the column lets.
     opt = _spider_opt()
     data = U.spider_data(opt)
-    spec = U.spider_chart(opt, data, 4, size=U.PANEL_SPIDER, wrap=True).to_dict()
-    flat = json.dumps(spec)
-    assert f'"width": {U.PANEL_SPIDER}' in flat and f'"height": {U.PANEL_SPIDER}' in flat
-    # The side spokes' labels on two lines (name, then target); top and
-    # bottom stay on one.
+    spec = U.spider_chart(opt, data, 4, size=U.PANEL_SPIDER_H, fit=True).to_dict()
+    # The rings' radius in px at a column's plot width (the x domain's own
+    # expression): at least 100 px in the narrowest side-by-side column
+    # (393 px at 1152 x 720), the 340 px square's 155 px once there is room.
+    expr = next(l["encoding"]["x"]["scale"]["domain"][1]["expr"]
+                for l in _flat_layers(spec) if "scale" in l["encoding"].get("x", {}))
+    radius = lambda w: (w / 2) / eval(expr, {"width": w, "max": max, "min": min})  # noqa: E731
+    assert radius(393) >= 100
+    assert radius(600) == pytest.approx((U.PANEL_SPIDER_H / 2 - 19) / 1.08)
+    assert radius(600) >= U.PANEL_SPIDER / 2 / 1.1
+    assert "width" not in spec and spec["height"] == U.PANEL_SPIDER_H + U._SPIDER_KEY_H
+    # The side spokes' labels: the name, then the target on its own line;
+    # top and bottom stay on one.
     texts = [row["text"] for name, rows in spec["datasets"].items() for row in rows
              if isinstance(row, dict) and "text" in row and "align" in row
              and "x1" in row]
     sides = {t for t in texts if "\n" in t}
-    assert len(sides) == 2 and all(t.split("\n")[1].startswith("target") for t in sides)
-    drawn = {t for t in texts if U.SPOKE_SEP in t} - {t.replace("\n", U.SPOKE_SEP) for t in sides}
+    assert len(sides) == 2 and all(t.split("\n")[-1].startswith("target") for t in sides)
+    assert all(len(line) <= U._SPIDER_WRAP for t in sides for line in t.split("\n")[:-1])
+    drawn = {t for t in texts if U.SPOKE_SEP in t}
     assert len(drawn) == 2                        # the top and bottom spokes, one line
 
 
-def test_the_table_header_wraps_only_before_its_bracket():
+def test_what_changed_names_the_best_after_the_round():
     opt = _spider_opt()
     ch = U.what_changed(opt, 2)
-    head = U.changes_table(opt, ch, compact=True).splitlines()[0]
-    # Final demo (A1), re-pinned: 'Best after Round 2: F4' (made in Round 2;
-    # an earlier one adds its Round in brackets, kept together).
-    assert "Best after Round 2: F4" in head
-    assert "Best after Round 2: F4" in U.changes_table(opt, ch).splitlines()[0]
-    assert U._keep_together(wording.best_after(10, 21, 7)) == \
-        "Best after Round 10: F21 (Round\u00a07)"
-    # The cells never wrap (no horizontal scroll: the column fits them).
-    assert "white-space: nowrap" in U.REPLAY_STYLE
+    # Final demo (A1), re-pinned to the picture (spec §10): 'Best after
+    # Round 2: F4' (made in Round 2; an earlier one adds its Round).
+    assert U.changes_picture(opt, ch)["best"] == "Best after Round 2: F4"
     # No chart toolbar pops over the control (a click meant for Replay).
     assert '[class*="st-key-insights_replay_panel"] [data-testid="stElementToolbar"]' \
         in U.REPLAY_STYLE

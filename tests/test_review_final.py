@@ -260,7 +260,7 @@ def test_repeat_wording_is_one_form_everywhere():
 def test_progress_help_says_what_the_rise_needed_is():
     assert wording.progress_need_plain("3.0", "1", True, 3).startswith(
         "3.0: the best of 3 new results must beat noise by this much.")
-    assert wording.NOISE_BAND == "±1 point: assumed noise (1 SD)"
+    assert not hasattr(wording, "NOISE_BAND")      # fix round: no noise band
 
 
 # ------------------------------------------------------------------ #
@@ -283,14 +283,13 @@ def test_the_improving_chart_shades_the_zone_within_noise_of_the_top(tmp_path, m
     opt = _near_top(tmp_path, monkeypatch)
     spec = U.improving_chart(opt).to_dict()
     text = json.dumps(spec, ensure_ascii=False)
-    assert wording.TOP_ZONE in text and wording.NOISE_BAND in text
+    assert wording.TOP_ZONE in text and "assumed noise" not in text
     zone = next(v for v in spec["datasets"].values() if v and v[0].get("what") == wording.TOP_ZONE)
     need = U.tie_need(insights.noise_yardstick(opt))
     assert zone[0]["hi"] == pytest.approx(100.0) and zone[0]["lo"] == pytest.approx(100 - need)
-    # The band is clipped at the top score.
-    band = next(v for v in spec["datasets"].values()
-                if v and v[0].get("what") == wording.NOISE_BAND)
-    assert max(r["hi"] for r in band) <= 100.0 + 1e-9
+    # Fix round (owner, 2026-10-14): no ±noise band; the zone keeps its key.
+    assert not [v for v in spec["datasets"].values() if v and v[0].get("what") not in
+                (None, wording.TOP_ZONE) and "lo" in v[0] and "v" in v[0]]
     # The dotted line is named on its tick; Round averages are printed.
     assert "Top score 100" in text
     for _r, _a, _b, m, _n in U.round_averages(opt):
@@ -598,7 +597,7 @@ def test_no_round_two_string_says_a_banned_word():
     assert not bad, bad
     rendered = [wording.ceiling_help("98.3", "100", "1.7", "2.3", "98.4", True, ["x"]),
                 wording.PREDICTED_MEASUREMENTS_HELP, wording.LEARNED_RULE,
-                wording.story_improving_help("84.2", "96.1", 1, 6, True, "2.3"),
+                wording.story_improving_help("84.2", "96.1", 1, 6, "2.3"),
                 wording.why_chart_caption_full("3,000", True, True, True),
                 wording.called_shown_help(["Tangy"], 10), wording.PROFILER_CRAMPED_HELP,
                 wording.METHOD_STOP, *[c for r in wording.glossary_rows() for c in r[:1]]]
