@@ -8624,7 +8624,6 @@ def story_target_help(start_no, best_no, start_round):
 STORY_FORECAST = "Predicted 95 % range"
 STORY_LANDED_IN = "Landed in range"
 STORY_LANDED_OUT = "Landed outside"
-STORY_NO_FORECAST = "No forecast yet"
 # STORY_TRUST_CAPTION: see "rebuilt framing" at the end.
 
 
@@ -9600,7 +9599,16 @@ def learned_evidence(rows, skill_line=""):
     """The Model item's evidence: 'Evidence: pairs ordered right from
     earlier Rounds — Overall score 14/21, Firmness 16/23. Overall score: 13
     of 15 inside the 95 % predicted range. …'"""
-    pairs = ", ".join(f"{name} {right}/{n}" for name, right, n in rows if n)
+    # Fix round 3: the one form of a verdict's pairs, never a bare a/b:
+    # rows (name, right, called, all) read 'Creaminess 6 of 12 called, 2
+    # right'; an old (name, right, called) 'Creaminess 2 right of 6 called'.
+    def one(row):
+        if len(row) > 3:
+            name, right, n, total = row[:4]
+            return f"{name} {called_of(right, n, total)}"
+        name, right, n = row
+        return f"{name} {right} right of {n} called"
+    pairs = "; ".join(one(r) for r in rows if r[2])
     line = f"Evidence: pairs ordered right from earlier Rounds — {pairs or 'none yet'}."
     return f"{line} {skill_line}".strip()
 
@@ -10840,44 +10848,8 @@ def track_measured_counted(misses, total, allowed):
             f"({normal_count(allowed)})")
 
 
-# A verdict word (Predicts, Partly) carries its evidence wherever it shows:
-# 'Partly: Tangy (7 of 8 pairs)'.
-def named_pairs(names, counts, first_unit=True):
-    """'Tangy (7 of 8 pairs)'; 'Overall score (5 of 5 pairs), Tangy (6 of
-    7)' — `counts` {name: (right, pairs)}; a name with no count is bare."""
-    out = []
-    for name in names:
-        c = counts.get(name)
-        if c is None or not c[1]:
-            out.append(name)
-            continue
-        unit = " pairs" if first_unit and not any("pairs" in o for o in out) else ""
-        out.append(f"{name} ({c[0]} of {c[1]}{unit})")
-    return ", ".join(out)
-
-
-def named_pairs_short(name, count):
-    """'Tangy (5/5)', the details chart's form, beside a count that says
-    "pairs"; bare without a count."""
-    if count is None or not count[1]:
-        return name
-    return f"{name} ({count[0]}/{count[1]})"
-
-
-def learned_strip_counted(predictable, partly, not_yet=(), counts=None):
-    """learned_strip with the evidence: ('Partly:', 'Tangy (5 of 5 pairs)');
-    ('Predicts:', 'Consistency (11 of 11 pairs)'). The Not yet names stay
-    bare (they are the ones without evidence)."""
-    word, shown = learned_strip(predictable, partly, not_yet)
-    names = predictable or partly
-    if not names or not counts:
-        return word, shown
-    if len(names) == 1:
-        return word, named_pairs(names, counts)
-    # Two names in a strip item of ~7 words: the details chart's form,
-    # 'Overall score (5/5), Tangy (5/5)'; its "?" says they are pairs.
-    head = ", ".join(named_pairs_short(n, counts.get(n)) for n in names[:2])
-    return word, head + (f" +{len(names) - 2}" if len(names) > 2 else "")
+# A verdict word's evidence: named_pairs, named_pairs_short and
+# learned_strip_counted (sceptic review section, below).
 
 
 def learned_count_needed(label, right, pairs, needed):
@@ -11000,8 +10972,8 @@ def learning_round_counted(top_text, best_text):
 
 
 def not_yet_counted(names, counts):
-    """'Not yet: Consistency (3/3), Creaminess (1/5), Thickness uniformity
-    (2/5).'"""
+    """'Not yet: Consistency (3 of 9 called, 3 right), Creaminess (5 of 9
+    called, 1 right).'"""
     return "Not yet: " + ", ".join(named_pairs_short(n, counts.get(n)) for n in names) + "."
 
 
@@ -11134,9 +11106,10 @@ def score_pairs_called(label, right, called, total):
 
 
 def learned_count(label, right, pairs, few=False, total=None):
-    """'Overall score 5 of 12 pairs called, 4 right'; without the total,
-    'Overall score 7 of 9 pairs ordered right'."""
-    if total is not None and total > pairs:
+    """'Overall score 5 of 12 pairs called, 4 right' (fix round 3: also when
+    every pair was called, '9 of 9 pairs called, 7 right'); without the
+    total, 'Overall score 7 of 9 pairs ordered right'."""
+    if total is not None and total >= pairs:
         tail = f"{right} right"
         out = f"{label} {pairs} of {total} pairs called, {tail}"
         return f"{out} (too few to judge)" if few else out
@@ -11147,7 +11120,7 @@ def learned_count(label, right, pairs, few=False, total=None):
 
 def learned_count_needed(label, right, pairs, needed, total=None):
     """'Overall score 4 of 12 pairs called, 4 right (needs 5)'."""
-    if total is not None and total > pairs:
+    if total is not None and total >= pairs:
         return f"{label} {pairs} of {total} pairs called, {right} right (needs {needed})"
     return f"{label} {right} of {pairs} pairs (needs {needed})"
 
@@ -11324,6 +11297,8 @@ def stop_on_target(on, n, offs, targets=True, beyond=None):
     flags = list(beyond) if beyond is not None else [None] * len(offs)
     flags += [None] * (len(offs) - len(flags))
     if len(offs) == 1:
+        # Named whatever its length (the test allows 11 words after "On
+        # target", 12 after "At their best", for a two-word name).
         return (f"{head}; {offs[0]}." if flags[0] is None
                 else f"{head}; {offs[0]}, {_noise_side(flags[0])}.")
     out, within = sum(f is True for f in flags), sum(f is False for f in flags)
@@ -11407,7 +11382,7 @@ def check_head(round_no, above, below, subject=None, total=None, none=0):
     their 95 % range.**'); every range over the whole Range (`none` of
     them): '**Round 6: Consistency, 3 values with no forecast range.**'."""
     if total == 0:
-        who = f"{subject}, " if subject else ""
+        who = f"{subject or OVERALL_SCORE_COLUMN}, "
         many = f"{none} values" if none != 1 else "1 value"
         return f"**{ROUND_CAP} {round_no}: {who}{many} with no forecast range.**"
     landing = check_landing(above, below)
@@ -11435,7 +11410,9 @@ def check_line(round_no, inside, above, below, order_text="", subject=None, none
     if total == 0:
         return check_head(round_no, above, below, subject, total=0, none=none)
     rng = "" if (not above and not below) else check_range(inside, above, below)
-    tail = "; ".join(t for t in (rng, order_text) if t)
+    # Fix round 3: some (not all) with no forecast range, named.
+    left = f"{none} with no forecast" if none else ""
+    tail = "; ".join(t for t in (rng, left, order_text) if t)
     head = check_head(round_no, above, below, subject, total=total)
     return f"{head} {tail[:1].upper()}{tail[1:]}." if tail else head
 
@@ -11443,9 +11420,10 @@ def check_line(round_no, inside, above, below, order_text="", subject=None, none
 # A 95 % range over the measurement's whole Range forecasts nothing.
 NO_FORECAST = "No forecast"
 NO_FORECAST_EDGE = 0.01     # each end within 1 % of the Range's width of the Range's end
-NO_FORECAST_DEFINED = ("No forecast: a 95 % range that covers the measurement's whole "
-                       "Range (each end within 1 % of the Range's width of its end), so the "
-                       "value can't be in or out of it; it is counted neither way.")
+NO_FORECAST_DEFINED = (f"No forecast: a 95 % range that covers the measurement's or the "
+                       f"{OVERALL_SCORE_COLUMN}'s whole Range (each end within 1 % of the "
+                       "Range's width of its end), so the value can't be in or out of it; it "
+                       "is counted neither way.")
 
 
 def no_forecast_help(items=()):
@@ -11458,7 +11436,7 @@ def no_forecast_help(items=()):
     where = ", ".join(f"{n} {r}" for n, r, _ in items)
     out = (f"No forecast: the 95 % range covers the whole Range ({where}; each end within "
            "1 % of the Range's width of its end), so it can't be in or out.")
-    wid = [(n, w) for n, _, w in items if w]
+    wid = [(n, w) for n, _, w in items if w]   # no_forecast_items: only from ×1.05
     if len(wid) == 1 and len(items) == 1:
         out += f" Widened ×{wid[0][1]} after earlier misses."
     elif wid:
@@ -11469,17 +11447,19 @@ def no_forecast_help(items=()):
 NO_FORECAST_HELP = NO_FORECAST_DEFINED
 
 
-def no_forecast_left_out(n):
-    """'12 values with no forecast left out.' ('' for none)."""
+def no_forecast_left_out(n, what=""):
+    """'12 values with no forecast left out.'; `what` names whose: '6
+    Overall score values with no forecast left out.' ('' for none)."""
     if not n:
         return ""
-    return "1 value with no forecast left out." if n == 1 else \
-        f"{n} values with no forecast left out."
+    who = f"{what} " if what else ""
+    return f"1 {who}value with no forecast left out." if n == 1 else \
+        f"{n} {who}values with no forecast left out."
 
 
-def with_left_out(text, n):
-    """`text` with no_forecast_left_out(n) after it."""
-    tail = no_forecast_left_out(n)
+def with_left_out(text, n, what=""):
+    """`text` with no_forecast_left_out(n, what) after it."""
+    tail = no_forecast_left_out(n, what)
     return f"{text} {tail}".strip() if tail else text
 
 
@@ -11488,8 +11468,8 @@ def trust_early(n, left=0):
     with no forecast: 'Not judged yet: 0 of 12 values checked had a
     forecast; the verdict needs 10.'"""
     if left:
-        return (f"Not judged yet: {n} of {n + left} values checked had a forecast; the "
-                "verdict needs 10.")
+        need = "; the verdict needs 10 checked" if n + left < 10 else ""
+        return f"Not judged yet: {n} of {n + left} values checked had a forecast{need}."
     return f"Not judged yet: {_values(n)} checked; the verdict needs 10."
 
 
@@ -11505,7 +11485,8 @@ def tip_coverage_early(names, rounds, n, left=0):
 
 STORY_NO_FORECAST = "Before the first forecast"
 HOW_FORECAST_WORDS = (f"{NO_FORECAST_DEFINED} Before the first forecast: {FORMULATION}s made "
-                      f"before 5 were scored, with nothing earlier to forecast them from.")
+                      f"until 5 {FORMULATION}s had results, with nothing earlier to forecast "
+                      "them from.")
 
 
 # Fix round 1 (controller): "Rebuilt today" could be false (checks kept
@@ -11653,10 +11634,11 @@ def learned_verdicts_help(n):
 # The stop's advice: check it first.
 def ceiling_setup_help(no=None, sd_text="1", assumed=True):
     """The stop's Set up "?" (and its callout on Set up): 'To check the
-    stop, repeat Formulation 16: 3 Repeats measure your tasting noise
-    (assumed at 1 point until then). Changing a target or Share of score
-    changes what "best" means.' With the noise measured: '…repeat
-    Formulation 16: it adds to your Repeats' measure of tasting noise.'"""
+    stop, repeat Formulation 16: 3 Repeats give a first estimate of your
+    tasting noise (assumed at 1 point until then). Changing a target or
+    Share of score changes what "best" means.' With the noise measured:
+    '…repeat Formulation 16: it adds to your Repeats' measure of tasting
+    noise.'"""
     check = ""
     if no is not None:
         why = (f"{YARDSTICK_REPEATS} Repeats give a first estimate of your tasting noise (assumed at "
@@ -11671,3 +11653,6 @@ CEILING_SETUP_HELP = ceiling_setup_help()
 CEILING_MEASURE = ("A single new result can't be told apart from this best in the Overall "
                    "score; a single measurement still can (On target says which are beyond "
                    "their noise).")
+# Fix round 3: the ordering chart's axis says what its bar is (its labels
+# say "x of N called, y right": the base is the called pairs, not all).
+LEARNED_CHART_X = "Of pairs called, % right"

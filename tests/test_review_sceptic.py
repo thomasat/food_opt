@@ -457,8 +457,11 @@ def test_left_out_values_are_named_where_the_counts_show():
     assert wording.no_forecast_left_out(12) == "12 values with no forecast left out."
     assert wording.no_forecast_left_out(1) == "1 value with no forecast left out."
     assert wording.no_forecast_left_out(0) == ""
-    assert wording.trust_early(0, 12) == (
-        "Not judged yet: 0 of 12 values checked had a forecast; the verdict needs 10.")
+    # Fix round 3: the gate counts values checked (12 ≥ 10); with none of
+    # them forecast, not judged; under 10 checked, the need is said.
+    assert wording.trust_early(0, 12) == "Not judged yet: 0 of 12 values checked had a forecast."
+    assert wording.trust_early(2, 4) == (
+        "Not judged yet: 2 of 6 values checked had a forecast; the verdict needs 10 checked.")
     assert "0 values checked" not in wording.trust_early(0, 12)
     assert wording.tip_coverage_early(["Tangy"], [5], 0, 3).endswith(
         "0 of 3 values checked had a forecast; the coverage check needs 10.")
@@ -472,9 +475,11 @@ def test_left_out_values_are_named_where_the_counts_show():
     vm = insights.value_misses(opt, checks, h)
     assert vm.no_forecast == 3
     assert U.misses_detail(NS(misses=vm)).endswith("3 values with no forecast left out.")
-    # Under 10 with a forecast: the early form says how many had one.
-    assert U._coverage_tip(opt, h).endswith(
-        "Rounds 3–5: 9 of 12 values checked had a forecast; the coverage check needs 10.")
+    # Fix round 3: 12 values checked pass the 10-value gate; the verdict is
+    # over the 9 with a forecast, and the 3 left out are said.
+    assert h.state == "verdict" and (h.inside, h.total) == (7, 9)
+    assert U._coverage_tip(opt, h).endswith("in 9 at the 1-in-10 level. 3 values with no "
+                                            "forecast left out.")
     assert "No forecast:" in wording.HOW_FORECAST_WORDS
     assert "Before the first forecast:" in wording.HOW_FORECAST_WORDS
     assert wording.STORY_NO_FORECAST != wording.NO_FORECAST
@@ -500,3 +505,110 @@ def test_charts_show_a_whole_range_check_as_no_forecast(monkeypatch):
     frame = U.check_frame(opt, "Creaminess", cks)
     assert sorted(frame["side"]) == ["in", "none"]
     assert set(frame[frame["side"] == "none"]["miss"]) == {""}
+
+
+# ------------------------------------------------------------------ #
+#  Fix round 3
+# ------------------------------------------------------------------ #
+
+def test_the_evidence_and_the_count_use_the_one_pairs_form():
+    ev = wording.learned_evidence([("Creaminess", 2, 6, 12), ("Thickness uniformity", 5, 10, 24)])
+    assert ev == ("Evidence: pairs ordered right from earlier Rounds — Creaminess 6 of 12 called, 2 right; "
+                  "Thickness uniformity 10 of 24 called, 5 right.")
+    # An old row with no total: never a bare a/b.
+    assert wording.learned_evidence([("Creaminess", 2, 6)]) == (
+        "Evidence: pairs ordered right from earlier Rounds — Creaminess 2 right of 6 called.")
+    assert not re.search(r"\d+/\d+", ev)
+    assert wording.learned_count("Overall score", 7, 9, total=9) == \
+        "Overall score 9 of 9 pairs called, 7 right"
+    assert wording.learned_count_needed("Overall score", 4, 4, 5, total=4) == \
+        "Overall score 4 of 4 pairs called, 4 right (needs 5)"
+
+
+def test_the_overall_scores_no_forecast_checks_are_named():
+    opt = _opt()
+    score = [_check(insights.SCORE, 0.0, 100.0, 90.0, 90.0, r=r, no=10 + r) for r in (3, 4)] + \
+        [_check(insights.SCORE, 85.0, 95.0, 90.0 + k, 90.0, r=5, no=20 + k) for k in range(4)]
+    marked = insights.mark_no_forecast(opt, score)
+    rec = insights.error_record(marked, insights.SCORE)
+    assert (rec.inside, rec.total, rec.no_forecast) == (4, 4, 2)
+    h = NS(score=rec)
+    line = U.score_line(opt, marked, h=h)
+    assert "4 of 4 inside" in line and "(n = 6)" not in line
+    assert line.endswith("2 Overall score values with no forecast left out.")
+    assert wording.no_forecast_left_out(6, "Overall score") == (
+        "6 Overall score values with no forecast left out.")
+
+
+def test_the_forecast_check_names_some_and_all_no_forecast():
+    # Some (not all) with no forecast range: named beside the count.
+    assert wording.check_line(6, 2, 0, 0, "order right: 1 pair", "Creaminess", none=1) == (
+        "**Round 6: Creaminess, both inside their 95 % range.** 1 with no forecast; "
+        "order right: 1 pair.")
+    # Every one: the subject named, the Overall score too.
+    assert wording.check_line(6, 0, 0, 0, "x", None, none=3) == (
+        "**Round 6: Overall score, 3 values with no forecast range.**")
+
+
+@pytest.mark.parametrize("targets, name, limit", [
+    (True, "Tangy", 10), (True, "Thickness uniformity", 11), (True, "Water holding capacity", 12),
+    (False, "Juiciness", 11), (False, "Thickness uniformity", 12)])
+def test_one_miss_is_always_named_under_either_head(targets, name, limit):
+    """One off target is named with its gap and verdict (controller ruling:
+    specific wording outranks a word or two): up to 11 words after "On
+    target" with a two-word name, 12 with a three-word one; 12 after "At
+    their best" with a two-word name."""
+    kind = "under" if targets else "short"
+    line = wording.stop_on_target(3, 4, [f"{name} 0.5 {kind}"], targets, [False])
+    assert line.endswith(f"{name} 0.5 {kind}, within noise.")
+    assert _words(line) <= limit, line
+
+
+def test_the_count_forms_keep_to_their_limits_under_either_head():
+    offs = ["Juiciness 1.0 short", "Firmness 2.0 short"]
+    best = wording.stop_on_target(2, 4, offs, False, [True, False])
+    assert best == "At their best 2 of 4; 1 beyond, 1 within noise."
+    # "At their best" is the head's own words: 11 for its mixed count form.
+    assert _words(best) <= 11
+    on = wording.stop_on_target(2, 4, offs, True, [True, False])
+    assert _words(on) <= 10
+
+
+def test_widening_is_said_from_one_point_o_five():
+    opt = _opt()
+    base = [_check("Creaminess", 0.0, 15.0, 5.0, 5.7)]
+    for f, said in ((1.0, None), (1.04, None), (1.05, "1.1"), (3.0, "3.0")):
+        cks = [dataclasses.replace(c, widen=f) for c in base]
+        assert U.no_forecast_items(opt, cks, 6) == [("Creaminess", "0–15", said)], f
+    assert "×1.0 " not in wording.no_forecast_help([("Creaminess", "0–15", None)])
+
+
+def test_definitions_are_unambiguous():
+    assert "Overall score's whole Range" in wording.NO_FORECAST_DEFINED
+    assert "until 5 formulations had results" in wording.HOW_FORECAST_WORDS
+    assert wording.LEARNED_CHART_X == "Of pairs called, % right"
+    assert not hasattr(U, "score_landing")
+
+
+def test_the_gates_count_values_checked_not_values_forecast():
+    """Fix round 3: the 10-value gate (headline) and the Overall score's
+    SKILL_MIN gate count the checks made, as before the no-forecast rule;
+    with no forecast at all, nothing is judged."""
+    opt = _opt()
+    checks = insights.mark_no_forecast(opt, _round_of(3, False, 0, start=1)
+                                       + _round_of(4, True, 0, start=4)
+                                       + _round_of(5, False, 0, start=7)
+                                       + _round_of(5, False, 0, "Tangy", start=7))
+    h = insights.headline(opt, checks)
+    assert h.state == "verdict" and (h.total, h.no_forecast) == (9, 3)
+    every = insights.mark_no_forecast(opt, _round_of(3, True, 0, start=1)
+                                      + _round_of(4, True, 0, start=4)
+                                      + _round_of(5, True, 0, start=7)
+                                      + _round_of(6, True, 0, start=10))
+    assert insights.headline(opt, every).state == "early"
+    rec = insights.ScoreRecord(4, 4, 0.0, None, [1, 2], no_forecast=6)
+    assert insights.score_verdict_state(opt, NS(state="verdict", score=rec, wide=[]), []) \
+        != "early"
+    rec0 = insights.ScoreRecord(0, 0, 0.0, None, [1, 2], no_forecast=12)
+    assert insights.score_verdict_state(opt, NS(state="verdict", score=rec0, wide=[]), []) \
+        == "early"

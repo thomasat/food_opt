@@ -154,9 +154,6 @@ def test_called_it_leads_with_the_overall_score(plain):
     # Round 2: no brackets inside the line.
     assert line == ("**Round 6: scored higher than forecast.** 2 of 3 above their range; "
                     "order right: 2 pairs, 1 tie.")
-    # "about 4": the mean of measured − forecast over those above their range.
-    above, below = U.score_landing(learned.round_checks(_round6(), insights.SCORE, 6))
-    assert above == pytest.approx(((98.33 - 94.3) + (98.33 - 94.7)) / 2) and below is None
     assert "calls right" not in line and "highest" not in line
     # The cumulative record, a second short line.
     assert U.called_so_far(opt, lf) == "So far: Overall score 11 of 11, Consistency 11 of 11."

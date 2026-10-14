@@ -693,6 +693,9 @@ class ScoreRecord:
     # each Round's mean error is one value, else values − 1. None: worked
     # out from rounds and total (bias_df).
     df: int | None = None
+    # Fix round 3: checks with no forecast, left out of inside and total (the
+    # mean error and its sd are over all of them: total + no_forecast).
+    no_forecast: int = 0
 
 
 SCORE_RECORD_MIN = 5
@@ -731,24 +734,29 @@ def headline(opt, checks):
     # Sceptic review (fix round 1): no-forecast checks are counted neither
     # inside nor outside (ranged); the window is still the Rounds checked,
     # and the wide-range rule still sees them.
-    rounds = _ordered_rounds([c for c in checks if c.name != SCORE])
-    values = [c for c in ranged(checks) if c.name != SCORE]
+    # Fix round 3: the window and the 10-value gate count the values
+    # CHECKED, as before (a whole-Range value was checked); the verdict is
+    # over the ones with a forecast, and with none of those it is early.
+    checked = [c for c in checks if c.name != SCORE]
+    rounds = _ordered_rounds(checked)
+    values = ranged(checked)
     score_rounds = _ordered_rounds([c for c in checks if c.name == SCORE])
     if not rounds:
         return Headline("none", [], 0, 0, None)
     k = min(3, len(rounds))
     chosen = rounds[-k:]
-    while (sum(c.round in chosen for c in values) < 10 and k < len(rounds)):
+    while (sum(c.round in chosen for c in checked) < 10 and k < len(rounds)):
         k += 1
         chosen = rounds[-k:]
     picked = [c for c in values if c.round in chosen]
+    n_checked = sum(c.round in chosen for c in checked)
     # The Overall score's own line spans every Round checked (0.8.0 e2e
     # fixes, review I1), not the verdict's window.
     record = score_record(checks, score_rounds)
     wide = wide_ranges(opt, [c for c in checks if c.round in chosen])
     left = sum(1 for c in checks if c.name != SCORE and c.round in chosen
                and getattr(c, "no_forecast", False))
-    if len(picked) < 10:
+    if n_checked < 10 or not picked:
         return Headline("early", chosen, sum(c.inside for c in picked),
                         len(values), None, record, wide, left)
     inside = sum(c.inside for c in picked)
@@ -783,7 +791,7 @@ def error_record(checks, name, rounds=None):
         df = len(gaps) - 1
     counted = ranged(mine)
     return ScoreRecord(sum(c.inside for c in counted), len(counted), sum(gaps) / len(gaps), sd,
-                       order, se, df)
+                       order, se, df, len(mine) - len(counted))
 
 
 def score_record(checks, rounds):
@@ -1207,7 +1215,9 @@ def verdict_state(opt, h, checks):
     if names and names <= set(h.wide or []):
         return "wide"
     z = median_z(h, checks)
-    if (h.inside == h.total and h.total >= OVER_WIDE_MIN and z is not None
+    # Fix round 3: the gate counts the values checked (no forecast too).
+    if (h.inside == h.total and h.total + getattr(h, "no_forecast", 0) >= OVER_WIDE_MIN
+            and z is not None
             and z <= OVER_WIDE_Z):
         return "over_wide"
     return "within"
@@ -1581,7 +1591,10 @@ def score_verdict_state(opt, h, checks):
     record = getattr(h, "score", None)
     if h.state == "none" and record is None:
         return "none"
-    if record is None or record.total < SKILL_MIN:
+    # Fix round 3: the gate counts the checks made (with no forecast too),
+    # as before; the verdict is over the ones with a forecast.
+    if (record is None or record.total + getattr(record, "no_forecast", 0) < SKILL_MIN
+            or not record.total):
         return "early"
     tail = binomial_tail(record.total - record.inside, record.total)
     if tail < 0.01:
