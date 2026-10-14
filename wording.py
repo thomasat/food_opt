@@ -11311,10 +11311,12 @@ def stop_on_target(on, n, offs, targets=True, beyond=None):
     """'On target 3 of 4; Tangy 1.0 under, beyond noise.' `offs` ['Tangy
     1.0 under'], largest first; `beyond` [True / False / None] for each:
     its gap beyond its own noise band (the ± of the "?"), None where that
-    measurement has no noise (nothing is said about its noise). Two or more
-    off target, or a line past STATUS_WORDS words: the counts alone, the
-    names and amounts in the "?" — 'On target 2 of 4; 2 beyond noise.',
-    '…; 1 beyond, 1 within noise.'"""
+    measurement has no noise (nothing is said about its noise). One off
+    target is always named with its gap and verdict (controller ruling: the
+    specific-wording rule outranks a one-word overage, so a long name may
+    reach 11 words); two or more: the counts alone, the names and amounts
+    in the "?" — 'On target 2 of 4; 2 beyond noise.', '…; 1 beyond, 1
+    within noise.'"""
     head = f"On target {on} of {n}" if targets else f"At their best {on} of {n}"
     offs = list(offs)
     if not offs:
@@ -11322,10 +11324,8 @@ def stop_on_target(on, n, offs, targets=True, beyond=None):
     flags = list(beyond) if beyond is not None else [None] * len(offs)
     flags += [None] * (len(offs) - len(flags))
     if len(offs) == 1:
-        one = (f"{head}; {offs[0]}." if flags[0] is None
-               else f"{head}; {offs[0]}, {_noise_side(flags[0])}.")
-        if _status_words(one) <= STATUS_WORDS:
-            return one
+        return (f"{head}; {offs[0]}." if flags[0] is None
+                else f"{head}; {offs[0]}, {_noise_side(flags[0])}.")
     out, within = sum(f is True for f in flags), sum(f is False for f in flags)
     if not out and not within:
         return f"{head}; {len(offs)} off target."

@@ -60,11 +60,15 @@ def test_the_on_target_line_says_beyond_or_within_noise():
     assert wording.stop_on_target(3, 4, ["Tangy 1.0 under"], True, [None]) == (
         "On target 3 of 4; Tangy 1.0 under.")
     assert wording.stop_on_target(4, 4, [], True, []) == "On target 4 of 4."
-    # A long name past 10 words: the count form.
+    # One off target is always named, with its gap and noise verdict: the
+    # owner's specific-wording rule outranks a one-word overage (controller
+    # ruling), so a two-word name may take the line to 11 words.
     long_ = wording.stop_on_target(3, 4, ["Thickness uniformity 0.5 under"], True, [False])
-    assert long_ == "On target 3 of 4; 1 within noise."
-    for t in (one, both, mixed, inside, part, long_):
+    assert long_ == "On target 3 of 4; Thickness uniformity 0.5 under, within noise."
+    assert _words(long_) <= 11
+    for t in (one, both, mixed, inside, part):
         assert _words(t) <= 10, t
+    for t in (one, both, mixed, inside, part, long_):
         _clean(t)
 
 
