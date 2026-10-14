@@ -24,7 +24,7 @@ def _texts():
             wording.results_predicted_help(6), wording.STORY_TRUST_CAPTION,
             wording.rebuilt_help(True), wording.results_predicted_help(6, True, True),
             wording.LEARNED_COL_PAIRS, wording.LEARNED_RULE,
-            wording.learned_evidence([("Overall score", 10, 11)]),
+            wording.learned_evidence([("Overall score", 10, 11, 12)]),
             wording.learned_counts([("Overall score", 10, 11, 5.5)]),
             wording.model_plain(["Overall score"], ["Tangy"], ["Creaminess"]),
             wording.model_plain([], ["Tangy"], ["Creaminess"])]
@@ -79,9 +79,10 @@ def test_round_ahead_words_say_from_earlier_rounds_not_before_tasting():
     assert wording.LEARNED_COL_PAIRS == "Ordered right from earlier Rounds"
     # Review critique (fix 3): the permutation rule, shorter.
     assert wording.LEARNED_RULE.startswith("Each Round is forecast from earlier Rounds only. ")
-    assert wording.learned_evidence([("Overall score", 10, 11)]) == (
-        "Evidence: pairs ordered right from earlier Rounds — Overall score 10 right of 11 "
-        "called.")   # fix round 3: never a bare a/b
+    # Fix round 4: the app's one row form (name, right, called, all).
+    assert wording.learned_evidence([("Overall score", 10, 11, 12)]) == (
+        "Evidence: pairs ordered right from earlier Rounds — Overall score 11 of 12 "
+        "called, 10 right.")   # fix round 3: never a bare a/b
     assert wording.model_plain(["Overall score", "Consistency"], [], ["Tangy"]) == (
         "Forecasting each Round from earlier Rounds, the model put the Overall score and "
         "Consistency in the right order, clearly more often than chance. Not yet: Tangy.")

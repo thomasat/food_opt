@@ -757,8 +757,11 @@ def headline(opt, checks):
     left = sum(1 for c in checks if c.name != SCORE and c.round in chosen
                and getattr(c, "no_forecast", False))
     if n_checked < 10 or not picked:
+        # Fix round 4: the window's own count (its values with a forecast),
+        # never every Round's: 'Rounds 3–6: 0 of 12 values checked had a
+        # forecast', not 6 misses that never happened.
         return Headline("early", chosen, sum(c.inside for c in picked),
-                        len(values), None, record, wide, left)
+                        len(picked), None, record, wide, left)
     inside = sum(c.inside for c in picked)
     tail = binomial_tail(len(picked) - inside, len(picked))
     verdict = ("holding" if tail >= 0.10 else

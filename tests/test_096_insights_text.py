@@ -144,11 +144,12 @@ def test_method_and_details_define_the_new_terms(tabs):
         assert text in said, text
     # Sceptic review: the verdict rule's example counts the values with a
     # forecast and names the ones left out (no forecast: a whole-Range range).
+    # Fix round 4: the exact line for this fixture (32 values with a
+    # forecast in the verdict's Rounds, 3 with none), the allowance worked
+    # out by the verdict's own rule.
     verdict = [t for t in said if t.startswith("Verdict rule:")]
-    assert len(verdict) == 1 and re.fullmatch(
-        re.escape(wording.how_verdict(0, 0)).replace(r"for\ 0\ values,\ up\ to\ 0\ misses",
-                                                     r"for\ \d+\ values,\ up\ to\ \d+\ misses?")
-        + r"( \d+ values? with no forecast left out\.)?", verdict[0]), verdict
+    assert verdict == [wording.how_verdict(32, insights.allowed_misses(32))
+                       + " 3 values with no forecast left out."], verdict
     assert wording.details_window([2, 3, 4, 5], 3, [3, 4, 5]) in said
 
 

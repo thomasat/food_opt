@@ -2403,14 +2403,16 @@ def misses_plain(opt, facts):
     names = [i.name for i in (d.items if d is not None else []) if i.misses >= 2][:3]
     score = getattr(facts.headline, "score", None) if facts.headline is not None else None
     inside, total = (score.inside, score.total) if score is not None else (0, 0)
+    # Fix round 4: the Overall score's checks with no forecast, named.
+    nf = getattr(score, "no_forecast", 0) if score is not None else 0
     no = opt.pending_batch_no
     left = len(open_rows(opt)) if opt.pending_batch else 0
-    scoped = wording.misses_scoped(names, inside, total)
+    scoped = wording.misses_scoped(names, inside, total, nf)
     said = misses_detail(facts)
     if said:
         # Specific wording: which measurements missed and how often.
-        scoped = said + (f" The {wording.OVERALL_SCORE_COLUMN} landed in range {inside} of "
-                         f"{total} times." if total else "")
+        landed = wording.score_landed(inside, total, nf)
+        scoped = f"{said} {landed}" if landed else said
     line = f"{scoped} {wording.next_plain_tail(no, left)}"
     if d is not None and facts.best is not None:
         line += " " + wording.next_plain_repeat_ask(facts.best.formulation, bool(left))
@@ -2751,10 +2753,12 @@ def score_line(opt, checks, h=None, yard=None):
     if h.score is None:
         return ""
     nf = getattr(h.score, "no_forecast", 0)
+    # Fix round 4: the mean error is over every check, the no-forecast
+    # ones too; they are left out of the inside count only.
     return wording.with_left_out(
         wording.score_gap_line(h.score.inside, h.score.total, h.score.mean_miss, "",
                                n=h.score.total + nf, rounds=h.score.rounds),
-        nf, _say(opt, wording.OVERALL_SCORE_COLUMN))
+        nf, _say(opt, wording.OVERALL_SCORE_COLUMN), wording.LEFT_OUT_OF_INSIDE)
 
 
 def _bias_size(opt, b):
@@ -4559,10 +4563,20 @@ def _skill_tip(opt, facts):
     gate = getattr(facts.guard, "gate", None)
     if gate is not None and gate.state == "wait":
         n = gate.n
+    elif getattr(facts, "checked", None) is not None:
+        # Fix round 4: skill()'s own count, every fully measured check
+        # (status_facts' checked), the no-forecast ones too.
+        n = facts.checked
     else:
         h = facts.headline
-        n = h.score.total if h is not None and h.score is not None else 0
+        n = _score_checks(h.score) if h is not None and h.score is not None else 0
     return wording.tip_skill_too_few(n)
+
+
+def _score_checks(record):
+    """Every fully measured check behind an Overall-score record: its
+    inside count's plus the ones with no forecast (the mean error's n)."""
+    return record.total + getattr(record, "no_forecast", 0)
 
 
 def _repeat_tip(d):
@@ -4574,7 +4588,8 @@ def _bias_tip(facts):
     h = facts.headline
     if facts.bias is None or h is None or h.score is None:
         return ""
-    return wording.tip_bias(wording.signed(facts.bias, 1), h.score.total, h.score.rounds)
+    # Fix round 4: n is the mean's own, every check (no-forecast ones too).
+    return wording.tip_bias(wording.signed(facts.bias, 1), _score_checks(h.score), h.score.rounds)
 
 
 def _wide_label(name):
@@ -5202,7 +5217,8 @@ def card_for(opt, facts, which):
         # beside its counts (the card's 'x / N missed').
         nf = getattr(getattr(getattr(facts, "headline", None), "score", None), "no_forecast", 0)
         head, _, rest = help_.partition("\n\n")
-        help_ = wording.with_left_out(head, nf, _say(opt, wording.OVERALL_SCORE_COLUMN)) + (
+        help_ = wording.with_left_out(head, nf, _say(opt, wording.OVERALL_SCORE_COLUMN),
+                                      wording.LEFT_OUT_OF_INSIDE) + (
             f"\n\n{rest}" if rest else "")
     card.help = wording.brief(help_)
     step = getattr(facts, "next", None)
@@ -6312,7 +6328,8 @@ def learned_facts_from(opt, checks):
     left = sum(1 for c in checks if c.name == insights.SCORE and c.fully_measured
                and getattr(c, "no_forecast", False))
     lf.plain_line = wording.with_left_out(lf.plain_line, left,
-                                          _say(opt, wording.OVERALL_SCORE_COLUMN))
+                                          _say(opt, wording.OVERALL_SCORE_COLUMN),
+                                          wording.LEFT_OUT_OF_INSIDE)
     return lf
 
 
@@ -7025,9 +7042,7 @@ def learned_card(opt, lf, card, facts=None):
     # Specific wording: the opening sentence gives the Predicts and Partly
     # names' pairs; the evidence line the rest, so no count is said twice.
     named = set(lf.model_names(opt, learned.PREDICTABLE) + lf.model_names(opt, learned.PARTLY))
-    rows = [(learned_label(opt, n), o.right, o.pairs, o.pairs + getattr(o, "ties", 0)
-             + getattr(o, "close", 0)) for n, o in lf.orderings.items()
-            if learned_label(opt, n) not in named or not o.pairs]
+    rows = evidence_rows(opt, lf, named)
     ev = wording.learned_evidence(rows) if rows else wording.LEARNED_EVIDENCE_ABOVE
     record = getattr(lf, "plain_line", "")
     h = getattr(facts, "headline", None) if facts is not None else None
@@ -7066,17 +7081,36 @@ def learned_card(opt, lf, card, facts=None):
                 _say(opt, wording.brief(help_)))
 
 
+def evidence_rows(opt, lf, skip=()):
+    """The Model item's evidence rows (label, right, called, all), one per
+    ordering, leaving out the labels in `skip` that have pairs called (the
+    "?"'s opening sentence says theirs)."""
+    return [(learned_label(opt, n), o.right, o.pairs, o.pairs + getattr(o, "ties", 0)
+             + getattr(o, "close", 0)) for n, o in lf.orderings.items()
+            if learned_label(opt, n) not in skip or not o.pairs]
+
+
+def how_learned_texts(opt, lf):
+    """Method and definitions' paragraphs on the orderings: the rules, the
+    evidence for every result (fix round 4: the Model "?" can drop its
+    evidence paragraph for length; the numbers stay here), the skill."""
+    rows = evidence_rows(opt, lf) if lf is not None else []
+    evidence = wording.learned_evidence(rows) if any(r[2] for r in rows) else ""
+    texts = (wording.LEARNED_RULE, evidence, wording.LEARNED_TOP_RULE,
+             wording.PROFILER_NO_CLAIM,
+             wording.profiler_hidden_rule(settings_only=not opt.has_ingredients()),
+             lf.skill_line if lf is not None else "")
+    return [t for t in texts if t]
+
+
 def _how_learned(opt, computed):
     """Method and definitions: the ordering accuracy and verdict rules, the
-    stable-effect rule, the two skill baselines, and the Overall score's
-    forecast against measured chart that the section replaced."""
+    evidence, the stable-effect rule, the two skill baselines, and the
+    Overall score's forecast against measured chart that the section
+    replaced."""
     st.markdown(f"**{_say(opt, wording.METHOD_LEARNED_TITLE)}**")
-    lf = learned_cached(opt)
-    for text in (wording.LEARNED_RULE, wording.LEARNED_TOP_RULE, wording.PROFILER_NO_CLAIM,
-                 wording.profiler_hidden_rule(settings_only=not opt.has_ingredients()),
-                 lf.skill_line if lf is not None else ""):
-        if text:
-            st.markdown(_say(opt, text))
+    for text in how_learned_texts(opt, learned_cached(opt)):
+        st.markdown(_say(opt, text))
     checks = [c for c in ((computed or {}).get("checks") or ()) if c.name == insights.SCORE]
     if checks:
         try:

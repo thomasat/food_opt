@@ -8445,12 +8445,13 @@ def measures_sentence(inside, total, allowed, miss=False):
 
 
 def ev_predictions(inside, total, skill_text=None, n=None, m_inside=None, m_total=None):
-    """'Overall score 10/12 in range, skill 0.69 (n = 12); measurements 27/36'."""
-    out = f"{OVERALL_SCORE_COLUMN} {inside}/{total} in range"
+    """'Overall score 10 of 12 in range, skill 0.69 (n = 12); measurements
+    27 of 36 in range' (fix round 4: never a bare a/b)."""
+    out = f"{OVERALL_SCORE_COLUMN} {inside} of {total} in range"
     if skill_text is not None:
         out += f", skill {skill_text} (n = {n})"
     if m_total:
-        out += f"; measurements {m_inside}/{m_total}"
+        out += f"; measurements {m_inside} of {m_total} in range"
     return out
 
 
@@ -8852,7 +8853,7 @@ LEARNED_COL_RESULT = "Result"
 LEARNED_COL_VERDICT = "Verdict"
 # LEARNED_COL_PAIRS: see "rebuilt framing" at the end.
 LEARNED_COL_TOP = "Picked the top one"
-LEARNED_CHART_X = "Pairs ordered right (%)"
+# LEARNED_CHART_X: see the sceptic review section, below.
 LEARNED_CHANCE = "Chance"
 LEARNED_CAPTION = "Dot: share right. Bar: 95 % interval."
 LEARNED_NONE_YET = "Nothing to check yet: needs a scored Round."
@@ -9304,18 +9305,28 @@ def stop_help(threshold_text):
 
 
 # Tooltips that agree with the verdicts.
-def misses_scoped(names, inside, total):
+def score_landed(inside, total, left=0):
+    """'The Overall score landed in range 10 of 12 times.' and its checks
+    with no forecast named (fix round 4): '… 2 Overall score values with no
+    forecast left out of the inside count.' ('' with no total)."""
+    if not total:
+        return ""
+    return with_left_out(f"The {OVERALL_SCORE_COLUMN} landed in range {inside} of {total} times.",
+                         left, OVERALL_SCORE_COLUMN, LEFT_OUT_OF_INSIDE)
+
+
+def misses_scoped(names, inside, total, left=0):
     """The misses row's plain sentence, scoped to what missed: 'Single
     measurements (Thickness uniformity, Creaminess) landed outside their
     predicted range more often than expected, so their ranges can be too
     narrow. The Overall score landed in range 10 of 12 times.' (no claim
-    on their order: that is the Model item's)."""
+    on their order: that is the Model item's). `left`: the Overall score's
+    checks with no forecast, named."""
     who = f" ({', '.join(names)})" if names else ""
     line = (f"Single measurements{who} landed outside their predicted range more often than "
             "expected, so their forecasts can miss by more than their range shows.")
-    if total:
-        line += f" The {OVERALL_SCORE_COLUMN} landed in range {inside} of {total} times."
-    return line
+    tail = score_landed(inside, total, left)
+    return f"{line} {tail}" if tail else line
 
 
 # model_plain: see "rebuilt framing" at the end.
@@ -9596,19 +9607,13 @@ LEARNED_RULE = ("Each Round's formulations are forecast from the formulations sc
 
 
 def learned_evidence(rows, skill_line=""):
-    """The Model item's evidence: 'Evidence: pairs ordered right from
-    earlier Rounds — Overall score 14/21, Firmness 16/23. Overall score: 13
-    of 15 inside the 95 % predicted range. …'"""
-    # Fix round 3: the one form of a verdict's pairs, never a bare a/b:
-    # rows (name, right, called, all) read 'Creaminess 6 of 12 called, 2
-    # right'; an old (name, right, called) 'Creaminess 2 right of 6 called'.
-    def one(row):
-        if len(row) > 3:
-            name, right, n, total = row[:4]
-            return f"{name} {called_of(right, n, total)}"
-        name, right, n = row
-        return f"{name} {right} right of {n} called"
-    pairs = "; ".join(one(r) for r in rows if r[2])
+    """The Model item's evidence, rows (name, right, called, all):
+    'Evidence: pairs ordered right from earlier Rounds — Creaminess 6 of 12
+    called, 2 right; Thickness uniformity 10 of 24 called, 5 right.' and
+    `skill_line` after it."""
+    # Fix round 3: the one form of a verdict's pairs, never a bare a/b.
+    pairs = "; ".join(f"{name} {called_of(right, n, total)}"
+                      for name, right, n, total in rows if n)
     line = f"Evidence: pairs ordered right from earlier Rounds — {pairs or 'none yet'}."
     return f"{line} {skill_line}".strip()
 
@@ -9649,7 +9654,8 @@ TOOLTIP_WORDS = 120
 def brief(text, limit=TOOLTIP_WORDS):
     """A "?" trimmed to about `limit` words: whole paragraphs in order, the
     "For experts:" paragraph last (cut at a sentence when it alone is long);
-    paragraphs that do not fit are left to Method and definitions."""
+    paragraphs that do not fit are left out of the "?" (fix round 4: the
+    Model item's evidence paragraph is in Method and definitions too)."""
     if not text:
         return text
     paras = [p for p in str(text).split("\n\n") if p.strip()]
@@ -10850,12 +10856,7 @@ def track_measured_counted(misses, total, allowed):
 
 # A verdict word's evidence: named_pairs, named_pairs_short and
 # learned_strip_counted (sceptic review section, below).
-
-
-def learned_count_needed(label, right, pairs, needed):
-    """Under the pairs a verdict needs: 'Overall score 4 of 4 pairs (needs
-    5)' — the count it has and the count it needs."""
-    return f"{label} {right} of {pairs} pairs (needs {needed})"
+# learned_count_needed: see the sceptic review section, below.
 
 
 def learned_too_few(needed):
@@ -11286,8 +11287,9 @@ def stop_on_target(on, n, offs, targets=True, beyond=None):
     its gap beyond its own noise band (the ± of the "?"), None where that
     measurement has no noise (nothing is said about its noise). One off
     target is always named with its gap and verdict (controller ruling: the
-    specific-wording rule outranks a one-word overage, so a long name may
-    reach 11 words); two or more: the counts alone, the names and amounts
+    specific-wording rule outranks the 10-word limit for this form alone:
+    with a three-word name it reaches 12 words after "On target", 13 after
+    "At their best"); two or more: the counts alone, the names and amounts
     in the "?" — 'On target 2 of 4; 2 beyond noise.', '…; 1 beyond, 1
     within noise.'"""
     head = f"On target {on} of {n}" if targets else f"At their best {on} of {n}"
@@ -11298,7 +11300,8 @@ def stop_on_target(on, n, offs, targets=True, beyond=None):
     flags += [None] * (len(offs) - len(flags))
     if len(offs) == 1:
         # Named whatever its length (the test allows 11 words after "On
-        # target", 12 after "At their best", for a two-word name).
+        # target", 12 after "At their best", for a two-word name; 12 and 13
+        # for a three-word one).
         return (f"{head}; {offs[0]}." if flags[0] is None
                 else f"{head}; {offs[0]}, {_noise_side(flags[0])}.")
     out, within = sum(f is True for f in flags), sum(f is False for f in flags)
@@ -11411,7 +11414,8 @@ def check_line(round_no, inside, above, below, order_text="", subject=None, none
         return check_head(round_no, above, below, subject, total=0, none=none)
     rng = "" if (not above and not below) else check_range(inside, above, below)
     # Fix round 3: some (not all) with no forecast range, named.
-    left = f"{none} with no forecast" if none else ""
+    # Fix round 4: with its noun, '1 value with no forecast'.
+    left = f"{_values(none)} with no forecast" if none else ""
     tail = "; ".join(t for t in (rng, left, order_text) if t)
     head = check_head(round_no, above, below, subject, total=total)
     return f"{head} {tail[:1].upper()}{tail[1:]}." if tail else head
@@ -11447,19 +11451,27 @@ def no_forecast_help(items=()):
 NO_FORECAST_HELP = NO_FORECAST_DEFINED
 
 
-def no_forecast_left_out(n, what=""):
+# Fix round 4: where a mean error or a skill (over every check) sits beside
+# the count, the left-out sentence says which count it is left out of.
+LEFT_OUT_OF_INSIDE = "the inside count"
+
+
+def no_forecast_left_out(n, what="", of=""):
     """'12 values with no forecast left out.'; `what` names whose: '6
-    Overall score values with no forecast left out.' ('' for none)."""
+    Overall score values with no forecast left out.'; `of` the count they
+    are left out of: '2 Overall score values with no forecast left out of
+    the inside count.' ('' for none)."""
     if not n:
         return ""
     who = f"{what} " if what else ""
-    return f"1 {who}value with no forecast left out." if n == 1 else \
-        f"{n} {who}values with no forecast left out."
+    tail = f" of {of}" if of else ""
+    return f"1 {who}value with no forecast left out{tail}." if n == 1 else \
+        f"{n} {who}values with no forecast left out{tail}."
 
 
-def with_left_out(text, n, what=""):
-    """`text` with no_forecast_left_out(n, what) after it."""
-    tail = no_forecast_left_out(n, what)
+def with_left_out(text, n, what="", of=""):
+    """`text` with no_forecast_left_out(n, what, of) after it."""
+    tail = no_forecast_left_out(n, what, of)
     return f"{text} {tail}".strip() if tail else text
 
 
@@ -11474,11 +11486,18 @@ def trust_early(n, left=0):
 
 
 def tip_coverage_early(names, rounds, n, left=0):
-    """Fewer than 10 values in the verdict's Rounds (with a forecast)."""
+    """The verdict's Rounds not judged yet: fewer than 10 values checked,
+    or none of them with a forecast range. `n` the window's values with a
+    forecast, `left` its values with none (fix round 4: the true reason,
+    'Rounds 3–6: 12 values checked; none had a forecast range yet.')."""
     where = f", {rounds_span(rounds)}" if rounds else ""
+    head = f"Measurements ({', '.join(names)}){where}: "
+    if left and not n:
+        need = "; the coverage check needs 10 checked" if left < 10 else ""
+        return f"{head}{_values(left)} checked; none had a forecast range yet{need}."
     if left:
-        return (f"Measurements ({', '.join(names)}){where}: {n} of {n + left} values checked "
-                "had a forecast; the coverage check needs 10.")
+        need = "; the coverage check needs 10 checked" if n + left < 10 else ""
+        return f"{head}{n} of {n + left} values checked had a forecast{need}."
     return (f"Measurements ({', '.join(names)}){where}: {_values(n)} checked; the coverage check "
             "needs 10.")
 
