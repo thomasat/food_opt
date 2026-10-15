@@ -9151,7 +9151,7 @@ def why_chart_caption_full(n, line=True, gain=False, grey=False, entered=0, tota
     text = (f"Predicted Overall score (across) against model sd (up): {dots}; grey rings, "
             f"tested {FORMULATION}s; "
             + ("" if entered >= total and total else
-               f"orange diamonds, this {ROUND_CAP}'s suggestions")
+               f"{'filled ' if entered else ''}orange diamonds, this {ROUND_CAP}'s suggestions")
             + ("" if not entered else
                ("" if entered >= total else "; ")
                + f"hollow orange diamonds, {FORMULATION}s entered this {ROUND_CAP}"))
