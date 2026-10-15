@@ -193,7 +193,7 @@ def _stop_line_help(at, line):
 def test_three_points_in_set_up_moves_the_samples_stop():
     """Spec §11: the Round 6 sample, Round 6 recorded. The Review has no
     noise control; its stop's "?" says the noise it rests on. Tasting
-    noise 3 points in Set up › More settings: the first stop is Round 4
+    noise 3 points in Set up › Preparation and records: the first stop is Round 4
     (the Latest chart's marker), and it is saved with the project."""
     _record_round6()
     at = _app(sp.ROUND6, wording.TAB_INSIGHTS)
@@ -219,3 +219,12 @@ def test_three_points_in_set_up_moves_the_samples_stop():
     # The Latest chart's marker (its text is in the chart's data).
     assert "Stop signal (Round 4)" in json.dumps(U.improving_chart(saved).to_dict(),
                                                  ensure_ascii=False)
+
+
+def test_no_wording_string_says_more_settings():
+    """The Set up tab's second tier is labelled MORE_SETTINGS_EXPANDER on
+    screen; no wording text may call it anything else."""
+    for name, value in vars(wording).items():
+        if isinstance(value, str) and name.isupper():
+            assert "More settings" not in value, name
+    assert wording.MORE_SETTINGS_EXPANDER in wording.SAMPLE_PROVENANCE_HELP

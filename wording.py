@@ -219,13 +219,16 @@ BURGER_NO_RESULTS = "No results: this example shows set-up only."
 # The names packaging checks (desktop/test_e2e.sh) still click by.
 TRY_SAMPLE_LABEL = OPEN_YOGURT_LABEL
 TRY_SAMPLE_HELP = OPEN_YOGURT_HELP
+# The label of the Set up tab's second tier, on screen and in every text that
+# points to it.
+MORE_SETTINGS_EXPANDER = "Preparation and records"
 SAMPLE_PROVENANCE_CAPTION = "Real yogurt-style pilot; earlier engine chose Rounds 3–10."
 SAMPLE_PROVENANCE_HELP = (
     "Rounds 1–2 were the team's starting set; Rounds 3–10 were chosen by "
     "EGBO, an earlier version of this engine (Feb–May 2026). Limits on the "
     "ingredients and their total are inferred from the pilot's own "
-    "formulations. Tasting noise is assumed at 1 point unless you set it in Set up › More "
-    "settings.")
+    "formulations. Tasting noise is assumed at 1 point unless you set it in "
+    f"Set up › {MORE_SETTINGS_EXPANDER}.")
 
 
 # The project-level Method: one text area in More settings, printed on the
@@ -1456,7 +1459,7 @@ def limit_gap_tail(name, many):
 # where the targets came from, the limits and the properties — and Advanced
 # holds what a specialist wants at most once: the model settings and the two
 # explanations. Both are collapsed, so the tab reads as its two grids.
-MORE_SETTINGS_EXPANDER = "Preparation and records"
+# MORE_SETTINGS_EXPANDER is defined above SAMPLE_PROVENANCE_HELP, its first user.
 ADVANCED_EXPANDER = "Advanced"
 
 LIMITS_HEADING = "**Limits (optional)**"

@@ -171,14 +171,14 @@ warnings entirely, and the checklist below gates distribution on that.
    Highest reads "calculated" and one line under the grid gives
    what it comes to in numbers. On "1 · Set up", type
    into the ingredients grid and check that "Save changes" lights up and
-   "Discard changes" puts the grid back; open "More settings" and
-   "Advanced" and check nothing else sits on the tab. In "More settings",
+   "Discard changes" puts the grid back; open "Preparation and records" and
+   "Advanced" and check nothing else sits on the tab. In "Preparation and records",
    check that an ingredient limit offers a "Limit is" choice of "At
    least", "At most", "Between" or "Exactly" - one box, or two for
    "Between" -
    and that "Write it as" offers "% of default batch size" (it is
    there only while a default batch size is set), and that picking an
-   ingredient does not close "More settings" under you. Go to "2 · Make a
+   ingredient does not close "Preparation and records" under you. Go to "2 · Make a
    round", generate one, check every row of the round table totals the
    batch size and that Water's column is headed "Water · calculated (g)",
    change "Batch size (g)" to 250 and watch every amount

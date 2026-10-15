@@ -188,7 +188,7 @@ def test_the_readme_holds_the_full_method_in_25_lines():
     for term in ("Gaussian process", "calibration factor", "Holm", "No forecast",
                  "Tasting noise", "Stop", "second factor", "1-in-20 threshold",
                  "No term p-values or coefficient table",
-                 "until then the project's Tasting noise setting (Set up › More settings; "
+                 "until then the project's Tasting noise setting (Set up › Preparation and records; "
                  "1 point unless changed), assumed"):
         assert term in section, term
     assert "a fixed rule, not a significance test" not in section
