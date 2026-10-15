@@ -228,7 +228,7 @@ SAMPLE_PROVENANCE_HELP = (
     "Rounds 1–2 were a random starting set drawn by the engine; Rounds 3–10 "
     "were chosen by EGBO, an earlier version of this engine (Feb–May 2026). "
     "The limits are the pilot's own: each ingredient's Lowest and Highest, "
-    "and their total at 97.69–98.69 g per 100 g. Soy protein isolate (1 %) "
+    "and their total at 97.6905–98.6905 g per 100 g. Soy protein isolate (1 %) "
     "and tricalcium phosphate (0.31 %) were fixed in every formulation, so "
     "they are not listed. Each result is the median of a trained panel of "
     "five; no Repeats. Each formulation was mixed, cooked at 90 °C for 8 min "

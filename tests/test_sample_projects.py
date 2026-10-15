@@ -494,6 +494,9 @@ def test_the_limit_reads_as_the_check_reads_it(store):
     for total in (97.6905, 98.6905):
         recipe = {n: total / len(names) for n in names}
         assert opt._check_constraints(recipe), total
+    # The sidebar "?" names the total in the same numbers.
+    import wording
+    assert "their total at 97.6905–98.6905 g per 100 g" in wording.SAMPLE_PROVENANCE_HELP
 
 
 # ------------------------------------------------------------------ #
