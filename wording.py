@@ -222,12 +222,18 @@ BURGER_NO_RESULTS = "No results: this example shows set-up only."
 # points to it.
 MORE_SETTINGS_EXPANDER = "Preparation and records"
 SAMPLE_PROVENANCE_CAPTION = "Real yogurt-style pilot; earlier engine chose Rounds 3–10."
+# The pilot as published (paper, §5 and Appendix G): its own limits, its
+# panel, its process and its fixed budget, each said once.
 SAMPLE_PROVENANCE_HELP = (
-    "Rounds 1–2 were the team's starting set; Rounds 3–10 were chosen by "
-    "EGBO, an earlier version of this engine (Feb–May 2026). Limits on the "
-    "ingredients and their total are inferred from the pilot's own "
-    "formulations. Tasting noise is assumed at 1 point unless you set it in "
-    f"Set up › {MORE_SETTINGS_EXPANDER}.")
+    "Rounds 1–2 were a random starting set drawn by the engine; Rounds 3–10 "
+    "were chosen by EGBO, an earlier version of this engine (Feb–May 2026). "
+    "The limits are the pilot's own: each ingredient's Lowest and Highest, "
+    "and their total at 97.69–98.69 g per 100 g. Soy protein isolate (1 %) "
+    "and tricalcium phosphate (0.31 %) were fixed in every formulation, so "
+    "they are not listed. Each result is the median of a trained panel of "
+    "five; no Repeats. Each formulation was mixed, cooked at 90 °C for 8 min "
+    "and chilled. The budget was fixed at 10 Rounds of 3. Tasting noise is "
+    f"assumed at 1 point unless you set it in Set up › {MORE_SETTINGS_EXPANDER}.")
 
 
 # The project-level Method: one text area in Preparation and records, printed on the
@@ -9386,7 +9392,7 @@ def changes_unchanged(names):
 
 def changes_shared(texts):
     """The limits on several rows Best so far sits at, under the picture:
-    'Best sits at the Ingredient total (≤ 98.7 g).'; when naming them runs
+    'Best sits at the Ingredient total (≤ 98.69 g).'; when naming them runs
     past CHANGES_NOTE_WORDS, the count: 'Best sits at 2 limits on several
     rows.' (the "?" names them)."""
     listed = texts[0] if len(texts) == 1 else ", ".join(texts[:-1]) + AND_JOIN + texts[-1]

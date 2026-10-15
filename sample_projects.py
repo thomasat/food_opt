@@ -1,8 +1,9 @@
 """The app's samples: a real yogurt-style pilot, shipped as two projects,
 and one example setup (a plant-based burger) with no results.
 
-Rounds 1-2 were the team's starting set; Rounds 3-10 were chosen by EGBO,
-an earlier version of this engine. The files under data/samples/yogurt_pilot
+Rounds 1-2 were a random starting set drawn by the engine; Rounds 3-10 were
+chosen by EGBO, an earlier version of this engine. The limits are the
+pilot's own. The files under data/samples/yogurt_pilot
 are rebuilt from the pilot's CSVs by build.py there, and
 tests/test_sample_projects.py checks they still match.
 
