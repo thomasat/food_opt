@@ -5246,36 +5246,37 @@ def _round_lead(opt, lf):
 
 
 def called_line(opt, lf):
-    """The Forecast check's Round line, its one visible line (fix round 1
-    of the one-glance Review; as at 5fb2b95): where the latest Round's
-    Overall scores landed against their 95 % ranges (a miss on either
-    side), then the order of the pairs that count — '**Round 6: scored
-    higher than forecast.** 2 of 3 above their range; order too close to
-    call.' A measurement leads when the Overall score is not there. None
-    with nothing to check."""
+    """The Forecast check's Round line, its one visible line (one-glance
+    Review, fix rounds 1 and 2): where the latest Round's Overall scores
+    landed against their 95 % ranges, and nothing else — '**Round 6: 2 of
+    3 above their forecast range.**' (the order of its pairs is in the
+    "?", called_help). A measurement leads when the Overall score is not
+    there. None with nothing to check."""
     lead = _round_lead(opt, lf)
     if lead is None:
         return None
-    r, name, call, cks, inside, above, below, none = lead
-    # Review critique: measured ties are counted aloud too ("1 tie").
-    order = wording.check_order(call.right, call.counted, call.close,
-                                tied=bool(cks) and learned.all_tied(cks) and len(cks) > 1,
-                                ties=call.ties)
+    r, name, _call, _cks, inside, above, below, none = lead
     subject = None if name == insights.SCORE else learned_label(opt, name)
-    return _short(opt, wording.check_line(r, inside, above, below, order, subject, none=none))
+    return _short(opt, wording.check_line(r, inside, above, below, subject, none=none))
 
 
 def called_help(opt, lf):
     """The Round line's "?": the Round's landing in plain words ('Round 6,
     Overall score: 1 of 3 in range; 2 misses, both higher than forecast.'),
+    the Round's own pairs in the Details' words ('Round 6 order, Overall
+    score: of 3 pairs, 1 called, right; 1 too close, 1 measured equal.'),
     then, with verdicts, the pairs called over every Round checked with
     the chance of as many right by luck, and the verdicts' rule."""
     lead = _round_lead(opt, lf)
     out = []
     if lead is not None:
-        r, name, _call, _cks, inside, above, below, _none = lead
+        r, name, call, _cks, inside, above, below, _none = lead
+        label = learned_label(opt, name)
         if inside + above + below:
-            out.append(wording.round_landing(r, learned_label(opt, name), inside, above, below))
+            out.append(wording.round_landing(r, label, inside, above, below))
+        if call.pairs:
+            out.append(wording.round_order(r, label, call.right, call.counted, call.close,
+                                           call.ties))
     if _has_verdicts(lf):
         pairs = pairs_called_text(opt, lf)
         out += [wording.so_far_pairs(pairs) if pairs else "",

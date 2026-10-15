@@ -623,7 +623,7 @@ def test_the_pairs_line_says_called_of_all():
 def test_the_pairs_help_gives_the_chance_raw_and_adjusted():
     opt = NS(objectives=[], utility_ceiling=lambda: 100.0, has_ingredients=lambda: True)
     text = U.pairs_called_text(opt, _lf(5, 5, 6, 1))
-    assert text == ("Overall score: 5 of 12 pairs called (6 too close, 1 tie); 5 right. "
+    assert text == ("Overall score: 5 of 12 pairs called (6 too close, 1 measured equal); 5 right. "
                     "Chance by luck: 3 in 100; 15 in 100 adjusted for checking 5 results.")
     _clean(text)
     assert U._chance_words(0.0625) == "6 in 100"

@@ -21,7 +21,7 @@ from food_bo import FoodOptimizer
 from tests import demo_projects as D
 from tests.test_app_ui import APP_PATH, _tab_primaries
 from tests.test_review_cards import cards
-from ui_helpers import REVIEW_DUE_KEY, open_rows
+from ui_helpers import REVIEW_DOT_STYLE, REVIEW_DUE_KEY, open_rows
 
 # The cards' (Predictions, Progress) words and the Next card's word when it
 # is red, per demo project (tests/test_review_cards.py EXPECTED).
@@ -146,6 +146,13 @@ def _button(at, tab, key):
     return next(b for b in at.tabs[tab].button if b.key == key)
 
 
+def _tab_dot(at):
+    """Whether the Review tab's dot is drawn: its own style block, matched
+    whole (a bare "2022" also matched a scroll script's time_ns() comment,
+    so the test failed at some times of day)."""
+    return any(h.proto.body.strip() == REVIEW_DOT_STYLE.strip() for h in at.get("html"))
+
+
 def test_save_results_then_review_round_n_opens_review(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     with bo_views.fresh():
@@ -168,11 +175,11 @@ def test_save_results_then_review_round_n_opens_review(tmp_path, monkeypatch):
         assert _tab_primaries(at, RESULTS) == [wording.review_round_label(no)]
         foot = _button(at, RESULTS, "foot_batch")
         assert foot.label == wording.back_to_batch_label(no, 3) and not foot.disabled
-        assert any("2022" in h.proto.body for h in at.get("html")), "no tab dot"
+        assert _tab_dot(at), "no tab dot"
         _button(at, RESULTS, "review_round").click().run()
         assert at.session_state["main_tab"] == wording.TAB_INSIGHTS
         assert REVIEW_DUE_KEY not in at.session_state
-        assert not any("2022" in h.proto.body for h in at.get("html"))
+        assert not _tab_dot(at)
         # Reviewed: Results' foot is the lit one again.
         assert _tab_primaries(at, RESULTS) == [wording.back_to_batch_label(no, 3)]
         # The rest of the Round: Save results lands on Results, Review lit.

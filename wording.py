@@ -10037,10 +10037,12 @@ def learned_count_needed(label, right, pairs, needed, total=None):
 def pairs_called_help(label, right, called, total, close, ties, p_text, adj_text=None,
                       tested=1):
     """The Forecast check's "?" on the pairs: 'Overall score: 5 of 12 pairs
-    called (6 too close, 1 tie); 5 right. Chance by luck: 3 in 100; 15 in
-    100 adjusted for checking 5 results.'"""
+    called (6 too close, 1 measured equal); 5 right. Chance by luck: 3 in
+    100; 15 in 100 adjusted for checking 5 results.' (One-glance Review fix
+    round 2: "measured equal", the glossary's and the Details' term, not
+    "tie".)"""
     why = [f"{close} too close"] if close else []
-    why += [f"{ties} tie{'s' if ties != 1 else ''}"] if ties else []
+    why += [f"{ties} measured equal"] if ties else []
     out = (f"{label}: {called} of {total} pairs called"
            + (f" ({', '.join(why)})" if why else "") + f"; {right} right.")
     if called:
@@ -10488,7 +10490,7 @@ def learned_verdicts_help(n):
     out = (f"A pair is two formulations of one {ROUND_CAP}; it is ordered right when its "
            f"forecasts, from earlier {ROUND_CAP}s only, put it in the measured order. "
            f"{CALLED_MEANS} Predicts: ordered right clearly more often than chance. Partly: "
-           f"right more than half the time, not yet clearly. Not yet: no better than chance "
+           f"right over half the time, not yet clearly. Not yet: no better than chance "
            f"so far, too few pairs, or the result barely varies.")
     if n > 1:
         out += (f" Adjusted for checking {n} results at once, so one that passes by luck "
@@ -10554,17 +10556,9 @@ def pairs_sentence(label, right, called, close=0, ties=0):
     return f"{head}; {rest}." if rest else f"{head}."
 
 
-# The Forecast check's Round line (fix round 1 of the one-glance Review:
-# back as the section's one visible line). As at 5fb2b95, with the wording
-# fix rounds 3 and 4: the count and its reference, never 'as forecast';
-# values with no forecast named; 'both inside' for two.
-def check_landing(above, below):
-    """'higher' / 'lower' / 'both' / 'inside' from the misses' sides."""
-    if above and below:
-        return "both"
-    return "higher" if above else "lower" if below else "inside"
-
-
+# The Forecast check's Round line (one-glance Review, fix round 1: back as
+# the section's one visible line; fix round 2: the landing fact alone, at
+# most ~10 words; the order of the pairs is in its "?").
 def check_misses(above, below):
     """'2 misses, both higher than forecast'; '1 miss, lower than
     forecast'; '2 misses: 1 higher, 1 lower'."""
@@ -10594,83 +10588,56 @@ def round_landing(round_no, label, inside, above, below):
     return f"{ROUND_CAP} {round_no}, {label}: {called_range(inside, above, below)}"
 
 
+def round_order(round_no, label, right, called, close=0, ties=0):
+    """The Round's own pairs, in the Round line's "?" (fix round 2: moved
+    off the line), in the Details' words: 'Round 6 order, Overall score: of
+    3 pairs, 1 called, right; 1 too close, 1 measured equal.'"""
+    return f"{ROUND_CAP} {round_no} order, {pairs_sentence(label, right, called, close, ties)}"
+
+
 def so_far_pairs(text):
     """'Every Round so far, Overall score: 5 of 12 pairs called …' — the
     pairs over all Rounds checked, told apart from the Round's own."""
     return f"Every {ROUND_CAP} so far, {text}"
 
 
-def check_range(inside, above, below):
-    """The headline's range part: '2 of 3 above their range'; '1 of 3
-    below its range'; 'all 3 in range'; 'all 3 outside their range'."""
+def landing_counts(inside, above, below):
+    """Where a Round's values landed, each against its own forecast range:
+    'all 3 inside their forecast range'; 'both above …'; 'above its
+    forecast range' (one value); '2 of 3 above their forecast range' (the
+    rest inside); with misses both ways, each named: '2 above, 1 below
+    their forecast range', and with all three sides '1 inside, 1 above, 1
+    below forecast range' (no "their", so the line keeps to 10 words)."""
     total = inside + above + below
-    out = above + below
-    if not out:
-        return "in range" if total == 1 else f"all {total} in range"
-    side = "above" if not below else "below" if not above else "outside"
-    if out == total == 1:
-        return f"{side} its range"
-    lead = (("both" if total == 2 else f"all {total}") if out == total
-            else f"{out} of {total}")
-    return f"{lead} {side} {'its' if out == 1 else 'their'} range"
+    sides = [(n, w) for n, w in ((inside, "inside"), (above, "above"), (below, "below")) if n]
+    if len(sides) == 1:
+        word = sides[0][1]
+        if total == 1:
+            return f"{word} its forecast range"
+        return f"{'both' if total == 2 else f'all {total}'} {word} their forecast range"
+    out = [(n, w) for n, w in sides if w != "inside"]
+    if len(out) == 1:
+        n, w = out[0]
+        return f"{n} of {total} {w} {'its' if n == 1 else 'their'} forecast range"
+    # All three sides: no "their", so the line keeps to 10 words.
+    return ", ".join(f"{n} {w}" for n, w in sides) + (
+        " forecast range" if len(sides) == 3 else " their forecast range")
 
 
-def check_order(right, counted, close, tied=False, ties=0):
-    """'order right: 1 pair, 1 too close, 1 tie'; 'order right in 1 of 2
-    pairs'; 'order too close to call'."""
-    if tied:
-        return "all the same"
-    tail = (f", {close} too close" if close else "") + (
-        f", {ties} {'tie' if ties == 1 else 'ties'}" if ties else "")
-    if not counted:
-        return "order too close to call" if close else ""
-    pairs = "pair" if counted == 1 else "pairs"
-    if right == counted:
-        return f"order right: {counted} {pairs}{tail}"
-    return f"order right in {right} of {counted} {pairs}{tail}"
-
-
-def check_head(round_no, above, below, subject=None, total=None, none=0):
-    """'**Round 6: scored higher than forecast.**'; every one inside:
-    '**Round 10: all 3 inside their 95 % range.**' ('both inside' for two;
-    a measurement as the subject: '**Round 6: Consistency, all 3 inside
-    their 95 % range.**'); every range over the whole Range (`none` of
-    them): '**Round 6: Consistency, 3 values with no forecast range.**'."""
-    if total == 0:
+def check_line(round_no, inside, above, below, subject=None, none=0):
+    """The Forecast check's Round line, the landing fact alone (fix round 2,
+    status at most ~10 words): '**Round 6: 2 of 3 above their forecast
+    range.**'; '**Round 10: all 3 inside their forecast range.**'; a
+    measurement leading: '**Round 6: Consistency, both inside their
+    forecast range.**'; values with no forecast named after the count
+    ('; 1 no forecast'), or alone when none has a range: '**Round 6:
+    Creaminess, 3 values with no forecast range.**'."""
+    if inside + above + below == 0:
         who = f"{subject or OVERALL_SCORE_COLUMN}, "
-        many = f"{none} values" if none != 1 else "1 value"
-        return f"**{ROUND_CAP} {round_no}: {who}{many} with no forecast range.**"
-    landing = check_landing(above, below)
-    if landing == "inside":
-        n = total if total is not None else 0
-        what = ("inside its 95 % range" if n == 1 else
-                "both inside their 95 % range" if n == 2 else
-                f"all {n} inside their 95 % range" if n else "inside their 95 % range")
-        if subject is not None:
-            what = f"{subject}, {what}"
-        return f"**{ROUND_CAP} {round_no}: {what}.**"
-    verb = "scored" if subject is None else f"{subject} measured"
-    what = {"higher": f"{verb} higher than forecast", "lower": f"{verb} lower than forecast",
-            "both": f"{verb} outside forecast, both ways"}[landing]
-    return f"**{ROUND_CAP} {round_no}: {what}.**"
-
-
-def check_line(round_no, inside, above, below, order_text="", subject=None, none=0):
-    """The Forecast check's headline: '**Round 6: scored higher than
-    forecast.** 2 of 3 above their range; order too close to call.'; every
-    one inside, the count is in the head: '**Round 10: all 3 inside their
-    95 % range.** Order right: 1 pair, 1 too close, 1 tie.' With no range
-    left (`none` values with no forecast) the order is not said beside it."""
-    total = inside + above + below
-    if total == 0:
-        return check_head(round_no, above, below, subject, total=0, none=none)
-    rng = "" if (not above and not below) else check_range(inside, above, below)
-    # Fix round 3: some (not all) with no forecast range, named.
-    # Fix round 4: with its noun, '1 value with no forecast'.
-    left = f"{_values(none)} with no forecast" if none else ""
-    tail = "; ".join(t for t in (rng, left, order_text) if t)
-    head = check_head(round_no, above, below, subject, total=total)
-    return f"{head} {tail[:1].upper()}{tail[1:]}." if tail else head
+        return f"**{ROUND_CAP} {round_no}: {who}{_values(none)} with no forecast range.**"
+    who = f"{subject}, " if subject else ""
+    tail = f"; {none} no forecast" if none else ""
+    return f"**{ROUND_CAP} {round_no}: {who}{landing_counts(inside, above, below)}{tail}.**"
 
 
 # Method and definitions, one line each (owner, 2026-10-14): the rest of the

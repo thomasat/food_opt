@@ -181,21 +181,28 @@ def test_no_stop_floor_where_the_stop_rests_on_more_than_its_rule(monkeypatch):
 # ------------------------------------------------------------------ #
 
 def test_the_forecast_check_says_how_many_inside_what():
-    """Restored with the Round line (one-glance Review, fix round 1)."""
-    assert wording.check_line(10, 3, 0, 0, "order right: 1 pair, 1 too close, 1 tie") == (
-        "**Round 10: all 3 inside their 95 % range.** Order right: 1 pair, 1 too close, 1 tie.")
-    assert wording.check_line(6, 1, 0, 0) == "**Round 6: inside its 95 % range.**"
-    assert wording.check_line(6, 2, 0, 0, "", "Consistency") == (
-        "**Round 6: Consistency, both inside their 95 % range.**")
-    # No range left: the results named, and no order beside it.
-    assert wording.check_line(6, 0, 0, 0, "order right: 1 pair", "Creaminess", none=3) == (
+    """Restored with the Round line (one-glance Review, fix round 1); fix
+    round 2: the landing fact alone, at most 10 words; the order is in the
+    line's "?" (test_the_check_line_counts_ties)."""
+    assert wording.check_line(10, 3, 0, 0) == "**Round 10: all 3 inside their forecast range.**"
+    assert wording.check_line(6, 1, 0, 0) == "**Round 6: inside its forecast range.**"
+    assert wording.check_line(6, 2, 0, 0, "Consistency") == (
+        "**Round 6: Consistency, both inside their forecast range.**")
+    # No range left: the results named.
+    assert wording.check_line(6, 0, 0, 0, "Creaminess", none=3) == (
         "**Round 6: Creaminess, 3 values with no forecast range.**")
-    # A miss keeps its old words and its range part.
-    assert wording.check_line(6, 1, 2, 0, "order right: 1 pair") == (
-        "**Round 6: scored higher than forecast.** 2 of 3 above their range; order right: 1 pair.")
-    head = re.sub(r"\*\*", "", wording.check_head(10, 0, 0, total=3))
-    assert _words(head) <= 10
+    # A miss: how many, which side, of how many.
+    assert wording.check_line(6, 1, 2, 0) == "**Round 6: 2 of 3 above their forecast range.**"
+    assert wording.check_line(6, 2, 0, 1) == "**Round 6: 1 of 3 below its forecast range.**"
+    assert wording.check_line(6, 0, 3, 0) == "**Round 6: all 3 above their forecast range.**"
+    # Both ways: each side named, "below" too.
+    assert wording.check_line(6, 1, 1, 1) == (
+        "**Round 6: 1 inside, 1 above, 1 below forecast range.**")
+    assert wording.check_line(6, 0, 2, 1) == "**Round 6: 2 above, 1 below their forecast range.**"
+    for args in ((10, 3, 0, 0), (6, 1, 2, 0), (6, 1, 1, 1), (6, 2, 0, 0)):
+        assert _words(wording.check_line(*args)) <= 10
     assert "as forecast" not in wording.check_line(10, 3, 0, 0)
+    assert "order" not in wording.check_line(6, 1, 2, 0)
     assert not hasattr(wording, "called_landing")
 
 # ------------------------------------------------------------------ #
@@ -232,7 +239,8 @@ def test_a_no_forecast_is_counted_neither_in_nor_outside(monkeypatch):
     call = learned.round_call(cks, "Creaminess", 6, 0.3)
     lf = NS(items=[("Creaminess", call, cks)], called=(6, []))
     line = U.called_line(opt, lf)
-    assert line.startswith("**Round 6: Creaminess measured higher than forecast.** Above its range")
+    # The two whole-Range values are named, never counted in or outside.
+    assert line == "**Round 6: Creaminess, above its forecast range; 2 no forecast.**"
     every = [_check("Creaminess", 0.0, 15.0, 5.0, no=16)]
     lf = NS(items=[("Creaminess", learned.round_call(every, "Creaminess", 6, 0.3), every)],
             called=(6, []))
@@ -294,7 +302,8 @@ def test_the_verdicts_say_called_of_all_pairs():
            "counted of all pairs." in wording.learned_verdicts_help(5)
     # Beside the longest pairs line of the samples (27 words), the "?" still
     # fits its ~120 words, so brief() keeps the definitions.
-    pairs = ("Overall score: 9 of 24 pairs called (13 too close, 2 ties); 7 right. Chance by "
+    pairs = ("Overall score: 9 of 24 pairs called (13 too close, 2 measured equal); 7 right. "
+             "Chance by "
              "luck: 10 in 100; 31 in 100 adjusted for checking 5 results.")
     both = f"{pairs}\n\n{wording.learned_verdicts_help(5)}"
     assert wording.brief(both) == both
@@ -538,13 +547,12 @@ def test_the_overall_scores_no_forecast_checks_are_named():
 
 def test_the_forecast_check_names_some_and_all_no_forecast():
     # Some (not all) with no forecast range: named beside the count.
-    assert wording.check_line(6, 2, 0, 0, "order right: 1 pair", "Creaminess", none=1) == (
-        "**Round 6: Creaminess, both inside their 95 % range.** 1 value with no forecast; "
-        "order right: 1 pair.")
-    assert wording.check_line(6, 2, 0, 0, "", "Creaminess", none=2).endswith(
-        "** 2 values with no forecast.")
+    assert wording.check_line(6, 2, 0, 0, "Creaminess", none=1) == (
+        "**Round 6: Creaminess, both inside their forecast range; 1 no forecast.**")
+    assert wording.check_line(6, 2, 0, 0, "Creaminess", none=2).endswith(
+        "; 2 no forecast.**")
     # Every one: the subject named, the Overall score too.
-    assert wording.check_line(6, 0, 0, 0, "x", None, none=3) == (
+    assert wording.check_line(6, 0, 0, 0, None, none=3) == (
         "**Round 6: Overall score, 3 values with no forecast range.**")
 
 

@@ -509,18 +509,17 @@ def test_the_forecast_check_is_its_label_then_the_round_line(scored):
     assert len(between) == 1, between
     line = between[0]
     # The Round line (test_called_it_sits_at_the_top_as_charts, its Round-line
-    # parts): where the scores landed, then the order of the pairs that count.
-    assert re.match(r"\*\*Round 5: (scored|.+ measured|all \d+ inside|both inside|.+, all \d+ "
-                    r"inside|inside its) ", line), line
+    # parts). Fix round 2: where the scores landed, alone, in 10 words.
+    assert re.fullmatch(r"\*\*Round 5: [^*]*forecast range[^*]*\.\*\*", line), line
     assert not re.match(r"(Predicts|Partly|Not yet): ", line)
-    # Review critique: measured ties counted aloud ("; 1 tie"); at most 14
-    # words besides the numbers.
-    assert _words(re.sub(r"[\d–]+", "", line)) <= 16, line
-    assert "calls right" not in line and "as forecast" not in line
-    # Its "?" opens on the Round's landing in plain words.
+    assert _words(line) <= 10, line
+    assert "order" not in line and "tie" not in line and "as forecast" not in line
+    # Its "?" opens on the Round's landing in plain words, then the Round's
+    # own pairs in the Details' words ("measured equal", never "tie").
     el = leaves[texts.index(line)][0]
     assert el.help.startswith("Round 5, Overall score: "), el.help
-    assert " in range" in el.help
+    assert " in range" in el.help and "Round 5 order, Overall score: of " in el.help
+    assert not re.search(r"\bties?\b", el.help)
     # The one chart sits in the fold, after one sentence per result with pairs.
     inside = leaves[details + 1:]
     assert any("vega" in el.type or "chart" in el.type for el, _ in inside)

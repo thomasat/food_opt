@@ -126,8 +126,8 @@ def test_answer_lines_open_with_the_cards_word(screens, name):  # noqa: F811
         q1 = next(t for t in texts
                   if re.match(r"(So far: |(Predicts|Partly|Not yet): |\*\*Round \d+: )", t))
         if q1.startswith("**Round "):
-            # The Round line as at 5fb2b95: at most 16 words besides numbers.
-            assert _words(re.sub(r"[\d–]+", "", q1)) <= 16, q1
+            # Fix round 2: the landing fact alone, at most 10 words.
+            assert _words(q1) <= 10, q1
             q1 = None
         else:
             assert re.search(r"(Predicts|Partly|Not yet): ", q1), q1

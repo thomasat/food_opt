@@ -97,10 +97,15 @@ def test_the_check_line_counts_ties(plain):
     opt = _Obj()
     lf = _lf(opt, _round6(), 6, {insights.SCORE: 1.0, "Consistency": 0.3})
     line = U.called_line(opt, lf)
-    # Round 2: no brackets inside the line (14 words at most).
-    assert "order right: 1 pair, 1 too close, 1 tie" in line
-    assert wording.check_order(1, 1, 1, ties=1) == "order right: 1 pair, 1 too close, 1 tie"
-    assert wording.check_order(0, 0, 2) == "order too close to call"
+    # Fix round 2: the line is the landing alone; the Round's pairs, the
+    # measured-equal one counted aloud, are in its "?" in the Details' words.
+    assert "order" not in line and "tie" not in line and "equal" not in line
+    help_ = U.called_help(opt, lf)
+    assert "Round 6 order, Overall score: of 3 pairs, 1 called, right; 1 too close, 1 measured " \
+           "equal." in help_
+    assert "tie" not in help_
+    assert wording.round_order(6, "Tangy", 0, 0, 2) == (
+        "Round 6 order, Tangy: of 2 pairs, none called; 2 too close.")
 
 
 # ------------------------------------------------------------------ #

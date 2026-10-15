@@ -116,10 +116,13 @@ def test_the_round_line_and_its_question_mark(monkeypatch):
     lf = types.SimpleNamespace(items=[(insights.SCORE, call, cks)], called=(6, []),
                                orderings={})
     line = U.called_line(None, lf)
-    assert line.startswith("**Round 6: scored higher than forecast.** 2 of 3 above their "
-                           "range; order"), line
+    # Fix round 2: the landing fact alone, at most 10 words.
+    assert line == "**Round 6: 2 of 3 above their forecast range.**", line
+    assert _words(line) <= 10
+    # Its "?": the landing in plain words, then the Round's own pairs.
     assert U.called_help(None, lf) == (
-        "Round 6, Overall score: 1 of 3 in range; 2 misses, both higher than forecast.")
+        "Round 6, Overall score: 1 of 3 in range; 2 misses, both higher than forecast.\n\n"
+        "Round 6 order, Overall score: of 3 pairs, 3 called, all 3 right.")
     assert U.called_line(None, types.SimpleNamespace(items=[], called=(None, []))) is None
 
 
