@@ -120,9 +120,17 @@ def test_answer_lines_open_with_the_cards_word(screens, name):  # noqa: F811
         # Review learned: the section's answer names what the model predicts.
         # Slim Review (re-pinned): one verdict line in the Forecast check,
         # merged with its "So far:" count.
+        # One-glance Review, fix round 1 (re-pinned): the Round line once
+        # the latest Round is checked, else the verdict line.
         texts = [t for k, t in got[wording.FORECAST_CHECK_TITLE] if k == "markdown"]
-        q1 = next(t for t in texts if re.match(r"(So far: |(Predicts|Partly|Not yet): )", t))
-        assert re.search(r"(Predicts|Partly|Not yet): ", q1), q1
+        q1 = next(t for t in texts
+                  if re.match(r"(So far: |(Predicts|Partly|Not yet): |\*\*Round \d+: )", t))
+        if q1.startswith("**Round "):
+            # The Round line as at 5fb2b95: at most 16 words besides numbers.
+            assert _words(re.sub(r"[\d–]+", "", q1)) <= 16, q1
+            q1 = None
+        else:
+            assert re.search(r"(Predicts|Partly|Not yet): ", q1), q1
     assert q2.startswith(f"**{plain(g['word'])}.**")
     for line in (q1, q2):
         if line:

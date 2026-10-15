@@ -170,6 +170,31 @@ def test_make_a_round_misses_line_above_generate():
     assert "A Repeat of Formulation 16 would measure the noise." in full
 
 
+def test_the_remaining_lines_carry_their_numbers():
+    """Re-pinned (one-glance Review, fix round 1) without the removed
+    not_yet_counted line."""
+    lines = {
+        "stop": wording.answer_line(wording.ceiling_head("1.7", "2.3"), wording.CEILING_TAIL),
+        "close": wording.no_gain_head("0.2", "1.0"),
+        "preview": wording.learning_round_counted("98.3", "98.3"),
+    }
+    assert lines["stop"] == ("**Within noise of the top: 1.7 below, 2.3 needed.** Stop, or "
+                             "change the target.")
+    assert lines["close"] == "Largest expected gain 0.2, under the 1.0 noise threshold."
+    assert lines["preview"] == "Predicted at most 98.3, best 98.3: tests untried amounts."
+    limits = {"stop": 14, "close": 10, "preview": 10}
+    for k, text in lines.items():
+        assert _words(text) <= limits[k], text
+        _clean(text)
+    little = U._Little(["the most Tap water"])
+    little.gain_text, little.noise_text = "0.2", "1.0"
+    said = wording._little_more(little)
+    assert said.startswith(" The largest expected gain inside your current limits is 0.2, "
+                           "under the 1.0 noise threshold; the best it predicts sits at")
+    assert "little" not in said
+    assert wording._little_more(("the most Tap water",)).startswith(f" {wording.LITTLE_MORE}")
+
+
 # ------------------------------------------------------------------ #
 #  2 · Predicts and Partly carry their pairs
 # ------------------------------------------------------------------ #

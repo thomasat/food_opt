@@ -6146,8 +6146,8 @@ BASIS_PROGRESS = (
     "results in; a rise counts from the noise threshold up, the pooled Repeat SD once it has 3 "
     "degrees of freedom, else 1 point; expected gain is the suggestion model's "
     "acquisition value.")
-BASIS_NEXT = ("Basis: the Next-step rules are tried in the order listed under Method and "
-              "definitions, and the first that holds is shown; its full sentence follows.")
+BASIS_NEXT = ("Basis: the Next-step rules are tried in a fixed order, and the first that "
+              "holds is shown; its full sentence follows.")
 
 
 # Concision round: each basis line on screen is short; the full one above
@@ -6258,12 +6258,12 @@ TIP_ACTIVE_BOUNDS = (
     "At the Highest or Lowest of a row: the predicted best is pressed against that limit "
     "(within 1 % of its span), so widening it may let it go further. BO term: active bounds of "
     "the constrained maximiser.")
-# The term itself is said in Method and definitions only (HOW_REGRESSION
-# and the glossary; answer-key refresh item 7), so this tip points there.
+# The statistics term is not said on screen (answer-key refresh item 7);
+# the one-glance Review's Method and definitions no longer holds it, so the
+# tip no longer points there.
 TIP_LUCK = (
     "Probably helped by luck: Best so far is the highest of many scores, each with its own "
-    "noise, so a Repeat of it is predicted lower. The statistics term is in Method and "
-    "definitions.")
+    "noise, so a Repeat of it is predicted lower.")
 TIP_ROLES = (
     f"Refines the best, balanced, explores: how far a suggestion is from what was made: within "
     f"15 % of Best so far, more than 30 % from every {FORMULATION} recorded, or in between. BO "
@@ -7835,14 +7835,12 @@ def ev_suggestions(acquisition="qlognei"):
     return f"suggestions: Gaussian process on the {OVERALL_SCORE_COLUMN}, {name}"
 
 
-# Review four: the method link sits under the cards now.
-EV_METHOD = "Kernel, priors and every check: How the app knows, under the cards."
-
-# The one-click way to the method (the Method and definitions fold).
-METHOD_LINK = "How the app knows"
-METHOD_LINK_HELP = ("Opens Method and definitions: the Gaussian-process model read from this "
-                    "project, the acquisition (qLogNEI by default), the Round-ahead checks, "
-                    "the noise threshold and the known limits.")
+# The one-click way to the Method and definitions fold (its help and the
+# evidence lines' pointer, EV_METHOD, are set with the definitions below).
+# Fix round 1 of the one-glance Review: the fold holds one line per term
+# and the README link, so the label says that ("How the app knows"
+# promised the model, the checks and the limits).
+METHOD_LINK = "Definitions"
 
 # The hero: what the x axis is, and a hidden gain as a choice with a next step.
 def hero_axis(values=False):
@@ -8194,7 +8192,6 @@ def strip_jump_help(question):
 
 # The cards are gone: what named them now names the strip or What next?.
 SEE_CHART_HELP = "Scrolls to the section that answers it."
-EV_METHOD = "Kernel, priors and every check: How the app knows, top right."
 REVIEW_STATUS_HELP = (f"The {TAB_INSIGHTS} status line in brief. Predictions: can you trust "
                       "them? Progress: is Best so far still rising?")
 GAIN_REASON_NOT_YET = "Predictions do not read Reliable yet"
@@ -9273,9 +9270,6 @@ LEARNED_FULL_CHANCE = "chance up to 100 %: too few Rounds"
 # the Forecast check — one line from the same verdicts (merged with its "So
 # far:" count), the ordering chart in a closed fold under it.
 LEARNED_LINE_WORDS = 14
-
-
-LEARNED_DETAILS_TITLE = "Details: ordering by result"
 
 
 def learned_count(label, right, pairs, few=False):
@@ -10524,6 +10518,8 @@ CEILING_SETUP_HELP = ceiling_setup_help()
 CEILING_MEASURE = ("A single new result can't be told apart from this best in the Overall "
                    "score; a single measurement still can (On target says which are beyond "
                    "their noise).")
+
+
 # One-glance Review (owner, 2026-10-14; spec 2026-10-13 §10): the Forecast
 # check's details say each result's pairs in one plain sentence (the
 # ordering chart against chance is gone), then the one chart, the Overall
@@ -10535,44 +10531,176 @@ def _pairs_text(n):
     return f"{n} pair" if n == 1 else f"{n} pairs"
 
 
-def pairs_sentence(label, right, called, total):
-    """'Overall score: of 12 pairs, 5 were far enough apart to call; all 5
-    called right.' — one result's within-Round pairs (`total`, every pair;
-    `called`, those far enough apart to call; `right`, called right)."""
-    head = f"{label}: of {_pairs_text(total)}"
+def pairs_sentence(label, right, called, close=0, ties=0):
+    """'Overall score: of 12 pairs, 5 called, all 5 right; 6 too close, 1
+    measured equal.' — one result's within-Round pairs: `called`, forecast
+    far enough apart to call (`right` of them called right); `close`, too
+    close to call; `ties`, measured equal (never called). Every pair is
+    one of the three. 'all' only when every called pair was right."""
+    total = called + close + ties
     if not called:
-        return f"{head}, none could be called."
-    verb = "was" if called == 1 else "were"
-    if called == 1:
-        tail = "it was called right" if right else "it was called wrong"
+        said = "none called"
+    elif called == 1:
+        said = "1 called, right" if right else "1 called, wrong"
     elif right == called:
-        tail = f"all {called} called right"
+        said = f"{called} called, {'both' if called == 2 else f'all {called}'} right"
     elif not right:
-        tail = f"none of the {called} called right"
+        said = f"{called} called, none right"
     else:
-        tail = f"{right} of {called} called right"
-    return f"{head}, {called} {verb} far enough apart to call; {tail}."
+        said = f"{called} called, {right} right"
+    rest = ", ".join(t for t in (f"{close} too close" if close else "",
+                                 f"{ties} measured equal" if ties else "") if t)
+    head = f"{label}: of {_pairs_text(total)}, {said}"
+    return f"{head}; {rest}." if rest else f"{head}."
+
+
+# The Forecast check's Round line (fix round 1 of the one-glance Review:
+# back as the section's one visible line). As at 5fb2b95, with the wording
+# fix rounds 3 and 4: the count and its reference, never 'as forecast';
+# values with no forecast named; 'both inside' for two.
+def check_landing(above, below):
+    """'higher' / 'lower' / 'both' / 'inside' from the misses' sides."""
+    if above and below:
+        return "both"
+    return "higher" if above else "lower" if below else "inside"
+
+
+def check_misses(above, below):
+    """'2 misses, both higher than forecast'; '1 miss, lower than
+    forecast'; '2 misses: 1 higher, 1 lower'."""
+    n = above + below
+    word = "miss" if n == 1 else "misses"
+    if above and below:
+        return f"{n} {word}: {above} higher, {below} lower"
+    side = "higher" if above else "lower"
+    lead = "" if n == 1 else ("both " if n == 2 else "all ")
+    return f"{n} {word}, {lead}{side} than forecast"
+
+
+def called_range(inside, above, below):
+    """The Overall score's landing: '1 of 3 in range; 2 misses, both higher
+    than forecast.' Outside the range is a miss, above or below (persona
+    fixes 2)."""
+    total = inside + above + below
+    out = f"{inside} of {total} in range"
+    if above or below:
+        out += f"; {check_misses(above, below)}"
+    return out + "."
+
+
+def round_landing(round_no, label, inside, above, below):
+    """The Round line's "?" opens on its landing: 'Round 6, Overall score:
+    1 of 3 in range; 2 misses, both higher than forecast.'"""
+    return f"{ROUND_CAP} {round_no}, {label}: {called_range(inside, above, below)}"
+
+
+def so_far_pairs(text):
+    """'Every Round so far, Overall score: 5 of 12 pairs called …' — the
+    pairs over all Rounds checked, told apart from the Round's own."""
+    return f"Every {ROUND_CAP} so far, {text}"
+
+
+def check_range(inside, above, below):
+    """The headline's range part: '2 of 3 above their range'; '1 of 3
+    below its range'; 'all 3 in range'; 'all 3 outside their range'."""
+    total = inside + above + below
+    out = above + below
+    if not out:
+        return "in range" if total == 1 else f"all {total} in range"
+    side = "above" if not below else "below" if not above else "outside"
+    if out == total == 1:
+        return f"{side} its range"
+    lead = (("both" if total == 2 else f"all {total}") if out == total
+            else f"{out} of {total}")
+    return f"{lead} {side} {'its' if out == 1 else 'their'} range"
+
+
+def check_order(right, counted, close, tied=False, ties=0):
+    """'order right: 1 pair, 1 too close, 1 tie'; 'order right in 1 of 2
+    pairs'; 'order too close to call'."""
+    if tied:
+        return "all the same"
+    tail = (f", {close} too close" if close else "") + (
+        f", {ties} {'tie' if ties == 1 else 'ties'}" if ties else "")
+    if not counted:
+        return "order too close to call" if close else ""
+    pairs = "pair" if counted == 1 else "pairs"
+    if right == counted:
+        return f"order right: {counted} {pairs}{tail}"
+    return f"order right in {right} of {counted} {pairs}{tail}"
+
+
+def check_head(round_no, above, below, subject=None, total=None, none=0):
+    """'**Round 6: scored higher than forecast.**'; every one inside:
+    '**Round 10: all 3 inside their 95 % range.**' ('both inside' for two;
+    a measurement as the subject: '**Round 6: Consistency, all 3 inside
+    their 95 % range.**'); every range over the whole Range (`none` of
+    them): '**Round 6: Consistency, 3 values with no forecast range.**'."""
+    if total == 0:
+        who = f"{subject or OVERALL_SCORE_COLUMN}, "
+        many = f"{none} values" if none != 1 else "1 value"
+        return f"**{ROUND_CAP} {round_no}: {who}{many} with no forecast range.**"
+    landing = check_landing(above, below)
+    if landing == "inside":
+        n = total if total is not None else 0
+        what = ("inside its 95 % range" if n == 1 else
+                "both inside their 95 % range" if n == 2 else
+                f"all {n} inside their 95 % range" if n else "inside their 95 % range")
+        if subject is not None:
+            what = f"{subject}, {what}"
+        return f"**{ROUND_CAP} {round_no}: {what}.**"
+    verb = "scored" if subject is None else f"{subject} measured"
+    what = {"higher": f"{verb} higher than forecast", "lower": f"{verb} lower than forecast",
+            "both": f"{verb} outside forecast, both ways"}[landing]
+    return f"**{ROUND_CAP} {round_no}: {what}.**"
+
+
+def check_line(round_no, inside, above, below, order_text="", subject=None, none=0):
+    """The Forecast check's headline: '**Round 6: scored higher than
+    forecast.** 2 of 3 above their range; order too close to call.'; every
+    one inside, the count is in the head: '**Round 10: all 3 inside their
+    95 % range.** Order right: 1 pair, 1 too close, 1 tie.' With no range
+    left (`none` values with no forecast) the order is not said beside it."""
+    total = inside + above + below
+    if total == 0:
+        return check_head(round_no, above, below, subject, total=0, none=none)
+    rng = "" if (not above and not below) else check_range(inside, above, below)
+    # Fix round 3: some (not all) with no forecast range, named.
+    # Fix round 4: with its noun, '1 value with no forecast'.
+    left = f"{_values(none)} with no forecast" if none else ""
+    tail = "; ".join(t for t in (rng, left, order_text) if t)
+    head = check_head(round_no, above, below, subject, total=total)
+    return f"{head} {tail[:1].upper()}{tail[1:]}." if tail else head
 
 
 # Method and definitions, one line each (owner, 2026-10-14): the rest of the
-# method is in the README, "How the Review works".
+# method is in the README, "How the Review works". Fix round 1: each line
+# true to the rule the app applies (learned.judge and holm; the coverage
+# ruling above, SIMULATED_COVERAGE; learned.round_call and pair_noise).
 METHOD_DEFINITIONS = (
     f"**{OVERALL_SCORE_COLUMN}**: 0 to 100, how close the measurements come to your targets, "
     "each counted by its Share of score.",
-    "**95 % range**: where the model expects a measured value to land, 95 times in 100.",
+    "**95 % range**: the model's range for one new result, aimed at 95 in 100; on simulated "
+    f"projects it caught about {SIMULATED_COVERAGE['measurements']} in 100 "
+    f"({SIMULATED_COVERAGE['score']} for {OVERALL_SCORE_COLUMN}s).",
     f"**Tasting noise**: how far one {FORMULATION}'s {OVERALL_SCORE_COLUMN} moves when tasted "
     "again, in points; from Repeats, else assumed.",
     "**Stop**: Best so far is closer to the top score than a new result must rise to be told "
     "apart.",
-    f"**Called · too close**: forecasts at least one tasting noise apart in one {ROUND_CAP} are "
-    "called; closer pairs are too close.",
-    "**No forecast**: a 95 % range covering the whole possible Range; counted neither in nor "
+    "**Called · too close**: forecasts at least that result's noise apart "
+    f"({OVERALL_SCORE_COLUMN}: points; a measurement: its own units) are called; closer pairs "
+    "are too close; measured-equal pairs never are.",
+    "**No forecast**: a 95 % range covering the whole possible Range; counted neither in nor "
     "out.",
-    "**Predicts · Partly · Not yet**: called pairs right beyond chance; right in over half; "
-    "neither yet.",
+    "**Predicts · Partly · Not yet**: with 5+ pairs called, Predicts if ordered right beyond "
+    "chance (p < 0.05, adjusted), Partly if over half right with weaker evidence (p < 0.20); "
+    "else Not yet, also when over half the pairs were measured equal.",
 )
-METHOD_README = "Full method: README, “How the Review works”."
-METHOD_LINK_HELP = "Opens Method and definitions: the terms this Review uses, one line each."
+REVIEW_README_URL = "https://github.com/thomasat/food_opt#how-the-review-works"
+# Fix round 1: a link (the README is not in the app bundle).
+METHOD_README = f"Full method: [README, “How the Review works”]({REVIEW_README_URL})."
+METHOD_LINK_HELP = (f"Opens Method and definitions: {len(METHOD_DEFINITIONS)} terms, one line "
+                    "each, and the README link.")
 # The evidence lines' pointer to the method: Method and definitions is one
 # line per term now, so the full method's place (it read "Kernel, priors and
 # every check: How the app knows, top right.").

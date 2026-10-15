@@ -413,12 +413,13 @@ def test_the_model_section_is_gone_and_its_line_sits_in_the_forecast_check(score
     texts = [_text(el) for el, _, _ in _leaves(at.tabs[3])]
     head = texts.index(f"#### {wording.FORECAST_CHECK_TITLE}")
     lf = at.session_state[U.LEARNED_KEY][1]          # the screen's own verdicts
-    line = U.learned_verdict_line(opt, lf)[0]
-    assert texts.count(line) == 1 and texts.index(line) > head
-    # Merged: no "So far:" line but the verdict line (here the groups run
-    # past 14 words beside the count, so the line is the groups alone).
-    assert [t for t in texts if t.startswith("So far:")] in ([], [line])
-    assert _words(line) <= 14
+    # One-glance Review, fix round 1 (re-pinned): with the latest Round
+    # checked, the Forecast check's one line is the Round line; the verdict
+    # line is not repeated (the verdict is in the strip).
+    line = U.called_line(opt, lf)
+    assert line is not None and texts.count(line) == 1 and texts.index(line) > head
+    assert U.learned_verdict_line(opt, lf)[0] not in texts
+    assert not [t for t in texts if t.startswith("So far:")]
     # The strip's Model item is unchanged: the verdicts' words.
     word, names = wording.learned_strip(lf.model_names(opt, learned.PREDICTABLE),
                                         lf.model_names(opt, learned.PARTLY),

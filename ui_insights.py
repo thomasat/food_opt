@@ -931,7 +931,7 @@ def render(opt):
     """The Review (review four, owner 2026-10-02: "clean up the Review tab
     to cleanly (and visually) answer these 4 questions"): the header, the
     three cards (each with a "See chart ↓" link to its question), the one
-    "How the app knows" link, then the questions, always open — each a
+    "Definitions" link, then the questions, always open — each a
     small heading, one answer line opening with its card's word, one chart
     and its caption; Method and definitions, closed, at the foot.
 
@@ -1053,7 +1053,7 @@ STRIP_STYLE = """<style>
 
 def _header_line(opt):
     """The header line — 'Review after Round 10 · 30 formulations', its
-    full text in the "?" — with "How the app knows" at its right end
+    full text in the "?" — with "Definitions" (METHOD_LINK) at its right end
     (review story 2: a small link, off the way of the charts)."""
     with st.container(horizontal=True, horizontal_alignment="distribute",
                       vertical_alignment="center", gap="small"):
@@ -4808,9 +4808,9 @@ METHOD_LINK_KEY = "insights_method_link"
 
 
 def method_link(opt):
-    """Review polish: "How the app knows" opens More detail and Method and
-    definitions and lands on it — the model read from this project, the
-    acquisition, the checks and the known limits, one click from the
+    """Review polish: "Definitions" (METHOD_LINK) opens More detail and
+    Method and definitions and lands on it — one line per term the Review
+    uses and the README link to the full method, one click from the
     Review."""
     st.button(_say(opt, wording.METHOD_LINK), type="tertiary", key=METHOD_LINK_KEY,
               help=_say(opt, wording.METHOD_LINK_HELP), icon=":material/science:",
@@ -5216,34 +5216,96 @@ def learned_verdict_line(opt, lf):
 def pair_sentences(opt, lf):
     """The Forecast check's details (one-glance Review, owner 2026-10-14):
     one plain sentence per result that had pairs, in the verdicts' order —
-    'Overall score: of 12 pairs, 5 were far enough apart to call; all 5
-    called right.' [] with none."""
+    'Overall score: of 12 pairs, 5 called, all 5 right; 6 too close, 1
+    measured equal.' (fix round 1: the pairs measured equal named as such,
+    never as too close). [] with none."""
     out = []
     for name, o in (lf.orderings.items() if lf is not None else ()):
-        total = o.pairs + getattr(o, "ties", 0) + getattr(o, "close", 0)
-        if total:
+        ties, close = getattr(o, "ties", 0), getattr(o, "close", 0)
+        if o.pairs + ties + close:
             out.append(_say(opt, wording.pairs_sentence(learned_label(opt, name), o.right,
-                                                        o.pairs, total)))
+                                                        o.pairs, close, ties)))
     return out
 
 
+def _round_lead(opt, lf):
+    """(round, name, call, checks, inside, above, below, none) of the
+    Forecast check's Round line: the latest Round's Overall score, else its
+    first measurement; a range over the whole Range (No forecast) counted
+    neither in nor outside. None with nothing to check."""
+    if lf is None or not getattr(lf, "items", None):
+        return None
+    name, call, cks = next((it for it in lf.items if it[0] == insights.SCORE), lf.items[0])
+    # Sceptic review: a range over the whole Range is no forecast, counted
+    # neither in nor outside.
+    ranged = [c for c in cks if not no_forecast(opt, c)]
+    inside = sum(1 for c in ranged if c.low <= c.measured <= c.high)
+    above = sum(1 for c in ranged if c.measured > c.high)
+    below = sum(1 for c in ranged if c.measured < c.low)
+    return lf.called[0], name, call, cks, inside, above, below, len(cks) - len(ranged)
+
+
+def called_line(opt, lf):
+    """The Forecast check's Round line, its one visible line (fix round 1
+    of the one-glance Review; as at 5fb2b95): where the latest Round's
+    Overall scores landed against their 95 % ranges (a miss on either
+    side), then the order of the pairs that count — '**Round 6: scored
+    higher than forecast.** 2 of 3 above their range; order too close to
+    call.' A measurement leads when the Overall score is not there. None
+    with nothing to check."""
+    lead = _round_lead(opt, lf)
+    if lead is None:
+        return None
+    r, name, call, cks, inside, above, below, none = lead
+    # Review critique: measured ties are counted aloud too ("1 tie").
+    order = wording.check_order(call.right, call.counted, call.close,
+                                tied=bool(cks) and learned.all_tied(cks) and len(cks) > 1,
+                                ties=call.ties)
+    subject = None if name == insights.SCORE else learned_label(opt, name)
+    return _short(opt, wording.check_line(r, inside, above, below, order, subject, none=none))
+
+
+def called_help(opt, lf):
+    """The Round line's "?": the Round's landing in plain words ('Round 6,
+    Overall score: 1 of 3 in range; 2 misses, both higher than forecast.'),
+    then, with verdicts, the pairs called over every Round checked with
+    the chance of as many right by luck, and the verdicts' rule."""
+    lead = _round_lead(opt, lf)
+    out = []
+    if lead is not None:
+        r, name, _call, _cks, inside, above, below, _none = lead
+        if inside + above + below:
+            out.append(wording.round_landing(r, learned_label(opt, name), inside, above, below))
+    if _has_verdicts(lf):
+        pairs = pairs_called_text(opt, lf)
+        out += [wording.so_far_pairs(pairs) if pairs else "",
+                wording.learned_verdicts_help(_tested(lf))]
+    return _short(opt, wording.brief("\n\n".join(t for t in out if t)))
+
+
 def _learned_section(opt, slot, computed, lf):
-    """The Forecast check (one-glance Review, owner 2026-10-14): its label
-    (the forecasts rebuilt from earlier Rounds, said in its "?") and the
-    one verdict line; then a closed Details fold — one plain sentence per
-    result with pairs (pair_sentences) and the one chart, the Overall
-    score's forecast 95 % range against the score measured, Round by Round
-    (forecast_chart: "No forecast" points neutral). A disagreeing Repeat's
-    warning stays in the strip and in What next?."""
+    """The Forecast check (one-glance Review, owner 2026-10-14; fix round
+    1): its label (the forecasts rebuilt from earlier Rounds, said in its
+    "?") and ONE visible line — the Round line (called_line), its "?" the
+    landing, the pairs and the verdicts' rule; with no Round to check, the
+    verdict line instead (the verdict itself is in the strip). Then a
+    closed Details fold: one plain sentence per result with pairs
+    (pair_sentences) and the one chart, the Overall score's forecast 95 %
+    range against the score measured, Round by Round (forecast_chart: "No
+    forecast" points grey). A disagreeing Repeat's warning stays in the
+    strip and in What next?."""
+    line = called_line(opt, lf)
+    verdicts = None if line is not None else learned_verdict_line(opt, lf)
     with slot.answer.container(gap="xsmall"):
-        if not _has_verdicts(lf):
+        if line is None and not verdicts:
             st.markdown(_say(opt, wording.LEARNED_NONE_YET))
         else:
             # Rebuilt framing: worked out again today, never kept from the time.
             st.caption(_say(opt, wording.REBUILT_LABEL), help=_say(opt, wording.rebuilt_help(
                 sample_projects.is_sample(getattr(opt, "project_name", None)))))
-            verdicts = learned_verdict_line(opt, lf)
-            if verdicts:
+            if line is not None:
+                st.markdown(line, help=called_help(opt, lf))
+            else:
                 st.markdown(verdicts[0], help=verdicts[1])
     sentences = pair_sentences(opt, lf)
     checks = [c for c in (computed or {}).get("checks") or () if c.name == insights.SCORE]
@@ -7741,9 +7803,10 @@ def forecast_chart(opt, checks):
     """Can we trust the predictions? — forecast against actual, over time:
     for each checked formulation, the 95 % range the model predicted for
     its Overall score before it was made (a light blue bar, from the
-    earlier Rounds only) and the score measured (a dot: filled ink inside,
-    hollow ink outside). x: Formulations in the order made, as the
-    improving chart. None without a check."""
+    earlier Rounds only, with a blue tick at the forecast) and the score
+    measured (a filled dot: ink inside, orange outside, grey for No
+    forecast). x: Formulations in the order made, as the improving chart.
+    None without a check."""
     mine = [c for c in checks or () if c.name == insights.SCORE]
     if not mine:
         return None

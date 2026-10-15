@@ -92,6 +92,17 @@ def _lf(opt, checks, r, noise):
 #  1. Forecast check: shared axis, misses flagged, ties counted
 # ------------------------------------------------------------------ #
 
+def test_the_check_line_counts_ties(plain):
+    """Restored with the Round line (one-glance Review, fix round 1)."""
+    opt = _Obj()
+    lf = _lf(opt, _round6(), 6, {insights.SCORE: 1.0, "Consistency": 0.3})
+    line = U.called_line(opt, lf)
+    # Round 2: no brackets inside the line (14 words at most).
+    assert "order right: 1 pair, 1 too close, 1 tie" in line
+    assert wording.check_order(1, 1, 1, ties=1) == "order right: 1 pair, 1 too close, 1 tie"
+    assert wording.check_order(0, 0, 2) == "order too close to call"
+
+
 # ------------------------------------------------------------------ #
 #  2. The stop signal at the top score
 # ------------------------------------------------------------------ #

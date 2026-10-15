@@ -149,6 +149,29 @@ def test_trial_only_through_for_project(group):
         assert not re.search(r"\bformulations?\b", W.for_project(opt, text), re.I), text
 
 
+def test_the_settings_only_forms_name_no_ingredient_or_amount():
+    """A line that names ingredients or amounts has a form for process
+    settings alone (review I14, M4). Re-pinned (one-glance Review, fix round
+    1) on the live forms: the removed What have we tried? forms
+    (strips_no_gap, explored_link) and glossary rows are gone."""
+    for text in (W.progress_one_round(values=True), W.clause_guard(settings_only=True),
+                 W.next_plain_repeat_ask(15, values=True), W.next_plain_untested(6, values=True),
+                 W.next_plain_explore("1.1", values=True),
+                 W.next_plain_close(settings_only=True, repeat_no=7, values=True),
+                 W.try_one_fold(True, False), W.basis_explored(values=True),
+                 W.tip_repeats(True), W.tip_predicted_score(True), W.tip_untested(True),
+                 W.tip_local_effect(True), W.strips_caption(True),
+                 W.tip_strips(values=True),
+                 W.explored_pointer(W.try_one_fold(True, False), settings_only=True),
+                 *W.model_summary(_facts(values=True, total=False)),
+                 *[c for row in W.status_rule_rows(settings_only=True) for c in row]):
+        assert "ingredient" not in text.lower(), text
+        assert "amount" not in text.lower(), text
+        # A study of process settings alone has no Formulation total, and
+        # for_project would make it "Trial total".
+        assert "Formulation total" not in text, text
+
+
 # ------------------------------------------------------------------ #
 #  The review's own texts (R-B1, R-I5), word for word
 # ------------------------------------------------------------------ #

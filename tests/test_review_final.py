@@ -84,6 +84,26 @@ def _measure_checks():
     return out
 
 
+def test_one_widening_is_the_same_range_on_make_forecast_check_and_results():
+    """Re-pinned (one-glance Review, fix round 1) without the removed
+    Forecast check panels (check_frame): the measurement widening Make a
+    round uses is the one each Round's check carries."""
+    opt = _stub()
+    checks = insights.nest_measure_widen(opt, _measure_checks())
+    r6 = [c for c in checks if c.round == 6][0]
+    # Make a round widens the open Round by every other Round's record:
+    make = insights.measure_widen(checks, "Firmness", skip_round=6)
+    assert make == pytest.approx(2.0)
+    assert r6.widen == pytest.approx(make)
+    p = insights.widened(NS(low=0.0, high=15.0),
+                         insights.Prediction(7.0, 6.0, 8.0, 7.0, 0.5), make)
+    assert (p.low, p.high) == pytest.approx((r6.low, r6.high))
+    # Round 6 was a miss unwidened; inside the one range it is not.
+    assert r6.inside and r6.low <= 8.5 <= r6.high
+    # The earliest Round has no record: unwidened.
+    assert [c for c in checks if c.round == 3][0].widen == 1.0
+
+
 def test_measure_widen_reads_the_models_own_sd_not_the_nested_widening():
     checks = insights.nest_measure_widen(_stub(), _measure_checks())
     plain = [c for c in _measure_checks() if c.round < 6]

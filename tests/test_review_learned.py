@@ -491,10 +491,11 @@ def scored(tmp_path_factory):
     mp.undo()
 
 
-def test_the_forecast_check_is_its_label_then_the_verdict_line(scored):
-    """One-glance Review (owner, 2026-10-14): under its heading, the Rebuilt
-    label, the one verdict line, then the closed Details fold; the Called
-    it? line and panels are gone."""
+def test_the_forecast_check_is_its_label_then_the_round_line(scored):
+    """One-glance Review (owner, 2026-10-14), fix round 1: under its
+    heading, the Rebuilt label, the ONE Round line ("Round 5: … in/above
+    their range …"), then the closed Details fold; the verdict line is not
+    repeated there (the verdict is in the strip)."""
     leaves = [(el, _text(el)) for el, _, _ in _leaves(scored.tabs[3])]
     texts = [t for _, t in leaves]
     details = next(i for i, (el, _t) in enumerate(leaves) if el.type == "expander"
@@ -505,13 +506,26 @@ def test_the_forecast_check_is_its_label_then_the_verdict_line(scored):
     # Rebuilt framing: right under its title, said to be rebuilt.
     assert texts[title + 1] == wording.REBUILT_LABEL
     between = [t for t in texts[title + 2:details] if t]
-    assert len(between) == 1 and re.match(r"(Predicts|Partly|Not yet): ", between[0]), between
-    assert not any(re.match(r"\*\*Round \d+: ", t) for t in texts)
+    assert len(between) == 1, between
+    line = between[0]
+    # The Round line (test_called_it_sits_at_the_top_as_charts, its Round-line
+    # parts): where the scores landed, then the order of the pairs that count.
+    assert re.match(r"\*\*Round 5: (scored|.+ measured|all \d+ inside|both inside|.+, all \d+ "
+                    r"inside|inside its) ", line), line
+    assert not re.match(r"(Predicts|Partly|Not yet): ", line)
+    # Review critique: measured ties counted aloud ("; 1 tie"); at most 14
+    # words besides the numbers.
+    assert _words(re.sub(r"[\d–]+", "", line)) <= 16, line
+    assert "calls right" not in line and "as forecast" not in line
+    # Its "?" opens on the Round's landing in plain words.
+    el = leaves[texts.index(line)][0]
+    assert el.help.startswith("Round 5, Overall score: "), el.help
+    assert " in range" in el.help
     # The one chart sits in the fold, after one sentence per result with pairs.
     inside = leaves[details + 1:]
     assert any("vega" in el.type or "chart" in el.type for el, _ in inside)
-    assert any(" were far enough apart to call; " in t or "none could be called" in t
-               for _, t in inside)
+    assert any(re.search(r": of \d+ pairs?, (none called|\d+ called)", t) for _, t in inside)
+    assert not any(" far enough apart to call" in t for _, t in inside)
 
 
     # Review readable: taller (120 -> 160 px) so 12 px end labels clear each other.

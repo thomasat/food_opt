@@ -180,6 +180,24 @@ def test_no_stop_floor_where_the_stop_rests_on_more_than_its_rule(monkeypatch):
 #  3 · the Forecast check: the count and the reference
 # ------------------------------------------------------------------ #
 
+def test_the_forecast_check_says_how_many_inside_what():
+    """Restored with the Round line (one-glance Review, fix round 1)."""
+    assert wording.check_line(10, 3, 0, 0, "order right: 1 pair, 1 too close, 1 tie") == (
+        "**Round 10: all 3 inside their 95 % range.** Order right: 1 pair, 1 too close, 1 tie.")
+    assert wording.check_line(6, 1, 0, 0) == "**Round 6: inside its 95 % range.**"
+    assert wording.check_line(6, 2, 0, 0, "", "Consistency") == (
+        "**Round 6: Consistency, both inside their 95 % range.**")
+    # No range left: the results named, and no order beside it.
+    assert wording.check_line(6, 0, 0, 0, "order right: 1 pair", "Creaminess", none=3) == (
+        "**Round 6: Creaminess, 3 values with no forecast range.**")
+    # A miss keeps its old words and its range part.
+    assert wording.check_line(6, 1, 2, 0, "order right: 1 pair") == (
+        "**Round 6: scored higher than forecast.** 2 of 3 above their range; order right: 1 pair.")
+    head = re.sub(r"\*\*", "", wording.check_head(10, 0, 0, total=3))
+    assert _words(head) <= 10
+    assert "as forecast" not in wording.check_line(10, 3, 0, 0)
+    assert not hasattr(wording, "called_landing")
+
 # ------------------------------------------------------------------ #
 #  4 · a 95 % range over the whole Range: No forecast
 # ------------------------------------------------------------------ #
@@ -201,6 +219,24 @@ def test_whole_range_is_each_end_within_one_percent(low, high, none):
     opt = _opt()
     assert U.no_forecast(opt, _check("Creaminess", low, high)) is none
     assert wording.NO_FORECAST_EDGE == 0.01
+
+
+def test_a_no_forecast_is_counted_neither_in_nor_outside(monkeypatch):
+    """The Forecast check's line, led by a measurement: its whole-Range
+    forecasts are left out of the in/outside count (restored with the Round
+    line, one-glance Review fix round 1)."""
+    monkeypatch.setattr(U, "_short", lambda opt, text: text)
+    opt = _opt()
+    cks = [_check("Creaminess", 0.0, 15.0, 5.0, no=16), _check("Creaminess", 0.0, 15.0, 5.0, no=17),
+           _check("Creaminess", 4.0, 6.0, 7.0, no=18)]
+    call = learned.round_call(cks, "Creaminess", 6, 0.3)
+    lf = NS(items=[("Creaminess", call, cks)], called=(6, []))
+    line = U.called_line(opt, lf)
+    assert line.startswith("**Round 6: Creaminess measured higher than forecast.** Above its range")
+    every = [_check("Creaminess", 0.0, 15.0, 5.0, no=16)]
+    lf = NS(items=[("Creaminess", learned.round_call(every, "Creaminess", 6, 0.3), every)],
+            called=(6, []))
+    assert U.called_line(opt, lf) == "**Round 6: Creaminess, 1 value with no forecast range.**"
 
 
 def test_the_results_table_reads_no_forecast_and_no_verdict():
@@ -500,7 +536,16 @@ def test_the_overall_scores_no_forecast_checks_are_named():
         "6 Overall score values with no forecast left out.")
 
 
+def test_the_forecast_check_names_some_and_all_no_forecast():
+    # Some (not all) with no forecast range: named beside the count.
+    assert wording.check_line(6, 2, 0, 0, "order right: 1 pair", "Creaminess", none=1) == (
+        "**Round 6: Creaminess, both inside their 95 % range.** 1 value with no forecast; "
+        "order right: 1 pair.")
+    assert wording.check_line(6, 2, 0, 0, "", "Creaminess", none=2).endswith(
+        "** 2 values with no forecast.")
     # Every one: the subject named, the Overall score too.
+    assert wording.check_line(6, 0, 0, 0, "x", None, none=3) == (
+        "**Round 6: Overall score, 3 values with no forecast range.**")
 
 
 @pytest.mark.parametrize("targets, name, limit", [
@@ -581,6 +626,32 @@ def _early_window_checks(opt):
                                      + _round_of(4, True, 0, start=10)
                                      + _round_of(5, True, 0, start=13)
                                      + _round_of(6, True, 0, start=16))
+
+
+def test_the_early_state_counts_the_window_not_every_round(monkeypatch):
+    """Finding 1: the early headline's count is the window's (0 of 12 had a
+    forecast), never the 6 forecast values of Rounds 1–2, so no screen says
+    6 misses that never happened. (One-glance Review, fix round 1:
+    re-pinned without Method and definitions' removed paragraphs.)"""
+    opt = _opt()
+    checks = _early_window_checks(opt)
+    h = insights.headline(opt, checks)
+    assert h.state == "early" and h.rounds == [3, 4, 5, 6]
+    assert (h.inside, h.total, h.no_forecast) == (0, 0, 12)
+    assert U.verdict_text(opt, h, "early") == \
+        "Not judged yet: 0 of 12 values checked had a forecast."
+    names = ", ".join(U._verdict_names(opt, h))
+    assert U._coverage_tip(opt, h) == (
+        f"Measurements ({names}), Rounds 3–6: 12 values checked; none had a forecast "
+        "range yet.")
+    # The Model "?": no "0 of 6 in their 95 % range".
+    monkeypatch.setattr(U, "_say", lambda o, t: t)
+    monkeypatch.setattr(U, "learned_label", lambda o, n: n)
+    o = NS(verdict=learned.NOT_YET, right=1, pairs=2)
+    lf = U.LearnedFacts({"Creaminess": o}, {}, (6, []), None, (0, 0, 0), "")
+    lf.plain_line = ""
+    tip = U.learned_card(opt, lf, None, NS(headline=h)).help.replace("\xa0", " ")
+    assert "of 6" not in tip and "left out" not in tip and "95 % range" not in tip
 
 
 def test_the_overall_scores_left_out_is_scoped_to_the_inside_count():

@@ -395,11 +395,11 @@ def test_pilot_story(pilot):
     # Slim Review (re-pinned): the verdict line in the Forecast check.
     # Sceptic review (2026-10-14), re-pinned: the verdict's own pairs, called
     # of all, take the line's 14 words; the Overall score's count is in its "?".
-    line = next(t for k, t in got[wording.FORECAST_CHECK_TITLE]
-                if k == "markdown" and t.startswith("Predicts: "))
-    # Other verdict groups follow, bare, when the line has room.
-    assert re.fullmatch(r"Predicts: [A-Z][\w ]+ \(\d+ of \d+ pairs called, \d+ right\)\."
-                        r"( (Partly|Not yet): [A-Z][\w ,]+\.)*", line), line
+    # One-glance Review, fix round 1 (re-pinned): the Forecast check's one
+    # line is the Round line; the verdict is the strip's (above).
+    lines = [t for k, t in got[wording.FORECAST_CHECK_TITLE] if k == "markdown"
+             and t.startswith(("**Round ", "Predicts: ", "Partly: ", "Not yet: "))]
+    assert len(lines) == 1 and re.match(r"\*\*Round \d+: ", lines[0]), lines
     before = cards(_open(R6), order="screen")
     assert [c["word"] for c in before[:2]] == ["No new best", "Partly:"]
 
