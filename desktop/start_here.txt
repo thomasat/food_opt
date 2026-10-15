@@ -31,8 +31,8 @@ TRY THE SAMPLE
 To try it again, open Manage project and click “Start this sample over.”
 Your version is kept in Saved copies.
 
-EXAMPLE SETUP
-Click “See an example setup” to open “Example setup - plant-based
+BURGER EXAMPLE
+Click “Open the burger example” to open “Example setup - plant-based
 burger” on 1 · Set up. Its values are illustrative and it has no
 results. It shows calculations (hydration water as 2.2 × the textured
 proteins, remaining water as the rest), pre-mixes, a process setting,

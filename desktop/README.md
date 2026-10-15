@@ -160,7 +160,7 @@ warnings entirely, and the checklist below gates distribution on that.
    line ("… is back as shipped. Your version is in Saved copies."), and
    the old version is listed in Saved copies. Quit and reopen the app:
    a sample opens on "4 · Review" again.
-   Example setup: "See an example setup" opens "Example setup -
+   Example setup: "Open the burger example" opens "Example setup -
    plant-based burger" on "1 · Set up" (illustrative values, no results:
    calculations, pre-mixes, a process setting, records, a formulation
    total); its "4 · Review" says "No results: this example shows set-up

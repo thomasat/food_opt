@@ -194,12 +194,12 @@ OPEN_PROJECT_LABEL = "Open project"
 # opened on 4 · Review. The example setup is how to set a project up:
 # illustrative values, no results, opened on 1 · Set up.
 OPEN_YOGURT_LABEL = "Open the yogurt pilot"
-OPEN_YOGURT_CAPTION = "Real tasting data; when to stop."
+OPEN_YOGURT_CAPTION = "Real tasting data; shows results and the Review."
 OPEN_YOGURT_HELP = (
     "A real yogurt-style pilot: 15 formulations scored, Round 6 made and "
     "waiting for its results.")
-SEE_EXAMPLE_SETUP_LABEL = "See an example setup"
-SEE_EXAMPLE_SETUP_CAPTION = "Illustrative burger; calculations and pre-mixes."
+SEE_EXAMPLE_SETUP_LABEL = "Open the burger example"
+SEE_EXAMPLE_SETUP_CAPTION = "Illustrative values; shows calculations and pre-mixes."
 SAMPLES_HEADING = "**Samples**"
 BURGER_PROVENANCE_CAPTION = "Example setup; illustrative values, no results."
 BURGER_PROVENANCE_HELP = (

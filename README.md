@@ -29,7 +29,7 @@ Choose **Open the yogurt pilot**. It opens **Yogurt pilot - Round 6 to score** o
 
 To try it again, choose **Manage project → Start this sample over**. Your version is kept in **Saved copies**.
 
-To see how a project is set up, choose **See an example setup**. It opens **Example setup - plant-based burger** on **1 · Set up**. Its values are illustrative and it has no results; it shows calculations (Hydration water as 2.2 × the textured proteins, Remaining water as the rest), pre-mixes, a process setting, records and a formulation total.
+To see how a project is set up, choose **Open the burger example**. It opens **Example setup - plant-based burger** on **1 · Set up**. Its values are illustrative and it has no results; it shows calculations (Hydration water as 2.2 × the textured proteins, Remaining water as the rest), pre-mixes, a process setting, records and a formulation total.
 
 For your own project, generate formulations in **Make a round** and download the workbook. Use **Round overview** for the plan, **Preparation** for pre-mixes, and **Results** for measurements. Upload the completed workbook, review the imported values, and save the results. Editing the workbook alone does not update the app. You can also enter measurements directly in the app.
 

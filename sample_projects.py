@@ -43,7 +43,7 @@ def available():
 
 
 def burger_available():
-    """The example setup's file is here (See an example setup)."""
+    """The example setup's file is here (Open the burger example)."""
     return _shipped_path(BURGER).is_file()
 
 

@@ -231,14 +231,14 @@ def test_welcome_offers_both_with_their_captions_yogurt_primary(at):
     assert not at.exception
     buttons = {b.label: b for b in at.main.button}
     yogurt = buttons["Open the yogurt pilot"]
-    example = buttons["See an example setup"]
+    example = buttons["Open the burger example"]
     assert yogurt.proto.type == "primary"
     assert example.proto.type == "secondary"
     captions = [c.value for c in at.main.caption]
-    assert "Real tasting data; when to stop." in captions
-    assert "Illustrative burger; calculations and pre-mixes." in captions
+    assert "Real tasting data; shows results and the Review." in captions
+    assert "Illustrative values; shows calculations and pre-mixes." in captions
     assert wording.OPEN_YOGURT_LABEL == "Open the yogurt pilot"
-    assert wording.SEE_EXAMPLE_SETUP_LABEL == "See an example setup"
+    assert wording.SEE_EXAMPLE_SETUP_LABEL == "Open the burger example"
     assert "Try the sample project" not in buttons
     # The template stays, as a quiet link-style download.
     [template] = [d for d in at.get("download_button") if d.label == wording.DOWNLOAD_TEMPLATE]
@@ -310,10 +310,10 @@ def test_manage_project_has_a_samples_group_with_both(at):
     [manage] = [e for e in at.sidebar.expander if e.label == wording.MANAGE_PROJECT]
     assert "**Samples**" in [m.value for m in manage.markdown]
     labels = [b.label for b in manage.button]
-    assert "Open the yogurt pilot" in labels and "See an example setup" in labels
+    assert "Open the yogurt pilot" in labels and "Open the burger example" in labels
     captions = [c.value for c in manage.caption]
-    assert "Real tasting data; when to stop." in captions
-    assert "Illustrative burger; calculations and pre-mixes." in captions
+    assert "Real tasting data; shows results and the Review." in captions
+    assert "Illustrative values; shows calculations and pre-mixes." in captions
     # Start this sample over is offered on the example setup too.
     assert wording.START_SAMPLE_OVER_LABEL in labels
     assert wording.START_OVER_LABEL not in labels
