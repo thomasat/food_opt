@@ -5968,10 +5968,16 @@ class FoodOptimizer:
     def _bound_words(min_v, max_v, unit):
         """'at least 10 g and at most 40 g' — the two bound words a range
         limit reads as, in the unit it is written in, joined the way every
-        limit line joins them."""
-        bounds = ([join_unit(wording.at_least(min_v), unit)]
+        limit line joins them.
+
+        From 1 up, to at most 2 decimals, as the tables show amounts: the
+        yogurt pilot's 98.69051 g reads 98.69 g, beside the Total (g) of
+        98.69 its formulations show, not 98.6905 g. Below 1 as written."""
+        def shown(v):
+            return v if abs(float(v)) < 1 else round(float(v), 2)
+        bounds = ([join_unit(wording.at_least(shown(min_v)), unit)]
                   if min_v is not None else [])
-        bounds += ([join_unit(wording.at_most(max_v), unit)]
+        bounds += ([join_unit(wording.at_most(shown(max_v)), unit)]
                    if max_v is not None else [])
         return wording.AND_JOIN.join(bounds)
 

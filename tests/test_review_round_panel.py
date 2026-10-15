@@ -81,10 +81,10 @@ def test_round_6_rows_sorted_by_move_with_start_now_and_limits(samples):
     assert (pic["start"], pic["best"]) == ("Start (F3)", "Best after Round 6: F16")
     rows = pic["rows"]
     assert [r["name"] for r in rows] == [
-        "Coconut cream", "Xanthan gum", "Nutritional yeast", "Salt", "Lemon juice",
+        "Xanthan gum", "Coconut cream", "Nutritional yeast", "Salt", "Lemon juice",
         "Tap water", "Tapioca starch"]
     assert [r["label"] for r in rows] == [
-        "−6.3 g", "+0.23 g", "+0.47 g", "+0.32 g", "+0.49 g",
+        "+0.23 g", "−6.3 g", "+0.47 g", "+0.32 g", "+0.49 g",
         "+2.0 g, at Highest", "+0.12 g, at Highest"]
     assert pic["unchanged"] == []
     # Largest move first, as a share of each row's own Lowest–Highest bar.
@@ -96,12 +96,12 @@ def test_round_6_rows_sorted_by_move_with_start_now_and_limits(samples):
         c = by[row["name"]]
         assert row["start"] == pytest.approx((c.a - c.low) / (c.high - c.low))
         assert row["now"] == pytest.approx(min(1.0, (c.b - c.low) / (c.high - c.low)))
-    coconut = rows[0]
+    coconut = rows[1]
     assert (coconut["start_text"], coconut["best_text"], coconut["low_text"],
             coconut["high_text"], coconut["change_text"]) == (
-        "57.6 g", "51.3 g", "48 g", "61 g", "−6.3 g (−11 %)")
-    assert coconut["start"] == pytest.approx(0.74, abs=0.005)
-    assert coconut["now"] == pytest.approx(0.252, abs=0.005)
+        "57.6 g", "51.3 g", "46 g", "61 g", "−6.3 g (−11 %)")
+    assert coconut["start"] == pytest.approx(0.775, abs=0.005)
+    assert coconut["now"] == pytest.approx(0.352, abs=0.005)
     # At a limit: the dot at the bar's end, said on the face.
     ends = {r["name"]: r["at_end"] for r in rows}
     assert ends == {"Coconut cream": None, "Xanthan gum": None, "Nutritional yeast": None,
@@ -115,7 +115,7 @@ def test_round_4_follows_the_panels_round(samples):
     ch, pic = _pic(r6, 4)
     assert pic["best"] == "Best after Round 4: F10"
     assert [(r["name"], r["label"]) for r in pic["rows"]] == [
-        ("Coconut cream", "−5.8 g"), ("Xanthan gum", "+0.21 g"),
+        ("Xanthan gum", "+0.21 g"), ("Coconut cream", "−5.8 g"),
         ("Nutritional yeast", "+0.92 g"), ("Lemon juice", "+0.54 g"), ("Salt", "+0.15 g"),
         ("Tap water", "+1.2 g"), ("Tapioca starch", "+0.04 g")]
     assert not any(r["at_end"] for r in pic["rows"])
@@ -364,12 +364,12 @@ def test_the_score_chart_draws_no_noise_band_and_keeps_the_top_zone(samples):
 def test_a_limit_on_several_rows_is_said_under_the_picture(samples):
     _, all10 = samples
     lines = {r: _pic(all10, r)[1]["shared_line"] for r in (3, 5, 6, 7, 10)}
-    assert lines[5] == "Best sits at the Ingredient total (≤ 98.7 g)."
+    assert lines[5] == "Best sits at the Ingredient total (≤ 98.69 g)."
     assert lines[3] == lines[6] == lines[5]
-    assert lines[10] == lines[7] == "Best sits at the Ingredient total (≥ 97.6 g)."
+    assert lines[10] == lines[7] == "Best sits at the Ingredient total (≥ 97.69 g)."
     assert all(wording._note_words(t) <= 8 for t in lines.values())
     # The "?" keeps the detail.
-    assert "the Ingredient total (≥ 97.6 g)" in U.what_changed(all10, 10).limits_help
+    assert "the Ingredient total (≥ 97.69 g)" in U.what_changed(all10, 10).limits_help
     assert wording.changes_shared(["the A + B (≤ 9 g)", "the Ingredient total (≤ 98.7 g)"]) == \
         "Best sits at 2 limits on several rows."
 

@@ -75,8 +75,8 @@ def test_a_note_is_shown_as_the_source(tmp_path, monkeypatch):
     for note in (None, "", wording.OWN_FORMULATION_NOTE):
         assert opt.compared_with_text(recipe, own=True, note=note).startswith(
             "Your own formulation · ")
-    assert bo_views.role(opt, {"recipe": recipe, "note": "Pilot starting set 1.1"}) == \
-        "Pilot starting set 1.1"
+    assert bo_views.role(opt, {"recipe": recipe, "note": "Random starting set 1.1"}) == \
+        "Random starting set 1.1"
     assert bo_views.role(opt, {"recipe": recipe, "note": wording.OWN_FORMULATION_NOTE}) == \
         wording.OWN_FORMULATION_KIND
 

@@ -422,19 +422,22 @@ def test_error_record_counts_change_but_its_numbers_do_not():
 
 def test_the_all_10_samples_bias_numbers_are_as_at_a4e1420(tmp_path):
     """The all-10 sample's records, pinned against the base a4e1420
-    (before the sceptic review): only inside and total change."""
+    (before the sceptic review): only inside and total change. Re-pinned
+    when the sample took the pilot's own limits (the model reads amounts
+    as shares of each Lowest-Highest): Tangy's predictions now run high
+    over Rounds 3-10, beyond its noise; the Overall score's do not."""
     import json
     import sample_projects as sp
     from food_bo import FoodOptimizer
     (tmp_path / f"{sp.ALL10}.pkl").write_text(json.dumps(sp.shipped_state(sp.ALL10)))
     opt = FoodOptimizer(sp.ALL10)
     checks = insights.check_rounds(opt)
-    base = {insights.SCORE: (-0.3115378309030792, 3.7049177039542873, 1.0026922889392946, 7),
-            "Consistency": (1.0620867017898215, 1.8629027526582356, 0.617445568135852, 7),
-            "Creaminess": (0.6188393764434577, 1.2321319623639029, 0.3801769442750603, 7),
-            "Tangy": (-0.6595265349785322, 1.482564461980301, 0.3188852943382394, 7),
-            "Thickness uniformity": (0.003138588301839033, 1.2601456151466814,
-                                     0.4115214791545541, 7)}
+    base = {insights.SCORE: (-0.6989407206590066, 3.2753873686595236, 0.7908622282691944, 7),
+            "Consistency": (0.9367823847804867, 1.7650620976165172, 0.5993300420438497, 7),
+            "Creaminess": (0.6095510888328993, 1.2235456484352254, 0.36900302965143467, 7),
+            "Tangy": (-0.7730958575129686, 1.3654880880458824, 0.24230436210362377, 7),
+            "Thickness uniformity": (-0.04256151085781501, 1.2345902897386172,
+                                     0.4018420682708456, 7)}
     for name, (mean, sd, se, df) in base.items():
         r = insights.error_record(checks, name)
         assert r.mean_miss == pytest.approx(mean, abs=1e-9), name
@@ -442,7 +445,7 @@ def test_the_all_10_samples_bias_numbers_are_as_at_a4e1420(tmp_path):
         assert r.df == df
     h = insights.headline(opt, checks)
     assert insights.score_bias(opt, checks, h) is None
-    assert not any(d.bias for d in insights.details(opt, checks))
+    assert [d.name for d in insights.details(opt, checks) if d.bias] == ["Tangy"]
 
 
 def test_left_out_values_are_named_where_the_counts_show():

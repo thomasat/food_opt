@@ -6,7 +6,7 @@ It writes <project>.json (default: beside this file) for the two shipped
 projects, plus "Round 5" which is built by tests only.
 
 Every pilot Iteration is one Round; its three Batches are recorded in Batch
-order as the team's own formulations, exactly as the app records them:
+order as formulations of your own, exactly as the app records them:
   2 · Make a round > "Add a formulation of your own" > Add to this Round
       = opt.add_to_pending_batch(recipe, note)          (ui_batch._add_own)
   Record results > Save results
@@ -17,23 +17,27 @@ Scoring: each measurement is a Target on a 0-15 scale with a share of 25, so
 the app's Overall score is sum 25 * (1 - |x - target| / 15)
 = 100 * (1 - sum|x - target| / 60), the pilot's Total_Utility_Score x 100.
 
-The Ingredient total limit is inferred from the pilot. The pilot recorded no
-total limit, but its data shows one. The 7 recorded ingredients add up to
-exactly 98.691 g in every Batch of Rounds 3-5 and in 6.1, 6.3 and 8.3; to
-exactly 97.691 g in 6.2, 7.x, 9.x and 10.x; and to 98.211 g (8.1) and 98.131 g
-(8.2) in between. The team's starting set (Rounds 1-2) ranges 88.9-101.4 g. So
-every Batch EGBO chose (Rounds 3-10) sits inside 97.691-98.691 g, mostly on
-one edge or the other: the signature of a two-sided limit on the total of
-these 7 ingredients (no other ingredient is known). The projects carry it as
+Limits: the campaign's own settings (with them, the campaign's code
+regenerates its recorded batches), not inferred from the data. Per 100 g of
+yogurt the 7 varied ingredients have the Lowest-Highest in INGREDIENTS, and
+their total is held to 97.69051-98.69051 g: 98.69051 g is 100 g less the two
+ingredients held constant in every batch (paper, Appendix G.2.1), soy protein
+isolate (1.00 %) and tricalcium phosphate (0.31 %). Those two are not in the
+CSVs and are not ingredients here. The projects carry the total as
 one amount limit over all 7, named BATCH_TOTAL_NAME ("Ingredient total"), at
-least BATCH_TOTAL_MIN and at most BATCH_TOTAL_MAX (the two edges rounded
-outward to 0.1 g). It only bounds what the app suggests: no recorded
-formulation is altered or rescaled, and the Rounds 1-2 rows outside it stay as
-recorded (the model still learns from them).
-Not a Formulation total: that is one number held to +-0.5 %, which would
-exclude both edges the pilot used (97.70-98.68 g at 98.19 g), says a
+least BATCH_TOTAL_MIN and at most BATCH_TOTAL_MAX. Every Batch EGBO chose
+(Rounds 3-10) sits inside every limit (tests/test_sample_projects.py). Rounds
+1-2 were a random (Sobol) starting set the engine drew within the ingredient
+limits but not the total (88.9-101.4 g); they stay as recorded, and the
+model still learns from them. No recorded formulation is altered or rescaled.
+Not a Formulation total: that is one number held to +-0.5 %, would say a
 formulation off it does not add up to the total, and setting one discards an
 open Round.
+
+Results: each rating is the median of a trained panel of five, 0-15, one per
+attribute per Batch; no Batch was repeated. Each Batch was mixed, cooked at
+90 C for 8 min and chilled (no culture or fermentation). The campaign's
+budget was fixed at 10 Rounds of 3.
 
 No dates. The pilot was tasted Feb-May 2026, but its CSVs carry no date for
 any Batch, so no pilot row carries one: build() blanks timestamps_history
@@ -63,17 +67,16 @@ DATA = HERE
 
 ZERO = 1e-6            # |x| below this is an optimiser zero
 
-# CSV column -> (name in the app, Lowest, Highest) in g. Caps from the pilot
-# where the data shows one; otherwise the data's range rounded outward, with
-# Lowest 0 where the data reaches 0.
+# CSV column -> (name in the app, Lowest, Highest) in g per 100 g: the
+# campaign's own bounds (module docstring), not the data's range.
 INGREDIENTS = OrderedDict([
-    ("Coconut_cream", ("Coconut cream", 48.0, 61.0)),        # data 48.38-60.82
-    ("Tap_water", ("Tap water", 25.0, 42.0)),                # data 25.01-42 (cap)
-    ("Lemon_juice", ("Lemon juice", 0.0, 3.0)),              # data 0-2.82
-    ("Salt", ("Salt", 0.0, 1.8)),                            # data 0-1.8 (cap)
-    ("Nutritional_yeast", ("Nutritional yeast", 0.0, 2.5)),  # data 0-2.5 (cap)
-    ("Tapioca_starch", ("Tapioca starch", 1.0, 2.6)),        # data 1.04-2.6 (cap)
-    ("Xanthan_gum", ("Xanthan gum", 0.1, 0.65)),             # data 0.15-0.65 (cap)
+    ("Coconut_cream", ("Coconut cream", 46.0, 61.0)),
+    ("Tap_water", ("Tap water", 25.0, 42.0)),
+    ("Lemon_juice", ("Lemon juice", 0.0, 3.2)),
+    ("Salt", ("Salt", 0.0, 1.8)),
+    ("Nutritional_yeast", ("Nutritional yeast", 0.0, 2.5)),
+    ("Tapioca_starch", ("Tapioca starch", 0.9, 2.6)),
+    ("Xanthan_gum", ("Xanthan gum", 0.15, 0.65)),
 ])
 
 # CSV column -> (name in the app, target). Scale 0-15, equal shares.
@@ -85,11 +88,11 @@ MEASUREMENTS = OrderedDict([
 ])
 SCALE = (0.0, 15.0)
 
-# The limit inferred from the pilot's totals (module docstring): every Batch
-# EGBO chose adds up to 97.691-98.691 g over the 7 ingredients.
+# The campaign's limit on the 7 ingredients' total (module docstring): 100 g
+# less the two constant ingredients, and 1 g below that.
 BATCH_TOTAL_NAME = "Ingredient total"
-BATCH_TOTAL_MIN = 97.6
-BATCH_TOTAL_MAX = 98.7
+BATCH_TOTAL_MIN = 97.69051
+BATCH_TOTAL_MAX = 98.69051
 SHARE = 100.0 / len(MEASUREMENTS)
 
 
@@ -130,8 +133,8 @@ def setup(name):
     opt.set_amount_unit("g")
     for _, (ing, lo, hi) in INGREDIENTS.items():
         opt.add_ingredient(ing, lo, hi)
-    # No Formulation total (module docstring): a limit on the 7 ingredients'
-    # total instead, inferred from the pilot's batches.
+    # No Formulation total (module docstring): the campaign's limit on the 7
+    # ingredients' total instead.
     opt.add_total_mass_constraint(BATCH_TOTAL_MIN, BATCH_TOTAL_MAX,
                                   name=BATCH_TOTAL_NAME)
     for _, (m, target) in MEASUREMENTS.items():
@@ -141,15 +144,16 @@ def setup(name):
     return opt
 
 
-STARTING_ROUNDS = 2    # Rounds 1-2: the team's starting set; 3-10 chosen by EGBO
+STARTING_ROUNDS = 2    # Rounds 1-2: a random (Sobol) starting set; 3-10 chosen by EGBO
 
 
 def note_of(batch):
-    """The Note typed for a pilot Batch, saying where it came from: 'Pilot
-    starting set 1.1' (Rounds 1-2) or 'Pilot batch 3.1 · EGBO' (Rounds
-    3-10, chosen by EGBO, the engine behind this app)."""
+    """The Note typed for a pilot Batch, saying where it came from: 'Random
+    starting set 1.1' (Rounds 1-2, drawn at random by the engine) or 'Pilot
+    batch 3.1 · EGBO' (Rounds 3-10, chosen by EGBO, the engine behind this
+    app)."""
     if _batch_key(batch)[0] <= STARTING_ROUNDS:
-        return f"Pilot starting set {batch}"
+        return f"Random starting set {batch}"
     return f"Pilot batch {batch} · EGBO"
 
 

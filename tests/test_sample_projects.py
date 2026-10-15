@@ -407,3 +407,66 @@ def test_a_project_write_failure_still_raises(store, monkeypatch):
     monkeypatch.setattr(store, "save", boom)
     with pytest.raises(OSError):
         sp.ensure(store)
+
+
+# ------------------------------------------------------------------ #
+#  The campaign's own limits (paper, §5 and Appendix G)
+# ------------------------------------------------------------------ #
+
+CAMPAIGN_BOUNDS = {
+    "Coconut cream": (46.0, 61.0), "Tap water": (25.0, 42.0),
+    "Lemon juice": (0.0, 3.2), "Salt": (0.0, 1.8),
+    "Nutritional yeast": (0.0, 2.5), "Tapioca starch": (0.9, 2.6),
+    "Xanthan gum": (0.15, 0.65)}
+CAMPAIGN_TOTAL = (97.69051, 98.69051)    # 100 g less the two fixed ingredients
+
+
+@pytest.mark.parametrize("name", [sp.ROUND6, sp.ALL10])
+def test_the_limits_are_the_campaigns_own(name):
+    b = _builder()
+    assert {n: (lo, hi) for n, lo, hi in b.INGREDIENTS.values()} == CAMPAIGN_BOUNDS
+    assert (b.BATCH_TOTAL_MIN, b.BATCH_TOTAL_MAX) == CAMPAIGN_TOTAL
+    state = sp.shipped_state(name)
+    assert {v["name"]: tuple(v["bounds"]) for v in state["variables"]} == CAMPAIGN_BOUNDS
+    [limit] = state["quantity_constraints"]
+    assert (limit["name"], limit["min"], limit["max"]) == ("Ingredient total", *CAMPAIGN_TOTAL)
+    assert sorted(limit["ingredients"]) == sorted(CAMPAIGN_BOUNDS)
+
+
+def test_every_batch_egbo_chose_sits_inside_every_limit(store):
+    """Rounds 3-10 (EGBO's) sit inside every limit, as the app checks a
+    limit; Rounds 1-2 (the random starting set) inside every ingredient's
+    Lowest and Highest, but not all inside the total."""
+    b = _builder()
+    sp.ensure(store)
+    opt = FoodOptimizer(sp.ALL10, storage=store)
+    outside_total = []
+    for it, batches in b.pilot().items():
+        for batch, recipe, _, _ in batches:
+            for ing, (lo, hi) in CAMPAIGN_BOUNDS.items():
+                assert lo - 1e-9 <= recipe[ing] <= hi + 1e-9, (batch, ing, recipe[ing])
+            if it > b.STARTING_ROUNDS:
+                assert opt._check_constraints(recipe), batch
+                total = sum(recipe.values())
+                assert CAMPAIGN_TOTAL[0] - 1e-5 <= total <= CAMPAIGN_TOTAL[1] + 1e-5, batch
+            elif not opt._check_constraints(recipe):
+                outside_total.append(batch)
+    assert outside_total == ["1.1", "1.2", "1.3", "2.1", "2.2", "2.3"]
+
+
+def test_the_notes_say_where_each_batch_came_from():
+    b = _builder()
+    assert b.STARTING_ROUNDS == 2
+    assert b.note_of("1.1") == "Random starting set 1.1"
+    assert b.note_of("2.3") == "Random starting set 2.3"
+    assert b.note_of("3.1") == "Pilot batch 3.1 · EGBO"
+    assert all(len(b.note_of(x).split()) <= 5 for x in ("1.1", "10.3"))
+    notes = sp.shipped_state(sp.ALL10)["notes_history"]
+    assert notes[:6] == [f"Random starting set {r}.{k}" for r in (1, 2) for k in (1, 2, 3)]
+
+
+def test_the_limit_reads_as_the_tables_show_amounts(store):
+    sp.ensure(store)
+    opt = FoodOptimizer(sp.ROUND6, storage=store)
+    [limit] = opt.quantity_constraints
+    assert opt.limit_text(limit) == "Ingredient total: at least 97.69 g and at most 98.69 g"

@@ -532,18 +532,20 @@ def test_previous_and_current_fixed_premix_labels_keep_composition(tmp_path, mon
 
 def test_every_formulation_the_yogurt_sample_suggests_stays_inside_its_limit(
         tmp_path, monkeypatch):
-    """The shipped limit is the pilot's own batch total, 97.6-98.7 g in
-    every one of its 18 formulations; a suggestion outside it is a batch
-    nobody in the pilot could have made."""
+    """The shipped limit is the pilot's own limit on the 7 ingredients'
+    total, 97.69051-98.69051 g (100 g less the two ingredients fixed in
+    every formulation); a suggestion outside it is one the pilot could not
+    have made."""
     opt = _yogurt(tmp_path, monkeypatch)
     [limit] = opt.quantity_constraints
     assert limit['name'] == 'Ingredient total'
     assert sorted(limit['ingredients']) == sorted([
         'Coconut cream', 'Tap water', 'Lemon juice', 'Salt',
         'Nutritional yeast', 'Tapioca starch', 'Xanthan gum'])
-    assert (limit['min'], limit['max']) == (97.6, 98.7)
+    assert (limit['min'], limit['max']) == (97.69051, 98.69051)
     for recipe in opt.ask(3):
-        assert 97.6 - 1e-6 <= sum(recipe[n] for n in limit['ingredients']) <= 98.7 + 1e-6
+        assert 97.69051 - 1e-4 <= sum(recipe[n] for n in limit['ingredients']) \
+            <= 98.69051 + 1e-4
 
 
 def test_a_resized_round_says_so_on_every_sheet_it_prints(tmp_path,
