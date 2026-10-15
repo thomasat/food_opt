@@ -290,12 +290,19 @@ def _sidebar_samples():
 
 # Once per session, before any project is opened: a yogurt pilot copy an
 # earlier build wrote and nobody changed is replaced by the current one
-# (sample_projects.refresh); a changed copy is left as it is.
+# (sample_projects.refresh); a changed copy is left as it is. Replacing a
+# copy gives its file a new modified time, so the project the reader last
+# worked in is found first (_recent_at_launch) and is the one that reopens.
 if not st.session_state.get("_samples_refreshed"):
     st.session_state["_samples_refreshed"] = True
     try:
+        st.session_state["_recent_at_launch"] = getattr(
+            STORAGE, "most_recent_project", lambda: None)()
+    except Exception:
+        pass                     # the sidebar asks again below
+    try:
         sample_projects.refresh(STORAGE)
-    except (OSError, storage_backend.StorageError):
+    except Exception:            # a damaged shipped file too: launch goes on
         pass                     # the old copy still opens; Start this sample over replaces it
 
 
@@ -543,9 +550,12 @@ with st.sidebar:
     # panel. Never auto-open on a shared host (Streamlit Community Cloud
     # mounts the repo at /mount/src): every visitor there shares one disk.
     _shared_host = os.path.isdir("/mount/src")
+    # Found before the launch-time sample refresh, and good for this run only.
+    _recent = st.session_state.pop("_recent_at_launch", None)
     if ("_loaded_project" not in st.session_state and existing_projects
             and not _shared_host):
-        _recent = getattr(STORAGE, "most_recent_project", lambda: None)()
+        if _recent not in existing_projects:
+            _recent = getattr(STORAGE, "most_recent_project", lambda: None)()
         st.session_state["_loaded_project"] = _recent or existing_projects[0]
         st.session_state["_land_on_open"] = True
 

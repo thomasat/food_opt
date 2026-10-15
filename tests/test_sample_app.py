@@ -1,5 +1,6 @@
 """App-level flows for the yogurt samples."""
 import json
+import os
 from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
@@ -211,13 +212,50 @@ def test_first_launch_brings_an_untouched_earlier_sample_up_to_date(tmp_path, mo
     changed = _earlier_build(sp.ALL10)
     changed["tasting_noise"] = 2.0
     Path(f"{sp.ALL10}.pkl").write_text(json.dumps(changed, indent=2))
-    import os
-    os.utime(f"{sp.ALL10}.pkl", (1, 1))          # the Round 6 sample reopens
+    os.utime(f"{sp.ROUND6}.pkl", (1000, 1000))
+    os.utime(f"{sp.ALL10}.pkl", (2000, 2000))   # the reader's last project
     app = AppTest.from_file(APP, default_timeout=120)
     app.run()
     assert not app.exception
     assert json.loads(Path(f"{sp.ROUND6}.pkl").read_text()) == sp.shipped_state(sp.ROUND6)
     assert json.loads(Path(f"{sp.ALL10}.pkl").read_text()) == changed
+    # The replaced copy is newer on disk now, but the project the reader
+    # last worked in is the one that reopens.
+    assert app.session_state["_loaded_project"] == sp.ALL10
+    _open(app, sp.ROUND6)
     assert app.session_state["_loaded_project"] == sp.ROUND6
     opt = app.session_state["optimizer"]
     assert opt.quantity_constraints[0]["max"] == 98.69051
+
+
+def test_own_newest_project_reopens_after_an_earlier_sample_is_replaced(tmp_path, monkeypatch):
+    """Replacing an earlier build's sample gives its file a new modified
+    time; the project the reader last worked in still reopens, not it."""
+    from tests.test_sample_projects import _earlier_build
+    monkeypatch.chdir(tmp_path)
+    Path(f"{sp.ROUND6}.pkl").write_text(json.dumps(_earlier_build(sp.ROUND6), indent=2))
+    _write_own("Mine")
+    os.utime(f"{sp.ROUND6}.pkl", (1000, 1000))
+    os.utime("Mine.pkl", (2000, 2000))
+    app = AppTest.from_file(APP, default_timeout=120)
+    app.run()
+    assert not app.exception
+    assert json.loads(Path(f"{sp.ROUND6}.pkl").read_text()) == sp.shipped_state(sp.ROUND6)
+    assert app.session_state["_loaded_project"] == "Mine"
+
+
+def test_a_damaged_shipped_sample_does_not_stop_launch(tmp_path, monkeypatch):
+    """The launch-time refresh never crashes the app: a shipped sample file
+    that cannot be read leaves the earlier copy on disk, opening as it is."""
+    from tests.test_sample_projects import _earlier_build
+    monkeypatch.chdir(tmp_path)
+    earlier = _earlier_build(sp.ROUND6)
+    Path(f"{sp.ROUND6}.pkl").write_text(json.dumps(earlier, indent=2))
+    damaged = tmp_path / "damaged.json"
+    damaged.write_text("{ not json")
+    monkeypatch.setattr(sp, "_shipped_path", lambda name: damaged)
+    app = AppTest.from_file(APP, default_timeout=120)
+    app.run()
+    assert not app.exception
+    assert json.loads(Path(f"{sp.ROUND6}.pkl").read_text()) == earlier
+    assert app.session_state["_loaded_project"] == sp.ROUND6
