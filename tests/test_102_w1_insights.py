@@ -198,59 +198,8 @@ def test_details_carry_the_fitted_noise_sd_or_say_it_is_fixed():
     assert row.fitted_noise is None and row.noise_fixed
 
 
-def test_the_details_cells_say_the_mean_error_signed_and_the_noise_in_units():
-    opt = _patty(rows=6)
-    row = insights.DetailRow(insights.SCORE, 6, 6, 9.0, 4.0, None, None, mean_error=-4.04,
-                             bias=True, fitted_noise=1.234)
-    assert ui_insights.mean_error_text(opt, row) == "−4.0 (bias)"
-    assert ui_insights.fitted_noise_text(opt, row) == "1.2"
-    firm = insights.DetailRow("Firmness", 6, 6, 0.9, 0.4, None, None, mean_error=0.04)
-    assert ui_insights.mean_error_text(opt, firm) == "0.0"
-    assert ui_insights.fitted_noise_text(opt, firm) == ""
-    fixed = insights.DetailRow("Firmness", 6, 6, 0.9, 0.4, None, None, noise_fixed=True)
-    assert ui_insights.fitted_noise_text(opt, fixed) == wording.FITTED_NOISE_FIXED
-
-
 def _computed(opt, checks, fitted=None):
     return {"checks": checks, "fitted": fitted or {}}
-
-
-def test_the_details_table_has_mean_error_and_fitted_noise_columns_with_help():
-    opt = _patty(rows=6)
-    checks = (_errors("Firmness", [[0.4, 0.42, 0.38]] * 2, predicted=5.0, sd=0.5)
-              + _errors(insights.SCORE, [[-4.0, -4.2, -3.8]] * 2))
-    frame, config = ui_insights.details_frame(opt, _computed(opt, checks))
-    cols = list(frame.columns)
-    assert wording.MEAN_ERROR_COLUMN in cols and wording.FITTED_NOISE_COLUMN in cols
-    # D2: Error ÷ Repeat noise and Skill stay ahead of the context column.
-    assert cols.index(wording.SKILL_COLUMN) < cols.index(wording.FITTED_NOISE_COLUMN)
-    score = frame[frame[cols[0]] == ui_insights.panel_label(opt, insights.SCORE)].iloc[0]
-    assert score[wording.MEAN_ERROR_COLUMN] == "−4.0 (bias)"
-    # D2 (review M8): every column has its tooltip, the long words there.
-    for col in cols[1:]:
-        assert col in config, col
-
-
-def test_method_and_details_says_the_bias_both_ways_and_what_checks_cannot_see():
-    """Ruling B1 / M2: the bias note runs both ways, and the limit sentence:
-    a change at the bench is learned from its first Round on. B2: the
-    fitted noise is context. D5: the chosen kernel; M11: this project's
-    verdict example."""
-    opt = _patty(rows=6)
-    checks = (_errors("Firmness", [[0.4, -0.4] * 5] * 3, predicted=5.0, sd=0.5)
-              + _errors(insights.SCORE, [[-4.0, -4.2, -3.8]] * 3))
-    texts = ui_insights.how_texts(opt, _computed(opt, checks))
-    for want in (wording.HOW_BIAS, wording.HOW_BIAS_DIRECTION, wording.HOW_CHANGE_LIMIT,
-                 wording.HOW_FITTED_NOISE, wording.how_models(),
-                 wording.how_verdict(30, insights.allowed_misses(30))):
-        assert want in texts, want
-    opt.bo_config = {"kernel": "matern52", "noise": "fixed_tiny"}
-    texts = ui_insights.how_texts(opt, _computed(opt, checks))
-    assert wording.how_models("matern52", "fixed_tiny") in texts
-    assert wording.HOW_RANGE_FIXED_TINY in texts
-    # Before anything is worked out: the paragraphs that need no checks.
-    assert wording.HOW_VERDICT in ui_insights.how_texts(opt, None)
-    _clean(*texts)
 
 
 # ------------------------------------------------------------------ #
@@ -480,17 +429,7 @@ def test_the_guard_line_says_why_effects_wait():
     assert ui_insights.guard_text(both) == wording.guard_line([wording.GUARD_FLOOR])
 
 
-def test_the_path_says_why_its_bends_are_not_read():
-    opt = _patty(rows=6)
     # One wording with the effect line (polish round, tests/test_106_last_fixes.py).
-    assert ui_insights.path_guard_line(insights.noise_guard(opt, None, _skill_checks(6))) == \
-        wording.path_guard_wait(6)
-    assert ui_insights.path_guard_line(insights.noise_guard(
-        opt, None, [], fact=_fact(0.09, 24))) == wording.path_guard_unclear("0.09", 24)
-    assert ui_insights.path_guard_line(insights.noise_guard(
-        opt, None, [], fact=_fact(-0.5, 24))) == wording.PATH_GUARD_SKILL
-    assert ui_insights.path_guard_line(insights.Guard(["floor"])) == wording.PATH_GUARD
-    assert ui_insights.path_guard_line(insights.Guard([])) == ""
 
 
 def test_the_expected_improvement_says_why_it_is_withheld():
@@ -816,15 +755,3 @@ def test_the_drift_tab_makes_no_causal_claim(tabs):
     assert wording.CHECK_IF_CHANGED not in said and "panel" not in said
 
 
-def test_the_02_method_and_details(tabs):
-    at = tabs["02 how"]
-    how = next(e for e in at.tabs[3].expander if e.label == wording.FOLD_METHOD)
-    said = [c.value for c in how.caption] + [m.value for m in how.markdown]
-    for want in (wording.HOW_BIAS_DIRECTION, wording.HOW_CHANGE_LIMIT, wording.HOW_FITTED_NOISE,
-                 wording.how_models()):
-        assert want in said, want
-    frame = how.dataframe[0].value
-    assert list(frame.columns) == list(ui_insights.DETAILS_ORDER)
-    score = frame.iloc[-1]
-    assert score[wording.MEAN_ERROR_COLUMN] == "−3.7 (bias)"
-    assert score[wording.FITTED_NOISE_COLUMN] not in ("", wording.FITTED_NOISE_FIXED)

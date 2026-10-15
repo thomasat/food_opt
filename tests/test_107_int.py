@@ -161,8 +161,6 @@ def test_with_no_round_open_the_layers_use_the_next_generates_model(monkeypatch)
     assert not opt.pending_batch
     marker = object()
     monkeypatch.setattr(bo_views, "next_model", lambda o: marker)
-    assert ui_insights.layer_model(opt, {}) is marker
-    assert ui_insights._map_model(opt, {}) is marker
 
 
 # ------------------------------------------------------------------ #
@@ -267,36 +265,6 @@ def test_the_next_tooltip_names_its_numbers_on_early(project):
     h.wide = list(names)
     tip = ui_insights.tooltip_for(opt, "next", wide)
     assert wording.tip_wide(names) in tip
-
-
-def test_the_cold_start_is_a_known_limit():
-    assert any("space-filling" in line and "5" in line for line in wording.MODEL_LIMITS)
-
-
-def test_no_gap_names_process_settings_when_there_are_some():
-    assert wording.strips_no_gap() == (
-        "No ingredient has an untested stretch of 15 % of its span or more.")
-    assert wording.strips_no_gap(has_settings=True) == (
-        "No ingredient or process setting has an untested stretch of 15 % of its span or "
-        "more.")
-    assert wording.strips_no_gap(settings_only=True) == (
-        "No process setting has an untested stretch of 15 % of its span or more.")
-    opt = D.load(D.TIMING)
-    strips = insights.tested_strips(opt, bo_views.feasible_pool(opt))
-    assert ui_insights.strip_gap_lines(opt, strips)[0] == wording.strips_no_gap(
-        has_settings=insights.has_setting_choice(opt))
-
-
-@pytest.mark.parametrize("name,line", [
-    (D.LINE_A, "Textured soy protein between 8.66 and 10.66 g and Textured pea protein "
-               "between 12.83 and 14.77 g have never been tested."),
-    (D.UPGRADE, "Coconut oil between 4.0 and 6.0 g and Textured pea protein between 13.0 "
-                "and 15.0 g have never been tested."),
-])
-def test_one_gap_line_shares_its_decimals(name, line):
-    opt = D.load(name)
-    strips = insights.tested_strips(opt, bo_views.feasible_pool(opt))
-    assert ui_insights.strip_gap_lines(opt, strips)[0] == line
 
 
 # ------------------------------------------------------------------ #

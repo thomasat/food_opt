@@ -32,7 +32,9 @@ from tests.test_review_diag import ALL10, R5, R6
 # Review learned: "What has the model learned?" took Q1's place.
 # Slim Review (owner, 2026-10-08, re-pinned): the model's verdicts folded into
 # the Forecast check, which is now the model's section.
-QUESTIONS = [wording.FORECAST_CHECK_TITLE, wording.Q2_TITLE, wording.Q3_TITLE, wording.Q4_TITLE]
+# One-glance Review (owner, 2026-10-14): What drives each result? and What
+# have we tried? are gone.
+QUESTIONS = [wording.FORECAST_CHECK_TITLE, wording.Q2_TITLE]
 # Review story: the screen asks them as a story — improving first, then
 # trust, drivers, what was tried.
 # Review critique (fix 5, re-pinned): Are we improving?, What next? (the stop
@@ -40,8 +42,7 @@ QUESTIONS = [wording.FORECAST_CHECK_TITLE, wording.Q2_TITLE, wording.Q3_TITLE, w
 # What have we tried?, then What drives each result? as a closed fold.
 # Slim Review (re-pinned): the Forecast check (with the model's verdict line)
 # in the model's place; What have we tried? a closed fold too.
-STORY = [wording.Q2_TITLE, wording.Q5_TITLE, wording.FORECAST_CHECK_TITLE, wording.Q4_TITLE,
-         wording.Q3_TITLE]
+STORY = [wording.Q2_TITLE, wording.Q5_TITLE, wording.FORECAST_CHECK_TITLE]
 CHART = ("arrow_vega_lite_chart", "vega_lite_chart")
 
 
@@ -89,25 +90,20 @@ def _changes_drawn(opt):
 
 
 @pytest.mark.parametrize("name", D.ALL)
-def test_four_questions_in_order_one_chart_each(screens, name):  # noqa: F811
+def test_the_questions_in_order_one_chart_each(screens, name):  # noqa: F811
     at = screens[name]
     got = sections(at)
     assert list(got) == [wording.for_project(D.load(name), q) for q in STORY]
     gate = name == D.SNACK
     for q, items in got.items():
         charts = sum(t in CHART for t, _ in items)
-        if q in (wording.for_project(D.load(name), wording.Q3_TITLE),
-                 wording.for_project(D.load(name), wording.Q4_TITLE)):
-            # Review critique (fix 4): closed, worked out only once opened;
-            # slim Review: What have we tried? too.
-            assert charts == 0, (q, items)
-        elif gate and q == wording.FORECAST_CHECK_TITLE:
+        if gate and q == wording.FORECAST_CHECK_TITLE:
             # Before 5 scored: one line, no chart.
             assert charts == 0 and ("caption", wording.Q_WAIT) in items, (q, items)
         elif q == wording.FORECAST_CHECK_TITLE:
-            # Slim Review: the Forecast check's panels (when its latest Round
-            # was forecast) and the ordering chart in its closed fold.
-            assert 1 <= charts <= 2, (q, items)
+            # One-glance Review: one chart, forecast against measured, in
+            # its closed Details fold.
+            assert charts == 1, (q, items)
         elif q == wording.Q2_TITLE:
             # Review story: the best so far and Closer to target, side by side;
             # Round panel (spec §10, re-pinned): What changed is a picture.
@@ -127,19 +123,24 @@ def test_answer_lines_open_with_the_cards_word(screens, name):  # noqa: F811
     firsts = {q: next((t for k, t in items if k == "markdown"), None)
               for q, items in got.items()}
     opt = D.load(name)
-    q1, q2, q3, q4 = (firsts[wording.for_project(opt, k)] for k in QUESTIONS)
+    q1, q2 = (firsts[wording.for_project(opt, k)] for k in QUESTIONS)
     if name != D.SNACK:
         # Review learned: the section's answer names what the model predicts.
         # Slim Review (re-pinned): one verdict line in the Forecast check,
         # merged with its "So far:" count.
+        # One-glance Review, fix round 1 (re-pinned): the Round line once
+        # the latest Round is checked, else the verdict line.
         texts = [t for k, t in got[wording.FORECAST_CHECK_TITLE] if k == "markdown"]
-        q1 = next(t for t in texts if re.match(r"(So far: |(Predicts|Partly|Not yet): )", t))
-        assert re.search(r"(Predicts|Partly|Not yet): ", q1), q1
-    # Review critique (fix 4): Q3's answer sits inside its closed fold;
-    # slim Review: What have we tried?'s too.
-    assert q3 is None and q4 is None
+        q1 = next(t for t in texts
+                  if re.match(r"(So far: |(Predicts|Partly|Not yet): |\*\*Round \d+: )", t))
+        if q1.startswith("**Round "):
+            # Fix round 2: the landing fact alone, at most 10 words.
+            assert _words(q1) <= 10, q1
+            q1 = None
+        else:
+            assert re.search(r"(Predicts|Partly|Not yet): ", q1), q1
     assert q2.startswith(f"**{plain(g['word'])}.**")
-    for line in (q1, q2, q3, q4):
+    for line in (q1, q2):
         if line:
             # Review critique: a headline up to 14 words (the assumed noise
             # is said beside a rise: "needs 3.2 if tasting noise ≈ 1 point").
@@ -171,10 +172,8 @@ def test_each_card_links_to_its_question(screens, name):  # noqa: F811
     # on the keyed place its section is drawn in (the links from Results
     # and Make a round land on the first two).
     assert U.SECTION_KEYS == {"predictions": U.TRUST_SECTION, "progress": U.STAND_SECTION,
-                              "drives": U.DRIVES_SECTION, "tried": U.EXPLORED_PLACE,
                               "next": U.NEXT_SECTION}
     assert U._QUESTIONS["predictions"] == wording.FORECAST_CHECK_TITLE   # slim Review
-    assert U._QUESTIONS["drives"] == wording.Q3_TITLE
     assert U._QUESTIONS["next"] == wording.Q5_TITLE
 
 
@@ -204,13 +203,10 @@ def test_a_card_link_lands_on_its_question(screens):  # noqa: F811
 def test_one_method_link_and_one_fold(screens, name):  # noqa: F811
     at = screens[name]
     folds = [el.label for el, f, _ in _leaves(at.tabs[3]) if el.type == "expander" and not f]
-    # Review critique (fix 4): the profiler's closed fold, then Method.
-    # Slim Review (re-pinned): the Forecast check's details fold (once the
-    # model has verdicts), then What have we tried? closed, before them.
-    opt = D.load(name)
+    # One-glance Review: the Forecast check's details fold (once the model
+    # has checks), then Method and definitions.
     details = [] if name == D.SNACK else [wording.LEARNED_DETAILS_TITLE]
-    assert folds == details + [wording.for_project(opt, wording.Q4_TITLE),
-                               wording.for_project(opt, wording.Q3_TITLE), wording.FOLD_METHOD]
+    assert folds == details + [wording.FOLD_METHOD]
     links = [b for b in at.tabs[3].button if b.label == wording.METHOD_LINK]
     assert len(links) == 1 and links[0].proto.type == "tertiary"
 
@@ -226,7 +222,8 @@ def test_one_primary_on_the_screen(screens, name):  # noqa: F811
 REMOVED_TEXT = (wording.PLOT_PAIR, wording.PLOT_TRIANGLE, wording.PLOT_CHOOSES,
                 "How the app chose", "Where the app looks next", wording.PAIR_FOLD,
                 wording.FOLD_EXPLORED, wording.FOLD_MORE, wording.FOLD_TRIED,
-                wording.PLOT_MAP)
+                wording.PLOT_MAP, "What drives each result?", "What have we tried?",
+                "Of pairs called, % right")
 
 
 @pytest.mark.parametrize("name", D.ALL)
@@ -239,7 +236,8 @@ def test_the_removed_charts_are_gone(screens, name):  # noqa: F811
             assert gone not in text and gone not in spec, (gone, text[:80])
     for fn in ("chooses_chart", "chooses_data", "pair_chart", "mixture_chart", "_hero",
                "_triangle", "_more_charts", "explored_fold", "tried_fold", "path_chart",
-               "change_chart", "gain_chart"):
+               "change_chart", "gain_chart", "search_path_chart", "profile_chart", "_profiler",
+               "learned_chart", "called_chart", "_tried_section", "_drives_section"):
         assert not hasattr(U, fn), fn
     # The map stays on Make a round's Why these.
     assert hasattr(U, "explore_map_chart")
@@ -339,77 +337,6 @@ def test_evidence_reports_both():
 #  Ruling 2: Expected gain greyed, never hidden
 # ------------------------------------------------------------------ #
 
-@pytest.fixture(scope="class")
-def line_a(tmp_path_factory):
-    mp = pytest.MonkeyPatch()
-    mp.chdir(tmp_path_factory.mktemp("review-four"))
-    mp.setattr(insights_jobs, "_JOBS", {})
-    mp.setattr(insights_jobs, "_INFLIGHT", {})
-    mp.setattr(U.st, "session_state", {})
-    with bo_views.fresh():
-        opt = D.load(D.LINE_A)
-        computed = U._computed(opt, quiet=True)
-        mp.setattr(U, "checks_for", lambda o, stage: computed["checks"])
-        yield opt, computed
-    mp.undo()
-
-
-def _flat_rows(spec):
-    """Review readable: every row facet, through the wrapped blocks."""
-    top = spec["vconcat"]
-    return [r for b in top for r in b["vconcat"]] if "vconcat" in top[0] else top
-
-
-def _gain_rows(spec):
-    return [r for r in _flat_rows(spec)
-            if wording.PROFILER_GAIN_ROW in json.dumps(r["spec"]["layer"][0].get("encoding", {}))
-            or wording.PROFILER_GAIN_ROW in json.dumps(r)]
-
-
-@pytest.mark.usefixtures("line_a")
-class TestGain:
-    """One Line A fit for the class (its session_state patch is undone
-    before the AppTest tests below)."""
-
-    # Review four polish (re-pinned): the greyed reasons are the noise
-    # guard's and the Predictions card's two words short of Reliable (was
-    # the measurements' verdict).
-    @pytest.mark.parametrize("reason", [wording.CHOOSES_REASON_NOISE,
-                                        wording.GAIN_REASON_NOT_YET, wording.GAIN_REASON_OFF])
-    def test_gain_is_greyed_not_hidden(self, line_a, reason):
-        _greyed(line_a, reason)
-
-    def test_profiler_defaults_to_suggestion_one(self, line_a):
-        _defaults(line_a)
-
-
-def _greyed(line_a, reason):
-    opt, computed = line_a
-    fitted = computed["fitted"]
-    refs = U.profile_refs(opt)
-    label, number, recipe, is_pick = refs[-1]
-    prof = U.profile_data(opt, fitted, recipe, label, number, is_pick, reason)
-    assert prof.greyed and prof.gain_drawn
-    assert all(c.gain is not None for c in prof.columns)
-    spec = U.profile_chart(opt, prof).to_dict()
-    text = json.dumps(spec)
-    assert wording.PROFILER_GAIN_ROW in text
-    grey, _ = U.mark("neutral")
-    gain_row = _flat_rows(spec)[-1]
-    lines = [lay["mark"] for lay in gain_row["spec"]["layer"]
-             if isinstance(lay["mark"], dict) and lay["mark"]["type"] in ("line", "area")]
-    # The gain's line and area in grey, the line dashed: drawn, not claimed.
-    assert lines and all(m["color"] == grey for m in lines), lines
-    assert any(m.get("strokeDash") for m in lines if m["type"] == "line")
-    assert U.gain_greyable(reason)
-
-
-def test_no_gain_to_grey_for_a_cold_round_or_ucb():
-    assert not U.gain_greyable(wording.CHOOSES_REASON_COLD)
-    assert not U.gain_greyable(wording.CHOOSES_REASON_UCB)
-    assert not U.gain_greyable(None)
-
-
 def test_the_greyed_lines_say_why_and_that_suggestions_are_the_same():
     for text in wording.GAIN_GREYED.values():
         assert _words(text) <= 10 and "greyed" in text
@@ -425,15 +352,6 @@ def test_make_a_round_greys_the_gain_column():
     src = inspect.getsource(ui_batch._why_fold)
     assert "hide=hide" not in src and "GREYED_GAIN" in src
     assert "why_gain_greyed" in src
-
-
-def _defaults(line_a):
-    opt, _ = line_a
-    refs = U.profile_refs(opt)
-    assert refs[-1][0] == wording.PROFILER_REF_PICK and refs[-1][3]
-    import inspect
-    assert "default=labels[-1]" in inspect.getsource(U._profiler)
-    assert _words(wording.Q3_CAPTION_PICK) <= 8
 
 
 # ------------------------------------------------------------------ #
@@ -481,26 +399,20 @@ def test_pilot_cards_on_the_overall_score(pilot):
 
 def test_new_strings_pass_the_vocabulary_guard():
     texts = [*QUESTIONS, wording.SEE_CHART, wording.SEE_CHART_HELP, wording.Q_WAIT,
-             wording.Q3_CAPTION_PICK, wording.PROFILER_REF_HELP,
-             wording.answer_line("Rising", "Best 98.33"), wording.q3_answer("Salt"),
-             wording.Q3_FLAT, wording.q4_word(30),
-             wording.tried_no_gap("ingredient"), wording.gap_span("Salt", "0.6", "1.0 g"),
+             wording.answer_line("Rising", "Best 98.33"),
              wording.CARD_MEASURES_MISS, wording.card_score_missed(3, 16),
              wording.on_score("In Round 3, 9 of 10 results landed."),
              wording.measures_sentence(27, 36, 4, True), wording.measures_sentence(27, 36, 4),
              wording.ev_predictions(10, 12, "0.69", 12, 27, 36), *wording.GAIN_GREYED.values(),
              wording.tip_gain_greyed("x"), wording.why_gain_greyed("not_yet"),
              wording.why_greyed_line("off"), wording.why_greyed_line("not_yet"),
-             wording.GAIN_REASON_NOT_YET, wording.GAIN_REASON_OFF, wording.TRIED_NEXT_BEST,
-             wording.Q2_X_TITLE, wording.round_tick(3),
-             *[f(k) for f in (wording.profiler_more_label, wording.profiler_more_placeholder)
-               for k in ("ingredients", "settings", "both", "rows")],
-             wording.ev_profiler(20, "Suggestion 1", 21), wording.ev_tried(20)]
+             wording.GAIN_REASON_NOT_YET, wording.GAIN_REASON_OFF,
+             wording.Q2_X_TITLE, wording.round_tick(3)]
     for text in texts:
         assert not any(p.search(text) for p in _BANNED), text
         assert "spread" not in text.lower(), text
     # "Expected gain" is the gain's one name.
-    for text in (*wording.GAIN_GREYED.values(), wording.Q3_CAPTION_PICK):
+    for text in wording.GAIN_GREYED.values():
         assert "Expected gain" in text or "expected gain" in text
     # Process-only studies say Trial.
     opt = D.load(D.PROCESS_ONLY)
@@ -526,19 +438,6 @@ def test_gain_greying_follows_the_predictions_card(monkeypatch, word, reasons, w
     monkeypatch.setattr(insights, "noise_guard",
                         lambda opt, score, checks=(), *a, **k: insights.Guard(list(reasons)))
     assert U.gain_grey(object(), None, ()) == want
-
-
-def test_the_profiler_and_why_these_read_one_rule():
-    import inspect
-    import ui_batch
-    assert "gain_grey(" in inspect.getsource(U.chooses_reason)
-    src = inspect.getsource(ui_batch._why_fold)
-    assert "ui_insights.gain_grey(opt, score, checks)" in src
-    assert "ui_insights.withheld(" not in src
-    # Each reason the rule gives has its profiler line, and its key back.
-    for key, reason in U._GREY_REASON.items():
-        assert U.hero_reason_key(reason) == key and U.gain_greyable(reason)
-        assert key in wording.GAIN_GREYED
 
 
 @pytest.mark.parametrize("name", [D.LINE_A, D.LINE_B])
@@ -574,17 +473,6 @@ def test_q2_marks_its_rounds():
     assert "'R1'" in text
     # One Round: nothing to mark.
     assert U.round_marks(D.load(D.SNACK), [1, 2, 3]) is None
-
-
-def test_the_more_pickers_have_a_label_and_placeholder():
-    import inspect
-    src = inspect.getsource(U._profiler)
-    assert src.count("placeholder=wording.profiler_more_placeholder(") == 2
-    for kind in ("ingredients", "settings", "both", "rows"):
-        assert _words(wording.profiler_more_label(kind)) <= 5
-        assert _words(wording.profiler_more_placeholder(kind)) <= 4
-    opt = D.load(D.PROCESS_ONLY)
-    assert U._more_kind(opt, insights.path_choices(opt)) == "settings"
 
 
 def test_the_strip_is_one_row_each_item_its_own_link():

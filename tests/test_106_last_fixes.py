@@ -550,19 +550,6 @@ def test_a_shown_expected_improvement_still_says_it_was_recomputed(monkeypatch, 
 #  01 O16: the "not tested near here" band shows in dark mode
 # ------------------------------------------------------------------ #
 
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_the_untested_band_is_visible_on_the_dark_page(monkeypatch):
-    from tests.test_104_speed_robust_charts import PAGES, _all_layers, _contrast_on
-    colour, opacity = ui_insights._FILLS["dark"]["untested"]
-    assert _contrast_on(colour, opacity, PAGES["dark"]) >= 1.7      # was 1.14:1
-    assert _contrast_on(*ui_insights._FILLS["light"]["untested"], PAGES["light"]) >= 1.1
-    monkeypatch.setattr(ui_insights, "theme", lambda: "dark")
-    import altair as alt
-    [rect, *_] = ui_insights._untested_layers(alt.Chart())
-    mark = rect.to_dict()["mark"]
-    assert (mark["color"], mark["opacity"]) == (colour, opacity)
-
-
 # ------------------------------------------------------------------ #
 #  04 M-7: no deprecated use_container_width flooding the log
 # ------------------------------------------------------------------ #
@@ -627,22 +614,6 @@ def test_deleting_a_row_while_typing_a_share_still_rebalances(tmp_path, monkeypa
 #  Polish 4: the effect line names the nearest tested formulation, as
 #  the Why fold does, by the same distance
 # ------------------------------------------------------------------ #
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_the_untested_start_line_names_its_nearest_tested(tmp_path, monkeypatch):
-    import bo_views
-    monkeypatch.chdir(tmp_path)
-    opt = D.load(D.LINE_A)
-    recipe = ui_insights.anchor_recipe(opt, 22)
-    start = ui_insights.anchor_text(opt, 22)
-    line = ui_insights.untested_start_text(opt, recipe, start)
-    why = {w.formulation: w.nearest for w in bo_views.why(opt, None).rows}
-    assert why[22] == 18
-    assert line == wording.near_start_untested(start, 18, "15.5")
-    assert line == ("Nothing has been tested within 15 % of each span of Formulation 22 "
-                    "(suggested, still to make), so nothing is ranked. Its nearest tested "
-                    "formulation, Formulation 18, differs by up to 15.5 % of a span.")
-
 
 def test_the_untested_start_line_without_a_nearest():
     assert wording.near_start_untested("Best so far") == (
@@ -771,24 +742,6 @@ def _reason(line):
     raise AssertionError(line)
 
 
-def test_the_path_caption_and_the_effect_line_give_one_reason():
-    for guard in _gates():
-        main = ui_insights.guard_text(guard)
-        path = ui_insights.path_guard_line(guard)
-        assert path.startswith("The curve's bends are "), path
-        assert _reason(main) == _reason(path), (main, path)
-        assert "0.20" in main and "0.20" in path
-        assert "beat the average" not in path
-
-
-def test_line_b_says_the_gate_reason_once_in_one_wording(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    opt = D.load(D.LINE_B)
-    checks = insights.check_rounds(opt)
-    guard = insights.noise_guard(opt, None, checks)
-    assert _reason(ui_insights.guard_text(guard)) == _reason(ui_insights.path_guard_line(guard))
-
-
 # ------------------------------------------------------------------ #
 #  Polish 8: the steady bias is one fact, with no reading clause, on
 #  Insights and Make a round alike (Lines B and C)
@@ -915,7 +868,3 @@ def test_the_role_tooltip_says_or_a_repeat_of_it():
     assert "recorded before its Round" in help_text
 
 
-def test_the_method_text_says_at_the_formulation_total():
-    rule = wording.why_role_rule()
-    assert "Amounts are compared at the Formulation total." in rule
-    assert "default batch size" not in rule

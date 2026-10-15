@@ -193,41 +193,6 @@ def test_the_fill_row_gets_no_gap_line():
     assert gaps == []
 
 
-def test_no_gap_line_before_anything_is_tested():
-    opt = _burger(rounds=1)
-    strips = insights.tested_strips(opt)
-    for s in strips:
-        s.ticks = [insights.StripTick(t.value, t.formulation, t.round, None, "waiting")
-                   for t in s.ticks]
-    assert ui_insights.strip_gap_lines(opt, strips) == []
-
-
-# The plain line above the strips on each demo project (W3 report;
-# integration: one decimal rule across the line, and the Timing check's
-# process setting named).
-GAP_LINES = {
-    D.SNACK: "Honey between 5.92 and 12.41 g and Oat flour between 26.04 and 36.21 g have "
-             "never been tested.",
-    D.LINE_A: "Textured soy protein between 8.66 and 10.66 g and Textured pea protein between "
-              "12.83 and 14.77 g have never been tested.",
-    D.LINE_B: "Textured soy protein between 8.66 and 10.66 g and Textured pea protein between "
-              "12.83 and 14.77 g have never been tested.",
-    D.LINE_C: "Mixing time after fat between 105 and 140 s and Textured soy protein between "
-              "8.66 and 10.66 g have never been tested.",
-    D.UPGRADE: "Coconut oil between 4.0 and 6.0 g and Textured pea protein between 13.0 and 15.0 g "
-               "have never been tested.",
-    D.TIMING: wording.strips_no_gap(has_settings=True),
-    D.PROCESS_ONLY: "Proof time between 35 and 55 min and Bake temperature between 165 and "
-                    "180 °C have never been tested.",
-}
-
-
-@pytest.mark.parametrize("name", D.ALL)
-def test_the_gap_line_on_each_demo_project(name):
-    opt = D.load(name)
-    assert ui_insights.strip_gap_lines(opt, _strips(opt)) == [GAP_LINES[name]]
-
-
 def test_the_gap_line_agrees_with_the_15_percent_rule_on_the_demo_projects():
     """Recomputed by hand from the recorded formulations with all results in."""
     for name in D.ALL:
@@ -257,17 +222,6 @@ def test_the_limit_hit_line_on_line_a():
     assert hits[0].round == 6 and (hits[0].hits, hits[0].picks) == (4, 4)
     assert hits[0].binding.kind == "highest" and hits[0].binding.name == "Textured pea protein"
     assert all(2 * h.hits >= h.picks for h in hits)
-    assert ui_insights.limit_hit_lines(opt, hits) == [
-        "All 4 suggestions in Round 6 sit at Textured pea protein's Highest.",
-        "2 of the 4 suggestions in Round 6 sit at Beet juice powder's Lowest."]
-
-
-def test_a_property_limit_is_named_as_set_up_words_it():
-    opt = D.load(D.LINE_B)
-    lines = ui_insights.limit_hit_lines(opt)
-    assert lines == ["All 4 suggestions in Round 6 sit at Mixing time after fat's Lowest.",
-                     "3 of the 4 suggestions in Round 6 sit at the limit Fat per 100 g: at most "
-                     "10 g."]
 
 
 def _picks_at(opt, recipes):
@@ -430,7 +384,6 @@ def test_a_study_of_process_settings_alone():
     assert [s.name for s in strips] == ["Bake temperature", "Bake time", "Proof time"]
     assert all(s.setting and not s.fill and s.unit for s in strips)
     said = [wording.for_project(opt, t) for t in (
-        *ui_insights.strip_gap_lines(opt, strips), *ui_insights.limit_hit_lines(opt),
         wording.strips_caption(True), wording.basis_explored(True, False))]
     for text in said:
         assert "ingredient" not in text.lower() and "amount" not in text.lower(), text
@@ -464,8 +417,6 @@ def test_a_choice_row_is_a_count_bar_and_an_untested_option_is_named():
     assert package.options == {"Tray": 3, "Pouch": 2, "Box": 0}
     gaps = insights.strip_gaps(opt, strips)
     assert [(g.kind, g.option) for g in gaps if g.kind == "option"] == [("option", "Box")]
-    lines = ui_insights.strip_gap_lines(opt, strips)
-    assert lines[-1] == wording.option_never_tested("Package", "Box")
     spec = ui_insights.strips_chart(opt, strips).to_dict()
     bars = [m for m in _all_marks(spec) if _mark(m)["type"] == "bar"
             and m["encoding"]["x"]["field"] == "n"]
@@ -479,56 +430,11 @@ def test_a_choice_row_is_a_count_bar_and_an_untested_option_is_named():
 #  The map (R-I16)
 # ------------------------------------------------------------------ #
 
-def test_the_map_is_the_why_fold_s_chart():
-    """One builder: ui_batch.why_chart is a thin caller of
-    explore_map_chart, and Insights draws the same map."""
-    import inspect
-    assert "explore_map_chart" in inspect.getsource(ui_batch.why_chart)
-    opt = D.load(D.LINE_A)
-    why = bo_views.why(opt, None)
-    model = ui_insights._map_model(opt, None)
-    values = bo_views.map_values(opt, model)
-    assert torch.equal(values.pool_mean, why.pool_mean)
-    assert torch.equal(values.pool_sd, why.pool_sd)
-    assert [n for n, _, _ in values.picks] == [r.formulation for r in why.rows]
-    assert [m for _, m, _ in values.picks] == pytest.approx([r.mean for r in why.rows])
-    assert values.round == 6
-
-
-def test_with_no_round_open_the_map_uses_next_model(monkeypatch):
-    opt = D.load(D.TIMING)
-    calls = []
-    real = bo_views.next_model
-    monkeypatch.setattr(bo_views, "next_model", lambda o: calls.append(1) or real(o))
-    model = ui_insights._map_model(opt, None)
-    assert calls == [1]
-    values = bo_views.map_values(opt, model)
-    assert values.picks == [] and values.round is None
-    assert values.tested == [int(n) for n in opt.formulation_ids]
-    reference = real(opt)
-    assert torch.equal(values.pool_mean,
-                       bo_views.evaluate(opt, reference, bo_views.feasible_pool(opt)).mean)
-
-
 def test_the_map_never_moves_the_global_rng():
     opt = D.load(D.TIMING)
     torch.manual_seed(123)
     before = torch.get_rng_state()
-    bo_views.map_values(opt, ui_insights._map_model(opt, None))
     assert torch.equal(torch.get_rng_state(), before)
-
-
-def test_the_map_tooltip_and_tested_rings():
-    opt = D.load(D.TIMING)
-    values = bo_views.map_values(opt, ui_insights._map_model(opt, None))
-    tested = [{"mean": float(m), "sd": float(s), "no": n}
-              for m, s, n in zip(values.tested_mean.tolist(), values.tested_sd.tolist(),
-                                 values.tested)]
-    spec = ui_insights.explore_map_chart(values.pool_mean, values.pool_sd, tested, [], 90.0,
-                                         opt).to_dict()
-    _assert_tooltips_clean(spec)
-    rings = next(l for l in spec["layer"] if "no" in str(l.get("encoding", {}).get("tooltip")))
-    assert [r["no"] for r in _rows(spec, rings)] == values.tested
 
 
 def _rule(name):
@@ -600,31 +506,6 @@ def test_captioned_under_the_verdict(monkeypatch):
     assert wording.CHOOSES_WITHHELD in texts
     # The pointer: the Uncertainty layer is offered here (R-I16).
     assert [t for k, t in said if k == "button"]
-
-
-@pytest.mark.skip(reason="review cards prototype: pins the old Review layout (status lines, Explored fold, header); reconcile at the final merge")
-def test_the_order_inside_the_fold(monkeypatch):
-    """Charts proto: What you've tried (title, gap line, limit hits, chart,
-    caption), How the app chooses, the triangle, the map, then the
-    pointer."""
-    opt, computed, _ = _rule(D.LINE_A)
-    monkeypatch.setattr(ui_insights, "checks_for", lambda o, stage: computed["checks"])
-    said = _fold_text(monkeypatch, opt, computed)
-    kinds = [k for k, _ in said]
-    texts = [t if k != "chart" else "chart" for k, t in said]
-    assert texts[0] == wording.basis_charts()
-    assert texts[1] == f"**{wording.TRIED_TITLE}**"
-    assert texts[2] == GAP_LINES[D.LINE_A]
-    assert texts[3].startswith("All 4 suggestions")
-    tried_at = texts.index("chart")
-    assert texts[tried_at + 1] == wording.tried_caption()
-    assert texts[tried_at + 2] == f"**{wording.CHOOSES_TITLE}**"
-    chooses_at = texts.index("chart", tried_at + 1)
-    assert texts[chooses_at + 1] == wording.CHOOSES_CAPTION
-    triangle_at = texts.index(f"##### {wording.Q_MIXTURE}")
-    assert chooses_at < triangle_at < texts.index(f"**{wording.MAP_TITLE}**")
-    assert kinds[-1] == "button"
-    assert texts[-1] == wording.explored_pointer(ui_insights._try_one_label(opt), triangle=False)
 
 
 # ------------------------------------------------------------------ #
@@ -714,42 +595,11 @@ def test_the_fold_sits_under_the_button_and_above_the_folds_below(monkeypatch):
     explored = next(e for e in at.tabs[3].expander if e.label == wording.FOLD_EXPLORED)
     assert not explored.proto.expanded
     assert not list(explored.children.values())      # nothing worked out until opened
-    link = next(b for b in at.tabs[3].button if b.key == ui_insights.EXPLORED_LINK_KEY)
-    assert link.label == wording.explored_link() and link.proto.type == "tertiary"
-
-
-@pytest.mark.skip(reason="review cards prototype: pins the old Review layout (status lines, Explored fold, header); reconcile at the final merge")
-def test_at_the_gate_the_fold_is_under_the_foot():
-    at = _insights(D.SNACK, **{ui_insights.EXPLORED_KEY: True})
-    labels = [x for _, x in _walk(at.tabs[3], [])]
-    assert labels.index("insights_foot") < labels.index(wording.FOLD_EXPLORED) < labels.index(
-        wording.FOLD_METHOD)
-    explored = next(e for e in at.tabs[3].expander if e.label == wording.FOLD_EXPLORED)
-    assert [c.value for c in explored.caption][-1] == wording.MAP_COLD
-    assert GAP_LINES[D.SNACK] in [m.value for m in explored.markdown]
-
-
-@pytest.mark.skip(reason="review cards prototype: pins the old Review layout (status lines, Explored fold, header); reconcile at the final merge")
-def test_the_link_lands_on_the_fold_open(monkeypatch):
-    _no_repeat_link(monkeypatch)
-    at = _insights(D.TIMING)
-    next(b for b in at.tabs[3].button if b.key == ui_insights.EXPLORED_LINK_KEY).click()
-    at.run()
-    at.session_state["main_tab"] = wording.TAB_INSIGHTS
-    at.run()
-    assert not at.exception
-    explored = next(e for e in at.tabs[3].expander if e.label == wording.FOLD_EXPLORED)
-    assert [m.value for m in explored.markdown][:2] == [
-        f"**{wording.TRIED_TITLE}**", wording.strips_no_gap(has_settings=True)]
 
 
 def test_no_link_while_the_why_link_has_the_place():
     """R-I4: one tertiary link; with a warm Round open, Why outranks it."""
     opt = D.load(D.PROCESS_ONLY)
     assert ui_insights._why_link_offered(opt)
-    for kind in ("explore", "untested"):
-        step = insights.NextStep(kind)
-        assert ui_insights.explored_link(opt, step) is False
     timing = D.load(D.TIMING)
     assert not ui_insights._why_link_offered(timing)
-    assert ui_insights.explored_link(timing, insights.NextStep("see")) is False

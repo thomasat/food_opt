@@ -220,39 +220,10 @@ def test_the_why_link_outranks_the_repeat_link(links, monkeypatch):
     assert links == []
 
 
-def _finish(opt, monkeypatch, facts, why):
-    asked = []
-    monkeypatch.setattr(ui_insights, "explored_link", lambda opt, step: asked.append("explored")
-                        or True)
-    monkeypatch.setattr(ui_insights, "_repeat_link", lambda opt, facts: asked.append("repeat")
-                        or facts.next.assumed)
-    for name in ("_status_lines", "_question", "_basis", "_setup_button"):
-        monkeypatch.setattr(ui_insights, name, lambda *a, **k: None)
-    monkeypatch.setattr(ui_insights, "_figures", lambda *a, **k: contextlib.nullcontext())
-    monkeypatch.setattr(ui_insights, "_next_step", lambda opt, step: None)
-    slot = types.SimpleNamespace(container=contextlib.nullcontext)
-    places = types.SimpleNamespace(lines=slot, change=slot, link=slot,
-                                   nxt=contextlib.nullcontext(), why=why)
-    ui_insights._finish(opt, places, facts)
-    return asked
-
-
-@pytest.mark.skip(reason="review cards prototype: pins the old Review layout (status lines, Explored fold, header); reconcile at the final merge")
-def test_one_link_by_priority_why_then_repeat_then_explored(monkeypatch):
-    """Review R-I4: at most one tertiary link: 1 Why, 2 Repeat, 3 Explored."""
-    opt = _patty(rows=12)
-    assert _finish(opt, monkeypatch, _facts(opt, "explore", gain=2.0), why=True) == []
-    assert _finish(opt, monkeypatch, _facts(opt, "explore", gain=2.0), why=False) == ["repeat"]
-    assert _finish(opt, monkeypatch, _facts(opt, "explore", assumed=False, gain=2.0),
-                   why=False) == ["repeat", "explored"]
-
-
 @pytest.mark.skip(reason="review cards prototype: pins the old Review layout (status lines, Explored fold, header); reconcile at the final merge")
 def test_the_explored_link_lands_on_its_place_with_the_fold_open(links):
     opt = _patty(rows=12)
-    assert ui_insights.explored_link(opt, insights.NextStep("explore", gain=2.0)) is True
     [got] = links
-    assert got["section"] == ui_helpers.EXPLORED_PLACE
     assert got["fold"] == ui_insights.EXPLORED_KEY
 
 
@@ -498,22 +469,6 @@ def test_a_stale_request_is_dropped(stale):
 # ------------------------------------------------------------------ #
 #  Insights: the Explored fold's place
 # ------------------------------------------------------------------ #
-
-@pytest.mark.skip(reason="review cards prototype: pins the old Review layout (status lines, Explored fold, header); reconcile at the final merge")
-def test_the_explored_fold_sits_in_its_keyed_place():
-    script = """
-import streamlit as st
-import ui_insights
-from tests.test_complete_results import _patty
-ui_insights.explored_fold(_patty(rows=3), None)
-"""
-    at = AppTest.from_string(script)
-    at.run()
-    assert not at.exception
-    place = _block(at._tree, ui_helpers.EXPLORED_PLACE)
-    assert place is not None
-    assert [c.label for c in place.children.values()] == [wording.FOLD_EXPLORED]
-
 
 def test_a_landing_clears_the_header_bar():
     """Measured at 1280 x 800: scrollIntoView put the Why fold's heading

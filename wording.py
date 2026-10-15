@@ -687,7 +687,7 @@ def change_text(name, delta, size):
 # because each is a fragment: compared_with_cell() capitalises the one it is
 # given as the first word of the cell. 0.8.0 e2e fixes (spec 2026-10-01 A2,
 # review I3): the Compared with cell and the Why fold's Role column say the
-# same three words by the same distance rule (why_role_rule), so one
+# same three words by the same distance rule, so one
 # suggestion is never "trying something different" in one table and
 # "refines the best" in the other. ROLE_REFINES, ROLE_BALANCED and
 # ROLE_EXPLORES further down are these three.
@@ -3931,12 +3931,6 @@ def formulations_span(numbers):
     return _span(FORMULATION_CAP, sorted(int(n) for n in numbers))
 
 
-def rounds_not_checked(rounds):
-    one = len(rounds) == 1
-    return (f"{rounds_span(rounds)} {'is' if one else 'are'} not checked: fewer than 5 "
-            f"{FORMULATION}s were recorded before {'it' if one else 'them'}.")
-
-
 WIDE_EVERY = ("Every 95 % interval is wide (median half-width over 25 % of the Range): "
               "values fall inside easily, so this check says little yet.")
 
@@ -3948,7 +3942,6 @@ def wide_line(names_text):
             "Range): values fall inside easily, so this check says little yet.")
 
 
-INGREDIENT_OR_SETTING = "Ingredient or process setting"
 START_FROM = "Start from"
 
 
@@ -4045,33 +4038,6 @@ def coverage_reading():
             f"{c['score']} % ({OVERALL_SCORE_COLUMN}) on simulated projects.")
 
 
-HOW_RANGE = ("95 % interval: the model's 95 % prediction interval for one new measured value, "
-             "mean ± 1.96 × predictive SD × calibration factor. The predictive SD includes Repeat "
-             "noise, so the interval covers a single result, not the long-run mean. Its ends are "
-             "cut at the measurement's Range (0–100 for the Overall score). Plain reading: "
-             + coverage_reading())
-HOW_RANGE_FIXED_TINY = ("95 % interval: your model settings fix Repeat noise near zero, so the "
-                        "interval reflects model uncertainty only, times the calibration factor.")
-
-
-# 03 §5.7, new: the verdict's rule and the noise threshold, defined once.
-def how_verdict(n=35, allowed=3):
-    """The verdict rule, with its example from this project's own count
-    (0.8.0 e2e fixes, review M11; 01 O11): `n` values checked in the
-    verdict's Rounds, `allowed` = insights.allowed_misses(n)."""
-    misses = "1 miss" if allowed == 1 else f"{allowed} misses"
-    return ("Verdict rule: misses are counted as a binomial count at 5 % per value. As "
-            "expected: no more misses than correct 95 % intervals give at least 1 time in 10 "
-            f"(for {n} values, up to {misses}). More misses than expected: rarer than 1 time "
-            "in 10. Many more: rarer than 1 time in 100. No p-value is shown.")
-
-
-HOW_VERDICT = how_verdict()
-HOW_NOISE_THRESHOLD = ("Noise threshold: the Repeat SD of the Overall score, pooled over Repeat "
-                       "groups, once it has 3 degrees of freedom and is at least 0.05; until "
-                       "then, 1 point, assumed rather than measured. Rises, "
-                       "ties, local effects and predicted gains are compared with it. It is a "
-                       "fixed rule, not a significance test.")
 # The statistics term behind Progress's Repeat line, said here only
 # (answer-key refresh item 7): the main screen says it in plain words.
 HOW_REGRESSION = ("Regression to the mean: Best so far is the highest of the measured Overall "
@@ -4107,22 +4073,10 @@ def how_same_process(values=False):
 
 
 HOW_SAME_PROCESS = how_same_process()
-HOW_NO_P = ("No p-values or coefficient table. A Gaussian process has no model terms to test, "
-            f"and the {FORMULATION}s were chosen Round by Round from earlier results, not from a "
-            "fixed design, so term tests would not keep their stated error rates. R² on "
-            f"{FORMULATION}s chosen this way is misleading, so skill uses the Round-ahead "
-            "baseline instead.")
-DETAILS_NONE = f"This table fills in once a {ROUND_CAP} has been checked."
-
-
 TRACK_PREDICTED = "Round-ahead prediction"
 TRACK_MEASURED = "Measured"
 TRACK_LOW = "95 % interval, lower end"
 TRACK_HIGH = "95 % interval, upper end"
-# The path chart's own prediction is the current model's, not Round-ahead.
-PREDICTED = "Predicted"
-
-
 # Insights wave B (0.8.0): predictions on Make a round, the spread of each
 # ingredient or process setting, and the formulation predicted to score
 # highest. Every number that is a prediction carries its likely range.
@@ -4410,25 +4364,6 @@ def trust_within(inside, total, rounds, measurements=False, allowed=None):
     line = (f"Measurements, {rounds_span(rounds)}: {inside} of {total} values inside their "
             "95 % interval. As expected")
     return f"{line}: {_allow(allowed, total)}." if allowed is not None else f"{line}."
-
-
-HOW_BIAS = ("Mean error: the average of measured minus predicted over every Round checked, "
-            f"for the Overall score and each measurement ({FORMULATION}s with all results in, "
-            "at least 5). It is a steady bias when its size exceeds the noise threshold (for a "
-            "measurement, its own Repeat SD once it has 3 df, else no floor) and 2 standard "
-            "errors. From 4 Rounds checked, each Round's mean error counts as one value, "
-            f"because a Round's {FORMULATION}s sit close together and share the model's "
-            f"error; before that, each {FORMULATION} counts. A steady bias is reported as a "
-            "fact, with no advice to check the bench.")
-# Review M2: the model's error runs both ways, and why.
-HOW_BIAS_DIRECTION = (
-    "Suggestions sit where the model predicts high or is unsure, so results can come in below "
-    "prediction (its optimism at its own maximum) or above it (its mean shrinks toward the "
-    "average where it has seen little).")
-# Review B1: what the Round-ahead check cannot see.
-HOW_CHANGE_LIMIT = (
-    f"A change at the bench is learned from its first {ROUND_CAP} on, so later Round-ahead "
-    f"checks cannot show it; a Repeat of an earlier {FORMULATION} in each {ROUND_CAP} would.")
 
 
 def signed(value, decimals=1):
@@ -4891,82 +4826,6 @@ def progress_caption_2(rings=False):
     return f"{line} {PROGRESS_RING}" if rings else line
 
 
-# Method and details (§2.5; spec review M5, M6, M10; 03 §5.7).
-def details_window(all_rounds, k, verdict_rounds=None):
-    """Both windows named (03 §5.7): the table's and the verdict's."""
-    if len(all_rounds) == 1:
-        return f"Table and verdict: {rounds_span(all_rounds)}."
-    last = f"the last {ROUND_CAP}" if k == 1 else f"the last {k}"
-    if k >= len(all_rounds):
-        last = f"all {k}"
-    verdict = f" ({rounds_span(verdict_rounds)})" if verdict_rounds else ""
-    return (f"Table: all {ROUND_CAP}s checked ({rounds_span(all_rounds)}). "
-            f"Verdict: {last}{verdict}.")
-
-
-DETAILS_COLUMNS_2 = ("Measurement", "Values checked", "Inside 95 % interval",
-                     "Median half-width (±)", "Median absolute error", "Calibration factor",
-                     "Error ÷ Repeat noise")
-# The details table's last column, from the BO-views wave (review I2).
-SKILL_COLUMN = "Skill"
-
-
-def widen_text(factor):
-    return f"×{factor:.1f}"
-
-
-HOW_WIDENED = ("Calibration factor: the root-mean-square of standardised errors (measured − "
-               "predicted, ÷ predictive SD) in 5-fold cross-validation of the current model, "
-               "the folds grouped by Round (a formulation and its Repeats in one fold), "
-               "floored at 1. Every 95 % interval is multiplied by it. ×1.0: not widened; ×2.5: "
-               "errors 2.5 times the model's own SD.")
-
-
-def score_widen_text(own, top):
-    """The Overall-score row of the details table (ruling M5, final review
-    I-2, re-review R-1; 03 §5.7): its own fit's factor, then the second one
-    the predicted best and new formulations carry — the two multiply."""
-    return f"{widen_text(own)}, then {widen_text(top)} for the predicted best and new {FORMULATION}s"
-
-
-HOW_WIDENED_SCORE = (f"{OVERALL_SCORE_COLUMN}, second factor: the root-mean-square of the "
-                     f"standardised Round-ahead errors of earlier {ROUND_CAP}s' "
-                     f"{OVERALL_SCORE_COLUMN}s (at least 5, computed after the first factor), "
-                     f"floored at 1. Where {FORMULATION}s were chosen for a high predicted score "
-                     "it widens their intervals, which partly restores coverage; it does not "
-                     "correct the predicted value itself, which can still run high. It applies "
-                     "on top of the first factor to the predicted best, Best so far's predicted "
-                     f"Repeat and the Predicted {OVERALL_SCORE_COLUMN} column on "
-                     f"{TAB_BATCH_NAME}.")
-HOW_REPEATS_COMPARED = ("Error ÷ Repeat noise: the median absolute error divided by 0.674 × "
-                        "Repeat SD, which is the median absolute error Repeat noise alone would "
-                        "give. Near 1: the model misses by about as much as measurement noise. "
-                        "Above about 1.5: it misses by more than noise explains (lack of fit). "
-                        "Shown from 3 Repeat pairs.")
-HOW_THRESHOLDS = ("Wide: the median half-width of the 95 % intervals is over 25 % of the "
-                  "measurement's Range (0–100 for the Overall score). On "
-                  f"{TAB_BATCH_NAME}, a predicted measurement reads “interval too wide” when "
-                  "its interval covers more than 75 % of the Range.")
-
-
-def repeat_compare(ratio, sd=None, pairs=0, left_out=0):
-    """The details table's Error ÷ Repeat noise column (spec review I5, M6;
-    03 §5.7): the ratio itself, marked lack of fit above 1.5; under 3 pairs
-    it is not shown. Pairs left out because a Repeat disagreed are said as
-    left out, never as "no Repeats yet" (answer-key read-through, Line B)."""
-    if not pairs:
-        if left_out:
-            return ("1 pair left out (it disagreed)" if left_out == 1
-                    else f"{left_out} pairs left out (they disagreed)")
-        return "no Repeats yet"
-    if pairs < 3:
-        return "under 3 pairs"
-    if ratio is None:
-        return "Repeats identical" if sd == 0 else "no Repeats yet"
-    r = round(ratio, 1)
-    return f"{r:.1f}" if r <= 1.5 else f"{r:.1f} (lack of fit)"
-
-
 # Make a round (§3, non-range items; spec review M2, M11, V12–V17, V31).
 TOO_UNCERTAIN = "range too wide"  # critique fixes: range
 START_FROM_BEST_SO_FAR = "Start from Best so far"
@@ -5234,35 +5093,6 @@ def skill_line(value_text, n, rounds, state):
 SKILL_SCALE = "0 = as good as the average, 1 = perfect"
 
 
-def skill_cell(value_text, n):
-    """The details table's Skill column: '0.36 (n = 15)'."""
-    return f"{value_text} (n = {n})"
-
-
-SKILL_UNDER_TEN = "under 10 values"
-
-
-def how_skill(cut_text="−0.20", settings_only=False):
-    """Method and details (review I2, M6; fix round 1; 0.8.0 e2e fixes D4,
-    review M10): the statistic, its baseline, its pooling, its minimum n,
-    the three readings, the cut stated plainly with what it costs a correct
-    model at n = 10 (simulation gate, re-measured by ftue fix A: 4.1 % and
-    12.5 %; 6.9 % and 15.3 % before), and the 0.20 rule
-    the effect claims follow (A3)."""
-    effects = "Setting effects" if settings_only else "Ingredient effects"
-    return ("Skill: 1 − (sum of squared Round-ahead errors) ÷ (sum of squared errors of the "
-            f"average Overall score of the {FORMULATION}s recorded before each {ROUND_CAP}), "
-            f"pooled over every {ROUND_CAP} checked ({FORMULATION}s with all results in for the "
-            "Overall score). 1: exact; 0: no better than that average. Shown from 10 values. "
-            f"At or below {cut_text}: no better than the average; below 0.20: not clearly "
-            f"better; 0.20 or more: better. The cut is {cut_text}. In 24 simulated projects "
-            "whose model's errors matched its own stated uncertainty (true skill 0.20 or more), "
-            "the skill read “no better than the average” in 4.1 % of windows of 10 checks "
-            "(n = 10), and below 0.20 in 12.5 %; near a true skill of 0.20 it reads below "
-            f"0.20 about half the time. {effects} are reported only from 10 values and skill "
-            "0.20.")
-
-
 def _skill_basis(value_text, n, rounds=None):
     """'skill −0.47, n = 16, Rounds 2–5' (review I2: always its Rounds, T47
     review I-3: they are not the verdict's)."""
@@ -5358,10 +5188,6 @@ def why_guard_line(reasons=(), skill_only=False, verdict=False, gate_reason=None
 WHY_CHECKING = "Expected gain is not shown until the Prediction check is calculated."
 
 
-PATH_GUARD = "The curve's bends are not reliable: the model is fitting noise in these results."
-PATH_GUARD_SKILL = f"The curve's bends are not read as effects {A3_UNTIL}."
-
-
 # §3.1 (review I5, I9, I12, M4, M5, M9, M15): Why these suggestions.
 WHY_THESE = "Why these suggestions"
 EXPECTED_IMPROVEMENT = "Expected gain (model, one formulation)"
@@ -5441,28 +5267,6 @@ def why_no_roles(n):
             "the 500 the percentiles need.")
 
 
-def why_role_rule(values=False, total=True, close_pct=15, far_pct=30):
-    """Method and details: the role rule, one for the Role column and the
-    Compared with cell (0.8.0 e2e fixes A2, review I3): a distance, not the
-    model. `values`: a project of process settings alone; `total`: the
-    project has a default batch size, the amounts' common footing;
-    `close_pct`, `far_pct`: CLOSE_TO_THE_BEST and twice it, in %."""
-    rows = "process settings" if values else "ingredients and process settings"
-    # "Formulation total", as the rest of Method and details says it
-    # (how_checks; polish round).
-    footing = ("" if values or not total
-               else " Amounts are compared at the Formulation total.")
-    return (f"Role, and the first words of the Compared with column: how far a suggestion is "
-            f"from what was made, by its largest difference over the varying {rows}, each as a "
-            f"share of its {LOWEST_LABEL}–{HIGHEST_LABEL} span (calculated rows and the "
-            f"{FILL_TO_TOTAL} row are left out).{footing} "
-            f"{SUGGESTION_CLOSE.capitalize()}: within {close_pct} % of Best so far or a "
-            f"Repeat of it. {SUGGESTION_DIFFERENT.capitalize()}: more than {far_pct} % from "
-            f"every {FORMULATION} recorded before its {ROUND_CAP}, scored or not. "
-            f"{SUGGESTION_BALANCED.capitalize()}: in between. The role does not use the model, "
-            "so it is shown whatever the Prediction check says.")
-
-
 def role_help(close_pct=15, far_pct=30):
     """The Role column's and the Compared with column's tooltip (D2, review
     M8): the three words in one line each."""
@@ -5491,16 +5295,6 @@ WHY_RECOMPUTED = ("Recomputed from today's records: this Round's generation reco
 # about what the fold still shows from the recomputed model.
 WHY_RECOMPUTED_WITHHELD = ("Model sd and the map are recomputed from today's records: this "
                            "Round's generation record is missing or no longer matches its rows.")
-
-
-HOW_EXPECTED_IMPROVEMENT = (
-    "Expected gain (model, one formulation): the suggestion model's average gain of one "
-    f"{FORMULATION}'s score, without Repeat noise, over the highest latent value among the "
-    f"tested {FORMULATION}s in each posterior draw (qLogNEI, the default: no single incumbent; "
-    "shown as the exp of a log value, so approximate) or Best so far's measured score (qLogEI), "
-    f"counting no gain as zero. It is not the gain of a whole {ROUND_CAP} and not a gain in a measured "
-    "result. Model sd: the suggestion model's standard deviation for the mean, narrower than "
-    "the 95 % interval.")
 
 
 # §3.2 (review I5, I10, M8, M11): Expected gain by Round.
@@ -5682,47 +5476,6 @@ def steady_bias_line(high=(), low=(), rounds=None):
     return f"Results have come in {'; '.join(parts)}{where}."
 
 
-# Method and details' two new columns (review B1, B2): the mean error over
-# every Round checked, and the model's fitted noise SD, shown as context.
-MEAN_ERROR_COLUMN = "Mean error"
-FITTED_NOISE_COLUMN = "Fitted noise SD"
-FITTED_NOISE_FIXED = "fixed near zero"
-
-
-def mean_error_cell(value_text, bias=False):
-    """'−4.3', or '−4.3 (bias)' when it is a steady bias. `value_text`
-    comes signed (signed())."""
-    return f"{value_text} (bias)" if bias else value_text
-
-
-def fitted_noise_cell(value_text=None):
-    """The fitted noise SD in the output's unit, or 'fixed near zero' under
-    the fixed_tiny model setting (insights.fitted_noise_sd gives None)."""
-    return FITTED_NOISE_FIXED if value_text is None else value_text
-
-
-HOW_FITTED_NOISE = ("Fitted noise SD: each model's own estimate of Repeat noise, in the output's "
-                    f"unit. It is context only: with few {FORMULATION}s it runs below the noise "
-                    "Repeats show, so the noise threshold uses Repeats alone.")
-
-# Method and details' columns, short enough to stay visible at 1280 px,
-# with the full meaning in each column's tooltip (D2, review M8).
-DETAILS_HELP = {
-    DETAILS_COLUMNS_2[1]: "Measured values in every Round checked.",
-    DETAILS_COLUMNS_2[2]: "Values inside the 95 % interval given before the Round was made.",
-    DETAILS_COLUMNS_2[3]: "Median of the 95 % intervals' half-widths.",
-    DETAILS_COLUMNS_2[4]: "Median of |measured − predicted|.",
-    DETAILS_COLUMNS_2[5]: ("Multiplies every 95 % interval: the root-mean-square of "
-                           "cross-validated standardised errors, at least 1."),
-    DETAILS_COLUMNS_2[6]: ("Median absolute error ÷ (0.674 × Repeat SD). Near 1: errors as "
-                             "large as Repeat noise; above 1.5: lack of fit."),
-    SKILL_COLUMN: ("1 − squared Round-ahead errors ÷ those of the average of earlier results. "
-                   "0.20 or more: better than that average."),
-    MEAN_ERROR_COLUMN: "Average of measured − predicted over every Round checked.",
-    FITTED_NOISE_COLUMN: "The model's own estimate of Repeat noise, for context.",
-}
-
-
 # A3 (review I4): effect claims only from 10 Overall-score checks and skill
 # 0.20. Said where the claims would be (Effect of one ingredient, Compare
 # all, the layers), in place of guard_skill_line.
@@ -5751,17 +5504,6 @@ def gain_reason_unclear(value_text, n):
     """gain_unreliable's reason for skill under 0.20 (A3)."""
     return ("Round-ahead predictions are not clearly better than the average of earlier "
             f"results (skill {value_text}, n = {n})")
-
-
-def path_guard_unclear(value_text, n):
-    """The path's caption under the A3 gate's "unclear" state, in the effect
-    line's words (polish round)."""
-    return f"The curve's bends are read as effects {a3_once_unclear(value_text, n)}."
-
-
-def path_guard_wait(n):
-    """The same, below 10 checks."""
-    return f"The curve's bends are read as effects {a3_once_wait(n)}."
 
 
 # A4 (review B2, I5): while the 1-point threshold is assumed (fewer than 3
@@ -6432,8 +6174,8 @@ BASIS_PROGRESS = (
     "results in; a rise counts from the noise threshold up, the pooled Repeat SD once it has 3 "
     "degrees of freedom, else 1 point; expected gain is the suggestion model's "
     "acquisition value.")
-BASIS_NEXT = ("Basis: the Next-step rules are tried in the order listed under Method and "
-              "definitions, and the first that holds is shown; its full sentence follows.")
+BASIS_NEXT = ("Basis: the Next-step rules are tried in a fixed order, and the first that "
+              "holds is shown; its full sentence follows.")
 
 
 # Concision round: each basis line on screen is short; the full one above
@@ -6544,12 +6286,12 @@ TIP_ACTIVE_BOUNDS = (
     "At the Highest or Lowest of a row: the predicted best is pressed against that limit "
     "(within 1 % of its span), so widening it may let it go further. BO term: active bounds of "
     "the constrained maximiser.")
-# The term itself is said in Method and definitions only (HOW_REGRESSION
-# and the glossary; answer-key refresh item 7), so this tip points there.
+# The statistics term is not said on screen (answer-key refresh item 7);
+# the one-glance Review's Method and definitions no longer holds it, so the
+# tip no longer points there.
 TIP_LUCK = (
     "Probably helped by luck: Best so far is the highest of many scores, each with its own "
-    "noise, so a Repeat of it is predicted lower. The statistics term is in Method and "
-    "definitions.")
+    "noise, so a Repeat of it is predicted lower.")
 TIP_ROLES = (
     f"Refines the best, balanced, explores: how far a suggestion is from what was made: within "
     f"15 % of Best so far, more than 30 % from every {FORMULATION} recorded, or in between. BO "
@@ -6689,7 +6431,6 @@ def tip_next(status_text, rule_text):
 
 
 # --- §7, R-I12, R-I13, M9: Model and method --------------------------
-MODEL_AND_METHOD = "Model and method"
 # The one sentence that names the field (R-B2: in exactly one allowlisted
 # string, the summary's first).
 MODEL_SUMMARY_LEAD = ("Bayesian optimisation: a Gaussian-process surrogate model of the Overall "
@@ -6805,51 +6546,7 @@ def model_summary(facts):
     return lines
 
 
-MODEL_LIMITS_HEADING = "Known limits"
-# R-I12's known limits, §7's own, R-I11's two figures and §8's reason for
-# drawing no projection of the whole space (02-chart-audit §6).
-MODEL_LIMITS = (
-    (f"Coverage: the 95 % intervals aim for 95 %; on simulated projects built by the app's "
-     f"suggestions they covered about {SIMULATED_COVERAGE['measurements']} % of measured values "
-     f"and {SIMULATED_COVERAGE['score']} % of Overall scores, short of 95 %."),
-    # Fix round B (statistician I4): the error rates exactly, with their n.
-    ("Reliable can change between Rounds by chance. In 24 simulated projects whose true skill "
-     "was 0.20 or more, the skill read below 0.20 in 12.5 % of windows of 10 checks (n = 10) "
-     "and 11.0 % of windows of 15 (n = 15); a model whose true skill is near 0.20 reads below 0.20 "
-     "about half the time. No interval is shown for the skill."),
-    # Fix round B (statistician I10).
-    (f"Misses within a {ROUND_CAP}, and across the measurements of one {FORMULATION}, are not "
-     "independent, so the coverage check's 1 in 10 and 1 in 100 are approximate: it flags too "
-     "often."),
-    # Fix round B (statistician I12).
-    (f"Changing model settings re-scores every earlier {ROUND_CAP}, so a record read after "
-     "choosing settings to suit it is no longer a fair test."),
-    ("The models on this tab are refitted with their own tolerance, so they differ slightly "
-     "from the suggestion model."),
-    "Intervals are cut at 0 and the score ceiling, so coverage near 100 reads high.",
-    f"{FORMULATION_CAP}s still waiting for results are left out of every model.",
-    (f"Cold start: the first 5 {FORMULATION}s with all results in come from a space-filling "
-     f"design, not from the model, so the first {ROUND_CAP}s show nothing of how well it "
-     "chooses."),
-    "Best so far is one noisy maximum, so it tends to read high.",
-    ("A noise threshold from few Repeats rests on few degrees of freedom: at 3 df its 95 % "
-     "interval runs from about 0.57 to 3.7 times the estimate."),
-    "No correction is made for the many comparisons on this tab.",
-    (f"A change at the bench shows only through a Repeat of an earlier {FORMULATION} in each "
-     f"{ROUND_CAP}: the Round-ahead check learns it from its first {ROUND_CAP} on."),
-    ("No 2-D map of the whole space is drawn: a principal-component projection keeps about 35 % "
-     "of its variation, and 75–89 % of nearest neighbours in such a map are wrong."),
-)
-
-
 # --- §7, I13, R-I13: How each status is decided ----------------------
-STATUS_TABLE = "How each status is decided"
-# Fix round B (statistician I8): the precedence, under the table.
-STATUS_TABLE_ORDER = ("Within each line the rows are tried from top to bottom; the first that "
-                      "holds is the status shown.")
-STATUS_TABLE_COLUMNS = ("Line", "Status", "Exact rule")
-
-
 def status_rule_rows(cut_text="−0.20", settings_only=False):
     """One row per state of review B1's table and per Next row, each line in
     first-match order, with its exact condition. `cut_text`: the skill
@@ -6920,13 +6617,6 @@ def status_rule_rows(cut_text="−0.20", settings_only=False):
 
 
 # --- §3, §7, R-B2, M4, M5, M8: the glossary --------------------------
-# Plain word on screen → the standard BO term → one line of meaning, in one
-# canonical order (M8): the status lines, then the folds top to bottom.
-# Written out in both forms (M4) and as plain literals, never f-strings: the
-# few cells that say a word _BANNED keeps for everything else are allowed
-# as exact strings (tests/test_food_bo._FTUE_ALLOWED), and only here.
-GLOSSARY = "Glossary: word on screen → BO term"
-GLOSSARY_COLUMNS = ("Word on screen", "BO term", "Meaning")
 GLOSSARY_OVERALL_TERM = "objective (an additive desirability, weighted by Share of score)"
 GLOSSARY_ROUND_TERM = "batch of q suggestions"
 GLOSSARY_ROUND_MEANING = ("the formulations made together; in BO texts a “batch” of q generated "
@@ -7100,12 +6790,6 @@ GLOSSARY_SETTINGS_TRIAL_CELLS = tuple(cell for row in _GLOSSARY_SETTINGS_FORM.va
                                       for cell in row if _says_trial(cell))
 
 
-def glossary_rows(settings_only=False):
-    """The glossary in the project's own form, chosen by has_ingredients()
-    (M4), never through for_project."""
-    return GLOSSARY_ROWS_SETTINGS if settings_only else GLOSSARY_ROWS
-
-
 def glossary_cells():
     """Every cell of both forms, for the guard's scoped allowance."""
     return [cell for rows in (GLOSSARY_ROWS, GLOSSARY_ROWS_SETTINGS) for row in rows
@@ -7128,64 +6812,6 @@ def strips_caption_help(settings_only=False):
     what = "process setting" if settings_only else "ingredient"
     return (f"Each strip shows one {what} at a time: combinations can be untested even where "
             "every strip looks covered.")
-
-
-def gap_above(name, value_text):
-    """'Coconut oil above 8.1 g': an end gap; `value_text` with its unit."""
-    return f"{name} above {value_text}"
-
-
-def gap_below(name, value_text):
-    return f"{name} below {value_text}"
-
-
-def gap_between(name, low_text, high_text):
-    """'Salt between 0.6 and 1.0 g': `high_text` carries the unit."""
-    return f"{name} between {low_text} and {high_text}"
-
-
-def strip_gaps_line(items):
-    """At most 2, largest first (R-I15): 'Coconut oil above 8.1 g and Salt
-    below 0.6 g have never been tested.'"""
-    verb = "has" if len(items) == 1 else "have"
-    return f"{_and_join(items)} {verb} never been tested."
-
-
-def option_never_tested(name, option):
-    """A choice row's option no formulation with all results in has used."""
-    return f"{name}: {option} has never been tested."
-
-
-def strips_no_gap(settings_only=False, has_settings=False):
-    """`has_settings`: the strips hold a process setting too (the rule
-    checks them as it checks the ingredients)."""
-    what = ("process setting" if settings_only
-            else "ingredient or process setting" if has_settings else "ingredient")
-    return f"No {what} has an untested stretch of 15 % of its span or more."
-
-
-def limit_hit_line(hits, picks, round_no, limit_text):
-    """R-I15: from 2 picks, when at least half sit at one row's limit.
-    `limit_text`: limit_highest, limit_lowest or limit_named. '3 of the 4
-    suggestions in Round 6 sit at Textured pea protein's Highest.'"""
-    if hits == picks:
-        who = (f"Both suggestions in {ROUND_CAP} {round_no}" if picks == 2
-               else f"All {picks} suggestions in {ROUND_CAP} {round_no}")
-        return f"{who} sit at {limit_text}."
-    return f"{hits} of the {picks} suggestions in {ROUND_CAP} {round_no} sit at {limit_text}."
-
-
-def limit_highest(name):
-    return f"{name}'s {HIGHEST_LABEL}"
-
-
-def limit_lowest(name):
-    return f"{name}'s {LOWEST_LABEL}"
-
-
-def limit_named(text):
-    """A limit over several rows: 'the limit Fat per 100 g: at most 10 g'."""
-    return f"the limit {text}"
 
 
 # The strips' marks and tooltips.
@@ -7262,11 +6888,6 @@ def why_link(no):
     """R-I4: only with a warm Round open with at least one generated pick.
     Concision round: at most 5 words."""
     return f"Why {ROUND_CAP} {no} was suggested"
-
-
-def explored_link(values=False):
-    """R-I14: Next's link to the fold, priority 3 (explore and untested)."""
-    return f"See untried {'values' if values else 'amounts'}"
 
 
 def repeat_link(no):
@@ -7377,9 +6998,6 @@ def repeat_after_generate_help(no):
 # concision rule: a caption is about 8 words at most, a title or label 5;
 # the explanation sits in the "?" (help) or the chart's own tooltip.
 TRIED_TITLE = "What you've tried"
-TRIED_BEST = BEST_SO_FAR_COLUMN
-TRIED_WAITING = f"Waiting or {NOT_SCORED}"
-TRIED_SUGGESTED = f"This {ROUND_CAP}'s suggestion"
 TRIED_SCORED = f"Scored {FORMULATION}"
 
 
@@ -7406,12 +7024,9 @@ def tried_amounts_title(values=False):
     return "Values" if values else "Amounts"
 
 
-TRIED_NOTHING = "Nothing recorded yet."
-
 CHOOSES_TITLE = "How the app chooses"
 CHOOSES_CAPTION = "Suggestions go where expected gain peaks."
 CHOOSES_PREDICTED = f"Predicted {OVERALL_SCORE_COLUMN}"
-CHOOSES_BAND = "95 % interval"
 CHOOSES_GAIN = "Expected gain (points)"
 CHOOSES_TESTED = "Tested near this line"
 CHOOSES_SUGGESTION = "First suggestion"
@@ -7446,10 +7061,6 @@ def tip_chooses_withheld(reason):
     return f"Expected gain is not shown: {reason}."
 
 
-CHOOSES_REASON_NOISE = "the model is reading chance variation as effects"
-CHOOSES_REASON_UCB = "your model settings choose suggestions by an upper bound, not a gain"
-CHOOSES_REASON_COLD = (f"this {ROUND_CAP}'s suggestions were not chosen by the model (fewer "
-                       f"than 5 {FORMULATION}s had all their results)")
 CHOOSES_OFF_LINE = "First suggestion is off this line."
 
 
@@ -7500,10 +7111,6 @@ TIP_CHOOSES_BAND = (
     "and no widening from the Prediction check. It is therefore narrower than the 95 % "
     "interval under Try one, which is for a new measured result. BO term: latent posterior "
     "95 % credible band.")
-# One name for the gain on screen (Expected gain); the BO term in tooltips.
-GAIN_TOOLTIP_TITLE = "Expected gain (points) — expected improvement (acquisition value)"
-
-
 # ------------------------------------------------------------------ #
 #  Concision (owner, 2026-10-01: "too wordy … overwhelming to read").
 #  On screen, each status line is its bold word and one short fact; the
@@ -7834,15 +7441,6 @@ def hero_title(no=None, chose=True):
 
 HERO_CAPTION = "Suggestions go where expected gain peaks."
 HERO_COLD = f"Appears after 5 scored {FORMULATION}s."
-# The withheld reason, at most 10 words; the full one in its "?".
-HERO_WITHHELD = {
-    "noise": "Expected gain hidden: the model may be reading noise.",
-    "ucb": "Expected gain hidden: your settings use an upper bound.",
-    "cold": f"Expected gain hidden: {ROUND_CAP} laid out, not modelled.",
-    "verdict": "Expected gain hidden: predictions miss too often.",
-    "skill": "Expected gain hidden: predictions not yet reliable.",
-}
-
 # The two folds.
 FOLD_TRIED = "What you've tried"
 FOLD_MORE = "More detail"
@@ -8076,7 +7674,6 @@ PLOT_GAIN_AXIS = "Expected gain (points)"
 PLOT_MEASURED_SCORE = "Overall score (of 100)"
 # Legend entries.
 PLOT_BAND = "Likely range of the mean, 95 %"
-PLOT_INTERVAL = "Likely range of a result, 95 %"
 PLOT_MEAN = "Predicted (model mean)"
 PLOT_UNTESTED = "Not tested near here"
 PLOT_TESTED = f"Tested {FORMULATION}"
@@ -8084,7 +7681,6 @@ PLOT_TESTED_NEAR = "Tested near this line"
 PLOT_ALLOWED = f"Allowed {FORMULATION} (sample)"
 PLOT_SUGGESTION = f"This {ROUND_CAP}'s suggestion"
 PLOT_START = "Start"
-PLOT_TARGET = "Target"
 PLOT_SCORE_EACH = f"Each {FORMULATION}'s score"
 PLOT_INSIDE = "Inside its 95 % range"
 PLOT_OUTSIDE = "Outside its 95 % range"
@@ -8267,14 +7863,12 @@ def ev_suggestions(acquisition="qlognei"):
     return f"suggestions: Gaussian process on the {OVERALL_SCORE_COLUMN}, {name}"
 
 
-# Review four: the method link sits under the cards now.
-EV_METHOD = "Kernel, priors and every check: How the app knows, under the cards."
-
-# The one-click way to the method (the Method and definitions fold).
-METHOD_LINK = "How the app knows"
-METHOD_LINK_HELP = ("Opens Method and definitions: the Gaussian-process model read from this "
-                    "project, the acquisition (qLogNEI by default), the Round-ahead checks, "
-                    "the noise threshold and the known limits.")
+# The one-click way to the Method and definitions fold (its help and the
+# evidence lines' pointer, EV_METHOD, are set with the definitions below).
+# Fix round 1 of the one-glance Review: the fold holds one line per term
+# and the README link, so the label says that ("How the app knows"
+# promised the model, the checks and the limits).
+METHOD_LINK = "Definitions"
 
 # The hero: what the x axis is, and a hidden gain as a choice with a next step.
 def hero_axis(values=False):
@@ -8324,84 +7918,11 @@ TRACK_VALUES_MISS = "Measurements miss more."
 SETUP_BUTTON_SHORT = "Change on Set up"
 
 # --- review profiler ---
-# The prediction profiler (prototype, 2026-10-02): one small panel per
-# ingredient or process setting (columns) and per result (rows), each line
-# moving that one row from its Lowest to its Highest through the reference
-# formulation. It replaces Try one's path and Compare all.
-PLOT_PROFILER = "What drives each result?"
-PROFILER_CAPTION = "Steeper line: bigger effect. Band: uncertainty."
-PROFILER_THROUGH = "Lines drawn through"
-PROFILER_REF_BEST = BEST_SO_FAR_COLUMN
-PROFILER_REF_PICK = "Suggestion 1"
-PROFILER_TESTED = "Tested near here"
-PROFILER_GAIN_ROW = "Expected gain"
 PROFILER_GAIN_AXIS = "Expected gain (points)"
 PROFILER_SCORE_ROW = "Overall score (of 100)"
-PROFILER_STOPPED = "limit"
-
-
 def profiler_more(n):
     """The multiselect for the panels left out, at most 5 words."""
     return f"+{n} more"
-
-
-def profiler_more_help(kind_settings=False, rows=False):
-    if rows:
-        return ("The rows shown are the measurements with the largest Share of score; "
-                "pick more to add their rows.")
-    what = "process settings" if kind_settings else "ingredients or process settings"
-    return (f"The columns shown are the {what} that move the predicted Overall score "
-            "most; pick more to add their columns.")
-
-
-def profiler_fill_note(fill):
-    """Under the chart, at most 8 words: the Fill to total row has no column."""
-    return f"{fill} fills to the total: no column."
-
-
-def profiler_at_end(end):
-    """A panel's note when the reference sits at a limit of its row."""
-    return f"at its {end}"
-
-
-def profiler_row_target(target_text):
-    return f"target {target_text}"
-
-
-PROFILER_ROW_LOWER = "lower is better"
-PROFILER_ROW_HIGHER = "higher is better"
-
-
-def profiler_help(ref, ref_no, fill=None, fixed=(), gain=True, settings_only=False):
-    """The caption's "?": how to read every panel."""
-    what = "process setting" if settings_only else "ingredient or process setting"
-    lines = [f"Each column moves one {what} from its Lowest to its Highest, starting from "
-             f"{ref} ({FORMULATION_CAP} {ref_no}); everything else stays as it is there.",
-             "Each row is one result: the blue line is the predicted value, the light band "
-             "its 95 % likely range of a result. A steep line means that row matters; a flat "
-             "one, that it hardly does here.",
-             f"The vertical line marks {ref}'s own amount; a dashed line, the measurement's "
-             "target. Grey: nothing tested near here, so the line is a guess there. Grey "
-             f"rings: {FORMULATION}s tested near the line, at their measured Overall score."]
-    if fill:
-        lines.append(f"{fill} fills to the Formulation total, so it moves with each column "
-                     "and has none of its own.")
-    if fixed:
-        lines.append("Fixed rows have no column: " + ", ".join(fixed) + ".")
-    if gain:
-        lines.append("Bottom row: the expected gain along each line, the quantity the app "
-                     "chooses suggestions by (as in the chart at the top).")
-    return " ".join(lines)
-
-
-def profiler_bo(mean, low, high):
-    """The tooltip's expert line at one point of a panel."""
-    return (f"GP posterior mean {mean:.2f}, 95 % posterior predictive interval "
-            f"{low:.2f} to {high:.2f} (calibrated); one-factor slice")
-
-
-def profiler_bo_gain(gain):
-    return f"qLogNEI acquisition value {gain:.3f} along a one-factor slice"
 
 
 # --- review four ---
@@ -8412,16 +7933,9 @@ def profiler_bo_gain(gain):
 # its caption of at most 8 words; the evidence in the answer line's "?".
 Q1_TITLE = "Can we trust the predictions?"
 Q2_TITLE = "Are we improving?"
-Q3_TITLE = "What drives each result?"
-Q4_TITLE = "What have we tried?"
 SEE_CHART = "See chart ↓"
 SEE_CHART_HELP = "Scrolls to the chart that answers this card's question."
 Q_WAIT = f"Appears after 5 scored {FORMULATION}s."
-Q3_CAPTION_PICK = "Suggestion 1 sits where expected gain peaks."
-PROFILER_REF_HELP = ("Draw every line through Suggestion 1 (the open Round's first suggestion) "
-                     "or through Best so far.")
-
-
 def answer_line(word, text):
     """A section's answer: '**Rising.** Best 98.33 · up 3.3 points.'"""
     text = text.strip()
@@ -8437,15 +7951,6 @@ def q3_answer(name):
 
 Q3_FLAT = "No single change clearly leads"
 
-
-def q4_word(n):
-    """Q4's status word: '30 tested'."""
-    return f"{n} tested"
-
-
-def gap_span(name, low_text, high_text):
-    """'Salt 0.6–1.0 g': an interior gap, compact."""
-    return f"{name} {low_text}–{high_text}"
 
 # Ruling 1 (owner, 2026-10-02): the Predictions word reads the Overall
 # score's Round-ahead record (the suggestions are made from its model); the
@@ -8519,21 +8024,6 @@ def why_greyed_line(reason, detail=None):
     return f"Expected gain is greyed: {why}" + (f" ({detail})." if detail else ".")
 
 
-def ev_profiler(n, ref, ref_no, acquisition="qlognei"):
-    """Q3's evidence: the models, the slice and the acquisition."""
-    name = _ACQ_SHORT.get(acquisition, acquisition)
-    return (f"n = {n} {FORMULATION}s with all results; one Gaussian process per result "
-            f"(posterior mean, 95 % predictive interval); one-factor slices through {ref} "
-            f"({FORMULATION_CAP} {ref_no}); Expected gain is the suggestion model's {name} "
-            "value along each slice")
-
-
-def ev_tried(n):
-    """Q4's evidence: model-free."""
-    return (f"model-free: {n} {FORMULATION}s with all results; untested = no {FORMULATION} "
-            "within 15 % of a row's span")
-
-
 def why_gain_greyed_said(line):
     """Ruling 2: a withheld line (why_gain_said) as the greyed column's "?":
     shown greyed, never hidden, and the suggestions made the same way."""
@@ -8555,21 +8045,6 @@ Q2_X_TITLE = f"{FORMULATION_CAP} (in order made)"
 def round_tick(n):
     """A Round's label above Q2's chart: 'R3'."""
     return f"R{n}"
-
-
-# The profiler's "+N more" pickers: a label and a placeholder each, at
-# most 5 and 4 words (Streamlit's own placeholder read "Choose options").
-def profiler_more_label(kind):
-    """'More ingredients' / 'More settings' / 'More ingredients or settings'
-    / 'More measurements'."""
-    return {"ingredients": "More ingredients", "settings": "More settings",
-            "both": "More ingredients or settings", "rows": "More measurements"}[kind]
-
-
-def profiler_more_placeholder(kind):
-    return {"ingredients": "Add an ingredient", "settings": "Add a setting",
-            "both": "Add a column", "rows": "Add a measurement"}[kind]
-
 
 
 # --- review story ---
@@ -8691,22 +8166,6 @@ def story_trust_help(inside, total, misses_text=""):
                 "  ", " ")
 
 
-# What drives each result? — a finding, from the profiler.
-def story_driver(name):
-    """'Methylcellulose matters most'."""
-    return f"{name} matters most"
-
-
-def story_driver_end(ref_label, end):
-    """'Best so far uses its Highest'."""
-    return f"{ref_label} uses its {end}"
-
-
-def story_driver_then(name):
-    """'Then Textured soy protein'."""
-    return f"Then {name}"
-
-
 STORY_NO_DRIVER = "No single change clearly leads"
 
 
@@ -8717,20 +8176,6 @@ def story_driver_help(ref_label):
             "not a measured result.")
 
 
-# What have we tried? — the search path.
-STORY_PATH_CAPTION = f"One dot per {FORMULATION}; gaps are untested."
-STORY_PATH_TESTED = f"Tested {FORMULATION}"
-
-
-def story_path_help(settings_only=False):
-    """The search path's "?": how to read a panel."""
-    what = "process setting" if settings_only else "ingredient or process setting"
-    return (f"One small chart per {what}: across, its allowed amounts from Lowest to Highest; down, "
-            f"the {ROUND_CAP}s, the first at the top. Each dot is one {FORMULATION}; the grey "
-            f"bar joins a {ROUND_CAP}'s lowest and highest amounts. Ink ring: "
-            f"{BEST_SO_FAR_COLUMN}. Orange: this {ROUND_CAP}'s suggestions. Empty stretches "
-            "were not tried. Bars that shorten show the search settling. BO term: the design "
-            "points by iteration, per input dimension.")
 STORY_VALUE = "Value"
 
 
@@ -8775,7 +8220,6 @@ def strip_jump_help(question):
 
 # The cards are gone: what named them now names the strip or What next?.
 SEE_CHART_HELP = "Scrolls to the section that answers it."
-EV_METHOD = "Kernel, priors and every check: How the app knows, top right."
 REVIEW_STATUS_HELP = (f"The {TAB_INSIGHTS} status line in brief. Predictions: can you trust "
                       "them? Progress: is Best so far still rising?")
 GAIN_REASON_NOT_YET = "Predictions do not read Reliable yet"
@@ -8803,60 +8247,11 @@ def story_trust_so_far(inside, total, needed):
 
 
 # --- review story 3 ---
-# Review story 3 (prototype, 2026-10-02; owner: demo the yogurt pilot only,
-# and fade the profiler's untested stretches so a model curve there does
-# not read as a finding): the line thin and dashed, the band lighter, over
-# amounts not tested near; the finding from tested stretches only; a note
-# when two rows moved together; and Expected gain defined once.
-PROFILER_UNTESTED_DASHED = "Not tested near here (dashed)"
-
-
-def story_no_leader(kind="ingredients"):
-    """'No single ingredient clearly leads yet' (`kind`, _more_kind's)."""
-    what = {"settings": "setting", "both": "ingredient or setting"}.get(kind, "ingredient")
-    return f"No single {what} clearly leads yet"
-
-
-def profiler_guide(kind="ingredients"):
-    """Review learned 2b (coordinator: no effect claims on thin data): the
-    profiler's headline, a reading guide: 'How each ingredient moves each
-    result.'"""
-    what = {"settings": "setting", "both": "ingredient or setting"}.get(kind, "ingredient")
-    return f"How each {what} moves each result."
-
-
-PROFILER_NO_CLAIM = ("No effect is named here: with no Repeats the noise is not measured, so a "
-                     "slope this model draws could be chance. Effects are named once Repeats "
-                     "measure the noise.")
-
-
 def story_leader_rule(noise_text):
     """The finding's "?", its rule: tested stretches only."""
     return (f"Counted over tested amounts only: the dashed, untested stretches are the model's "
             f"guess. A clear lead moves the predicted {OVERALL_SCORE_COLUMN} by at least "
             f"{noise_text} points (one tasting's noise) and by a quarter more than the next row.")
-
-
-def moved_note(first, second):
-    """'Tap water and Coconut cream moved together: effects mixed.'"""
-    return f"{first} and {second} moved together: effects mixed."
-
-
-def moved_r(r):
-    """'r = −0.70' (Pearson's r, signed, two decimals)."""
-    return f"r = {r:.2f}".replace("-", "−")
-
-
-def moved_help(first, second, r, n, others=()):
-    """The note's "?": the exact r, why it matters, and any other pairs."""
-    text = (f"{first} and {second} changed together across the {n} tested {FORMULATION}s "
-            f"({moved_r(r)}). No model can separate their effects: what the chart credits to "
-            f"one may belong to the other. Noted from |r| ≥ 0.7. To separate them, test "
-            f"{FORMULATION}s that change one without the other.")
-    if others:
-        text += " Also moved together: " + "; ".join(
-            f"{a} and {b} ({moved_r(x)})" for a, b, x in others) + "."
-    return text
 
 
 METHOD_GAIN = ("Expected gain: expected improvement in the Overall score (qLogNEI), in points: "
@@ -8877,13 +8272,9 @@ LEARNED_STRIP_LABEL = "Model"
 LEARNED_WORDS = {"predictable": "Predictable", "partly": "Partly", "not_yet": "Not yet"}
 LEARNED_REASONS = {"flat": "barely varies", "few": "too few pairs",
                    "chance": "no better than chance"}
-LEARNED_COL_RESULT = "Result"
-LEARNED_COL_VERDICT = "Verdict"
 # LEARNED_COL_PAIRS: see "rebuilt framing" at the end.
 LEARNED_COL_TOP = "Picked the top one"
-# LEARNED_CHART_X: see the sceptic review section, below.
 LEARNED_CHANCE = "Chance"
-LEARNED_CAPTION = "Dot: share right. Bar: 95 % interval."
 LEARNED_NONE_YET = "Nothing to check yet: needs a scored Round."
 # LEARNED_FORECAST_TITLE: see "rebuilt framing" at the end.
 LEARNED_FORECAST_NONE = "No result predictable yet."
@@ -8954,11 +8345,6 @@ def learned_headline(var, name, up):
     return f"{var} {'raises' if up else 'lowers'} {name}"
 
 
-def learned_not_predictable(names):
-    """'Not predictable yet: Creaminess, Thickness uniformity.'"""
-    return f"{NOT_PREDICTABLE_YET}: {', '.join(names)}."
-
-
 def learned_help(pairs_rule, skill_line, counts="", tops=""):
     """The section answer's "?": the counts, the top picks, the rule, then
     the Overall score's expert line."""
@@ -8977,12 +8363,6 @@ def learned_tops(rows):
     from [(name, right, rounds, chance)]."""
     cells = [f"{n} {learned_top(r, k, c)}" for n, r, k, c in rows if k]
     return f"{LEARNED_COL_TOP}: {'; '.join(cells)}." if cells else ""
-
-
-# LEARNED_RULE: see "rebuilt framing" at the end.
-LEARNED_TOP_RULE = ("Picked the top one: the formulation forecast highest was measured highest "
-                    "(the Overall score: the Round's best), in Rounds where not all measured "
-                    "equal. Chance: the share a random pick would get.")
 
 
 def learned_skill_line(inside, total, vs_mean, vs_best, n):
@@ -9008,13 +8388,7 @@ def called_title(round_no):
 
 
 CALLED_TIP_FORECAST = "Forecast"
-CALLED_TIP_MEASURED = "Measured"
 CALLED_WORDS = {"called": "order called right", "partly": "partly", "missed": "missed"}
-# Review learned 2b (coordinator: the range bars read as misses; the claim
-# is the ORDER): one slopegraph per result, the forecast on the left, the
-# measured value on the right, each side on its own scale.
-CALLED_CAPTION = "Grey: kept. Dashed: crossed. Faint: too close."
-# CALLED_RULE: see "rebuilt framing" at the end.
 
 
 def called_record(name, right, pairs):
@@ -9053,11 +8427,6 @@ def called_answer(round_no, verdict, lead=None, record=None, top=None, right=(),
     return f"{head} {'; '.join(parts)}." if parts else head
 
 
-def called_tied(name):
-    """A panel left out: 'Tangy: all measured the same, not drawn.'"""
-    return f"{name}: all measured the same, not drawn."
-
-
 def called_ranges(cells):
     """'Forecast (95 % range): F16 13.5 (11.1–≥ 15), F17 ….'"""
     return f"Forecast (95 % range): {', '.join(cells)}." if cells else ""
@@ -9069,33 +8438,6 @@ def called_pairs(name, right, counted, total):
     if not counted:
         return f"{name}: all measured the same, nothing to order." if total else f"{name}: —"
     return f"{name}: {right} of {counted} {'pair' if counted == 1 else 'pairs'} in the right order."
-
-
-def called_pair(high, low, right):
-    """'F18 > F16 ✓'; a measured tie: 'F16 = F17 (tie)'."""
-    if right is None:
-        return f"F{min(high, low)} = F{max(high, low)} (tie)"
-    return f"F{high} > F{low} {'✓' if right else '✗'}"
-
-
-def called_top(top, measured_top, right):
-    """'Forecast highest: F18 ✓'; 'Forecast highest: F17 ✗ (measured: F16)'."""
-    if right is None:
-        return ""
-    if right:
-        return f"Forecast highest: F{top} ✓"
-    return f"Forecast highest: F{top} ✗ (measured: {', '.join(f'F{n}' for n in measured_top)})"
-
-
-def called_range(inside, above, below):
-    """The Overall score's landing: '1 of 3 in range; 2 misses, both higher
-    than forecast.' Outside the range is a miss, above or below (persona
-    fixes 2)."""
-    total = inside + above + below
-    out = f"{inside} of {total} in range"
-    if above or below:
-        out += f"; {check_misses(above, below)}"
-    return out + "."
 
 
 def forecast_line(name, cells, top):
@@ -9123,10 +8465,6 @@ def preview_help(n, best_no):
             f"(nothing is saved). Changes are against Best so far ({FORMULATION_CAP} {best_no}). "
             f"Predicted {OVERALL_SCORE_COLUMN} with its 95 % range; ≥ 99 means it reaches the "
             f"top score.")
-
-
-METHOD_LEARNED_TITLE = "What the model learned: definitions"
-METHOD_FORECAST_CHART = "Overall score forecast against measured, Round by Round"
 
 
 def review_status_learned(model, progress, extra=None):
@@ -9173,12 +8511,6 @@ def called_order(groups):
     if len(names) <= 3:
         return " above ".join(names)
     return f"{names[0]} top, {names[-1]} bottom"
-
-
-def _about(x):
-    """'about 4' (one point or more, whole); 'about 0.6' under one."""
-    x = abs(float(x))
-    return f"about {x:.0f}" if x >= 1 else f"about {x:.1f}"
 
 
 def called_score_head(round_no, order_text, landing_text="", off=()):
@@ -9424,115 +8756,7 @@ def forecast_order_tail(order):
 # apart; a steady bias said), provenance from the notes, the widen advice
 # with its reason, the score recipe on screen, Plateau after a rise.
 FORECAST_CHECK_TITLE = "Forecast check"
-CHECK_TOO_CLOSE = "Too close to call"
 CHECK_SO_FAR_NONE = "So far: every pair too close to call."
-
-
-def check_landing(above, below):
-    """'higher' / 'lower' / 'both' / 'inside' from the misses' sides."""
-    if above and below:
-        return "both"
-    return "higher" if above else "lower" if below else "inside"
-
-
-def check_head(round_no, above, below, subject=None):
-    """'**Round 6: scored higher than forecast.**'; a measurement as the
-    subject: '**Round 6: Consistency measured lower than forecast.**'."""
-    verb = "scored" if subject is None else f"{subject} measured"
-    what = {"higher": f"{verb} higher than forecast", "lower": f"{verb} lower than forecast",
-            "both": f"{verb} outside forecast, both ways",
-            "inside": f"{verb} as forecast"}[check_landing(above, below)]
-    return f"**{ROUND_CAP} {round_no}: {what}.**"
-
-
-def check_misses(above, below):
-    """'2 misses, both higher than forecast'; '1 miss, lower than
-    forecast'; '2 misses: 1 higher, 1 lower'."""
-    n = above + below
-    word = "miss" if n == 1 else "misses"
-    if above and below:
-        return f"{n} {word}: {above} higher, {below} lower"
-    side = "higher" if above else "lower"
-    lead = "" if n == 1 else ("both " if n == 2 else "all ")
-    return f"{n} {word}, {lead}{side} than forecast"
-
-
-def check_range(inside, above, below):
-    """The headline's range part: '2 of 3 above their range'; '1 of 3
-    below its range'; 'all 3 in range'; 'all 3 outside their range'."""
-    total = inside + above + below
-    out = above + below
-    if not out:
-        return "in range" if total == 1 else f"all {total} in range"
-    side = "above" if not below else "below" if not above else "outside"
-    if out == total == 1:
-        return f"{side} its range"
-    lead = (("both" if total == 2 else f"all {total}") if out == total
-            else f"{out} of {total}")
-    return f"{lead} {side} {'its' if out == 1 else 'their'} range"
-
-
-def check_order(right, counted, close, tied=False):
-    """The headline's order part: 'order too close to call'; 'order right
-    (1 pair; 2 too close)'; 'order right in 1 of 2 pairs'."""
-    if tied:
-        return "all the same"
-    if not counted:
-        return "order too close to call" if close else ""
-    pairs = "pair" if counted == 1 else "pairs"
-    tail = f"; {close} too close" if close else ""
-    if right == counted:
-        return f"order right ({counted} {pairs}{tail})"
-    return f"order right in {right} of {counted} {pairs}{tail}"
-
-
-def check_line(round_no, inside, above, below, order_text="", subject=None):
-    """The Forecast check's headline, at most 14 words (numbers aside):
-    '**Round 6: scored higher than forecast.** 2 of 3 above their range;
-    order too close to call.'"""
-    tail = "; ".join(t for t in (check_range(inside, above, below), order_text) if t)
-    head = check_head(round_no, above, below, subject)
-    return f"{head} {tail[:1].upper()}{tail[1:]}." if tail else head
-
-
-def check_bias(cells):
-    """A steady bias in one line, from [(name, measured − forecast)]:
-    'Forecasts ran about 2 high on Tangy.'; two: '… about 2 high on Tangy,
-    about 1 low on Firmness.'"""
-    if not cells:
-        return ""
-    bits = [f"{_about(g)} {'high' if g < 0 else 'low'} on {n}" for n, g in cells[:2]]
-    return f"Forecasts ran {', '.join(bits)}."
-
-
-def check_measure_line(name, right, counted, close, held):
-    """One result's line in the "?": 'Consistency: too close to call (3
-    pairs).'; 'Consistency: order right (1 of 1 pair; 2 too close).';
-    'Tangy: 1 of 2 pairs in the right order.'"""
-    if not counted:
-        if not close:
-            return f"{name}: all measured the same, nothing to order."
-        return f"{name}: too close to call ({close} {'pair' if close == 1 else 'pairs'})."
-    pairs = "pair" if counted == 1 else "pairs"
-    tail = f"; {close} too close" if close else ""
-    if held:
-        return f"{name}: order right ({right} of {counted} {pairs}{tail})."
-    return f"{name}: {right} of {counted} {pairs} in the right order{tail}."
-
-
-def check_pair_close(high, low):
-    """'F17, F16 too close'."""
-    return f"F{high}, F{low} too close"
-
-
-def check_noise(cells, assumed=True):
-    """The rule named in the "?": 'Too close to call: forecasts less than
-    one tasting-noise apart; noise assumed 1 point until Repeats measure it
-    (Overall score 1.0, Consistency 0.6).' from [(name, SD text)]."""
-    head = ("Too close to call: forecasts less than one tasting-noise apart; "
-            + ("noise assumed 1 point until Repeats measure it" if assumed
-               else "noise measured from your Repeats"))
-    return head + (" (" + ", ".join(f"{n} {v}" for n, v in cells) + ")." if cells else ".")
 
 
 # Progress: Flat after a rise reads as a plateau.
@@ -9589,18 +8813,6 @@ REBUILT_LABEL = "Rebuilt from earlier Rounds"
 RESULTS_PREDICTED_CAPTION = "Rebuilt from earlier Rounds: what the model expected."
 RESULTS_PREDICTED_SPINNER = "Rebuilding from earlier Rounds…"
 LEARNED_FORECAST_TITLE = "Expected from earlier Rounds"
-CALLED_RULE = (f"Rebuilt today from the {FORMULATION}s scored before this Round only: what the "
-               "model expected for the Overall score and each measurement predictable before it. "
-               f"Each line joins a {FORMULATION}'s forecast (left) to its measured value (right), "
-               "each side placed by its own values, highest at the top. A measured value outside "
-               "its 95 % range is a miss, above or below. A pair counts only when its forecasts "
-               "differ by at least one tasting noise of that result; closer pairs are too close "
-               "to call (drawn faint) and left out of every count. Tasting noise: the Repeats' "
-               "SD when they give one; else the Overall score's assumed 1 point, and for a "
-               "measurement that point in its own units through its share of the score (Range "
-               "width ÷ share). Equal measured values share a point and are not counted.")
-
-
 def forecast_help(n_rows, round_no):
     """The forecast panel's "?"."""
     return (f"What the model expects, from the {n_rows} {FORMULATION}s scored before "
@@ -9723,57 +8935,10 @@ def brief(text, limit=TOOLTIP_WORDS):
     return "\n\n".join(out)
 
 
-# Forecast check (fix 1): one shared axis per result.
-CHECK_SIDE = {"above": "above", "below": "below"}
-CHECK_KEY_RANGE = "Forecast 95 % range"
-CHECK_KEY_FORECAST = "Forecast"
-CHECK_KEY_IN = "Measured, in range"
-CHECK_KEY_OUT = "Measured, outside range"
-CHECK_TIP_FORECAST = "Forecast (95 % range)"
-CALLED_CAPTION = "Rows: forecast order, highest first."
-CALLED_RULE = (f"Rebuilt today from the {FORMULATION}s scored before this Round only. Bar: the "
-               "forecast's 95 % range; tick: the forecast; dot: the measured value, orange "
-               "when outside its range (a miss, above or below). Rows run in forecast order, "
-               "highest first. A pair counts only when its forecasts differ by at least one "
-               "tasting noise; closer pairs are too close to call. Equal measured values (ties) "
-               "are not counted.")
-
-
-def check_order(right, counted, close, tied=False, ties=0):
-    """The headline's order part: 'order too close to call'; 'order right
-    (1 pair; 1 too close; 1 tie)'; 'order right in 1 of 2 pairs'."""
-    if tied:
-        return "all the same"
-    tail = (f"; {close} too close" if close else "") + (
-        f"; {ties} {'tie' if ties == 1 else 'ties'}" if ties else "")
-    if not counted:
-        return "order too close to call" if close else ""
-    pairs = "pair" if counted == 1 else "pairs"
-    if right == counted:
-        return f"order right ({counted} {pairs}{tail})"
-    return f"order right in {right} of {counted} {pairs}{tail}"
-
-
-def check_noise(cells, assumed=True, k=None):
-    """The noise each order claim had to reach, in the "?": 'Tasting noise
-    assumed: Overall score 1.0; Consistency 0.3, … (the 1 point shared
-    evenly by 4 measurements). A Repeat would confirm.'"""
-    if not cells:
-        return ""
-    listed = "; ".join(f"{n} {v}" for n, v in cells)
-    if not assumed:
-        return f"Tasting noise from your Repeats: {listed}."
-    share = f" (the 1 point shared evenly by {k} measurements)" if k else ""
-    return f"Tasting noise assumed: {listed}{share}. {REPEAT_CONFIRMS}"
-
-
 REPEAT_CONFIRMS = "A Repeat would confirm."
 ASSUMED_NOISE_CLAUSE = "if tasting noise ≈ 1 point"
 
 
-# What has the model learned? (fix 3): an exact within-Round permutation test.
-LEARNED_CAPTION = "Dot past the grey range: better than chance."
-LEARNED_KEY_CHANCE = "Chance range"
 LEARNED_TOO_FEW = "too few pairs"
 LEARNED_RULE = ("Each Round is forecast from earlier Rounds only. Within a Round, a pair counts "
                 "as ordered right when the forecast put it in the measured order; pairs measured "
@@ -9781,15 +8946,6 @@ LEARNED_RULE = ("Each Round is forecast from earlier Rounds only. Within a Round
                 "what shuffling the measured values within each Round gives (chance). "
                 "Predictable: right more often than chance (p < 0.05, at least 5 pairs). "
                 "Partly: p < 0.20. Not yet: otherwise, too few pairs, or barely varies.")
-LEARNED_EXPERT = ("exact within-Round permutation test of concordant minus discordant pairs "
-                  "(a stratified Kendall test), one-sided.")
-
-
-def learned_multiplicity(n):
-    """'5 results are checked each Round; one may pass by chance.'"""
-    return f"{n} results are checked each Round; one may pass by chance."
-
-
 def learned_strip(predictable, partly):
     """The strip's Model item, (word, line): ('Predicts:', 'Consistency,
     Tangy'); ('Partly:', 'Consistency'); ('Not predictable yet', '') — the
@@ -9906,50 +9062,6 @@ def story_target_help(start_no, best_no, start_round):
             "start, grey and labelled when it moved away. Measured values only.")
 
 
-# What have we tried? (fix 8; its answer is in the tried-gaps block).
-STORY_PATH_CAPTION = f"One dot per {FORMULATION}. Shaded: untested gap."
-PATH_AT_LIMIT = "At its Lowest or Highest"
-PATH_GAP = "Untested gap"
-
-
-def story_path_help(settings_only=False):
-    """The search path's "?": only the marks drawn."""
-    what = "process setting" if settings_only else "ingredient or process setting"
-    return (f"One small chart per {what}: across, its allowed amounts from Lowest to Highest; "
-            f"down, the {ROUND_CAP}s, the first at the top. Each dot is one {FORMULATION}; a "
-            f"square marks an amount at its Lowest or Highest. Ink ring: {BEST_SO_FAR_COLUMN}. "
-            f"Orange: this {ROUND_CAP}'s suggestions. Shaded band: an untested gap, 15 % of the "
-            "span or more; every one is shaded.")
-
-
-# What drives each result? (fix 4): a closed fold.
-def drives_limited(name):
-    """'Single-ingredient moves are limited by the Formulation total.'"""
-    return f"Single-ingredient moves are limited by the {name}."
-
-
-PROFILER_CAPTION = "Each column: only the amounts your limits allow."
-
-
-def profiler_help(ref, ref_no, fill=None, fixed=(), gain=True, settings_only=False):
-    """The caption's "?": where each line stops and why; then the marks."""
-    what = "process setting" if settings_only else "ingredient or process setting"
-    lines = [f"Each column moves one {what} from {ref} ({FORMULATION_CAP} {ref_no}), everything "
-             "else as it is there. Its line stops where a limit stops it: the row's own Lowest "
-             "or Highest, or a limit on several rows such as the total (dashed edge, "
-             "“limit”). The axis shows only that reachable stretch.",
-             "Blue line: the predicted value; light band: its 95 % range. Vertical line: "
-             f"{ref}'s own amount; dashed line: the target. Grey: nothing tested near here. "
-             f"Grey rings: {FORMULATION}s tested near the line."]
-    if fill:
-        lines.append(f"{fill} fills to the Formulation total, so it moves with each column.")
-    if fixed:
-        lines.append("Fixed rows have no column: " + ", ".join(fixed) + ".")
-    if gain:
-        lines.append("Bottom row: the expected gain along each line.")
-    return " ".join(lines)
-
-
 # Make a round (fix 9).
 MAP_X_TITLE = "Predicted score"
 MAP_Y_TITLE = "Uncertainty (± points, tasting noise excluded)"
@@ -10001,54 +9113,6 @@ WHY_COL_PREDICTED = "Predicted (95 % range)"
 WHY_COL_GAIN = "Expected gain"
 WHY_COL_CLOSEST = "Closest made"
 # --- tried gaps ---
-# What have we tried? (owner, 2026-10-05: "What about the other
-# ingredients?"): the answer counts the rows with an untested gap, then
-# names the largest; its "?" lists every gap, one line per row; the search
-# path shades them all.
-_GAP_ROWS = {"ingredient": ("ingredient", "ingredients"),
-             "setting": ("setting", "settings"),
-             "mixed": ("ingredient or setting", "ingredients/settings")}
-
-
-def tried_gaps(with_gaps, rows, kind, largest=None):
-    """'Gaps in 6 of 7 ingredients; largest: Salt 0.6–1.0 g'.
-    `kind`: "ingredient", "setting" or "mixed"; `largest`: gap_span's, or
-    None for the count alone."""
-    one, many = _GAP_ROWS[kind]
-    if rows == 1:
-        return f"Largest gap: {largest}" if largest else f"Gaps in the one {one}"
-    who = (f"both {many}" if with_gaps == rows == 2
-           else f"all {rows} {many}" if with_gaps == rows
-           else f"{with_gaps} of {rows} {many if rows > 1 else one}")
-    return f"Gaps in {who}; largest: {largest}" if largest else f"Gaps in {who}"
-
-
-def tried_no_gap(kind):
-    """The answer when no row has a gap of 15 % of its span."""
-    return f"No untested stretch in any {_GAP_ROWS[kind][0]}"
-
-
-def gap_row_line(name, spans_text, more=0):
-    """The "?": one row's gaps, low to high: 'Oil: 2.0–4.0,
-    6.5–9.0 g'; when short of room, its largest and '+2 more'."""
-    return f"- {name}: {spans_text}" + (f" +{more} more" if more else "")
-
-
-def gap_rows_more(more, kind):
-    """The list's last line when even one gap per row does not fit."""
-    one, many = _GAP_ROWS[kind]
-    return f"- +{more} more {one if more == 1 else many}"
-
-
-def tried_caveat(kind):
-    """Always in the "?": the strips are one row at a time."""
-    if kind == "setting":
-        return "One setting at a time: combinations of settings are mostly untested."
-    if kind == "mixed":
-        return "One ingredient or setting at a time: combinations are mostly untested."
-    return "One ingredient at a time: combinations of amounts are mostly untested."
-
-
 # --- round 2 fixes ---
 # Review round 2 (2026-10-05): four critics (visual, statistics, demo,
 # wording), one fix plan. One 95 % range per forecast on every screen;
@@ -10064,22 +9128,6 @@ def card_repeat_ask(repeat_no, round_no=None):
     noise' (it read 'Round 7: Repeat Formulation 15' and 'With a Repeat of
     Formulation 24' elsewhere)."""
     return card_noise_repeat(repeat_no)
-
-
-def check_noise(cells, assumed=True, k=None):
-    """The noise each order claim had to reach, in the "?": 'Tasting noise
-    assumed: Overall score 1.0; Consistency 0.3. 0.3: 1 score point in
-    Consistency's units, split over 4 measurements.'"""
-    if not cells:
-        return ""
-    listed = "; ".join(f"{n} {v}" for n, v in cells)
-    if not assumed:
-        return f"Tasting noise from your Repeats: {listed}."
-    share = ""
-    if k and len(cells) > 1:
-        name, value = cells[1]
-        share = f" {value}: 1 score point in {name}'s units, split over {k} measurements."
-    return f"Tasting noise assumed: {listed}.{share} {REPEAT_CONFIRMS}"
 
 
 # Make a round's Predicted measurements (P1 #1, #4).
@@ -10228,30 +9276,15 @@ def learned_answer(predictable, partly, not_yet):
     return f"**{head}.**" + (" " + ". ".join(rest) + "." if rest else "")
 
 
-def learned_not_predictable(names):
-    """'Not yet: Creaminess, Thickness uniformity.'"""
-    return f"Not yet: {', '.join(names)}."
-
-
 # What has the model learned? (P1 #2, P2 #11): Holm across the results.
 LEARNED_RULE = ("Each Round is forecast from earlier Rounds only. Within a Round, a pair counts "
                 "as ordered right when the forecast put it in the measured order; pairs measured "
                 "equal, forecast under one tasting noise apart, or both forecast at the top, are "
-                "not counted. Grey bar: what shuffling the measured values within each Round "
-                "gives (chance), drawn at each result's adjusted level. Predicts: right more "
+                "not counted. Chance: what shuffling the measured values within each Round "
+                "gives. Predicts: right more "
                 "often than chance after adjusting for every result checked (Holm, p < 0.05, at "
                 "least 5 pairs). Partly: right in more than half, p < 0.20 unadjusted. Not yet: "
                 "otherwise, too few pairs, or barely varies.")
-
-
-def learned_multiplicity(n):
-    """'Adjusted for 5 results checked: one alone could pass by chance.'"""
-    return f"Adjusted for {n} results checked: one alone could pass by chance."
-
-
-def learned_caption(n):
-    """'Past the bar: Predicts · adjusted for 5 results'."""
-    return f"Past the bar: Predicts · adjusted for {n} results"
 
 
 LEARNED_FULL_CHANCE = "chance up to 100 %: too few Rounds"
@@ -10261,13 +9294,6 @@ LEARNED_FULL_CHANCE = "chance up to 100 %: too few Rounds"
 # the Forecast check — one line from the same verdicts (merged with its "So
 # far:" count), the ordering chart in a closed fold under it.
 LEARNED_LINE_WORDS = 14
-
-
-def profiler_hidden_rule(settings_only=False):
-    """Method and definitions: when What drives each result? is left out."""
-    rows = "settings" if settings_only else "ingredients"
-    return f"{Q3_TITLE} Hidden when most {rows} have too little room to move."
-LEARNED_DETAILS_TITLE = "Details: ordering by result"
 
 
 def learned_count(label, right, pairs, few=False):
@@ -10308,22 +9334,7 @@ def review_status_strip(progress, model, next_word):
     """Make a round's Review line, the strip's own words: 'Review: Rising ·
     Predicts: Overall score · Stop, or change the target'."""
     return f"{REVIEW_STATUS_PREFIX}: **{progress}** · {model} · {next_word}"
-LEARNED_CAPTION = "Past the bar: Predicts"
 PREVIEW_FOLD_CAPTION = "What Generate would make now."
-
-
-# Forecast check (P2 #9, P3 #18).
-def called_shown(round_no):
-    """'Shown: results predictable before Round 10.'"""
-    return f"Shown: results predictable before {ROUND_CAP} {round_no}."
-
-
-def called_shown_help(absent, round_no):
-    """Why a result the Model names is not drawn here."""
-    names = ", ".join(absent)
-    return (f"{names}: not predictable before {ROUND_CAP} {round_no}, so not checked here. "
-            f"The check draws the {OVERALL_SCORE_COLUMN} and what the model could order before "
-            "this Round.")
 
 
 def story_target_start(round_no):
@@ -10331,20 +9342,9 @@ def story_target_start(round_no):
     return f"Start ({ROUND_CAP} {round_no}'s best)"
 
 
-# What drives each result? (P2 #13).
-def drives_limited(name):
-    """'Single-ingredient moves are limited by the Batch total' (the answer
-    line adds the period)."""
-    return f"Single-ingredient moves are limited by the {name}"
-
-
 def profiler_cramped(names):
     """'Too little room to move: Tap water, Coconut cream.'"""
     return f"Too little room to move: {', '.join(names)}."
-
-
-PROFILER_CRAMPED_HELP = ("Not drawn: with everything else as it is, your limits leave these "
-                         "less than 5 % of their Lowest–Highest to move in.")
 
 
 # Make a round's map (P2 #14).
@@ -10423,7 +9423,6 @@ def tie_runner_up(no, score_text, threshold_text):
 
 
 # One form per idea (P3 #18): ranges and misses.
-PLOT_INTERVAL = "95 % range of a result"
 STORY_LANDED_IN = "Measured, in range"
 STORY_LANDED_OUT = "Measured, outside range"
 
@@ -10467,22 +9466,6 @@ STEP_PRINT_HEADING = f"##### Download the {ROUND_CAP} workbook"
 DOWNLOAD_BATCH_SHEETS = f"Download the {ROUND_CAP} workbook (Excel)"
 
 
-# The Forecast check's line, at most 14 words and no nested brackets (P3 #19).
-def check_order(right, counted, close, tied=False, ties=0):
-    """'order right: 1 pair, 1 too close, 1 tie'; 'order right in 1 of 2
-    pairs'; 'order too close to call'."""
-    if tied:
-        return "all the same"
-    tail = (f", {close} too close" if close else "") + (
-        f", {ties} {'tie' if ties == 1 else 'ties'}" if ties else "")
-    if not counted:
-        return "order too close to call" if close else ""
-    pairs = "pair" if counted == 1 else "pairs"
-    if right == counted:
-        return f"order right: {counted} {pairs}{tail}"
-    return f"order right in {right} of {counted} {pairs}{tail}"
-
-
 def back_to_batch_label(no, n):
     """'Back to Round 6' (at most 5 words; the count is on Make a round)."""
     return f"Back to {ROUND_CAP} {no}"
@@ -10495,42 +9478,6 @@ def called_so_far(cells):
     return f"So far: {', '.join(out)}." if out else ""
 
 
-# Method and definitions refreshed (P3 #19): rows for what is no longer
-# drawn gone; the rise row in the screen's words; the stop added; the
-# Make a round threshold named as the cell now reads.
-_GLOSSARY_GONE = {"Where you have tested", "Every allowed formulation (map)",
-                  _GLOSSARY_SETTINGS_FORM["Every allowed formulation (map)"][0]}
-_GLOSSARY_NEW = {
-    "Rising · Within noise · Flat · Too early · No new best": (
-        "Rising · Within noise · Plateau · Flat · Too early · No new best",
-        "improvement of the best observed value against replicate noise",
-        "The rise of Best so far in the latest Round, against the rise needed: the best of "
-        "that Round's new results must beat tasting noise by it."),
-}
-GLOSSARY_STOP_ROW = (
-    "Within noise of the top score · Stop, or change the target",
-    "stopping rule at the attainable maximum",
-    "Best so far is closer to the top score than one new result must rise to be told from "
-    "it, so the Overall score cannot show a better one.")
-
-
-def glossary_rows(settings_only=False):
-    """The glossary, in its canonical order, for the project's form."""
-    rows = GLOSSARY_ROWS_SETTINGS if settings_only else GLOSSARY_ROWS
-    out = []
-    for row in rows:
-        if row[0] in _GLOSSARY_GONE:
-            continue
-        out.append(_GLOSSARY_NEW.get(row[0], row))
-        if row[0].startswith("Rising"):
-            out.append(GLOSSARY_STOP_ROW)
-    return tuple(out)
-
-
-HOW_THRESHOLDS = (f"Wide: the median half-width of the 95 % intervals is over 25 % of the "
-                  f"measurement's Range (0–100 for the Overall score). On {TAB_BATCH_NAME}, a "
-                  "predicted measurement reads “—” when its 95 % range covers more than 75 % "
-                  "of the Range.")
 # START_NEXT_BATCH and GENERATE_DIFFERENT_BATCH stay as the owner froze
 # them ("Start the next round"; tests/test_080_wording).
 ENTERED_ROUND_CAPTION = (
@@ -10880,17 +9827,6 @@ def track_measured_counted(misses, total, allowed):
 # learned_count_needed: see the sceptic review section, below.
 
 
-def learned_too_few(needed):
-    """The ordering chart's label beside a count under `needed` pairs."""
-    return f"under {needed} pairs"
-
-
-def learned_full_chance(rounds):
-    """The ordering chart's second label line when chance reaches 100 %:
-    '(chance up to 100 %: 3 Rounds)'."""
-    return f"chance up to 100 %: {rounds} {ROUND_CAP}{'s' if rounds != 1 else ''}"
-
-
 def model_plain_counted(predictable, partly, not_yet, counts):
     """model_plain's opening sentence with each named result's pairs:
     '…the model leans right on the order of Tangy (5 of 5 pairs), not yet
@@ -10956,11 +9892,6 @@ def tie_line_needed(old_no, lead_text, need_text):
     return f"{FORMULATION_CAP} {old_no} is within noise: {lead_text} lower; {need_text} needed."
 
 
-def cramped_counted(names, share_text):
-    """'Under 5 % room to move: Tap water.'"""
-    return f"Under {share_text} room to move: {', '.join(names)}."
-
-
 # The Model "?"'s evidence line when its opening sentence already gave
 # every result's pairs.
 LEARNED_EVIDENCE_ABOVE = "Evidence: pairs ordered right from earlier Rounds, as given above."
@@ -10991,12 +9922,6 @@ def learning_round_counted(top_text, best_text):
     """'Predicted at most 98.3, best 98.3: tests untried amounts.' (every
     suggestion at or under Best so far, to the tenth)."""
     return f"Predicted at most {top_text}, best {best_text}: tests untried amounts."
-
-
-def not_yet_counted(names, counts):
-    """'Not yet: Consistency (3 of 9 called, 3 right), Creaminess (5 of 9
-    called, 1 right).'"""
-    return "Not yet: " + ", ".join(named_pairs_short(n, counts.get(n)) for n in names) + "."
 
 
 # --- final demo ---
@@ -11043,23 +9968,6 @@ def tip_threshold_assumed(sd_text="1"):
         return TIP_THRESHOLD_ASSUMED
     return (f"{points_text(sd_text)}, your tasting noise: the Repeats give fewer than 3 "
             "degrees of freedom (3 df)")
-
-
-def check_noise(cells, assumed=True, k=None, sd_text="1"):
-    """The noise each order claim had to reach, in the "?": 'Tasting noise
-    assumed: Overall score 2.0; Consistency 0.6. 0.6: 2 score points in
-    Consistency's units, split over 4 measurements.'"""
-    if not cells:
-        return ""
-    listed = "; ".join(f"{n} {v}" for n, v in cells)
-    if not assumed:
-        return f"Tasting noise from your Repeats: {listed}."
-    share = ""
-    if k and len(cells) > 1:
-        name, value = cells[1]
-        unit = "score point" if sd_text in ("1", "1.0") else "score points"
-        share = f" {value}: {sd_text} {unit} in {name}'s units, split over {k} measurements."
-    return f"Tasting noise assumed: {listed}.{share} {REPEAT_CONFIRMS}"
 
 
 # A1 · the Round panel's best, as of the Round on view.
@@ -11137,10 +10045,12 @@ def learned_count_needed(label, right, pairs, needed, total=None):
 def pairs_called_help(label, right, called, total, close, ties, p_text, adj_text=None,
                       tested=1):
     """The Forecast check's "?" on the pairs: 'Overall score: 5 of 12 pairs
-    called (6 too close, 1 tie); 5 right. Chance by luck: 3 in 100; 15 in
-    100 adjusted for checking 5 results.'"""
+    called (6 too close, 1 measured equal); 5 right. Chance by luck: 3 in
+    100; 15 in 100 adjusted for checking 5 results.' (One-glance Review fix
+    round 2: "measured equal", the glossary's and the Details' term, not
+    "tie".)"""
     why = [f"{close} too close"] if close else []
-    why += [f"{ties} tie{'s' if ties != 1 else ''}"] if ties else []
+    why += [f"{ties} measured equal"] if ties else []
     out = (f"{label}: {called} of {total} pairs called"
            + (f" ({', '.join(why)})" if why else "") + f"; {right} right.")
     if called:
@@ -11149,15 +10059,6 @@ def pairs_called_help(label, right, called, total, close, ties, p_text, adj_text
             out += f"; {adj_text} adjusted for checking {tested} results"
         out += "."
     return out
-
-
-def near_edge(items):
-    """'Close to the range edge: F18 in by 0.07.'"""
-    return "Close to the range edge: " + ", ".join(items) + "."
-
-
-def near_edge_item(no, margin_text):
-    return f"F{no} in by {margin_text}"
 
 
 # A4 · the stop's "?": one tasting regresses to the mean; the noise it
@@ -11373,48 +10274,6 @@ def on_target_help(on, n, within, half_text, targets=True, beyond=(), inside=())
     return out
 
 
-# The Forecast check: its count and its reference, never 'as forecast'.
-def check_head(round_no, above, below, subject=None, total=None, none=0):
-    """'**Round 6: scored higher than forecast.**'; every one inside:
-    '**Round 10: all 3 inside their 95 % range.**' ('both inside' for two;
-    a measurement as the subject: '**Round 6: Consistency, all 3 inside
-    their 95 % range.**'); every range over the whole Range (`none` of
-    them): '**Round 6: Consistency, 3 values with no forecast range.**'."""
-    if total == 0:
-        who = f"{subject or OVERALL_SCORE_COLUMN}, "
-        many = f"{none} values" if none != 1 else "1 value"
-        return f"**{ROUND_CAP} {round_no}: {who}{many} with no forecast range.**"
-    landing = check_landing(above, below)
-    if landing == "inside":
-        n = total if total is not None else 0
-        what = ("inside its 95 % range" if n == 1 else
-                "both inside their 95 % range" if n == 2 else
-                f"all {n} inside their 95 % range" if n else "inside their 95 % range")
-        if subject is not None:
-            what = f"{subject}, {what}"
-        return f"**{ROUND_CAP} {round_no}: {what}.**"
-    verb = "scored" if subject is None else f"{subject} measured"
-    what = {"higher": f"{verb} higher than forecast", "lower": f"{verb} lower than forecast",
-            "both": f"{verb} outside forecast, both ways"}[landing]
-    return f"**{ROUND_CAP} {round_no}: {what}.**"
-
-
-def check_line(round_no, inside, above, below, order_text="", subject=None, none=0):
-    """The Forecast check's headline: '**Round 6: scored higher than
-    forecast.** 2 of 3 above their range; order too close to call.'; every
-    one inside, the count is in the head: '**Round 10: all 3 inside their
-    95 % range.** Order right: 1 pair, 1 too close, 1 tie.' With no range
-    left (`none` values with no forecast) the order is not said beside it."""
-    total = inside + above + below
-    if total == 0:
-        return check_head(round_no, above, below, subject, total=0, none=none)
-    rng = "" if (not above and not below) else check_range(inside, above, below)
-    # Fix round 3: some (not all) with no forecast range, named.
-    # Fix round 4: with its noun, '1 value with no forecast'.
-    left = f"{_values(none)} with no forecast" if none else ""
-    tail = "; ".join(t for t in (rng, left, order_text) if t)
-    head = check_head(round_no, above, below, subject, total=total)
-    return f"{head} {tail[:1].upper()}{tail[1:]}." if tail else head
 
 
 # A 95 % range over the measurement's whole Range forecasts nothing.
@@ -11499,11 +10358,6 @@ def tip_coverage_early(names, rounds, n, left=0):
 
 
 STORY_NO_FORECAST = "Before the first forecast"
-HOW_FORECAST_WORDS = (f"{NO_FORECAST_DEFINED} Before the first forecast: {FORMULATION}s made "
-                      f"until 5 {FORMULATION}s had results, with nothing earlier to forecast "
-                      "them from.")
-
-
 # Fix round 1 (controller): "Rebuilt today" could be false (checks kept
 # from an earlier day); the label is as before and the "?" says exactly
 # what the forecasts are, true for any project.
@@ -11539,10 +10393,6 @@ def results_predicted_help(round_no, no_forecast=False, sample=False):
 
 REBUILT_LABEL = "Rebuilt from earlier Rounds"
 RESULTS_PREDICTED_CAPTION = "Rebuilt from earlier Rounds: what the model expected."
-CALLED_RULE = CALLED_RULE.replace(
-    "Rebuilt today from the", "Calculated from the", 1)
-
-
 # A verdict's pairs: how many were called, of all the pairs there are.
 CALLED_MEANS = ("Called: forecasts at least one tasting noise apart and measured values "
                 "unequal; counted of all pairs.")
@@ -11638,7 +10488,7 @@ def learned_verdicts_help(n):
     out = (f"A pair is two formulations of one {ROUND_CAP}; it is ordered right when its "
            f"forecasts, from earlier {ROUND_CAP}s only, put it in the measured order. "
            f"{CALLED_MEANS} Predicts: ordered right clearly more often than chance. Partly: "
-           f"right more than half the time, not yet clearly. Not yet: no better than chance "
+           f"right over half the time, not yet clearly. Not yet: no better than chance "
            f"so far, too few pairs, or the result barely varies.")
     if n > 1:
         out += (f" Adjusted for checking {n} results at once, so one that passes by luck "
@@ -11668,6 +10518,155 @@ CEILING_SETUP_HELP = ceiling_setup_help()
 CEILING_MEASURE = ("A single new result can't be told apart from this best in the Overall "
                    "score; a single measurement still can (On target says which are beyond "
                    "their noise).")
-# Fix round 3: the ordering chart's axis says what its bar is (its labels
-# say "x of N called, y right": the base is the called pairs, not all).
-LEARNED_CHART_X = "Of pairs called, % right"
+
+
+# One-glance Review (owner, 2026-10-14; spec 2026-10-13 §10): the Forecast
+# check's details say each result's pairs in one plain sentence (the
+# ordering chart against chance is gone), then the one chart, the Overall
+# score's forecast 95 % range against the score measured, Round by Round.
+LEARNED_DETAILS_TITLE = "Details"
+
+
+def _pairs_text(n):
+    return f"{n} pair" if n == 1 else f"{n} pairs"
+
+
+def pairs_sentence(label, right, called, close=0, ties=0):
+    """'Overall score: of 12 pairs, 5 called, all 5 right; 6 too close, 1
+    measured equal.' — one result's within-Round pairs: `called`, forecast
+    far enough apart to call (`right` of them called right); `close`, too
+    close to call; `ties`, measured equal (never called). Every pair is
+    one of the three. 'all' only when every called pair was right."""
+    total = called + close + ties
+    if not called:
+        said = "none called"
+    elif called == 1:
+        said = "1 called, right" if right else "1 called, wrong"
+    elif right == called:
+        said = f"{called} called, {'both' if called == 2 else f'all {called}'} right"
+    elif not right:
+        said = f"{called} called, none right"
+    else:
+        said = f"{called} called, {right} right"
+    rest = ", ".join(t for t in (f"{close} too close" if close else "",
+                                 f"{ties} measured equal" if ties else "") if t)
+    head = f"{label}: of {_pairs_text(total)}, {said}"
+    return f"{head}; {rest}." if rest else f"{head}."
+
+
+# The Forecast check's Round line (one-glance Review, fix round 1: back as
+# the section's one visible line; fix round 2: the landing fact alone, at
+# most ~10 words; the order of the pairs is in its "?").
+def check_misses(above, below):
+    """'2 misses, both higher than forecast'; '1 miss, lower than
+    forecast'; '2 misses: 1 higher, 1 lower'."""
+    n = above + below
+    word = "miss" if n == 1 else "misses"
+    if above and below:
+        return f"{n} {word}: {above} higher, {below} lower"
+    side = "higher" if above else "lower"
+    lead = "" if n == 1 else ("both " if n == 2 else "all ")
+    return f"{n} {word}, {lead}{side} than forecast"
+
+
+def called_range(inside, above, below):
+    """The Overall score's landing: '1 of 3 in range; 2 misses, both higher
+    than forecast.' Outside the range is a miss, above or below (persona
+    fixes 2)."""
+    total = inside + above + below
+    out = f"{inside} of {total} in range"
+    if above or below:
+        out += f"; {check_misses(above, below)}"
+    return out + "."
+
+
+def round_landing(round_no, label, inside, above, below):
+    """The Round line's "?" opens on its landing: 'Round 6, Overall score:
+    1 of 3 in range; 2 misses, both higher than forecast.'"""
+    return f"{ROUND_CAP} {round_no}, {label}: {called_range(inside, above, below)}"
+
+
+def round_order(round_no, label, right, called, close=0, ties=0):
+    """The Round's own pairs, in the Round line's "?" (fix round 2: moved
+    off the line), in the Details' words: 'Round 6 order, Overall score: of
+    3 pairs, 1 called, right; 1 too close, 1 measured equal.'"""
+    return f"{ROUND_CAP} {round_no} order, {pairs_sentence(label, right, called, close, ties)}"
+
+
+def so_far_pairs(text):
+    """'Every Round so far, Overall score: 5 of 12 pairs called …' — the
+    pairs over all Rounds checked, told apart from the Round's own."""
+    return f"Every {ROUND_CAP} so far, {text}"
+
+
+def landing_counts(inside, above, below):
+    """Where a Round's values landed, each against its own forecast range:
+    'all 3 inside their forecast range'; 'both above …'; 'above its
+    forecast range' (one value); '2 of 3 above their forecast range' (the
+    rest inside); with misses both ways, each named: '2 above, 1 below
+    their forecast range', and with all three sides '1 inside, 1 above, 1
+    below forecast range' (no "their", so the line keeps to 10 words)."""
+    total = inside + above + below
+    sides = [(n, w) for n, w in ((inside, "inside"), (above, "above"), (below, "below")) if n]
+    if len(sides) == 1:
+        word = sides[0][1]
+        if total == 1:
+            return f"{word} its forecast range"
+        return f"{'both' if total == 2 else f'all {total}'} {word} their forecast range"
+    out = [(n, w) for n, w in sides if w != "inside"]
+    if len(out) == 1:
+        n, w = out[0]
+        return f"{n} of {total} {w} {'its' if n == 1 else 'their'} forecast range"
+    # All three sides: no "their", so the line keeps to 10 words.
+    return ", ".join(f"{n} {w}" for n, w in sides) + (
+        " forecast range" if len(sides) == 3 else " their forecast range")
+
+
+def check_line(round_no, inside, above, below, subject=None, none=0):
+    """The Forecast check's Round line, the landing fact alone (fix round 2,
+    status at most ~10 words): '**Round 6: 2 of 3 above their forecast
+    range.**'; '**Round 10: all 3 inside their forecast range.**'; a
+    measurement leading: '**Round 6: Consistency, both inside their
+    forecast range.**'; values with no forecast named after the count
+    ('; 1 no forecast'), or alone when none has a range: '**Round 6:
+    Creaminess, 3 values with no forecast range.**'."""
+    if inside + above + below == 0:
+        who = f"{subject or OVERALL_SCORE_COLUMN}, "
+        return f"**{ROUND_CAP} {round_no}: {who}{_values(none)} with no forecast range.**"
+    who = f"{subject}, " if subject else ""
+    tail = f"; {none} no forecast" if none else ""
+    return f"**{ROUND_CAP} {round_no}: {who}{landing_counts(inside, above, below)}{tail}.**"
+
+
+# Method and definitions, one line each (owner, 2026-10-14): the rest of the
+# method is in the README, "How the Review works". Fix round 1: each line
+# true to the rule the app applies (learned.judge and holm; the coverage
+# ruling above, SIMULATED_COVERAGE; learned.round_call and pair_noise).
+METHOD_DEFINITIONS = (
+    f"**{OVERALL_SCORE_COLUMN}**: 0 to 100, how close the measurements come to your targets, "
+    "each counted by its Share of score.",
+    "**95 % range**: the model's range for one new result, aimed at 95 in 100; on simulated "
+    f"projects it caught about {SIMULATED_COVERAGE['measurements']} in 100 "
+    f"({SIMULATED_COVERAGE['score']} for {OVERALL_SCORE_COLUMN}s).",
+    f"**Tasting noise**: how far one {FORMULATION}'s {OVERALL_SCORE_COLUMN} moves when tasted "
+    "again, in points; from Repeats, else assumed.",
+    "**Stop**: Best so far is closer to the top score than a new result must rise to be told "
+    "apart.",
+    "**Called · too close**: forecasts at least that result's noise apart "
+    f"({OVERALL_SCORE_COLUMN}: points; a measurement: its own units) are called; closer pairs "
+    "are too close; measured-equal pairs never are.",
+    "**No forecast**: a 95 % range covering the whole possible Range; counted neither in nor "
+    "out.",
+    "**Predicts · Partly · Not yet**: with 5+ pairs called, Predicts if ordered right beyond "
+    "chance (p < 0.05, adjusted), Partly if over half right with weaker evidence (p < 0.20); "
+    "else Not yet, also when over half the pairs were measured equal.",
+)
+REVIEW_README_URL = "https://github.com/thomasat/food_opt#how-the-review-works"
+# Fix round 1: a link (the README is not in the app bundle).
+METHOD_README = f"Full method: [README, “How the Review works”]({REVIEW_README_URL})."
+METHOD_LINK_HELP = (f"Opens Method and definitions: {len(METHOD_DEFINITIONS)} terms, one line "
+                    "each, and the README link.")
+# The evidence lines' pointer to the method: Method and definitions is one
+# line per term now, so the full method's place (it read "Kernel, priors and
+# every check: How the app knows, top right.").
+EV_METHOD = METHOD_README

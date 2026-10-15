@@ -171,21 +171,18 @@ def test_make_a_round_misses_line_above_generate():
 
 
 def test_the_remaining_lines_carry_their_numbers():
+    """Re-pinned (one-glance Review, fix round 1) without the removed
+    not_yet_counted line."""
     lines = {
         "stop": wording.answer_line(wording.ceiling_head("1.7", "2.3"), wording.CEILING_TAIL),
         "close": wording.no_gain_head("0.2", "1.0"),
         "preview": wording.learning_round_counted("98.3", "98.3"),
-        "not_yet": wording.not_yet_counted(
-            ["Consistency", "Creaminess", "Thickness uniformity"],
-            {"Consistency": (3, 3), "Creaminess": (1, 5), "Thickness uniformity": (2, 5)}),
     }
     assert lines["stop"] == ("**Within noise of the top: 1.7 below, 2.3 needed.** Stop, or "
                              "change the target.")
     assert lines["close"] == "Largest expected gain 0.2, under the 1.0 noise threshold."
     assert lines["preview"] == "Predicted at most 98.3, best 98.3: tests untried amounts."
-    assert lines["not_yet"] == ("Not yet: Consistency (3/3), Creaminess (1/5), Thickness "
-                                "uniformity (2/5).")
-    limits = {"stop": 14, "close": 10, "preview": 10, "not_yet": 10}
+    limits = {"stop": 14, "close": 10, "preview": 10}
     for k, text in lines.items():
         assert _words(text) <= limits[k], text
         _clean(text)
@@ -281,12 +278,6 @@ def test_the_model_question_mark_opens_with_the_pairs():
     assert "Partly: Overall score (7/9), Tangy (11/14)." in both
 
 
-def test_the_ordering_chart_labels_count():
-    assert wording.learned_too_few(learned.MIN_PAIRS) == "under 5 pairs"
-    assert wording.learned_full_chance(3) == "chance up to 100 %: 3 Rounds"
-    assert wording.learned_full_chance(1) == "chance up to 100 %: 1 Round"
-
-
 def test_no_result_predictable_says_the_closest(monkeypatch):
     monkeypatch.setattr(U, "_say", lambda opt, text: text)
     ords = {insights.SCORE: learned.Ordering(insights.SCORE, right=4, pairs=4, verdict=N),
@@ -328,7 +319,6 @@ def test_the_tie_line_says_what_a_rise_needs():
     line = wording.tie_line_needed(13, "1.67", "2.3")
     assert line == "Formulation 13 is within noise: 1.67 lower; 2.3 needed."
     assert _words(line) <= 10
-    assert wording.cramped_counted(["Tap water"], "5 %") == "Under 5 % room to move: Tap water."
 
 
 def test_the_tie_line_folds_the_need_in_and_never_reads_equal():

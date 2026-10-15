@@ -273,23 +273,6 @@ _MAIN_AT_1280 = 980
 _NAME_COLUMN = 200
 
 
-def test_method_and_details_fits_at_1280_px():
-    """W1 did D2's Method part (narrow columns, the long text in each
-    column's help): pinned here so Error ÷ Repeat noise and Skill stay in
-    view."""
-    opt = E.load(E.BAR_CLEAN)
-    checks = insights.check_rounds(opt)
-    computed = {"checks": checks, "fitted": insights.fit_all(opt)}
-    frame, config = ui_insights.details_frame(opt, computed)
-    cols = list(frame.columns)
-    assert wording.DETAILS_COLUMNS_2[6] in cols and wording.SKILL_COLUMN in cols
-    assert set(config) == set(cols) - {wording.DETAILS_COLUMNS_2[0]}, "a width for each"
-    assert all(config[c]["help"] for c in config)
-    used = _NAME_COLUMN + sum(_WIDTHS.get(config[c]["width"], config[c]["width"])
-                              for c in cols[1:])
-    assert used <= _MAIN_AT_1280
-
-
 # ------------------------------------------------------------------ #
 #  T0′: the interval chart's caption, and the progress line after Save
 # ------------------------------------------------------------------ #

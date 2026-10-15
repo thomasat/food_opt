@@ -30,24 +30,19 @@ def _changed_lines():
         W.SUGGESTION_CLOSE, W.SUGGESTION_BALANCED, W.SUGGESTION_DIFFERENT,
         W.compared_with_cell(W.SUGGESTION_DIFFERENT, "Water +12.00 g"), W.HOW_IT_WORKS[-1],
         W.how_models(), W.how_models("matern52"), W.how_models("rbf", "fixed_tiny"),
-        W.how_models("linear", "low"), W.HOW_MODELS, W.how_verdict(), W.how_verdict(36, 4),
-        W.how_verdict(12, 1), W.HOW_NOISE_THRESHOLD, W.how_checks(), W.how_checks(values=True),
+        W.how_models("linear", "low"), W.HOW_MODELS, W.how_checks(), W.how_checks(values=True),
         W.how_checks(total=False), W.beat_by(), W.beat_by("1.3"), W.beat_by(assumed=True),
-        W.beat_by(assumed=True, pairs=1), W.beat_by(assumed=True, pairs=2), W.HOW_BIAS,
-        W.score_gap_line(30, 32, -4.3, rounds=[2, 3, 4, 5, 6, 7]),
+        W.beat_by(assumed=True, pairs=1), W.beat_by(assumed=True, pairs=2), W.score_gap_line(30, 32, -4.3, rounds=[2, 3, 4, 5, 6, 7]),
         W.score_gap_line(11, 11, 0.0, rounds=[3]), W.repeat_disagrees(21, 11, "10.5",
                                                                      half_text="7.4"),
         W.repeat_disagrees(20, 14, "1.6", lower=False), W.stand_repeats("9.6", 8, 5, 3),
         W.stand_repeats("2.7", 1, 1, 1), W.stand_repeats("1.3", 4), W.CHECK_IF_CHANGED,
         W.next_bias("4.1"), W.next_bias("3.3", below=False, rounds=[3, 4, 5, 6]),
         W.next_misses([5, 6, 7]), W.next_misses([5, 6, 7], W.next_bias("4.1", rounds=[3, 7])),
-        W.NEXT_MISSES, W.how_skill(), W.how_skill("−0.25", settings_only=True),
-        W.why_guard_line(["x"]), W.why_guard_line(skill_only=True),
+        W.NEXT_MISSES, W.why_guard_line(["x"]), W.why_guard_line(skill_only=True),
         W.why_guard_line(verdict=True), W.WHY_CHECKING, W.ROLE_REFINES, W.ROLE_BALANCED,
         W.ROLE_EXPLORES, W.EXPECTED_IMPROVEMENT_HELP, W.EXPECTED_IMPROVEMENT_EI_HELP,
-        W.WHY_PENDING, W.why_role_rule(), W.why_role_rule(values=True),
-        W.why_role_rule(total=False), W.HOW_EXPECTED_IMPROVEMENT,
-        W.gain_line("2.66", None, W.beat_by()),
+        W.WHY_PENDING, W.gain_line("2.66", None, W.beat_by()),
         W.gain_line("0.30", 6, W.beat_by(assumed=True), measured_text="91.69"),
         W.gain_line("1.08", 13, W.beat_by(), above=True, predicted_none=True),
         W.gain_line("0.12", 5, W.beat_by("1.3"), recomputed=True), W.LAYER_GAIN,
@@ -66,14 +61,10 @@ def _new_lines():
         W.steady_bias_line(low=[W.bias_item("Liking", "3.2")], rounds=[3, 4, 5]),
         W.steady_bias_line([W.bias_item("Overall score", "4.3")],
                            [W.bias_item("Juiciness", "0.4", "")], [3, 4]),
-        W.HOW_BIAS_DIRECTION, W.HOW_CHANGE_LIMIT, W.MEAN_ERROR_COLUMN, W.FITTED_NOISE_COLUMN,
-        W.mean_error_cell("−4.3"), W.mean_error_cell("−4.3", bias=True), W.fitted_noise_cell(),
-        W.fitted_noise_cell("1.15"), W.HOW_FITTED_NOISE, *W.DETAILS_HELP.values(),
         W.effects_wait_line(6), W.effects_wait_line(1, settings_only=True),
         W.effects_unclear_line("0.09", 24), W.effects_unclear_line("0.12", 12, True),
         W.gain_unreliable(W.gain_reason_too_few(6)),
-        W.gain_unreliable(W.gain_reason_unclear("0.09", 24)), W.path_guard_unclear("0.09", 24),
-        W.path_guard_wait(6), W.NEXT_REPEAT_TO_MEASURE, W.repeat_score("67.30"),
+        W.gain_unreliable(W.gain_reason_unclear("0.09", 24)), W.NEXT_REPEAT_TO_MEASURE, W.repeat_score("67.30"),
         W.repeat_score("75.61", disagrees=True),
         W.best_repeats_line(14, ["67.30", "66.34", "75.61"], "75.17"),
         W.best_repeats_line(14, ["67.30", W.repeat_score("75.61", True)], "78.12"),
@@ -132,11 +123,10 @@ def test_trial_only_through_for_project(group):
 
 def test_the_settings_only_forms_name_no_ingredient():
     """A line that names ingredients has a form for process settings alone."""
-    for text in (W.why_role_rule(values=True), W.effects_wait_line(6, settings_only=True),
+    for text in (W.effects_wait_line(6, settings_only=True),
                  W.effects_unclear_line("0.09", 24, settings_only=True),
-                 W.how_skill(settings_only=True), W.how_checks(values=True, total=False)):
+                 W.how_checks(values=True, total=False)):
         assert "ingredient" not in text.lower(), text
-    assert "Amounts" not in W.why_role_rule(values=True)
 
 
 def test_process_only_round_heading_says_trials():
@@ -171,106 +161,9 @@ def test_no_line_advises_a_check_without_repeat_evidence():
     """Review B1, I1: only a disagreeing Repeat advises a check, and
     conditionally."""
     for text in (W.next_bias("4.1"), W.next_misses([5, 6, 7], W.next_bias("4.1")),
-                 W.steady_bias_line([W.bias_item("Overall score", "4.3")]), W.HOW_BIAS):
+                 W.steady_bias_line([W.bias_item("Overall score", "4.3")])):
         assert "Check" not in text and "check it" not in text, text
     assert W.repeat_disagrees(21, 11, "10.5").endswith(W.CHECK_IF_CHANGED)
     assert W.CHECK_IF_CHANGED.startswith("If something changed")
 
 
-def test_exact_texts_from_the_rulings():
-    """The spec-review rulings' own texts, adopted verbatim where the 03
-    style allows (see the stage-1 report for the three that differ)."""
-    # B1: one line naming every biased output.
-    assert W.steady_bias_line([W.bias_item("Overall score", "4.3"),
-                               W.bias_item("Firmness", "3", "N")], rounds=[3, 4, 5, 6, 7]) == (
-        "Results have come in below the predictions: Overall score by about 4.3 points, "
-        "Firmness by about 3 N (Rounds 3–7).")
-    assert W.CHECK_IF_CHANGED == ("If something changed (panel, supplier, equipment), check it "
-                                  "before relying on the next suggestions.")
-    assert W.HOW_CHANGE_LIMIT == (
-        "A change at the bench is learned from its first Round on, so later Round-ahead checks "
-        "cannot show it; a Repeat of an earlier formulation in each Round would.")
-    assert W.HOW_BIAS_DIRECTION == (
-        "Suggestions sit where the model predicts high or is unsure, so results can come in "
-        "below prediction (its optimism at its own maximum) or above it (its mean shrinks "
-        "toward the average where it has seen little).")
-    # B2: the assumed threshold, and the Repeat sentence (the new 02 R3 pin).
-    assert W.stand_yes("6.3", W.beat_by(assumed=True)) == (
-        "Rising: up 6.3 points in the last Round, above the 1-point noise threshold (assumed: "
-        "no Repeats yet; a Repeat of Best so far would measure it).")
-    assert W.NEXT_REPEAT_TO_MEASURE == (
-        "Make a Repeat of Best so far in the next Round to measure the noise.")
-    # I2: the unreliable row, with the bias appended.
-    assert W.next_misses([5, 6, 7], W.next_bias("4.1")) == (
-        "Measured values in Rounds 5–7 fell outside their 95 % interval more often than 95 % "
-        "intervals allow: the intervals are too narrow here, so new predictions carry more "
-        "error than their intervals show. Overall scores have come in about 4.1 points below "
-        "the predictions.")
-    # I4: effect claims withheld below n = 10 and below skill 0.20.
-    assert W.effects_wait_line(6) == (
-        "Ingredient effects are reported once Round-ahead checks show the Overall score's "
-        "predictions clearly better than the average (skill 0.20 over 10 checked "
-        "formulations; 6 so far).")
-    assert W.effects_unclear_line("0.09", 24) == (
-        "Ingredient effects are reported once Round-ahead predictions are clearly better than "
-        "the average of earlier results (skill 0.09, n = 24; 0.20 needed).")
-    # I6: the expected-improvement sentence, {ref} both ways.
-    assert W.gain_line("2.66", None, W.beat_by()) == (
-        "Expected gain, next Round: 2.66 points (model, one formulation): the model's "
-        "average gain of one new formulation over the highest the model draws for the tested "
-        "formulations (approximate), "
-        "counting no gain as zero; under the 1-point noise threshold.")
-    assert "over Best so far's measured 91.69, counting no gain as zero" in W.gain_line(
-        "2.66", None, W.beat_by(), measured_text="91.69")
-    for text in (W.gain_line("2.66", 6, W.beat_by()), W.HOW_EXPECTED_IMPROVEMENT,
-                 W.EXPECTED_IMPROVEMENT_HELP):
-        assert "beats" not in text and "best single" not in text, text
-    assert (W.LAYER_GAIN, W.LAYER_GAIN_LEGEND) == ("Expected gain",
-                                                   "Expected gain (points)")
-    # I7: the Repeats line, two decimals.
-    assert W.best_repeats_line(14, ["67.30", "66.34", "75.61"], "75.17") == (
-        "Repeats of Formulation 14: 67.30, 66.34, 75.61. Mean of all: 75.17.")
-    assert W.best_repeats_line(14, ["67.30", W.repeat_score("75.61", True)], "78.12") == (
-        "Repeats of Formulation 14: 67.30, 75.61 (disagrees). Mean of all: 78.12.")
-    # I8: the Set up callout.
-    assert W.setup_callout("Textured pea protein", "30 g") == (
-        "Textured pea protein: Highest 30 g. Next step suggests raising it; change the Highest "
-        "cell in its row below.")
-    # I9: the import refuses by row; the caption before a batch size exists.
-    assert W.import_limits_not_numbers("Date paste") == (
-        "Date paste: Lowest and Highest must be numbers.")
-    assert W.rest_needs_batch_size("Date paste") == (
-        "Date paste fills the remaining amount of the formulation. Set a default batch size in "
-        "Preparation and records to calculate its amounts.")
-    # I10: the restore warning.
-    assert W.open_round_lost(6, 4, 2) == (
-        "Round 6 is open with 4 formulations and 2 results typed; they will be lost.")
-    assert W.open_saved_copy_warning("P", ["24 formulations"], "P", "28 formulations",
-                                     W.open_round_lost(7, 4)).endswith(
-        "which has 28 formulations? Round 7 is open with 4 formulations; they will be lost. "
-        + W.COPY_KEPT)
-    # I13: the triangle legend, the Method clause, the df.
-    assert W.LAYER_SCORE_LEGEND == "Predicted Overall score (model mean)"
-    assert "today's measurements, targets, Share of score and model settings" in (
-        W.how_checks())
-    assert W.stand_repeats("9.6", 8, df=5, groups=3) == (
-        "Repeat SD of the Overall score: 9.6 points, 5 df (8 results of 3 formulations); this "
-        "is the noise threshold.")
-    # M10 / D4: the skill paragraph states its cut and its cost plainly.
-    skill = W.how_skill()
-    # Fix round B (statistician I4): the rates as a simulation's, with n;
-    # ftue fix A re-measured them (I9 folds): 4.1 % and 12.5 % at n = 10.
-    assert ("The cut is −0.20. In 24 simulated projects whose model's errors matched its own "
-            "stated uncertainty (true skill 0.20 or more), the skill read “no better than the "
-            "average” in 4.1 % of windows of 10 checks (n = 10), and below 0.20 in "
-            "12.5 %") in skill
-    assert "percentile" not in skill
-    # M11 / D5: the verdict example from allowed_misses(n); the kernel named.
-    assert "(for 36 values, up to 4 misses)" in W.how_verdict(36, 4)
-    assert "kernel from your model settings: Matérn 5/2" in W.how_models("matern52")
-    assert "default kernel: squared exponential" in W.HOW_MODELS
-    # I3: the role rule's two cuts.
-    rule = W.why_role_rule()
-    assert "Refines the best: within 15 % of Best so far" in rule
-    assert "Explores: more than 30 % from every formulation recorded before its Round" in rule
-    assert "Balanced: in between." in rule

@@ -244,9 +244,8 @@ def test_no_why_link_with_no_round_open(opt, links):
 @pytest.mark.skip(reason="review cards prototype: pins the old Review layout (status lines, Explored fold, header); reconcile at the final merge")
 def test_the_explored_link_is_for_explore_and_untested(opt, links, kind, drawn):
     facts = _next(opt, kind)
-    assert ui_insights.explored_link(opt, facts.next) is drawn
     if drawn:
-        assert links == [(wording.explored_link(), wording.TAB_INSIGHTS,
+        assert links == [(wording.TAB_INSIGHTS,
                           ui_insights.EXPLORED_PLACE, ui_insights.EXPLORED_KEY)]
 
 
@@ -274,7 +273,6 @@ def test_the_explored_link_never_joins_a_why_link(opt, monkeypatch):
     (priority 3)."""
     import contextlib
     asked = []
-    monkeypatch.setattr(ui_insights, "explored_link", lambda opt, step: asked.append(1))
     for name in ("_status_lines", "_question", "_basis", "_setup_button"):
         monkeypatch.setattr(ui_insights, name, lambda *a, **k: None)
     monkeypatch.setattr(ui_insights, "_figures", lambda *a, **k: contextlib.nullcontext())

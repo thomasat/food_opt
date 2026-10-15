@@ -28,9 +28,6 @@ _SIGNATURES = [
     (insights, "model_summary", ["opt"]),
     (insights, "status_rules", ["opt", "checks"]),
     (ui_insights, "tooltip_for", ["opt", "line_id", "facts"]),
-    (ui_insights, "_model_and_method", ["opt", "computed"]),
-    (ui_insights, "_status_table", ["opt", "computed"]),
-    (ui_insights, "_glossary", ["opt"]),
     # W3: explored and unexplored.
     (insights, "tested_strips", ["opt", "pool"]),
     (insights, "strip_gaps", ["opt", "strips", "k"]),

@@ -103,30 +103,8 @@ def _tooltip_lines():
             W.tip_next("Close", W.status_rule_rows()[-3][2])]
 
 
-def _method_lines():
-    out = [W.MODEL_AND_METHOD, W.MODEL_LIMITS_HEADING, *W.MODEL_LIMITS, W.STATUS_TABLE,
-           *W.STATUS_TABLE_COLUMNS, W.GLOSSARY, *W.GLOSSARY_COLUMNS]
-    for facts in (_facts(), _facts(cold=True), _facts(values=True, total=False, robust=True),
-                  _facts(recommended=False, kernel="matern52", outputscale=True,
-                         outputscale_prior="Gamma(2.0, 0.15)", acquisition="qucb", beta=0.2,
-                         noise="fixed", q=None),
-                  _facts(total=False, acquisition="qlogei")):
-        out += W.model_summary(facts)
-    for settings in (False, True):
-        out += [cell for row in W.status_rule_rows(settings_only=settings) for cell in row]
-    return out
-
-
 def _explored_lines():
     return [W.STRIPS_TITLE, W.strips_caption(), W.strips_caption(True),
-            W.strip_gaps_line([W.gap_above("Coconut oil", "8.1 g"),
-                               W.gap_below("Salt", "0.6 g")]),
-            W.strip_gaps_line([W.gap_between("Salt", "0.6", "1.0 g")]),
-            W.option_never_tested("Oil type", "Sunflower"), W.strips_no_gap(),
-            W.strips_no_gap(True),
-            W.limit_hit_line(3, 4, 6, W.limit_highest("Textured pea protein")),
-            W.limit_hit_line(2, 2, 6, W.limit_lowest("Salt")),
-            W.limit_hit_line(4, 4, 6, W.limit_named("Fat per 100 g: at most 10 g")),
             W.STRIP_TESTED, W.STRIP_WAITING, W.STRIP_SUGGESTED, W.STRIP_REACHABLE,
             W.STRIP_LATEST, W.STRIP_COUNT, W.strip_value_title(), W.strip_value_title(True),
             W.tip_strips(), W.tip_strips(values=True), W.tip_strips(total=False),
@@ -134,12 +112,12 @@ def _explored_lines():
             W.MAP_COLD, W.TIP_MAP, W.explored_pointer(W.try_one_fold(True)),
             W.explored_pointer(W.try_one_fold(True, False), settings_only=True),
             W.explored_pointer(W.try_one_fold(False), triangle=False),
-            W.why_link(6), W.explored_link(), W.explored_link(True), W.repeat_link(24),
+            W.why_link(6), W.repeat_link(24),
             W.SKILL_SCALE, W.skill_line("0.36", 15, [2, 3, 4, 5], "skill"),
             W.next_untested(round_no=6), W.next_untested(values=True, open_round=False)]
 
 
-_GROUPS = [_status_lines, _fold_lines, _tooltip_lines, _method_lines, _explored_lines]
+_GROUPS = [_status_lines, _fold_lines, _tooltip_lines, _explored_lines]
 
 
 @pytest.mark.parametrize("group", _GROUPS)
@@ -173,15 +151,17 @@ def test_trial_only_through_for_project(group):
 
 def test_the_settings_only_forms_name_no_ingredient_or_amount():
     """A line that names ingredients or amounts has a form for process
-    settings alone (review I14, M4)."""
+    settings alone (review I14, M4). Re-pinned (one-glance Review, fix round
+    1) on the live forms: the removed What have we tried? forms
+    (strips_no_gap, explored_link) and glossary rows are gone."""
     for text in (W.progress_one_round(values=True), W.clause_guard(settings_only=True),
                  W.next_plain_repeat_ask(15, values=True), W.next_plain_untested(6, values=True),
                  W.next_plain_explore("1.1", values=True),
                  W.next_plain_close(settings_only=True, repeat_no=7, values=True),
                  W.try_one_fold(True, False), W.basis_explored(values=True),
                  W.tip_repeats(True), W.tip_predicted_score(True), W.tip_untested(True),
-                 W.tip_local_effect(True), W.strips_caption(True), W.strips_no_gap(True),
-                 W.tip_strips(values=True), W.explored_link(True),
+                 W.tip_local_effect(True), W.strips_caption(True),
+                 W.tip_strips(values=True),
                  W.explored_pointer(W.try_one_fold(True, False), settings_only=True),
                  *W.model_summary(_facts(values=True, total=False)),
                  *[c for row in W.status_rule_rows(settings_only=True) for c in row]):
@@ -190,9 +170,6 @@ def test_the_settings_only_forms_name_no_ingredient_or_amount():
         # A study of process settings alone has no Formulation total, and
         # for_project would make it "Trial total".
         assert "Formulation total" not in text, text
-    for row in W.glossary_rows(settings_only=True):
-        for cell in row:
-            assert not re.search(r"ingredient|amount|\bformulations?\b", cell, re.I), cell
 
 
 # ------------------------------------------------------------------ #
@@ -434,17 +411,6 @@ def test_the_gate_shows_only_what_applies():
     assert W.MODEL_SUMMARY_LEAD not in lines
 
 
-def test_the_known_limits_hold_every_item_of_the_review():
-    """R-I12, R-I11, §8."""
-    text = " ".join(W.MODEL_LIMITS)
-    # Ftue fix A re-measured: 90 % (was 89 %), 12.5 % and 11.0 % (15 %, 12 %).
-    for needle in ("91 %", "90 %", "12.5 %", "11.0 %", "differ slightly from the suggestion model",
-                   "cut at 0 and the score ceiling", "waiting for results are left out",
-                   "one noisy maximum", "few degrees of freedom", "many comparisons",
-                   "a Repeat of an earlier formulation in each Round", "35 %", "75–89 %"):
-        assert needle in text, needle
-
-
 # ------------------------------------------------------------------ #
 #  How each status is decided (I13, R-I13)
 # ------------------------------------------------------------------ #
@@ -470,32 +436,6 @@ def test_one_rule_row_per_state_and_per_next_row_in_first_match_order():
 # ------------------------------------------------------------------ #
 #  The glossary (§3, R-B2, M4, M5, M8)
 # ------------------------------------------------------------------ #
-
-@pytest.mark.parametrize("settings", [False, True])
-def test_the_glossary_maps_each_plain_word_to_its_bo_term(settings):
-    rows = W.glossary_rows(settings_only=settings)
-    assert all(len(row) == 3 and all(row) for row in rows)
-    terms = {row[0]: row[1] for row in rows}
-    # The owner's mappings (§3, §7): the field's own words.
-    assert terms["model"].startswith("surrogate model: a Gaussian process")
-    assert terms["how smoothly results change"].startswith("kernel")
-    assert terms["correlation length"].startswith("lengthscale")
-    assert terms["Round"] == W.GLOSSARY_ROUND_TERM
-    assert terms["Best so far"] == "best observed value"
-    assert terms["Overall score"] == W.GLOSSARY_OVERALL_TERM
-    allowed = "allowed values" if settings else "allowed amounts"
-    assert terms[allowed].startswith("design space")
-    # R-I10: Not yet is the Prediction check's Not judged yet.
-    assert "Not judged yet" in rows[0][2]
-    # I12: the corrected facts.
-    meanings = {row[0]: row[2] for row in rows}
-    # Fix round B (statistician I1): qLogNEI has no single incumbent.
-    assert "no single incumbent" in meanings["Best so far"]
-    assert "not the Gaussian process's fitted noise" in meanings["noise threshold"]
-    assert terms["score predictions beat the average · skill"].endswith("(Q²-type, not R²)")
-    assert "not the acquisition's exploitation–exploration split" in meanings[
-        "refines the best · balanced · explores"]
-
 
 def test_the_glossary_keeps_one_order_in_both_forms():
     """M8: one canonical order, the status lines first; M5: the Round row."""

@@ -236,27 +236,6 @@ def test_answers_2_and_3_once_the_overall_score_model_is_in(stuck, five_rounds, 
 
 
 @pytest.mark.skip(reason=REVIEW_FOUR)
-def test_each_part_reads_the_same_as_on_the_finished_tab(five_rounds, monkeypatch):
-    _workers(monkeypatch, None)                              # no workers: all here
-    done = _open(_app(five_rounds.project_name), wording.TAB_INSIGHTS)
-    whole = [m.value for m in done.tabs[3].markdown]
-    _workers(monkeypatch, _Stuck())
-    at = _app(five_rounds.project_name)
-    at.run()
-    _seed(at, five_rounds, "stand")
-    at.session_state["main_tab"] = wording.TAB_INSIGHTS
-    # Method and definitions open, so its first line marks where the folds
-    # start (it is drawn only while open, T56 I5; its first line is Model
-    # and method's heading since the first-time wave, W2).
-    at.session_state[ui_insights.HOW_KEY] = True
-    at.run()
-    part = [m.value for m in at.tabs[3].markdown]
-    answers = part[:part.index(f"**{wording.MODEL_AND_METHOD}**")]   # up to the folds, which wait
-    assert f"##### {wording.Q_NEXT}" in answers
-    assert answers == whole[:len(answers)]
-
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_with_everything_in_the_whole_tab_and_no_progress_line(stuck, five_rounds):
     at = _app(five_rounds.project_name)
     at.run()

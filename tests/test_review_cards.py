@@ -449,8 +449,7 @@ def test_one_fold_only_and_no_old_status_lines(screens, name):
     # closed, before them.
     opt = D.load(name)
     details = [] if name == D.SNACK else [wording.LEARNED_DETAILS_TITLE]
-    assert folds == details + [wording.for_project(opt, wording.Q4_TITLE),
-                               wording.for_project(opt, wording.Q3_TITLE), wording.FOLD_METHOD]
+    assert folds == details + [wording.FOLD_METHOD]
     texts = [t for _, t in rows]
     assert not any(t.startswith(("Predictions:", "Progress:", "Next:")) for t in texts)
     assert wording.FOLD_EXPLORED not in folds

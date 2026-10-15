@@ -26,7 +26,7 @@ def _changed_lines():
         W.score_gap_line(11, 11, -0.4), W.score_gap_line(10, 10, -1.2, W.beat_by()),
         W.score_gap_line(11, 11, 0.0), W.repeat_disagrees(21, 11, "10.5", half_text="7.4"),
         W.TRUST_BEFOREHAND, W.FOLD_MEASURED_CHART, W.MVP_CAPTION, W.TRACK_PREDICTED,
-        W.TRACK_LOW, W.TRACK_HIGH, W.PREDICTED, W.Q_STAND, W.stand_yes("2.5"),
+        W.TRACK_LOW, W.TRACK_HIGH, W.Q_STAND, W.stand_yes("2.5"),
         W.stand_barely("0.2"), W.stand_barely("0.2", "1.2"), W.stand_not_lately(7),
         W.stand_best("90.45", 15, 4), W.stand_repeats("1.2", 1), W.stand_repeats("1.2", 4),
         W.pairs_text(1), W.beat_by("1.2"), W.beat_by(),
@@ -47,14 +47,7 @@ def _changed_lines():
         W.moved_together("Pea", "Soy", "0.86"), W.change_caption(), W.CHANGE_NEAR,
         W.CHANGE_WHOLE, W.CHANGE_AXIS, W.path_key(15, grey=True, targets=True), W.Q_PAIR,
         W.PAIR_CAPTION, W.pair_caption(["Firmness"]), W.pair_caption([]), W.Q_MIXTURE,
-        W.mixture_caption(15), W.FOLD_METHOD, W.HOW_MODELS, W.HOW_RANGE,
-        W.HOW_RANGE_FIXED_TINY, W.how_checks(), W.how_checks(values=True), W.HOW_NO_P,
-        W.details_window([2, 3, 4, 5], 3, [3, 4, 5]), *W.DETAILS_COLUMNS_2, W.SKILL_COLUMN,
-        W.HOW_WIDENED,
-        W.score_widen_text(2.2, 1.6), W.HOW_WIDENED_SCORE, W.HOW_REPEATS_COMPARED,
-        W.repeat_compare(1.34, 1.0, 4), W.repeat_compare(2.8, 1.0, 4),
-        W.repeat_compare(None, None, 2), W.repeat_compare(None, 0, 3), W.HOW_THRESHOLDS,
-        W.HOW_BIAS, W.PREDICTED_SCORE_COLUMN, W.PREDICTED_SCORE_HELP,
+        W.mixture_caption(15), W.FOLD_METHOD, W.HOW_MODELS, W.how_checks(), W.how_checks(values=True), W.PREDICTED_SCORE_COLUMN, W.PREDICTED_SCORE_HELP,
         W.predicted_score_help(20, "1.56"), W.predictions_round_caption(),
         W.PREDICTED_MEASUREMENTS, W.PREDICTED_MEASUREMENTS_CAPTION, W.TOO_UNCERTAIN,
         W.round_track_holding(11, 11, rounds=[3, 4, 5]),
@@ -73,8 +66,7 @@ def _new_lines():
     return [
         W.skill_line("0.36", 15, [2, 3, 4, 5, 6], "skill"),
         W.skill_line("0.12", 12, [2, 3], "unclear"),
-        W.skill_line("−0.47", 16, [2, 3, 4, 5, 6], "no_skill"), W.skill_cell("0.36", 15),
-        W.SKILL_UNDER_TEN, W.how_skill(), W.how_skill("−0.25"), W.next_no_skill("−0.47", 16),
+        W.skill_line("−0.47", 16, [2, 3, 4, 5, 6], "no_skill"), W.next_no_skill("−0.47", 16),
         W.next_no_skill("−0.47", 16, 6, 4), W.round_track_no_skill("−0.47", 16),
         W.next_no_skill("−0.47", 16, 6, 4, [2, 3, 4, 5]),
         W.round_track_no_skill("−0.47", 16, [2, 3, 4, 5]),
@@ -85,17 +77,15 @@ def _new_lines():
         W.why_chart_caption("3,000", line=False), W.WHY_REFERENCE,
         W.mixture_within_noise("4.1", "5.0"), W.GUARD_FLOOR, W.GUARD_NOISE,
         W.guard_line([W.GUARD_FLOOR]), W.guard_line([W.GUARD_FLOOR, W.GUARD_NOISE], True),
-        W.guard_skill_line(), W.guard_skill_line(True), W.PATH_GUARD, W.PATH_GUARD_SKILL,
-        W.WHY_THESE, W.EXPECTED_IMPROVEMENT, W.OPTIMISTIC_SCORE, W.MODEL_SD, W.NEAREST_TESTED,
+        W.guard_skill_line(), W.guard_skill_line(True), W.WHY_THESE, W.EXPECTED_IMPROVEMENT, W.OPTIMISTIC_SCORE, W.MODEL_SD, W.NEAREST_TESTED,
         W.LARGEST_DIFFERENCES, W.ROLE, W.ROLE_REFINES, W.ROLE_BALANCED, W.ROLE_EXPLORES,
         W.TIP_MODEL_SD, W.EXPECTED_IMPROVEMENT_HELP, W.EXPECTED_IMPROVEMENT_EI_HELP,
         W.OPTIMISTIC_SCORE_HELP, W.WHY_PENDING, W.WHY_COLD, W.WHY_FAILED, W.WHY_WORKING,
         W.why_row_label(24), W.why_row_label(25, own=True), W.why_row_label(26, edited=True),
         W.why_difference("Coconut oil", "+1.20 g"), W.why_chart_caption(3000),
-        W.why_no_roles(120), W.why_role_rule(), W.HOW_EXPECTED_IMPROVEMENT, W.GAIN_HEADING,
+        W.why_no_roles(120), W.GAIN_HEADING,
         W.WHY_AXIS_MEAN, W.WHY_POOL, W.WHY_TESTED, W.WHY_SUGGESTED, W.WHY_RECOMPUTED,
-        W.GAIN_BEST_MEASURED, W.GAIN_HIGHEST_PREDICTED, W.HOW_VERDICT, W.HOW_NOISE_THRESHOLD,
-        W.gain_line("0.12", 6, W.beat_by()), W.gain_line("1.40", 6, W.beat_by("1.2"), above=True),
+        W.GAIN_BEST_MEASURED, W.GAIN_HIGHEST_PREDICTED, W.gain_line("0.12", 6, W.beat_by()), W.gain_line("1.40", 6, W.beat_by("1.2"), above=True),
         W.gain_line("0.12", 5, W.beat_by(), recomputed=True),
         W.gain_line("1.08", 13, W.beat_by(), above=True, predicted_none=True),
         W.next_explore(13, 3), W.next_explore(), W.gain_line("0.37", None, W.beat_by()),
@@ -169,19 +159,6 @@ def test_exact_texts_from_the_audit():
     B1, M9, I2 and I16 texts)."""
     # T0 review I-5: the two owner-mandated corrections, pinned whole, and
     # the 0.674 tied to the code's own constant.
-    assert W.HOW_REPEATS_COMPARED == (
-        "Error ÷ Repeat noise: the median absolute error divided by 0.674 × Repeat SD, which "
-        "is the median absolute error Repeat noise alone would give. Near 1: the model misses "
-        "by about as much as measurement noise. Above about 1.5: it misses by more than noise "
-        "explains (lack of fit). Shown from 3 Repeat pairs.")
-    assert f"{insights.MAD_OF_NORMAL:.3f}" in W.HOW_REPEATS_COMPARED
-    assert W.HOW_WIDENED == (
-        "Calibration factor: the root-mean-square of standardised errors (measured − "
-        "predicted, ÷ predictive SD) in 5-fold cross-validation of the current model, the folds "
-        "grouped by Round (a formulation and its Repeats in one fold), floored "
-        "at 1. Every 95 % interval is multiplied by it. ×1.0: not widened; ×2.5: errors 2.5 "
-        "times the model's own SD.")
-    assert f"{insights.FOLDS}-fold" in W.HOW_WIDENED
     # T0 review I-1: the Formulation total is named only where there is one.
     assert W.how_checks().startswith(
         "Round-ahead check: each Round is predicted by models fitted only to the formulations "
@@ -240,8 +217,6 @@ def test_exact_texts_from_the_audit():
         "Formulation 15 is within noise: 0.20 lower; 2.3 needed.")
     assert W.round_track_holding(11, 11, rounds=[3, 4, 5]) == (
         "Overall score, Rounds 3–5: 11 of 11 inside their 95 % interval.")
-    assert W.HOW_NO_P.endswith("R² on formulations chosen this way is misleading, so skill "
-                               "uses the Round-ahead baseline instead.")
 
 
 def test_the_new_lines_from_the_rulings():
@@ -259,13 +234,6 @@ def test_the_new_lines_from_the_rulings():
         ", not clearly better than the average of earlier results.")
     # 0.8.0 e2e fixes D4 (review M10): the cut stated plainly, no table.
     # Ftue fix A re-measured the rates (I9 folds): 4.1 % and 12.5 % at n = 10.
-    assert W.how_skill("−0.20").endswith(
-        "At or below −0.20: no better than the average; below 0.20: not clearly better; "
-        "0.20 or more: better. The cut is −0.20. In 24 simulated projects whose model's errors "
-        "matched its own stated uncertainty (true skill 0.20 or more), the skill read “no "
-        "better than the average” in 4.1 % of windows of 10 checks (n = 10), and below "
-        "0.20 in 12.5 %; near a true skill of 0.20 it reads below 0.20 about half the "
-        "time. Ingredient effects are reported only from 10 values and skill 0.20.")
     assert W.guard_line([W.GUARD_FLOOR]) == (
         "The model is fitting noise in these results (the model's correlation length is at its "
         "lower limit), so ingredient effects are not reported.")
@@ -342,7 +310,4 @@ def test_the_t0_review_minors():
     assert many.endswith("the intervals are too narrow for these results.")
     assert "recent" not in many
     assert "more often than 95 % intervals allow:" in W.next_misses([3, 4, 5])
-    assert W.details_window([2, 3, 4, 5], 1, [5]).endswith("Verdict: the last Round (Round 5).")
     assert "±7.4 points." in W.repeat_disagrees(21, 11, "10.5", half_text="7.4")
-    assert "3 degrees of freedom and is at least 0.05" in W.HOW_NOISE_THRESHOLD
-    assert "average Overall score of the formulations" in W.how_skill()

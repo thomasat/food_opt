@@ -197,9 +197,6 @@ def test_the_texts_and_the_band_say_the_noise(sigma):
     assert wording.progress_rise_answer("95.0", "98.3", "3.3", f"{3 * sigma:.1f}",
                                         sd_text=f"{sigma}").endswith(
         f"needs {3 * sigma:.1f} if tasting noise ≈ {pts})")
-    assert wording.check_noise([("Overall score", f"{sigma:.1f}"),
-                                ("Tangy", f"{0.3 * sigma:.1f}")], True, 4, f"{sigma}") \
-        .startswith(f"Tasting noise assumed: Overall score {sigma:.1f}; Tangy {0.3 * sigma:.1f}.")
     # The "?" of the noise threshold, from the project's noise.
     assert U._threshold_tip(insights.noise_yardstick(opt)).startswith(pts)
 
@@ -673,23 +670,10 @@ def test_the_pairs_line_says_called_of_all():
 def test_the_pairs_help_gives_the_chance_raw_and_adjusted():
     opt = NS(objectives=[], utility_ceiling=lambda: 100.0, has_ingredients=lambda: True)
     text = U.pairs_called_text(opt, _lf(5, 5, 6, 1))
-    assert text == ("Overall score: 5 of 12 pairs called (6 too close, 1 tie); 5 right. "
+    assert text == ("Overall score: 5 of 12 pairs called (6 too close, 1 measured equal); 5 right. "
                     "Chance by luck: 3 in 100; 15 in 100 adjusted for checking 5 results.")
     _clean(text)
     assert U._chance_words(0.0625) == "6 in 100"
-
-
-def test_the_margin_of_a_value_just_inside_its_range_is_in_the_help():
-    opt = NS(objectives=[], utility_ceiling=lambda: 100.0, formulation_ids=[],
-             has_ingredients=lambda: True)
-    c_in = insights.Check(18, 6, insights.SCORE, 94.0, 92.0, 96.0, 92.07, True, True,
-                          raw_mean=94.0, sd=1)
-    c_mid = insights.Check(17, 6, insights.SCORE, 94.0, 92.0, 96.0, 94.0, True, True,
-                           raw_mean=94.0, sd=1)
-    lf = NS(items=[(insights.SCORE, None, [c_in, c_mid])])
-    assert U.near_edge_text(opt, lf) == "Close to the range edge: F18 in by 0.07."
-    lf = NS(items=[(insights.SCORE, None, [c_mid])])
-    assert U.near_edge_text(opt, lf) == ""
 
 
 # ------------------------------------------------------------------ #

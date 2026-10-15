@@ -84,7 +84,10 @@ def _measure_checks():
     return out
 
 
-def test_one_widening_is_the_same_range_on_make_forecast_check_and_results(monkeypatch):
+def test_one_widening_is_the_same_range_on_make_forecast_check_and_results():
+    """Re-pinned (one-glance Review, fix round 1) without the removed
+    Forecast check panels (check_frame): the measurement widening Make a
+    round uses is the one each Round's check carries."""
     opt = _stub()
     checks = insights.nest_measure_widen(opt, _measure_checks())
     r6 = [c for c in checks if c.round == 6][0]
@@ -97,14 +100,6 @@ def test_one_widening_is_the_same_range_on_make_forecast_check_and_results(monke
     assert (p.low, p.high) == pytest.approx((r6.low, r6.high))
     # Round 6 was a miss unwidened; inside the one range it is not.
     assert r6.inside and r6.low <= 8.5 <= r6.high
-    # Results and the Forecast check read that same range.
-    monkeypatch.setattr(U, "_say", lambda o, t: t)
-    monkeypatch.setattr(U, "decimals", lambda o, n: 1)
-    monkeypatch.setattr(insights, "_range_of", lambda o, n: (0.0, 15.0))
-    fr = U.check_frame(opt, "Firmness", [r6])
-    assert (fr["low"][0], fr["high"][0], fr["side"][0]) == pytest.approx(
-        (r6.low, r6.high, "in"), rel=1e-9) or (fr["low"][0] == pytest.approx(r6.low)
-                                              and fr["side"][0] == "in")
     # The earliest Round has no record: unwidened.
     assert [c for c in checks if c.round == 3][0].widen == 1.0
 
@@ -167,9 +162,7 @@ def test_one_result_alone_is_not_adjusted():
 
 
 def test_the_learned_caption_and_rule_say_the_adjustment():
-    assert wording.learned_caption(5) == "Past the bar: Predicts · adjusted for 5 results"
     assert "Holm" in wording.LEARNED_RULE
-    assert wording.learned_multiplicity(5).startswith("Adjusted for 5 results")
 
 
 # ------------------------------------------------------------------ #
@@ -253,7 +246,6 @@ def test_repeat_wording_is_one_form_everywhere():
     assert wording.card_repeat_ask(16, 7) == "Repeat Formulation 16 to check noise"
     # The link is a button (at most 5 words); every line says the full form.
     assert wording.repeat_link(21) == "Repeat Formulation 21"
-    assert "A Repeat would confirm" not in wording.check_noise([("Overall score", "1.0")])
     assert "A Repeat would confirm" not in wording.story_improving_help("84.2", "96.1", 1, 6)
 
 
@@ -394,42 +386,6 @@ class _Obj:
         return list(self.objectives)
 
 
-def test_the_forecast_check_is_a_section_with_a_wide_chart(monkeypatch):
-    monkeypatch.setattr(U, "_say", lambda o, t: t)
-    monkeypatch.setattr(U.insights, "_range_of", lambda o, n: (0.0, 100.0 if n == insights.SCORE
-                                                                else 15.0))
-    monkeypatch.setattr(U, "decimals", lambda o, n: 1)
-    opt = _Obj()
-    lf = _lf(opt, _round6())
-    spec = U.called_chart(opt, lf).to_dict()
-    assert "vconcat" in spec
-    panel = spec["vconcat"][0]
-    assert panel["width"] >= 600 and panel["height"] == {"step": 40}
-    frame = U.check_frame(opt, insights.SCORE, lf.items[0][2])
-    assert set(frame["miss"]) == {"98.3 above", ""}
-    text = json.dumps(spec, ensure_ascii=False)
-    assert '"symbolOpacity": 1' in text
-    # Every Overall score landed in or above: no "below", and the legend
-    # names only what is drawn.
-    fake = _FakeSt()
-    monkeypatch.setattr(U, "st", fake)
-    monkeypatch.setattr(U, "show_chart", lambda *a, **k: None)
-    U._called_top(opt, fake, lf)
-    marks = [c[1][0] for c in fake.calls if c[0] == "markdown"]
-    # Slim Review (re-pinned): the heading is the section's own (_section
-    # draws it, as for every question); the check draws its lines, the
-    # model's verdict line among them ("So far: …").
-    assert f"#### {wording.FORECAST_CHECK_TITLE}" not in marks
-    assert U._QUESTIONS["predictions"] == wording.FORECAST_CHECK_TITLE
-    assert U.learned_verdict_line(opt, lf)[0] in marks
-    assert U.SECTION_ORDER.index("next") + 1 == U.SECTION_ORDER.index("predictions")
-
-
-def test_a_verdict_absent_from_the_check_is_said():
-    assert wording.called_shown(10) == "Shown: results predictable before Round 10."
-    assert "Tangy" in wording.called_shown_help(["Tangy"], 10)
-
-
 # ------------------------------------------------------------------ #
 #  P2 #10 — Start vs best labels
 # ------------------------------------------------------------------ #
@@ -470,19 +426,6 @@ def test_start_vs_best_reads_one_axis_and_says_where_the_dot_moved(monkeypatch):
 # ------------------------------------------------------------------ #
 #  P2 #13 — the profiler's cramped columns
 # ------------------------------------------------------------------ #
-
-def test_profiler_columns_with_too_little_room_are_named_not_drawn(monkeypatch):
-    def col(name, lo, hi):
-        return NS(name=name, path=NS(low_end=NS(amount=lo), high_end=NS(amount=hi)))
-    profile = NS(columns=[col("Tap water", 41.9, 42.0), col("Salt", 0.2, 1.5)])
-    monkeypatch.setattr(insights, "_var", lambda o, n: {"bounds": (25.0, 42.0) if n == "Tap water"
-                                                        else (0.0, 2.5)})
-    assert U.cramped_columns(None, profile) == ["Tap water"]
-    assert wording.profiler_cramped(["Tap water", "Coconut cream"]) == (
-        "Too little room to move: Tap water, Coconut cream.")
-    line = wording.answer_line(wording.drives_limited("Batch total"), "")
-    assert line == "**Single-ingredient moves are limited by the Batch total.**"
-
 
 # ------------------------------------------------------------------ #
 #  P2 #16 — the primaries go secondary under Stop
@@ -526,7 +469,6 @@ def test_one_form_per_idea():
     assert wording.learned_answer(["Consistency"], ["Tangy"], ["Creaminess"]) == (
         "**Predicts: Consistency.** Partly: Tangy. Not yet: Creaminess.")
     assert list(wording.LEARNED_WORDS.values()) == ["Predicts", "Partly", "Not yet"]
-    assert wording.learned_not_predictable(["Creaminess"]) == "Not yet: Creaminess."
     assert wording.CARD_CEILING == "Stop, or change the target"
     assert wording.CEILING_TAIL == "Stop, or change the target."
     assert wording.review_status_strip("Rising", "Predicts: Overall score", wording.CARD_CEILING) == (
@@ -535,14 +477,10 @@ def test_one_form_per_idea():
     assert wording.tie_line(21, "99.2", "0.83", 19, "2.3") == (
         "Formulation 19 is within noise: 0.83 lower; 2.3 needed.")
     assert "tied" not in wording._tied_with(18)
-    assert wording.STORY_LANDED_OUT == wording.CHECK_KEY_OUT == "Measured, outside range"
     assert wording.single_record(36, 36, 3) == (
         f"Single measurements, last 3 Rounds: 36 of 36 in their 95{NBSP}% range.")
-    assert "0.3: 1 score point in Consistency's units, split over 4 measurements." in (
-        wording.check_noise([("Overall score", "1.0"), ("Consistency", "0.3")], True, 4))
     assert wording.DOWNLOAD_BATCH_SHEETS == "Download the Round workbook (Excel)"
     assert wording.back_to_batch_label(6, 3) == "Back to Round 6"
-    assert wording.check_order(1, 1, 1, ties=1) == "order right: 1 pair, 1 too close, 1 tie"
     assert wording.called_so_far([("Overall", 8, 10)]) == "So far: Overall score 8 of 10."
     assert wording.ENTERED_ROUND_CAPTION.endswith(
         "For suggestions too: Discard this round and generate again.")
@@ -553,8 +491,6 @@ def test_one_form_per_idea():
                                                  "to the hundredth.")
     assert wording.NO_GAIN_HEAD == "No gain beyond noise within these limits."
     assert insights.TOGETHER == insights.MOVED_R == 0.7
-    assert "at least 0.8" not in json.dumps(wording.glossary_rows())
-    assert not [r for r in wording.glossary_rows() if r[0] == "Where you have tested"]
     assert "95 %" not in wording.PREDICTED_MEASUREMENTS        # a non-breaking space
 
 
@@ -565,9 +501,9 @@ def test_captions_and_labels_keep_to_their_word_budgets():
                         (wording.REVIEW_SAYS_STOP, 10), (wording.MAP_DIAMONDS_CAPTION, 8),
                         (wording.PREDICTED_MEASUREMENTS_CAPTION, 8),
                         (wording.STORY_IMPROVING_CAPTION, 8),
-                        (wording.learned_caption(5), 10), (wording.TOP_ZONE, 5),
+                        (wording.TOP_ZONE, 5),
                         (wording.CARD_CEILING, 5), (wording.back_to_batch_label(6, 3), 5),
-                        (wording.called_shown(10), 10), (wording.OFF_BY_TITLE, 5)):
+                        (wording.OFF_BY_TITLE, 5)):
         assert words(text) <= limit, text
 
 
@@ -599,6 +535,5 @@ def test_no_round_two_string_says_a_banned_word():
                 wording.PREDICTED_MEASUREMENTS_HELP, wording.LEARNED_RULE,
                 wording.story_improving_help("84.2", "96.1", 1, 6, "2.3"),
                 wording.why_chart_caption_full("3,000", True, True, True),
-                wording.called_shown_help(["Tangy"], 10), wording.PROFILER_CRAMPED_HELP,
-                wording.METHOD_STOP, *[c for r in wording.glossary_rows() for c in r[:1]]]
+                wording.METHOD_STOP]
     assert not [t for t in rendered if any(p.search(t) for p in _BANNED)]

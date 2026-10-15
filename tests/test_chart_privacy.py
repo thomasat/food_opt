@@ -218,16 +218,14 @@ def test_every_chart_on_the_insights_and_results_tabs_disables_its_menu(mixture_
     # Charts proto: the triangle sits in Explored and unexplored now, with
     # What you've tried, How the app chooses and the map: open it too.
     at.session_state[ui_insights.EXPLORED_KEY] = True
-    # Slim Review (re-pinned): What have we tried? is a closed fold, drawn
-    # only while open: open it too, so its chart is checked.
-    at.session_state[ui_insights.TRIED_FOLD_KEY] = True
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
     at.run()
     assert not at.exception
     specs = _vega_specs(at)
-    # One per drawn chart: predictions, path, pair, mixture and misses at
-    # least, plus the Progress chart in its own expander.
-    assert len(specs) >= 5, len(specs)
+    # One per drawn chart: the improving chart, the sensory profile and the
+    # Forecast check's forecast against measured at least (one-glance
+    # Review: the search path and the profiler are gone).
+    assert len(specs) >= 3, len(specs)
     bad = [s for s in specs if s.get("usermeta") != _NO_ACTIONS]
     assert bad == []
 

@@ -20,7 +20,7 @@ def _section():
 def _texts():
     return [*_section(), wording.REBUILT_LABEL, wording.RESULTS_PREDICTED_CAPTION,
             wording.RESULTS_PREDICTED_SPINNER, wording.LEARNED_FORECAST_TITLE,
-            wording.CALLED_RULE, wording.forecast_help(15, 6),
+            wording.forecast_help(15, 6),
             wording.results_predicted_help(6), wording.STORY_TRUST_CAPTION,
             wording.rebuilt_help(True), wording.results_predicted_help(6, True, True),
             wording.LEARNED_COL_PAIRS, wording.LEARNED_RULE,
@@ -50,13 +50,11 @@ def test_rebuilt_wording_pinned():
     assert wording.rebuilt_help(True).endswith(" The pilot's own forecasts were not kept.")
     assert wording.LEARNED_FORECAST_TITLE == "Expected from earlier Rounds"
     # Review critique (fix 1): the rule describes the shared-axis chart.
-    assert wording.CALLED_RULE.startswith("Calculated from the formulations scored before "
-                                          "this Round only.")
     assert "Calculated by the app's current model" in wording.results_predicted_help(6)
     assert "not saved from when Round 6 was made" in wording.results_predicted_help(6)
     assert "pilot" not in wording.results_predicted_help(6)
     assert wording.REBUILT_PILOT in wording.results_predicted_help(6, sample=True)
-    for t in (wording.CALLED_RULE, wording.results_predicted_help(6), wording.rebuilt_help()):
+    for t in (wording.results_predicted_help(6), wording.rebuilt_help()):
         assert "today" not in t
     assert "What the model expects" in wording.forecast_help(15, 6)
 
