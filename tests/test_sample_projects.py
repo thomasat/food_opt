@@ -480,11 +480,20 @@ def test_the_notes_say_where_each_batch_came_from():
     assert notes[:6] == [f"Random starting set {r}.{k}" for r in (1, 2) for k in (1, 2, 3)]
 
 
-def test_the_limit_reads_as_the_tables_show_amounts(store):
+def test_the_limit_reads_as_the_check_reads_it(store):
+    """97.69 g would look inside 'at least 97.69 g' and still break the
+    pilot's 97.69051 g limit (0.0005 g short, past the check's slack), so
+    the limit reads to the digits the check needs, and an amount at either
+    number shown meets it."""
     sp.ensure(store)
     opt = FoodOptimizer(sp.ROUND6, storage=store)
     [limit] = opt.quantity_constraints
-    assert opt.limit_text(limit) == "Ingredient total: at least 97.69 g and at most 98.69 g"
+    assert opt.limit_text(limit) == \
+        "Ingredient total: at least 97.6905 g and at most 98.6905 g"
+    names = limit["ingredients"]
+    for total in (97.6905, 98.6905):
+        recipe = {n: total / len(names) for n in names}
+        assert opt._check_constraints(recipe), total
 
 
 # ------------------------------------------------------------------ #

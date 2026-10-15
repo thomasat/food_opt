@@ -606,6 +606,32 @@ _ROLE_EPS = 1e-9
 SETTINGS_SHOWN = 3
 
 
+def limit_slack(value):
+    """How far an amount may sit past a limit on several rows and still
+    meet it: _check_constraints' relative slack, which a sum reached the
+    long way round (a share at a time) needs. The limit's shown number
+    (limit_number) is held to the same slack, so the two cannot disagree."""
+    return 1e-6 * (1.0 + abs(float(value)))
+
+
+def limit_number(value):
+    """A limit's number as the screens and sheets write it: to at most 2
+    decimals, as the tables show amounts ('98.7', '0.65'), when that short
+    number is one the limit check itself accepts (limit_slack); otherwise
+    the 'g' form (the yogurt pilot's 98.69051 reads 98.6905: 98.69 is
+    0.0005 off, past the check's slack, and a batch adding to it would be
+    told it broke the limit it appears to meet), with more digits only
+    when even that is too far off."""
+    value = float(value)
+    candidates = [f"{value:.2f}".rstrip("0").rstrip(".")]
+    candidates += [f"{value:.{digits}g}" for digits in range(6, 18)]
+    for text in candidates:
+        text = "0" if text == "-0" else text
+        if abs(float(text) - value) <= limit_slack(float(text)):
+            return text
+    return repr(value)
+
+
 def join_unit(text, unit):
     """'6 N', '7/10' — a unit that starts with a slash joins tight, everything
     else takes one space. Every screen goes through this, so a project whose
@@ -5968,16 +5994,11 @@ class FoodOptimizer:
     def _bound_words(min_v, max_v, unit):
         """'at least 10 g and at most 40 g' — the two bound words a range
         limit reads as, in the unit it is written in, joined the way every
-        limit line joins them.
-
-        From 1 up, to at most 2 decimals, as the tables show amounts: the
-        yogurt pilot's 98.69051 g reads 98.69 g, beside the Total (g) of
-        98.69 its formulations show, not 98.6905 g. Below 1 as written."""
-        def shown(v):
-            return v if abs(float(v)) < 1 else round(float(v), 2)
-        bounds = ([join_unit(wording.at_least(shown(min_v)), unit)]
+        limit line joins them. Each number as limit_number writes it: short
+        only where the short number still meets the limit."""
+        bounds = ([join_unit(wording.at_least(limit_number(min_v)), unit)]
                   if min_v is not None else [])
-        bounds += ([join_unit(wording.at_most(shown(max_v)), unit)]
+        bounds += ([join_unit(wording.at_most(limit_number(max_v)), unit)]
                    if max_v is not None else [])
         return wording.AND_JOIN.join(bounds)
 
@@ -6202,7 +6223,7 @@ class FoodOptimizer:
                     continue     # the total is the thing being asked about
                 value = sum(float(recipe.get(n, 0.0))
                             for n in qc['ingredients'])
-                slack = 1e-6 * (1.0 + abs(value))
+                slack = limit_slack(value)
                 low = None if qc['min'] is None else qc['min'] * scale
                 high = None if qc['max'] is None else qc['max'] * scale
                 if ((low is not None and value < low - slack)
@@ -7631,7 +7652,7 @@ class FoodOptimizer:
         # never sees.
         for qc in getattr(self, 'quantity_constraints', []):
             total_val = sum(recipe_dict.get(name, 0.0) for name in qc['ingredients'])
-            slack = 1e-6 * (1.0 + abs(float(total_val)))
+            slack = limit_slack(total_val)
             if qc['min'] is not None and total_val < float(qc['min']) - slack:
                 return False
             if qc['max'] is not None and total_val > float(qc['max']) + slack:

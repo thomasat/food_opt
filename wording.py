@@ -1486,12 +1486,20 @@ def old_limit_basis_caption(unit):
     return f"An older limit is now read per 100 {unit} of formulation."
 
 
+def _bound_number(value):
+    """A number already written as text (food_bo.limit_number) as it is;
+    any other in the 'g' form."""
+    return value if isinstance(value, str) else f"{value:g}"
+
+
 def at_least(value, unit=""):
-    return f"at least {value:g} {unit}".rstrip() if unit else f"at least {value:g}"
+    text = f"at least {_bound_number(value)}"
+    return f"{text} {unit}".rstrip() if unit else text
 
 
 def at_most(value, unit=""):
-    return f"at most {value:g} {unit}".rstrip() if unit else f"at most {value:g}"
+    text = f"at most {_bound_number(value)}"
+    return f"{text} {unit}".rstrip() if unit else text
 
 
 def delete_limit_button(who):
@@ -9392,7 +9400,7 @@ def changes_unchanged(names):
 
 def changes_shared(texts):
     """The limits on several rows Best so far sits at, under the picture:
-    'Best sits at the Ingredient total (≤ 98.69 g).'; when naming them runs
+    'Best sits at the Ingredient total (≤ 98.6905 g).'; when naming them runs
     past CHANGES_NOTE_WORDS, the count: 'Best sits at 2 limits on several
     rows.' (the "?" names them)."""
     listed = texts[0] if len(texts) == 1 else ", ".join(texts[:-1]) + AND_JOIN + texts[-1]

@@ -12482,3 +12482,75 @@ class TestTheMethod:
         assert opt.premix_make_quantity(85.71) == 100.0
         assert opt.premix_make_quantity(160.0) == 180.0
         assert opt.premix_make_quantity(253.25) == 280.0
+
+
+class TestAShownLimitIsTheOneChecked:
+    """A limit's number reads short (to 2 decimals) only when that short
+    number is one the limit check itself accepts: rounding 98.69051 to
+    98.69 moved the limit by 0.0005, ten times the check's own slack, so a
+    batch adding to the 97.69 g on the screen was told it broke 'at least
+    97.69 g'. Any amount the shown text allows passes the check."""
+
+    LIMITS = [  # (unit, min, max)
+        ("g", 97.69051, 98.69051),
+        ("g", 0.15, 0.65),
+        ("g", 0.9, 2.6),
+        ("g", 1234.5678, 2345.6789),
+        ("kg", 1.23456789, 2.3456789),
+        ("kg", 0.097691, 0.0986905),
+    ]
+
+    @staticmethod
+    def _numbers(text, unit):
+        import re
+        num = r"(-?\d+(?:\.\d+)?)"
+        low = re.search(rf"at least {num} {unit}\b", text)
+        high = re.search(rf"at most {num} {unit}\b", text)
+        return (float(low.group(1)) if low else None,
+                float(high.group(1)) if high else None)
+
+    def _opt(self, tmp_path, monkeypatch, unit):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("shown_limits", robust=False)
+        opt.set_amount_unit(unit)
+        opt.add_ingredient("Water", 0, 5000)
+        opt.add_ingredient("Oil", 0, 5000)
+        opt.add_ingredient("Salt", 0, 200)
+        opt.add_objective("Taste", 1.0, goal="max")
+        return opt
+
+    @pytest.mark.parametrize("unit,low,high", LIMITS)
+    def test_every_amount_the_text_allows_passes(self, tmp_path, monkeypatch,
+                                                 unit, low, high):
+        opt = self._opt(tmp_path, monkeypatch, unit)
+        opt.add_quantity_constraint(["Water", "Oil"], min_val=low, max_val=high)
+        qc = opt.quantity_constraints[-1]
+        shown_low, shown_high = self._numbers(opt.limit_text(qc), unit)
+        assert shown_low is not None and shown_high is not None
+        for total in (shown_low, (shown_low + shown_high) / 2, shown_high):
+            recipe = {"Water": total * 0.6, "Oil": total - total * 0.6}
+            assert opt._check_constraints(recipe), (opt.limit_text(qc), total)
+
+    @pytest.mark.parametrize("value,text", [
+        (98.7, "98.7"), (60.0, "60"), (0.65, "0.65"), (2.6, "2.6"),
+        (98.69, "98.69"), (98.69051, "98.6905")])
+    def test_a_limit_reads_as_short_as_it_truthfully_can(
+            self, tmp_path, monkeypatch, value, text):
+        opt = self._opt(tmp_path, monkeypatch, "g")
+        opt.add_quantity_constraint(["Water", "Oil"], max_val=value)
+        assert opt.limit_text(opt.quantity_constraints[-1]) == \
+            f"Water + Oil: at most {text} g"
+
+    def test_a_percent_limit_reads_truthfully_too(self, tmp_path, monkeypatch):
+        import re
+        opt = self._opt(tmp_path, monkeypatch, "g")
+        opt.set_formulation_total(100)
+        opt.add_quantity_constraint(["Water", "Oil"], max_val=12.345,
+                                    percent=True)
+        qc = [q for q in opt.quantity_constraints if q.get('percent')][0]
+        text = opt.limit_text(qc)
+        assert text.startswith("Water + Oil: at most 12.345 % of default batch size")
+        shown = float(re.search(r"at most (\d+(?:\.\d+)?) %", text).group(1))
+        # The rest of the default 100 g batch is Salt.
+        assert opt._check_constraints(
+            {"Water": shown / 2, "Oil": shown / 2, "Salt": 100.0 - shown})

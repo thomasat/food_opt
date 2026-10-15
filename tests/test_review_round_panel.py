@@ -364,12 +364,12 @@ def test_the_score_chart_draws_no_noise_band_and_keeps_the_top_zone(samples):
 def test_a_limit_on_several_rows_is_said_under_the_picture(samples):
     _, all10 = samples
     lines = {r: _pic(all10, r)[1]["shared_line"] for r in (3, 5, 6, 7, 10)}
-    assert lines[5] == "Best sits at the Ingredient total (≤ 98.69 g)."
+    assert lines[5] == "Best sits at the Ingredient total (≤ 98.6905 g)."
     assert lines[3] == lines[6] == lines[5]
-    assert lines[10] == lines[7] == "Best sits at the Ingredient total (≥ 97.69 g)."
+    assert lines[10] == lines[7] == "Best sits at the Ingredient total (≥ 97.6905 g)."
     assert all(wording._note_words(t) <= 8 for t in lines.values())
     # The "?" keeps the detail.
-    assert "the Ingredient total (≥ 97.69 g)" in U.what_changed(all10, 10).limits_help
+    assert "the Ingredient total (≥ 97.6905 g)" in U.what_changed(all10, 10).limits_help
     assert wording.changes_shared(["the A + B (≤ 9 g)", "the Ingredient total (≤ 98.7 g)"]) == \
         "Best sits at 2 limits on several rows."
 
