@@ -14,6 +14,7 @@ data/samples/burger_setup (rebuilt by build.py there; checked by
 tests/test_sample_burger.py) and is never part of the yogurt demo: opening
 one never writes the other. Nothing here touches a project that is not one
 of the three sample names."""
+import hashlib
 import json
 from pathlib import Path
 
@@ -31,6 +32,19 @@ TEMPLATE_CSV = _ROOT / "data" / "ingredients_template.csv"
 OPEN_NEXT_KEY = "_open_sample_next"
 RESET_LABEL = "sample_reset"    # the archive label Start this sample over writes
 _ROUND6 = 6                     # the pilot's Round 6, open in the shipped file
+
+# Earlier shipped states of the yogurt pilot (release-080 builds before the
+# pilot's own limits and notes, commits 7b184dc and 29b1b24), by
+# fingerprint(). A copy on disk equal to one of them was written by an
+# earlier build and never changed, so refresh() and ensure() put the current
+# one in its place; a copy that differs in anything is the reader's and is
+# kept (Start this sample over still replaces it, keeping a copy).
+_SUPERSEDED = {
+    ROUND6: {"18f97c374a4eecdc5f14432a98e576c9218a58e0cdb5635211d497d074e09d11",
+             "7f82e37a3c1c7c0fadc045b34b562599bc8b6e7ad577afd70cd7704b2697bfee"},
+    ALL10: {"a7ab23c492a9e3a2c705473ed21c9c784e21c4caa5db18587a661c8ad1096a2b",
+            "d6cd35236c4c2ff0d0a9aa78bcba8e9b0cfef1524b35a4e9d168bc05e887f94e"},
+}
 
 
 def _shipped_path(name):
@@ -94,15 +108,45 @@ def _write_round6_results(storage, overwrite):
     return target.is_file()
 
 
+def fingerprint(state):
+    """A project state's identity, whatever its file's indentation."""
+    return hashlib.sha256(json.dumps(state, sort_keys=True).encode()).hexdigest()
+
+
+def _superseded(storage, name):
+    """`name` is on disk exactly as an earlier build shipped it."""
+    if name not in _SUPERSEDED or not storage.exists(name):
+        return False
+    try:
+        state = storage.load(name)
+    except Exception:            # a damaged file is the reader's to see
+        return False
+    return state is not None and fingerprint(state) in _SUPERSEDED[name]
+
+
+def refresh(storage):
+    """Put the current yogurt pilot in place of a copy an earlier build
+    wrote and nobody changed (_SUPERSEDED); run once per session at launch.
+    Returns the names replaced. A copy that differs in anything is left
+    exactly as it is."""
+    replaced = []
+    for name in YOGURT_NAMES:
+        if _superseded(storage, name):
+            storage.save(name, shipped_state(name))
+            replaced.append(name)
+    return replaced
+
+
 def ensure(storage, names=YOGURT_NAMES):
     """Write each of `names` (the yogurt pilot by default) that is not on
-    disk; never overwrite one that is. With the Round 6 sample, its results
-    file is written beside them the same way."""
+    disk, or is on disk exactly as an earlier build shipped it (refresh);
+    never overwrite one the reader has changed. With the Round 6 sample,
+    its results file is written beside them the same way."""
     written = []
     for name in names:
         if not is_sample(name):
             raise ValueError(f"{name!r} is not a sample")
-        if not storage.exists(name):
+        if not storage.exists(name) or _superseded(storage, name):
             storage.save(name, shipped_state(name))
             written.append(name)
     if ROUND6 in names:

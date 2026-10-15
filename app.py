@@ -260,8 +260,9 @@ def _open_sample(name=sample_projects.ROUND6):
     """Open a sample on its own tab (_sample_tab), writing whichever of its
     own set is missing: the yogurt pilot's two projects, or the example
     setup alone — opening one never writes the other. A sample already on
-    disk is opened exactly as it stands: Start this sample over is the only
-    thing that puts it back."""
+    disk is opened exactly as it stands (unless an earlier build wrote it
+    and it is unchanged: sample_projects.refresh): Start this sample over
+    is the only thing that puts back one the reader changed."""
     names = ((name,) if not sample_projects.is_yogurt(name)
              else sample_projects.YOGURT_NAMES)
     try:
@@ -285,6 +286,17 @@ def _sidebar_samples():
                      help=wording.BURGER_PROVENANCE_HELP):
             _open_sample(sample_projects.BURGER)
         st.caption(wording.SEE_EXAMPLE_SETUP_CAPTION)
+
+
+# Once per session, before any project is opened: a yogurt pilot copy an
+# earlier build wrote and nobody changed is replaced by the current one
+# (sample_projects.refresh); a changed copy is left as it is.
+if not st.session_state.get("_samples_refreshed"):
+    st.session_state["_samples_refreshed"] = True
+    try:
+        sample_projects.refresh(STORAGE)
+    except (OSError, storage_backend.StorageError):
+        pass                     # the old copy still opens; Start this sample over replaces it
 
 
 # A sample can ask, from inside a tab, for another sample to be opened on

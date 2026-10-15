@@ -470,3 +470,59 @@ def test_the_limit_reads_as_the_tables_show_amounts(store):
     opt = FoodOptimizer(sp.ROUND6, storage=store)
     [limit] = opt.quantity_constraints
     assert opt.limit_text(limit) == "Ingredient total: at least 97.69 g and at most 98.69 g"
+
+
+# ------------------------------------------------------------------ #
+#  A copy an earlier build wrote is brought up to date
+# ------------------------------------------------------------------ #
+
+_OLD_BOUNDS = {"Coconut cream": (48.0, 61.0), "Lemon juice": (0.0, 3.0),
+               "Tapioca starch": (1.0, 2.6), "Xanthan gum": (0.1, 0.65)}
+
+
+def _earlier_build(name):
+    """The state the previous build (29b1b24) shipped: limits inferred from
+    the data, and 'Pilot starting set' notes."""
+    state = sp.shipped_state(name)
+    for v in state["variables"]:
+        if v["name"] in _OLD_BOUNDS:
+            v["bounds"] = list(_OLD_BOUNDS[v["name"]])
+    state["quantity_constraints"][0].update({"min": 97.6, "max": 98.7})
+    state["notes_history"] = [n.replace("Random starting set", "Pilot starting set")
+                              for n in state["notes_history"]]
+    return state
+
+
+@pytest.mark.parametrize("name", [sp.ROUND6, sp.ALL10])
+def test_the_earlier_build_is_known_and_this_one_is_not(name):
+    assert sp.fingerprint(_earlier_build(name)) in sp._SUPERSEDED[name]
+    assert sp.fingerprint(sp.shipped_state(name)) not in sp._SUPERSEDED[name]
+
+
+def test_refresh_replaces_an_untouched_copy_from_an_earlier_build(store):
+    for name in sp.YOGURT_NAMES:
+        store.save(name, _earlier_build(name))
+    assert sorted(sp.refresh(store)) == sorted(sp.YOGURT_NAMES)
+    for name in sp.YOGURT_NAMES:
+        assert store.load(name) == sp.shipped_state(name)
+    assert sp.refresh(store) == []                  # once only
+
+
+def test_ensure_replaces_an_untouched_copy_from_an_earlier_build(store):
+    store.save(sp.ROUND6, _earlier_build(sp.ROUND6))
+    assert sorted(sp.ensure(store)) == sorted(sp.YOGURT_NAMES)
+    assert store.load(sp.ROUND6) == sp.shipped_state(sp.ROUND6)
+
+
+def test_a_changed_copy_from_an_earlier_build_is_kept(store):
+    state = _earlier_build(sp.ROUND6)
+    state["tasting_noise"] = 2.0
+    store.save(sp.ROUND6, state)
+    before = Path(f"{sp.ROUND6}.pkl").read_text()
+    assert sp.refresh(store) == []
+    assert sp.ensure(store) == [sp.ALL10]
+    assert Path(f"{sp.ROUND6}.pkl").read_text() == before
+    # Start this sample over still brings it up to date, keeping a copy.
+    archived = sp.restore(sp.ROUND6, store)
+    assert store.load(sp.ROUND6) == sp.shipped_state(sp.ROUND6)
+    assert store.load(archived)["tasting_noise"] == 2.0

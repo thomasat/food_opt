@@ -199,3 +199,25 @@ def test_start_this_sample_over_when_the_results_file_cannot_be_written(at):
     assert "tasting_noise" not in json.loads(Path(f"{sp.ROUND6}.pkl").read_text())
     assert [s.value for s in at.success] == [wording.sample_restored(sp.ROUND6)]
     assert at.session_state["main_tab"] == wording.TAB_INSIGHTS
+
+
+def test_first_launch_brings_an_untouched_earlier_sample_up_to_date(tmp_path, monkeypatch):
+    """A copy an earlier build wrote, never changed, is the current sample
+    from the first run on: the project the app reopens shows the pilot's
+    own limits. A changed copy is left as it is."""
+    from tests.test_sample_projects import _earlier_build
+    monkeypatch.chdir(tmp_path)
+    Path(f"{sp.ROUND6}.pkl").write_text(json.dumps(_earlier_build(sp.ROUND6), indent=2))
+    changed = _earlier_build(sp.ALL10)
+    changed["tasting_noise"] = 2.0
+    Path(f"{sp.ALL10}.pkl").write_text(json.dumps(changed, indent=2))
+    import os
+    os.utime(f"{sp.ALL10}.pkl", (1, 1))          # the Round 6 sample reopens
+    app = AppTest.from_file(APP, default_timeout=120)
+    app.run()
+    assert not app.exception
+    assert json.loads(Path(f"{sp.ROUND6}.pkl").read_text()) == sp.shipped_state(sp.ROUND6)
+    assert json.loads(Path(f"{sp.ALL10}.pkl").read_text()) == changed
+    assert app.session_state["_loaded_project"] == sp.ROUND6
+    opt = app.session_state["optimizer"]
+    assert opt.quantity_constraints[0]["max"] == 98.69051
