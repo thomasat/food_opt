@@ -1084,7 +1084,7 @@ class Disagreement:
 # The Overall score's noise SD while Repeats have fewer than YARDSTICK_DF
 # degrees of freedom: the assumed 1 point (noise_yardstick's fallback).
 ASSUMED_NOISE_SD = 1.0
-# Final demo (B5): the Tasting noise choices in Set up › More settings (points, 1 SD).
+# Final demo (B5): the Tasting noise choices in Set up › Preparation and records (points, 1 SD).
 TASTING_NOISE_CHOICES = (0.5, 1.0, 2.0, 3.0)
 
 

@@ -784,7 +784,7 @@ at.run()
 assert not at.exception, at.exception
 assert "optimizer" not in at.session_state or at.session_state["optimizer"] is None
 assert wording.WELCOME_HEADER in [m.value for m in at.main.markdown]
-next(b for b in at.main.button if b.label == wording.TRY_SAMPLE_LABEL).click()
+next(b for b in at.main.button if b.label == wording.OPEN_YOGURT_LABEL).click()
 at.run()
 assert not at.exception, at.exception
 for name in (sample_projects.ROUND6, sample_projects.ALL10):

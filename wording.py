@@ -205,7 +205,8 @@ BURGER_PROVENANCE_CAPTION = "Example setup; illustrative values, no results."
 BURGER_PROVENANCE_HELP = (
     "Every amount, property, limit and target here is illustrative, not "
     "measured. It shows calculated rows (hydration water as 2.2 × the "
-    "protein, water as the rest), pre-mixes, a process setting, records and "
+    "textured proteins, water as the rest), pre-mixes, a process setting, "
+    "records and "
     "a formulation total. It has no results; the yogurt pilot has real ones.")
 # Once the example holds a Round or a result of the reader's own, "no
 # results" would be false: the caption and its "?" drop it.
@@ -213,12 +214,10 @@ BURGER_PROVENANCE_CAPTION_USED = "Example setup; illustrative values."
 BURGER_PROVENANCE_HELP_USED = (
     "Every amount, property, limit and target here is illustrative, not "
     "measured. It shows calculated rows (hydration water as 2.2 × the "
-    "protein, water as the rest), pre-mixes, a process setting, records and "
+    "textured proteins, water as the rest), pre-mixes, a process setting, "
+    "records and "
     "a formulation total.")
 BURGER_NO_RESULTS = "No results: this example shows set-up only."
-# The names packaging checks (desktop/test_e2e.sh) still click by.
-TRY_SAMPLE_LABEL = OPEN_YOGURT_LABEL
-TRY_SAMPLE_HELP = OPEN_YOGURT_HELP
 # The label of the Set up tab's second tier, on screen and in every text that
 # points to it.
 MORE_SETTINGS_EXPANDER = "Preparation and records"
@@ -231,7 +230,7 @@ SAMPLE_PROVENANCE_HELP = (
     f"Set up › {MORE_SETTINGS_EXPANDER}.")
 
 
-# The project-level Method: one text area in More settings, printed on the
+# The project-level Method: one text area in Preparation and records, printed on the
 # Round sheet under the title.
 # The four things a project can record beside what it is asked to. All four
 # are off for a new project: Vendor and SKU are specification data typed
@@ -1555,7 +1554,7 @@ def formulation_total_row(total_text):
 
     On paper there is no box above it and no caption beside it, so a row
     under Limits read as a limit the user had written. It is off the screen
-    entirely now — the box at the top of More settings is where the number
+    entirely now — the box at the top of Preparation and records is where the number
     is answered — so the sheet says where it came from."""
     return f"{FORMULATION_TOTAL_NAME} · {total_text} (set in Set up)"
 
@@ -3901,7 +3900,7 @@ INSIGHTS_FAILED = "The review could not be prepared for this project."
 def insights_gate(n):
     """Said once on the tab, under Progress, while fewer than 5
     formulations are scored (0.8.0 review fixes §6; 03 §5.1)."""
-    return (f"Prediction check and Next step start at 5 scored {FORMULATION}s. "
+    return (f"{Q_TRUST} and Next step start at 5 scored {FORMULATION}s. "
             f"Scored so far: {n}.")
 
 
@@ -4346,7 +4345,7 @@ def insights_header_line(n, last_round, waiting=0, names_text="", numbers=None):
 
 
 # Prediction check (§2.2; spec review B1, I6, M9; 03 §5.2).
-Q_TRUST = "Prediction check"
+Q_TRUST = "Forecast check"
 
 
 def _values(n):
@@ -5188,7 +5187,7 @@ def why_guard_line(reasons=(), skill_only=False, verdict=False, gate_reason=None
 
 # The Why fold opened before the checks its withhold rule reads are in
 # (answer-key refresh item 8): nothing is shown that might be withdrawn.
-WHY_CHECKING = "Expected gain is not shown until the Prediction check is calculated."
+WHY_CHECKING = f"Expected gain is not shown until the {Q_TRUST} is calculated."
 
 
 # §3.1 (review I5, I9, I12, M4, M5, M9, M15): Why these suggestions.
@@ -6147,7 +6146,8 @@ FOLD_PROGRESS_FIGURES = FOLD_PROGRESS_FIGURES_NAME
 FOLD_NEXT_REASONING = "Next-step reasoning"
 FOLD_MEASURED_CHART = "Measured against predicted"
 FOLD_PROGRESS_CHART = "Progress chart"
-FOLD_METHOD = "Method and definitions"
+# Final review: one name for one thing, the header link's (METHOD_LINK).
+FOLD_METHOD = "Definitions"
 FOLD_EXPLORED = "Explored and unexplored"
 
 
@@ -6200,7 +6200,7 @@ def basis_explored(values=False, total=True):
 
 # --- §3, R-I6: tooltips, the plain reading first, then the BO term ----
 # One "?" per line: a line's help joins the tips of the statistics it
-# names, in screen order (W2's tooltip_for). Method and definitions holds
+# names, in screen order (W2's tooltip_for). Definitions holds
 # every one of them too (M12: hover is hard on touch and keyboard).
 TIP_INTERVAL = (
     "95 % interval: the range a new result should land in about 19 times in 20. BO term: 95 % "
@@ -6290,7 +6290,7 @@ TIP_ACTIVE_BOUNDS = (
     "(within 1 % of its span), so widening it may let it go further. BO term: active bounds of "
     "the constrained maximiser.")
 # The statistics term is not said on screen (answer-key refresh item 7);
-# the one-glance Review's Method and definitions no longer holds it, so the
+# the one-glance Review's Definitions no longer holds it, so the
 # tip no longer points there.
 TIP_LUCK = (
     "Probably helped by luck: Best so far is the highest of many scores, each with its own "
@@ -6496,7 +6496,7 @@ def _inputs_summary(f):
 
 
 def model_summary(facts):
-    """Method and definitions' first part (§7, R-I12, R-I13), from facts
+    """Definitions' first part (§7, R-I12, R-I13), from facts
     read off a model actually built for this project (insights.model_summary,
     W2), never from hard-coded defaults: a list of lines. At the gate (M9)
     only the cold start and the model to come."""
@@ -7111,7 +7111,7 @@ def chooses_line_axis(end):
 CHOOSES_BAND_LEGEND = "Model's own band: narrower than Try one"
 TIP_CHOOSES_BAND = (
     "The band is the suggestion model's own 95 % uncertainty about its mean: no Repeat noise "
-    "and no widening from the Prediction check. It is therefore narrower than the 95 % "
+    "and no widening from the Forecast check. It is therefore narrower than the 95 % "
     "interval under Try one, which is for a new measured result. BO term: latent posterior "
     "95 % credible band.")
 # ------------------------------------------------------------------ #
@@ -7258,7 +7258,7 @@ def short_add_repeat(no):
 
 
 # Make a round (concision round).
-WHY_GAIN_CHECKING_SHORT = "Expected gain shown once the Prediction check is done."
+WHY_GAIN_CHECKING_SHORT = f"Expected gain shown once the {Q_TRUST} is done."
 _WHY_GAIN_SHORT = {"verdict": "predictions miss too often",
                    "skill": "predictions not yet reliable",
                    "noise": "the model is fitting noise"}
@@ -7866,12 +7866,12 @@ def ev_suggestions(acquisition="qlognei"):
     return f"suggestions: Gaussian process on the {OVERALL_SCORE_COLUMN}, {name}"
 
 
-# The one-click way to the Method and definitions fold (its help and the
+# The one-click way to the Definitions fold (its help and the
 # evidence lines' pointer, EV_METHOD, are set with the definitions below).
 # Fix round 1 of the one-glance Review: the fold holds one line per term
 # and the README link, so the label says that ("How the app knows"
 # promised the model, the checks and the limits).
-METHOD_LINK = "Definitions"
+METHOD_LINK = FOLD_METHOD
 
 # The hero: what the x axis is, and a hidden gain as a choice with a next step.
 def hero_axis(values=False):
@@ -8758,7 +8758,7 @@ def forecast_order_tail(order):
 # either side; an order claim only when the forecasts were a noise SD
 # apart; a steady bias said), provenance from the notes, the widen advice
 # with its reason, the score recipe on screen, Plateau after a rise.
-FORECAST_CHECK_TITLE = "Forecast check"
+FORECAST_CHECK_TITLE = Q_TRUST
 CHECK_SO_FAR_NONE = "So far: every pair too close to call."
 
 
@@ -8898,7 +8898,7 @@ def brief(text, limit=TOOLTIP_WORDS):
     """A "?" trimmed to about `limit` words: whole paragraphs in order, the
     "For experts:" paragraph last (cut at a sentence when it alone is long);
     paragraphs that do not fit are left out of the "?" (fix round 4: the
-    Model item's evidence paragraph is in Method and definitions too)."""
+    Model item's evidence paragraph is in Definitions too)."""
     if not text:
         return text
     paras = [p for p in str(text).split("\n\n") if p.strip()]
@@ -9369,7 +9369,7 @@ OFF_BY_TITLE = "Measurements against goals"
 REVIEW_SAYS_STOP = "Review says stop."
 
 
-# Method and definitions (P3 #17).
+# Definitions (P3 #17).
 def method_rising(need_text=None):
     """Rising's exact rule, in the screen's words."""
     here = f" ({need_text} here)" if need_text else ""
@@ -9720,8 +9720,12 @@ def spider_same_help(round_no, start_no):
 def spider_help(start_no, start_round, repeats=False):
     """The caption's "?": what is drawn, how Best so far is chosen, and
     what is not shown."""
-    noise = ("Tasting noise from your Repeats isn't drawn here." if repeats
-             else "With no Repeats, tasting noise isn't shown.")
+    # Final review: the chart draws no noise, but the Round line's "?"
+    # (on_target_help) gives its ± band, from Repeats or assumed.
+    noise = ("No tasting noise is drawn; the Round line's \"?\" gives its ± band, from "
+             "your Repeats." if repeats else
+             "No tasting noise is drawn; the Round line's \"?\" gives its ± band, assumed "
+             "until Repeats measure it.")
     return (f"{BEST_SO_FAR_COLUMN} is chosen by the {OVERALL_SCORE_COLUMN}, not per "
             "measurement. These are the results as entered: no model, no forecast. "
             f"{noise}\n\nInk outline and diamonds: the targets; an arrow where higher or "
@@ -10138,7 +10142,7 @@ def stop_marker_help(round_no, best_text, now_text, gain_text, need_text):
 
 
 # B5 · the project's tasting noise. Since the 2026-10-14 addendum (§11) a
-# setting in Set up › More settings, off the Review: the value in use is
+# setting in Set up › Preparation and records, off the Review: the value in use is
 # the setting, else 1 point, until Repeats (3 df) measure it; the stop's
 # "?" says which, in one plain line (noise_basis, read by A4's
 # ceiling_help).
@@ -10156,7 +10160,7 @@ def tasting_noise_option(value, default=1.0):
 
 def tasting_noise_measured(sd_text, df=None):
     """'Tasting noise: 1.4 points, measured from Repeats' (read-only in
-    More settings)."""
+    Preparation and records)."""
     return f"{TASTING_NOISE_LABEL}: {points_text(sd_text)}, measured from Repeats"
 
 
@@ -10397,8 +10401,8 @@ def results_predicted_help(round_no, no_forecast=False, sample=False):
 REBUILT_LABEL = "Rebuilt from earlier Rounds"
 RESULTS_PREDICTED_CAPTION = "Rebuilt from earlier Rounds: what the model expected."
 # A verdict's pairs: how many were called, of all the pairs there are.
-CALLED_MEANS = ("Called: forecasts at least one tasting noise apart and measured values "
-                "unequal; counted of all pairs.")
+CALLED_MEANS = ("Called: measured values unequal, forecasts at least one tasting noise apart "
+                "and not both at the top; counted of all pairs.")
 
 
 def _right_tail(right, called):
@@ -10488,8 +10492,10 @@ def learned_verdicts_help(n):
     called pair is, adjusted for checking several results."""
     # Sceptic review: 'called' defined, within the "?"'s ~120 words beside
     # the pairs line (the sentence on "Partly" a little shorter for it).
-    out = (f"A pair is two formulations of one {ROUND_CAP}; it is ordered right when its "
-           f"forecasts, from earlier {ROUND_CAP}s only, put it in the measured order. "
+    # Final review: the first sentence 5 words shorter, so the at-cap rule
+    # added to CALLED_MEANS keeps the "?" within its ~120 words.
+    out = (f"A pair: two formulations of one {ROUND_CAP}, ordered right when its forecasts "
+           f"(from earlier {ROUND_CAP}s only) match the measured order. "
            f"{CALLED_MEANS} Predicts: ordered right clearly more often than chance. Partly: "
            f"right over half the time, not yet clearly. Not yet: no better than chance "
            f"so far, too few pairs, or the result barely varies.")
@@ -10641,35 +10647,39 @@ def check_line(round_no, inside, above, below, subject=None, none=0):
     return f"**{ROUND_CAP} {round_no}: {who}{landing_counts(inside, above, below)}{tail}.**"
 
 
-# Method and definitions, one line each (owner, 2026-10-14): the rest of the
+# Definitions, one line each (owner, 2026-10-14): the rest of the
 # method is in the README, "How the Review works". Fix round 1: each line
 # true to the rule the app applies (learned.judge and holm; the coverage
 # ruling above, SIMULATED_COVERAGE; learned.round_call and pair_noise).
 METHOD_DEFINITIONS = (
     f"**{OVERALL_SCORE_COLUMN}**: 0 to 100, how close the measurements come to your targets, "
     "each counted by its Share of score.",
-    "**95 % range**: the model's range for one new result, aimed at 95 in 100; on simulated "
+    "**95 % range**: the range for one new result, aimed at 95 in 100; on simulated "
     f"projects it caught about {SIMULATED_COVERAGE['measurements']} in 100 "
     f"({SIMULATED_COVERAGE['score']} for {OVERALL_SCORE_COLUMN}s).",
     f"**Tasting noise**: how far one {FORMULATION}'s {OVERALL_SCORE_COLUMN} moves when tasted "
-    "again, in points; from Repeats, else assumed.",
+    f"again, in points; from Repeats, else assumed (set in Set up › {MORE_SETTINGS_EXPANDER}).",
     "**Stop**: Best so far is closer to the top score than a new result must rise to be told "
     "apart.",
-    "**Called · too close**: forecasts at least that result's noise apart "
-    f"({OVERALL_SCORE_COLUMN}: points; a measurement: its own units) are called; closer pairs "
-    "are too close; measured-equal pairs never are.",
+    # learned.round_call / too_close: measured apart, forecasts at least the
+    # result's noise apart and not both at the top of the Range (at_cap).
+    "**Called · too close**: called when forecasts are at least the result's noise apart, not "
+    "both at the Range's top; else too close. Measured-equal pairs: neither.",
     "**No forecast**: a 95 % range covering the whole possible Range; counted neither in nor "
     "out.",
-    "**Predicts · Partly · Not yet**: with 5+ pairs called, Predicts if ordered right beyond "
-    "chance (p < 0.05, adjusted), Partly if over half right with weaker evidence (p < 0.20); "
-    "else Not yet, also when over half the pairs were measured equal.",
+    # learned.judge; the exact thresholds (Holm, p < 0.05, p < 0.20, 5+
+    # pairs, over half measured equal) are in the README's "How the Review
+    # works", linked just below.
+    "**Predicts · Partly · Not yet**: Predicts: ordered right well beyond chance. Partly: "
+    "mostly right, weaker evidence. Not yet: neither, too few pairs, or most pairs measured "
+    "equal.",
 )
 REVIEW_README_URL = "https://github.com/thomasat/food_opt#how-the-review-works"
 # Fix round 1: a link (the README is not in the app bundle).
 METHOD_README = f"Full method: [README, “How the Review works”]({REVIEW_README_URL})."
-METHOD_LINK_HELP = (f"Opens Method and definitions: {len(METHOD_DEFINITIONS)} terms, one line "
+METHOD_LINK_HELP = (f"Opens {FOLD_METHOD}: {len(METHOD_DEFINITIONS)} terms, one line "
                     "each, and the README link.")
-# The evidence lines' pointer to the method: Method and definitions is one
+# The evidence lines' pointer to the method: Definitions is one
 # line per term now, so the full method's place (it read "Kernel, priors and
 # every check: How the app knows, top right.").
 EV_METHOD = METHOD_README

@@ -5,6 +5,7 @@ its help carries the record; one decimal rule per measurement on Insights
 and Make a round; the two lines about how predictions are made (spec
 2026-09-29 §3.3, §3.6, §6, §9 I6, I12, I13)."""
 import math
+import os
 
 import pytest
 from tests.demo_build_reason import REVIEW_FOUR
@@ -18,6 +19,8 @@ from tests.test_app_ui import APP_PATH, burger  # noqa: F401
 from tests.test_insights import _burger
 from tests.test_insights_ui import _open_how, _open_insights, insights_scored  # noqa: F401
 from tests.test_insights_wave_b_ui import _batch_table, warm_round  # noqa: F401
+
+README = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "README.md")
 
 
 @pytest.fixture(autouse=True)
@@ -169,7 +172,12 @@ def test_predicted_measurements_carry_their_caption(warm_round):
 def test_how_these_insights_are_made_says_the_process_is_assumed_unchanged(insights_scored):
     at = _open_how(_open_insights(AppTest.from_file(APP_PATH, default_timeout=180)))
     [how] = [e for e in at.tabs[3].expander if e.label == wording.FOLD_METHOD]
-    assert wording.HOW_SAME_PROCESS in [m.value for m in how.markdown]
+    # One-glance Review (owner, 2026-10-14): the fold is one line per term
+    # and links the README; the caveat moved to its "How the Review works",
+    # Limits, word for word.
+    assert wording.METHOD_README in [c.value for c in how.caption]
+    section = open(README, encoding="utf-8").read().split("## How the Review works", 1)[1]
+    assert wording.HOW_SAME_PROCESS in section.split("\n## ", 1)[0]
     assert wording.HOW_SAME_PROCESS == (
         "Predictions assume your ingredients, suppliers and equipment behave as before.")
     assert "ingredient" not in wording.how_same_process(values=True)

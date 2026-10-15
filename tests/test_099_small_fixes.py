@@ -7,6 +7,7 @@ in; and the next Round's expected gain never holds up the first
 answers right after launch."""
 import concurrent.futures as cf
 import json
+import os
 import re
 
 import pytest
@@ -24,6 +25,8 @@ from food_bo import FoodOptimizer
 from tests import demo_projects as demo
 from tests.test_app_ui import APP_PATH
 from tests.test_insights import _burger
+
+README = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "README.md")
 
 
 @pytest.fixture(autouse=True)
@@ -200,7 +203,14 @@ def test_method_and_details_says_the_term():
     at.run()
     assert not at.exception
     how = next(e for e in at.tabs[3].expander if e.label == wording.FOLD_METHOD)
-    assert wording.HOW_REGRESSION in [m.value for m in how.markdown]
+    # One-glance Review (owner, 2026-10-14): the fold is one line per term
+    # and the luck line HOW_REGRESSION explained is off the screen; the
+    # caveat itself lives in the README's "How the Review works", Limits.
+    assert [m.value for m in how.markdown] == list(wording.METHOD_DEFINITIONS)
+    assert wording.METHOD_README in [c.value for c in how.caption]
+    section = open(README, encoding="utf-8").read().split("## How the Review works", 1)[1]
+    assert "Best so far is one noisy maximum and tends to read high." in \
+        section.split("\n## ", 1)[0]
 
 
 # ------------------------------------------------------------------ #

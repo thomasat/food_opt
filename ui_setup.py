@@ -6,10 +6,11 @@ Three tiers, top to bottom (spec 1.5), and nothing else on the tab:
      hand, its per-row errors and its collapsed `Or upload an ingredients
      file` alternative;
   2. the measurements grid, the same way;
-  3. one collapsed `More settings` — Default batch size, Tasting noise,
-     where the targets came from, Limits, and the properties those limits
-     read — and one collapsed `Advanced` at the very foot, holding the
-     model settings and the two explanations.
+  3. one collapsed `Preparation and records` — Default batch size, Tasting
+     noise, the Method, what else to record and where the targets came
+     from — then `Ingredient limits (optional)`, holding Limits and the
+     properties those limits read — and one collapsed `Advanced` at the
+     very foot, holding the model settings and the two explanations.
 
 Neither tier nests an expander inside itself: Streamlit forbids it, and a
 tab that folded the optional half away twice made the reader open two
@@ -408,8 +409,8 @@ def _ingredient_columns(opt, frame):
             wording.UNIT_LABEL, default=opt.amount_unit or "g", width=50),
     }
     # Vendor and SKU are specification data, typed once and never looked at
-    # again, so they are off until the project asks for them (More settings
-    # → Also record). Off, the grid is two columns narrower.
+    # again, so they are off until the project asks for them (Preparation and
+    # records → Also record). Off, the grid is two columns narrower.
     if wording.VENDOR_LABEL in frame.columns:
         columns[wording.VENDOR_LABEL] = st.column_config.TextColumn(
             wording.VENDOR_LABEL, help=wording.VENDOR_HELP, width=95)
@@ -1814,7 +1815,7 @@ def _limit_gap_tail(opt, metric):
 
 
 def _limits(opt, storage):
-    """Limits, inside More settings. A heading and not a fold of its own:
+    """Limits, inside Ingredient limits (optional). A heading and not a fold of its own:
     Streamlit cannot nest one expander in another, and a tab that folded the
     optional half away twice made the reader open two things to reach one.
     """
@@ -2058,10 +2059,14 @@ TASTING_NOISE_KEY = "setup_tasting_noise"
 
 
 def _on_tasting_noise(opt):
+    """Save the chosen tasting noise; a failed save shows its error, as
+    every other Set up save does (a cloud failure lands in save_error)."""
     try:
         insights.set_tasting_noise(opt, st.session_state.get(TASTING_NOISE_KEY))
-    except Exception:
-        pass
+    except (ValueError, TypeError, OSError, storage_backend.StorageError) as e:
+        st.error(str(e))
+        return
+    saved_ok(opt)
 
 
 def _tasting_noise(opt):
@@ -2145,11 +2150,11 @@ def render(opt, storage):
     pending = _measurements(opt, storage) or pending
     st.divider()
     _more_settings(opt, storage)
-    # Past the one rerun tab 1 raises from inside More settings, so the line
+    # Past the one rerun tab 1 raises from inside Preparation and records, so the line
     # that box left behind has been on screen and is done with.
     st.session_state.pop(_REST_ROW_LINE, None)
     # Written now, not where they appear: the Default batch size box is in
-    # More settings, and a caption drawn before it read the old number on
+    # Preparation and records, and a caption drawn before it read the old number on
     # the very run the reader changed it.
     with captions:
         # Every calculated row says what its calculation comes to, in

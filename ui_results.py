@@ -273,18 +273,15 @@ def _round_checkable(opt):
 
 def _round_link(opt):
     """E1 (spec 2026-09-30-bo-views §5; 04 §3): after Save results, with no
-    Round open and the last Round checkable, one text-style link to
-    Insights' Prediction check with Measured against predicted open, landing
-    on the section (ftue M2: the fold sits in Prediction figures, which
-    Insights opens on arrival). A rule
+    Round open and the last Round checkable, one text-style link landing on
+    the Review's Forecast check (it has no fold to open). A rule
     that needs no fit (rounds_not_checked), so it never waits; gone once
     the next Round is generated."""
     if not _round_checkable(opt):
         return False
     last = opt.last_batch_no()
     link(wording.for_project(opt, wording.round_measured_against_predicted(last)),
-         wording.TAB_INSIGHTS, section=ui_insights.TRUST_SECTION, fold=ui_insights.EACH_KEY,
-         key="link_round_checked")
+         wording.TAB_INSIGHTS, section=ui_insights.TRUST_SECTION, key="link_round_checked")
     return True
 
 

@@ -34,9 +34,9 @@ Your version is kept in Saved copies.
 EXAMPLE SETUP
 Click “See an example setup” to open “Example setup - plant-based
 burger” on 1 · Set up. Its values are illustrative and it has no
-results. It shows calculations (hydration water as 2.2 × the protein,
-remaining water as the rest), pre-mixes, a process setting, records and
-a formulation total.
+results. It shows calculations (hydration water as 2.2 × the textured
+proteins, remaining water as the rest), pre-mixes, a process setting,
+records and a formulation total.
 
 YOUR FIRST ROUND
 1. Set up your own project (see below). On 2 · Make a round, click

@@ -438,7 +438,9 @@ def test_word_limits():
         assert _words(text) <= wording.TOOLTIP_WORDS
     help_ = wording.spider_help(3, 1)
     assert "not per measurement" in help_ and "no model" in help_
-    assert "With no Repeats, tasting noise isn't shown." in help_
+    # Final review: true beside the Round line's "?", which gives the ± band.
+    assert "No tasting noise is drawn; the Round line's \"?\" gives its ± band, assumed" in help_
+    assert "from your Repeats." in wording.spider_help(3, 1, repeats=True)
     # Only a disagreeing Repeat may point at the panel (test_review_diag's BENCH).
     assert not [t for t in _all_texts() if re.search(r"panel|supplier|equipment", t, re.I)]
 

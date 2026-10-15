@@ -29,7 +29,7 @@ Choose **Open the yogurt pilot**. It opens **Yogurt pilot - Round 6 to score** o
 
 To try it again, choose **Manage project → Start this sample over**. Your version is kept in **Saved copies**.
 
-To see how a project is set up, choose **See an example setup**. It opens **Example setup - plant-based burger** on **1 · Set up**. Its values are illustrative and it has no results; it shows calculations (Hydration water as 2.2 × the protein, Remaining water as the rest), pre-mixes, a process setting, records and a formulation total.
+To see how a project is set up, choose **See an example setup**. It opens **Example setup - plant-based burger** on **1 · Set up**. Its values are illustrative and it has no results; it shows calculations (Hydration water as 2.2 × the textured proteins, Remaining water as the rest), pre-mixes, a process setting, records and a formulation total.
 
 For your own project, generate formulations in **Make a round** and download the workbook. Use **Round overview** for the plan, **Preparation** for pre-mixes, and **Results** for measurements. Upload the completed workbook, review the imported values, and save the results. Editing the workbook alone does not update the app. You can also enter measurements directly in the app.
 
@@ -41,7 +41,7 @@ The included **Start Here.txt** explains installation and the first-round workfl
 
 ## How the Review works
 
-The full method behind **4 · Review**; the app's **Method and definitions** keeps one line per term.
+The full method behind **4 · Review**; the app's **Definitions** keeps one line per term.
 
 - **Models.** One Gaussian process for the Overall score and one per measurement, each fitted to the formulations that have that value (kernel from your model settings; noise fitted). Suggestions use the Overall-score model only; it is fitted to the scores, not built from the measurement models, so the two can differ slightly.
 - **95 % range.** Mean ± 1.96 × predictive SD × a calibration factor, cut at the measurement's Range (0–100 for the Overall score). The calibration factor is the root-mean-square of standardised errors in 5-fold cross-validation, folds grouped by Round, at least 1; the Overall score's range for the predicted best and new formulations is widened again by a second factor, the root-mean-square of earlier Rounds' standardised Round-ahead errors (at least 1). The range covers one new measured value; on simulated projects it covered about 91 % of measurements and 90 % of Overall scores.
@@ -50,7 +50,7 @@ The full method behind **4 · Review**; the app's **Method and definitions** kee
 - **No forecast.** A 95 % range covering the whole Range (each end within 1 % of its width of the Range's end) forecasts nothing; it is counted neither in nor out.
 - **Tasting noise.** The pooled SD of Repeats of the Overall score once it has 3 degrees of freedom (at least 0.05), from Repeats; until then the project's Tasting noise setting (Set up › Preparation and records; 1 point unless changed), assumed. A measurement's noise is its own Repeat SD, else derived from the Overall score's by its Range and Share of score. A pair is too close to call within one noise; Rising and the stop's tie use a 1-in-20 threshold on it (√2 × noise × a one-sided quantile for the top of the Round's results).
 - **Stop.** Best so far is within the tie threshold of the top score (the rise one new result needs to be told apart from the noise), so no higher score could be told apart.
-- **Limits.** No term p-values or coefficient table: formulations were chosen Round by Round, so term tests would not keep their error rates. Best so far is one noisy maximum and tends to read high. Changing model settings re-scores every earlier Round. A noise threshold from 3 degrees of freedom has a 95 % interval of about 0.57 to 3.7 times the estimate. The first 5 scored formulations come from a space-filling design, not the model.
+- **Limits.** No term p-values or coefficient table: formulations were chosen Round by Round, so term tests would not keep their error rates. Predictions assume your ingredients, suppliers and equipment behave as before. Best so far is one noisy maximum and tends to read high. Changing model settings re-scores every earlier Round. A noise threshold from 3 degrees of freedom has a 95 % interval of about 0.57 to 3.7 times the estimate. The first 5 scored formulations come from a space-filling design, not the model.
 
 ## Ingredients, calculations and limits
 

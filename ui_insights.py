@@ -933,7 +933,7 @@ def render(opt):
     three cards (each with a "See chart ↓" link to its question), the one
     "Definitions" link, then the questions, always open — each a
     small heading, one answer line opening with its card's word, one chart
-    and its caption; Method and definitions, closed, at the foot.
+    and its caption; Definitions, closed, at the foot.
 
     Drawn at once, before anything is fitted (review I15, R-I8): the
     header, the cards' places, the buttons and links, the headings, and the
@@ -1092,7 +1092,7 @@ def _places(opt, gate=False):
     p.q = {}
     # Slim Review: Are we improving? (one panel for its three parts), What
     # next? (the stop signal), the Forecast check (the model's verdicts in
-    # one line, its details in a closed fold), then Method and definitions.
+    # one line, its details in a closed fold), then Definitions.
     for which in SECTION_ORDER:
         p.q[which] = _section(opt, which)
     with p.q["next"].answer.container(gap="xsmall"):
@@ -1341,7 +1341,7 @@ def noise_basis_text(opt, facts):
     """The noise the stop rests on, in one plain line (spec §11: the
     Review has no noise control): measured from Repeats ('Results repeat
     within about 1.4 points, measured from 4 Repeats.'), else the value in
-    use — the project's Tasting noise (Set up › More settings), else 1
+    use — the project's Tasting noise (Set up › Preparation and records), else 1
     point — with the Repeat that would measure it ('Assumes results repeat
     within about 1 point until Repeats measure it. Repeat Formulation 16 to
     check.'); Repeats from 3 df that agree closer than REPEAT_SD_SHOWN:
@@ -1585,7 +1585,7 @@ def _answer(opt, slot, facts, which, text=None, help=None):
 
 
 def _land():
-    """A link that lands on Method and definitions opens it (review polish:
+    """A link that lands on Definitions opens it (review polish:
     the method link). Only on arrival (ui_helpers.SCROLL_KEY, drained by
     app.py after the tab is drawn), so a fold the reader closed stays
     closed."""
@@ -1596,7 +1596,7 @@ def _land():
 def _gate(opt):
     """Fewer than MIN_ROWS scored (review M8, R-B1 row 3): the cards with
     no model behind them, the button, the model-free question (Q2) and
-    Method and definitions."""
+    Definitions."""
     with insights.memo_in_use(memo(opt)):
         facts = insights.status_facts(opt, ())
     places = _places(opt, gate=True)
@@ -3876,7 +3876,7 @@ def repeat_of_best(opt, fitted):
 
 
 def _how(opt):
-    """Method and definitions (one-glance Review, owner 2026-10-14): one
+    """Definitions (one-glance Review, owner 2026-10-14): one
     plain line per term the Review uses, then where the full method is
     (the README's "How the Review works")."""
     with st.container(key=HOW_PLACE), \
@@ -4726,7 +4726,7 @@ METHOD_LINK_KEY = "insights_method_link"
 
 def method_link(opt):
     """Review polish: "Definitions" (METHOD_LINK) opens More detail and
-    Method and definitions and lands on it — one line per term the Review
+    Definitions and lands on it — one line per term the Review
     uses and the README link to the full method, one click from the
     Review."""
     st.button(_say(opt, wording.METHOD_LINK), type="tertiary", key=METHOD_LINK_KEY,
@@ -5305,7 +5305,7 @@ def learned_card(opt, lf, card, facts=None):
             expert += " " + " ".join(tip.split("\n\n"))
     help_ += "\n\n" + expert
     # Review critique (fix 13): about 120 words, plain first, experts last
-    # (it ran to about 450); the rest is in Method and definitions.
+    # (it ran to about 450); the rest is in Definitions.
     return Card(_say(opt, word), warns + [(_say(opt, line), False)] + rest, None,
                 _say(opt, wording.brief(help_)))
 

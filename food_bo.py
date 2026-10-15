@@ -3149,7 +3149,7 @@ class FoodOptimizer:
 
     def set_records(self, field, on):
         """Turn one optional field on or off. Written only on a change, as
-        every other box in More settings is.
+        every other box in Preparation and records is.
 
         Nothing already recorded is thrown away: a vendor typed before the
         box was turned off is still on the row, and turning it back on shows

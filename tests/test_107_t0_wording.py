@@ -324,7 +324,7 @@ def test_the_fold_labels_and_links():
     assert W.FOLD_PREDICTION_FIGURES == "Prediction figures"
     assert W.FOLD_PROGRESS_FIGURES == "Progress figures"
     assert (W.FOLD_NEXT_REASONING, W.FOLD_MEASURED_CHART, W.FOLD_METHOD, W.FOLD_EXPLORED) == (
-        "Next-step reasoning", "Measured against predicted", "Method and definitions",
+        "Next-step reasoning", "Measured against predicted", "Definitions",
         "Explored and unexplored")
     assert W.trade_offs_fold() == "Trade-offs"
     assert W.why_link(6) == "Why Round 6 was suggested"

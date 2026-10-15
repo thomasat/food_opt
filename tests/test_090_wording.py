@@ -139,15 +139,16 @@ def test_the_process_only_forms_say_trial_through_for_project():
 
 def test_headings_are_nouns():
     """03 §4, review I7: noun headings, and the link labels follow them."""
-    assert (W.Q_TRUST, W.Q_STAND, W.Q_NEXT) == ("Prediction check", "Progress", "Next step")
+    assert (W.Q_TRUST, W.Q_STAND, W.Q_NEXT) == ("Forecast check", "Progress", "Next step")
     # Ftue §2 (integration): the folds' new names.
     assert W.FOLD_MEASURED_CHART == "Measured against predicted"
     assert W.FOLD_PROGRESS_CHART == "Progress chart"
-    assert W.FOLD_METHOD == "Method and definitions"
+    assert W.FOLD_METHOD == W.METHOD_LINK == "Definitions"  # final review: one name
     assert W.GAIN_HEADING == "Expected gain by Round"
     assert W.OVERLAY_NAME == "Predicted above Best so far"
     assert W.round_measured_against_predicted(6) == "Round 6: measured against predicted"
-    assert W.LINK_PREDICTION_CHECK == "Prediction check"
+    # Final review: the link is named as the section it opens.
+    assert W.LINK_PREDICTION_CHECK == W.FORECAST_CHECK_TITLE == "Forecast check"
     assert W.LINK_NEXT_STEP == "Next step"
     for heading in (W.Q_TRUST, W.Q_STAND, W.Q_NEXT, W.Q_PAIR, W.Q_MIXTURE, W.WHY_THESE,
                     W.GAIN_HEADING):

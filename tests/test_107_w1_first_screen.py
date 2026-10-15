@@ -535,7 +535,9 @@ def test_results_e1_link_lands_on_the_section():
     import inspect
     import ui_results
     src = inspect.getsource(ui_results)
-    assert "section=ui_insights.TRUST_SECTION, fold=ui_insights.EACH_KEY" in src
+    # Final review: no fold arg; no widget reads EACH_KEY any more.
+    assert "section=ui_insights.TRUST_SECTION, key=\"link_round_checked\"" in src
+    assert "EACH_KEY" not in src
 
 
 # ------------------------------------------------------------------ #

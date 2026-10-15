@@ -145,10 +145,10 @@ def test_method_is_a_few_one_line_definitions_and_the_readme():
     terms = [re.match(r"\*\*(.+?)\*\*: ", line).group(1) for line in lines]
     assert terms == ["Overall score", "95 % range", "Tasting noise", "Stop",
                      "Called · too close", "No forecast", "Predicts · Partly · Not yet"]
-    # Glossary lines may run about 25 words; the verdict rule, in full, longer.
-    limits = {"Called · too close": 30, "Predicts · Partly · Not yet": 40}
-    for term, line in zip(terms, lines):
-        assert _words(line) <= limits.get(term, 27), line
+    # Final review (owner: keep this fold short): every line about 25 words;
+    # the exact thresholds are in the README.
+    for line in lines:
+        assert _words(line) <= 26, line
     # A link (the README is not in the app bundle), its caption short.
     assert "](https://github.com/thomasat/food_opt#how-the-review-works)" in \
         wording.METHOD_README
@@ -164,19 +164,32 @@ def test_each_definition_is_true_to_the_rule_the_app_applies():
     in 100'), the called threshold as the result's own noise."""
     by = {re.match(r"\*\*(.+?)\*\*: ", line).group(1): line
           for line in wording.METHOD_DEFINITIONS}
+    # Final review: the screen says each verdict plainly, every Not yet
+    # cause named (learned.judge: neither test passes, under 5 pairs, or
+    # over half measured equal); the exact thresholds are the README's.
     verdicts = by["Predicts · Partly · Not yet"]
-    assert f"{learned.MIN_PAIRS}+ pairs called" in verdicts
-    assert f"p < {learned.VERDICT_P:.2f}, adjusted" in verdicts
-    assert f"p < {learned.PARTLY_P:.2f}" in verdicts and "over half right" in verdicts
-    assert learned.PARTLY_MIN == learned.MIN_PAIRS
-    assert learned.FLAT_TIES == 0.5 and "over half the pairs were measured equal" in verdicts
+    assert "Predicts: ordered right well beyond chance." in verdicts
+    assert "Partly: mostly right, weaker evidence." in verdicts
+    assert "Not yet: neither, too few pairs, or most pairs measured equal." in verdicts
+    assert learned.PARTLY_MIN == learned.MIN_PAIRS and learned.FLAT_TIES == 0.5
+    section = open(README, encoding="utf-8").read().split("## How the Review works", 1)[1]
+    section = section.split("\n## ", 1)[0]
+    for rule in ("Holm-adjusted", f"p < {learned.VERDICT_P:.2f}",
+                 f"at least {learned.MIN_PAIRS} pairs", f"p < {learned.PARTLY_P:.2f} unadjusted",
+                 "right in more than half", f"under {learned.PARTLY_MIN} pairs called",
+                 "over half the pairs measured equal", "or both forecast at the top"):
+        assert rule in section, rule
     rng = by["95 % range"]
     assert "95 times in 100" not in rng
     assert f"{wording.SIMULATED_COVERAGE['measurements']} in 100" in rng
     assert f"({wording.SIMULATED_COVERAGE['score']} for Overall scores)" in rng
+    # Final review: the at-cap rule (learned.too_close) is said, so the line
+    # is true in every state.
     called = by["Called · too close"]
-    assert "that result's noise" in called and "Overall score: points" in called
-    assert "its own units" in called and "measured-equal pairs never are" in called
+    assert "at least the result's noise apart" in called
+    assert "not both at the Range's top" in called and "Measured-equal pairs: neither." in called
+    noise = by["Tasting noise"]
+    assert noise.endswith(f"(set in Set up › {wording.MORE_SETTINGS_EXPANDER}).")
 
 
 def test_the_readme_holds_the_full_method_in_25_lines():

@@ -287,8 +287,9 @@ def test_the_verdicts_say_called_of_all_pairs():
     assert wording.named_pairs(["Overall score", "Tangy"], counts) == (
         "Overall score (5 of 12 pairs called, 5 right), Tangy (5 of 9 called, 5 right)")
     assert wording.called_of(7, 9, 24) == "9 of 24 called, 7 right"
-    assert "Called: forecasts at least one tasting noise apart and measured values unequal; " \
-           "counted of all pairs." in wording.learned_verdicts_help(5)
+    # Final review: the at-cap rule (learned.too_close) added.
+    assert "Called: measured values unequal, forecasts at least one tasting noise apart and " \
+           "not both at the top; counted of all pairs." in wording.learned_verdicts_help(5)
     # Beside the longest pairs line of the samples (27 words), the "?" still
     # fits its ~120 words, so brief() keeps the definitions.
     pairs = ("Overall score: 9 of 24 pairs called (13 too close, 2 measured equal); 7 right. "
