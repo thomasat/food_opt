@@ -157,12 +157,6 @@ def test_a_low_bias_smaller_than_the_gap_keeps_the_luck_line(standing_of):
     assert insights.best_standing(opt, best, yard, score_bias=-5.0).luck
 
 
-def test_method_and_details_says_the_bias_clause():
-    assert wording.HOW_REGRESSION.endswith(
-        "by more than the noise threshold, and no steady bias of the Overall score "
-        "explains the gap.")
-
-
 # ------------------------------------------------------------------ #
 #  M-7: an unchanged measurements grid leaves the shares alone
 # ------------------------------------------------------------------ #

@@ -167,26 +167,10 @@ def test_the_luck_line_says_it_in_plain_words():
     assert "regression" not in line.lower()
 
 
-def test_the_technical_term_is_said_once_in_method_and_details():
-    """Rewritten for Insights for a first-time user (spec 2026-10-01 rev. 2
-    §3, review M11; T0): the term is said in Method and definitions only,
-    now twice there: its paragraph and the glossary's row for "probably
-    helped by luck"; never on the main screen or in a tooltip."""
-    import inspect
-    source = inspect.getsource(wording)
-    assert len(re.findall(r"regression to the mean", source, re.I)) == 2
-    assert wording.HOW_REGRESSION.startswith("Regression to the mean: ")
-    assert ("probably helped by luck", "regression to the mean") in [
-        row[:2] for row in wording.GLOSSARY_ROWS]
-    assert "regression to the mean" not in " ".join(
-        str(v) for k, v in vars(wording).items() if isinstance(v, str) and k != "HOW_REGRESSION"
-    ).lower()
-
-
 def test_the_new_lines_pass_the_guards():
     from tests.test_090_wording import _STYLE
     from tests.test_food_bo import _BANNED
-    lines = [wording.best_luck(11, "84", "62", "100", "90.09"), wording.HOW_REGRESSION,
+    lines = [wording.best_luck(11, "84", "62", "100", "90.09"),
              wording.WHY_REFERENCE, wording.why_chart_caption("3,000"), wording.WHY_CHECKING]
     assert [t for t in lines if any(p.search(t) for p in _BANNED)] == []
     assert [t for t in lines if any(p.search(t) for p in _STYLE)] == []
@@ -204,7 +188,7 @@ def test_method_and_details_says_the_term():
     assert not at.exception
     how = next(e for e in at.tabs[3].expander if e.label == wording.FOLD_METHOD)
     # One-glance Review (owner, 2026-10-14): the fold is one line per term
-    # and the luck line HOW_REGRESSION explained is off the screen; the
+    # and the luck line's statistics term is off the screen; the
     # caveat itself lives in the README's "How the Review works", Limits.
     assert [m.value for m in how.markdown] == list(wording.METHOD_DEFINITIONS)
     assert wording.METHOD_README in [c.value for c in how.caption]

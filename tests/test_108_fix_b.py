@@ -72,7 +72,6 @@ def test_the_bias_wording_on_insights_and_make_a_round():
     rows = W.status_rule_rows()
     assert any(r[1] == "Clause: scores have come in below or above the predictions" for r in rows)
     assert not any("have run" in " ".join(r) for r in rows)
-    assert not any("have run" in " ".join(r) for r in W.GLOSSARY_ROWS)
 
 
 # ------------------------------------------------------------------ #
@@ -346,8 +345,7 @@ def _everything():
              W.EXPECTED_IMPROVEMENT_HELP, W.BASIS_PREDICTIONS,
              W.BASIS_PROGRESS, W.TIP_NOISE_THRESHOLD,
              W.TIP_THRESHOLD_ASSUMED, W.gain_line("0.12", 6, W.beat_by())]
-    for rows in (W.GLOSSARY_ROWS, W.status_rule_rows()):
-        texts += [" ".join(r) for r in rows]
+    texts += [" ".join(r) for r in W.status_rule_rows()]
     return texts
 
 
@@ -357,10 +355,6 @@ def test_i1_no_single_incumbent_under_qlognei():
     method = _method_text()
     assert "no single incumbent" in method
     assert "approximate" in method
-    best = next(r for r in W.GLOSSARY_ROWS if r[0] == "Best so far")
-    assert "no single incumbent" in best[2]
-    ei = next(r for r in W.GLOSSARY_ROWS if r[0] == "expected gain")   # charts proto: one name
-    assert "no single incumbent" in ei[2] and "approximate" in ei[2]
     assert "approximate" in W.EXPECTED_IMPROVEMENT_HELP
 
 
@@ -384,7 +378,7 @@ def test_i4_the_skill_error_rates_are_exact_and_show_n():
 
 
 def test_i9_the_folds_are_grouped_by_round():
-    for t in (_method_text(), W.BASIS_PREDICTIONS, next(r for r in W.GLOSSARY_ROWS if r[0] == "calibration factor")[2]):
+    for t in (_method_text(), W.BASIS_PREDICTIONS):
         assert "grouped by Round" in t, t
 
 
@@ -395,8 +389,7 @@ def test_i10_the_coverage_count_assumes_independent_misses():
 
 def test_i11_the_threshold_is_gated_on_degrees_of_freedom():
     for t in (W.BASIS_PROGRESS, W.TIP_NOISE_THRESHOLD,
-              W.TIP_THRESHOLD_ASSUMED,
-              next(r for r in W.GLOSSARY_ROWS if r[0] == "noise threshold")[2]):
+              W.TIP_THRESHOLD_ASSUMED):
         assert "3 pairs" not in t and "3 Repeat pairs" not in t, t
         assert "3 degrees of freedom" in t or "3 df" in t, t
     assert W.stand_repeats("0.8", 1, df=1, groups=1) == (
@@ -417,7 +410,7 @@ def test_i12_changed_settings_are_not_a_fair_test():
 
 
 def test_every_new_text_is_clean():
-    cells = [_method_facts_lines(), W.status_rule_rows(), W.GLOSSARY_ROWS]
+    cells = [_method_facts_lines(), W.status_rule_rows()]
     for group in cells:
         for item in group:
             for t in (item if isinstance(item, tuple) else (item,)):

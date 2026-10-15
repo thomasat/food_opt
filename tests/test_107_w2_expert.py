@@ -457,16 +457,6 @@ def _cells(table):
 
 
 @pytest.mark.usefixtures("_isolate")
-def test_method_and_definitions_on_the_process_only_study():
-    """M4: the glossary's own process-settings form, never for_project."""
-    opt, fold = _method(D.PROCESS_ONLY)
-    rules, glossary = list(fold.table)
-    assert set(_cells(glossary)) == {c for r in W.GLOSSARY_ROWS_SETTINGS for c in r}
-    assert "process setting" in " ".join(_cells(rules))
-    assert "Inputs: each process setting" in "\n".join(m.value for m in fold.markdown)
-
-
-@pytest.mark.usefixtures("_isolate")
 def test_method_and_definitions_at_the_gate():
     opt, fold = _method(D.SNACK)
     text = "\n".join(m.value for m in fold.markdown)

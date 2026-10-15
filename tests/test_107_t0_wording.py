@@ -437,21 +437,11 @@ def test_one_rule_row_per_state_and_per_next_row_in_first_match_order():
 #  The glossary (§3, R-B2, M4, M5, M8)
 # ------------------------------------------------------------------ #
 
-def test_the_glossary_keeps_one_order_in_both_forms():
-    """M8: one canonical order, the status lines first; M5: the Round row."""
-    assert len(W.GLOSSARY_ROWS) == len(W.GLOSSARY_ROWS_SETTINGS)
-    assert W.GLOSSARY_ROWS[0][0] == "Reliable · Not yet · Off"
-    assert W.GLOSSARY_ROUND_MEANING == (
-        "the formulations made together; in BO texts a “batch” of q generated suggestions")
-    shared = [a for a, b in zip(W.GLOSSARY_ROWS, W.GLOSSARY_ROWS_SETTINGS) if a == b]
-    assert len(shared) >= len(W.GLOSSARY_ROWS) // 2
-
-
 def test_the_glossary_is_allowed_only_where_it_must_be():
     """R-B2: of every glossary and Model-and-method string, only the
     allowlisted ones say a banned word, and every other line of this wave
     passes unaided."""
-    every = set(W.glossary_cells()) | {W.MODEL_SUMMARY_LEAD}
+    every = {W.MODEL_SUMMARY_LEAD}
     assert {t for t in every if any(p.search(t) for p in _BANNED)} == _FTUE_ALLOWED
     for group in _GROUPS:
         assert not set(group()) & (_FTUE_ALLOWED - {W.MODEL_SUMMARY_LEAD}), group.__name__

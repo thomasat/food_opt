@@ -4040,15 +4040,6 @@ def coverage_reading():
             f"{c['score']} % ({OVERALL_SCORE_COLUMN}) on simulated projects.")
 
 
-# The statistics term behind Progress's Repeat line, said here only
-# (answer-key refresh item 7): the main screen says it in plain words.
-HOW_REGRESSION = ("Regression to the mean: Best so far is the highest of the measured Overall "
-                  "scores, so its own noise is more often above zero than below. A Repeat of it "
-                  "is predicted by the Overall-score model at its amounts. Progress gives that "
-                  "prediction when it is below the measured score by more than the noise "
-                  "threshold, and no steady bias of the Overall score explains the gap.")
-
-
 def how_checks(values=False, total=True):
     """A project of process settings alone runs each trial at its values.
     `total`: the project has a Formulation total, so a formulation made off
@@ -4067,14 +4058,6 @@ def how_checks(values=False, total=True):
 HOW_CHECKS = how_checks()
 
 
-def how_same_process(values=False):
-    """0.8.0 review fixes §9 I13. `values`: a project of process settings
-    alone, which has no ingredients."""
-    what = "suppliers and equipment" if values else "ingredients, suppliers and equipment"
-    return f"Predictions assume your {what} behave as before."
-
-
-HOW_SAME_PROCESS = how_same_process()
 TRACK_PREDICTED = "Round-ahead prediction"
 TRACK_MEASURED = "Measured"
 TRACK_LOW = "95 % interval, lower end"
@@ -4167,8 +4150,7 @@ def moved_together(first, second, r_text=None):
 def best_luck(n, mean_text, low_text, high_text, measured_text=None):
     """Under the predicted best when a Repeat of Best so far is predicted
     below its measured score (0.8.0 review fixes §3.6; 03 §5.3). Plain
-    words on the main screen; the term is in Method and details
-    (HOW_REGRESSION; answer-key refresh item 7)."""
+    words; the README's Limits say why Best so far tends to read high."""
     below = f", below its measured {measured_text}" if measured_text is not None else ""
     return (f"A Repeat of {FORMULATION_CAP} {n} is predicted at {mean_text} (95 % interval "
             f"{low_text}–{high_text}){below}. Best so far's measured score is partly chance, so "
@@ -6617,186 +6599,6 @@ def status_rule_rows(cut_text="−0.20", settings_only=False):
         (n, "Rising", "Progress Rising."),
         (n, "See", "Any other case."),
     ]
-
-
-# --- §3, §7, R-B2, M4, M5, M8: the glossary --------------------------
-GLOSSARY_OVERALL_TERM = "objective (an additive desirability, weighted by Share of score)"
-GLOSSARY_ROUND_TERM = "batch of q suggestions"
-GLOSSARY_ROUND_MEANING = ("the formulations made together; in BO texts a “batch” of q generated "
-                          "suggestions")
-GLOSSARY_ROWS = (
-    ("Reliable · Not yet · Off", "validation verdict",
-     "The Predictions status: coverage of the 95 % intervals and out-of-sample skill together. "
-     "Not yet covers the Prediction check's Not judged yet."),
-    ("the range the app predicted · 95 % interval",
-     "95 % posterior predictive interval (calibrated)",
-     "Where one new measured value should land: posterior mean ± 1.96 × predictive SD × "
-     "calibration factor, cut at the Range. " + coverage_reading()),
-    ("score predictions beat the average · skill", "out-of-sample skill score (Q²-type, not R²)",
-     "1 − SSE/SSE(running mean of earlier results), pooled over Rounds; 0 = as good as the "
-     "average, 1 = perfect."),
-    ("scores have come in below or above the predictions · mean error",
-     "mean prediction error (bias)",
-     "Average of measured − predicted; a steady bias beyond the noise threshold and 2 standard "
-     "errors."),
-    ("Rising · Within noise · Flat · Too early · No new best",
-     "improvement of the best observed value against replicate noise",
-     "The rise of Best so far in the latest Round, compared with the noise threshold."),
-    ("Best so far", "best observed value",
-     "The highest measured Overall score among formulations with all results in. Not what "
-     "qLogNEI compares with: it has no single incumbent, but takes the highest latent value "
-     "among the tested formulations in each posterior draw."),
-    ("probably helped by luck", "regression to the mean",
-     "A Repeat of Best so far is predicted below its measured score by more than the noise "
-     "threshold."),
-    ("Repeat · pair · df", "replicate · replicate pair · degrees of freedom",
-     "The same amounts made again; a Repeat and its original are a pair; df = (results of "
-     "formulations made more than once) − (number of such formulations)."),
-    ("noise threshold", "pooled replicate (pure-error) SD",
-     "Pooled SD of Repeats of the Overall score once it has 3 degrees of freedom (3 df; at "
-     "least 0.05), else 1 point, assumed; not the Gaussian process's fitted noise."),
-    ("Where you have tested", "marginal coverage of each input (model-free)",
-     "Each recorded formulation as a tick at its amount, one input at a time; combinations can "
-     "be untested where every strip looks covered."),
-    ("Every allowed formulation (map)", "posterior mean against latent posterior sd",
-     "Each grey dot is an allowed formulation from a hit-and-run sample of the feasible region; "
-     "high = unexplored, right = predicted good."),
-    ("allowed amounts", "design space; with your limits, the feasible region",
-     "Every formulation within each row's Lowest–Highest that meets every limit."),
-    ("Round-ahead check", "rolling-origin (pseudo-prospective) validation",
-     "Each Round predicted by models refitted on earlier Rounds only, recomputed with today's "
-     "settings."),
-    ("As expected · More misses than expected · Many more misses than expected · Not judged yet",
-     "coverage test (binomial at 5 % per value)",
-     "Misses outside the 95 % intervals against a binomial at 5 %: as expected from 1 in 10 up, "
-     "many more below 1 in 100; Not judged yet under 10 values or with every interval wide."),
-    ("calibration factor", "cross-validated calibration factor",
-     "Root-mean-square of 5-fold cross-validated standardised errors (folds grouped by Round, "
-     "Repeats kept together), at least 1; every 95 % interval is multiplied by it."),
-    ("predicted score · model mean", "posterior mean", "The model's single best guess."),
-    ("predicted best", "maximiser of the posterior mean over the feasible region",
-     "The allowed formulation the model scores highest; at a Highest or Lowest it sits on an "
-     "active bound."),
-    ("expected gain", "expected improvement (acquisition value; qLogNEI by default; qLogEI; qUCB)",
-     "Average gain of one new formulation, counting no gain as zero: under qLogNEI, over the "
-     "highest latent value among the tested formulations in each posterior draw (no single "
-     "incumbent; shown as the exp of a log value, so approximate); under qLogEI, over the best "
-     "measured score."),
-    ("model sd · how unsure the model is · Uncertainty", "latent posterior standard deviation",
-     "The model's own uncertainty about its mean, without observation noise or calibration; "
-     "narrower than the 95 % interval."),
-    ("tested near · untested amounts", "inside or outside an L∞ neighbourhood of the design points",
-     "Within 15 % of each varying row's Lowest–Highest span, all rows at once, of a formulation "
-     "with all results in."),
-    ("local effect", "range of the posterior mean along a one-factor trace",
-     "Largest minus smallest predicted score as one ingredient changes, over the tested "
-     "stretch; unsigned, not a coefficient."),
-    ("correlated (|r|)", "collinear inputs (confounded effects)",
-     "|Pearson r| at least 0.7 between two ingredients across formulations with all results in."),
-    ("Overall score", GLOSSARY_OVERALL_TERM,
-     "Sum over measurements of closeness to the goal (0–1) × Share of score, 0–100."),
-    ("measurement", "outcome (response)", "A measured result the Overall score is built from."),
-    ("ingredient · process setting", "input (factor); ingredients are mixture components",
-     "A column of the model, normalised by its own Lowest–Highest."),
-    ("model", "surrogate model: a Gaussian process (BoTorch SingleTaskGP)",
-     "Learns the Overall score from the formulations with all results in; one more per "
-     "measurement for this tab."),
-    ("how smoothly results change", "kernel (covariance function)",
-     "Recommended settings: squared exponential (RBF) with ARD; the kernel in use is named "
-     "under Model and method."),
-    ("correlation length", "lengthscale (one per input: ARD)",
-     "How far an input must move before results change much; at its lower limit, the model is "
-     "fitting noise."),
-    ("Round", GLOSSARY_ROUND_TERM, GLOSSARY_ROUND_MEANING),
-    ("laid out to cover your allowed amounts", "space-filling initial design (cold start)",
-     "The first 5 formulations with all results in come from a space-filling design, not the "
-     "acquisition."),
-    ("suggestions", "candidates that maximise the acquisition",
-     "Chosen one at a time (sequential greedy), each valued with the earlier picks counted as "
-     "pending."),
-    ("refines the best · balanced · explores", "distance labels",
-     "Within 15 % of Best so far, more than 30 % from everything recorded, or in between; not "
-     "the acquisition's exploitation–exploration split."),
-)
-
-# The process-settings form (M4): the rows that name formulations, amounts
-# or ingredients, rewritten; every other row is shared.
-GLOSSARY_ROUND_MEANING_SETTINGS = ("the trials run together; in BO texts a “batch” of q "
-                                   "generated suggestions")
-_GLOSSARY_SETTINGS_FORM = {
-    "Best so far": (
-        "Best so far", "best observed value",
-        "The highest measured Overall score among trials with all results in. Not what "
-        "qLogNEI compares with: it has no single incumbent, but takes the highest latent value "
-        "among the tested trials in each posterior draw."),
-    "Repeat · pair · df": (
-        "Repeat · pair · df", "replicate · replicate pair · degrees of freedom",
-        "The same values run again; a Repeat and its original are a pair; df = (results of "
-        "trials run more than once) − (number of such trials)."),
-    "Where you have tested": (
-        "Where you have tested", "marginal coverage of each input (model-free)",
-        "Each recorded trial as a tick at its value, one process setting at a time; "
-        "combinations can be untested where every strip looks covered."),
-    "Every allowed formulation (map)": (
-        "Every allowed trial (map)", "posterior mean against latent posterior sd",
-        "Each grey dot is an allowed trial from a hit-and-run sample of the feasible region; "
-        "high = unexplored, right = predicted good."),
-    "allowed amounts": (
-        "allowed values", "design space; with your limits, the feasible region",
-        "Every trial within each setting's Lowest–Highest that meets every limit."),
-    "predicted best": (
-        "predicted best", "maximiser of the posterior mean over the feasible region",
-        "The allowed trial the model scores highest; at a Highest or Lowest it sits on an "
-        "active bound."),
-    "expected gain": (
-        "expected gain", "expected improvement (acquisition value; qLogNEI by default; qLogEI; qUCB)",
-        "Average gain of one new trial, counting no gain as zero: under qLogNEI, over the "
-        "highest latent value among the tested trials in each posterior draw (no single "
-        "incumbent; shown as the exp of a log value, so approximate); under qLogEI, over the "
-        "best measured score."),
-    "tested near · untested amounts": (
-        "tested near · untested values",
-        "inside or outside an L∞ neighbourhood of the design points",
-        "Within 15 % of each varying setting's Lowest–Highest span, all at once, of a trial "
-        "with all results in."),
-    "local effect": (
-        "local effect", "range of the posterior mean along a one-factor trace",
-        "Largest minus smallest predicted score as one process setting changes, over the "
-        "tested stretch; unsigned, not a coefficient."),
-    "correlated (|r|)": (
-        "correlated (|r|)", "collinear inputs (confounded effects)",
-        "|Pearson r| at least 0.7 between two process settings across trials with all results "
-        "in."),
-    "ingredient · process setting": (
-        "process setting", "input (factor)",
-        "A column of the model, normalised by its own Lowest–Highest."),
-    "model": (
-        "model", "surrogate model: a Gaussian process (BoTorch SingleTaskGP)",
-        "Learns the Overall score from the trials with all results in; one more per "
-        "measurement for this tab."),
-    "Round": ("Round", GLOSSARY_ROUND_TERM, GLOSSARY_ROUND_MEANING_SETTINGS),
-    "laid out to cover your allowed amounts": (
-        "laid out to cover your allowed values", "space-filling initial design (cold start)",
-        "The first 5 trials with all results in come from a space-filling design, not the "
-        "acquisition."),
-}
-GLOSSARY_ROWS_SETTINGS = tuple(_GLOSSARY_SETTINGS_FORM.get(row[0], row) for row in GLOSSARY_ROWS)
-
-
-def _says_trial(text):
-    return any(word.strip(".,;:()“”") in ("trial", "trials") for word in text.split())
-
-
-# The process-settings form's cells that type the word for themselves, as
-# PROCESS_STUDY_INTRO does: the one other allowance the glossary needs.
-GLOSSARY_SETTINGS_TRIAL_CELLS = tuple(cell for row in _GLOSSARY_SETTINGS_FORM.values()
-                                      for cell in row if _says_trial(cell))
-
-
-def glossary_cells():
-    """Every cell of both forms, for the guard's scoped allowance."""
-    return [cell for rows in (GLOSSARY_ROWS, GLOSSARY_ROWS_SETTINGS) for row in rows
-            for cell in row]
 
 
 # --- §8, R-I14, R-I15, R-I16: explored and unexplored ----------------
@@ -9318,21 +9120,6 @@ def learned_line(count, groups):
     return " ".join(parts)
 
 
-def learned_verdicts_help(n):
-    """The verdict line's "?": the three words in plain words, adjusted for
-    checking several results."""
-    out = (f"A pair is two formulations of one {ROUND_CAP}: it counts as ordered right when "
-           f"their forecasts, from earlier {ROUND_CAP}s only, put them in the order measured. "
-           f"Predicts: "
-           f"ordered right clearly more often than chance. Partly: right more than half the "
-           f"time, not yet clearly beyond chance. Not yet: no better than chance so far, too "
-           f"few pairs, or the result barely varies.")
-    if n > 1:
-        out += (f" Adjusted for checking {n} results at once, so one that passes by luck "
-                f"doesn't count as Predicts.")
-    return out
-
-
 def review_status_strip(progress, model, next_word):
     """Make a round's Review line, the strip's own words: 'Review: Rising ·
     Predicts: Overall score · Stop, or change the target'."""
@@ -10401,8 +10188,11 @@ def results_predicted_help(round_no, no_forecast=False, sample=False):
 REBUILT_LABEL = "Rebuilt from earlier Rounds"
 RESULTS_PREDICTED_CAPTION = "Rebuilt from earlier Rounds: what the model expected."
 # A verdict's pairs: how many were called, of all the pairs there are.
-CALLED_MEANS = ("Called: measured values unequal, forecasts at least one tasting noise apart "
-                "and not both at the top; counted of all pairs.")
+# The Definitions' rule (learned.round_call, too_close, pair_noise): each
+# result's own noise, not the tasting noise alone.
+CALLED_MEANS = ("Called: measured values unequal, forecasts at least the result's noise apart "
+                f"({OVERALL_SCORE_COLUMN} in points, a measurement in its own units) and not "
+                "both at the top; counted of all pairs.")
 
 
 def _right_tail(right, called):
@@ -10492,13 +10282,12 @@ def learned_verdicts_help(n):
     called pair is, adjusted for checking several results."""
     # Sceptic review: 'called' defined, within the "?"'s ~120 words beside
     # the pairs line (the sentence on "Partly" a little shorter for it).
-    # Final review: the first sentence 5 words shorter, so the at-cap rule
-    # added to CALLED_MEANS keeps the "?" within its ~120 words.
+    # Final review: the verdicts in the Definitions' words (learned.judge),
+    # short enough that the full CALLED_MEANS keeps the "?" within ~120 words.
     out = (f"A pair: two formulations of one {ROUND_CAP}, ordered right when its forecasts "
            f"(from earlier {ROUND_CAP}s only) match the measured order. "
-           f"{CALLED_MEANS} Predicts: ordered right clearly more often than chance. Partly: "
-           f"right over half the time, not yet clearly. Not yet: no better than chance "
-           f"so far, too few pairs, or the result barely varies.")
+           f"{CALLED_MEANS} Predicts: ordered right well beyond chance. Partly: mostly right, "
+           "weaker evidence. Not yet: neither, too few pairs, or most pairs measured equal.")
     if n > 1:
         out += (f" Adjusted for checking {n} results at once, so one that passes by luck "
                 "doesn't count as Predicts.")

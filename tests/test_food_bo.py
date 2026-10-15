@@ -4429,18 +4429,12 @@ class TestRoundTwoFixes:
 # (test_the_ftue_allowance_is_scoped). Quotes would not help: the patterns
 # search the whole string. "lengthscale" (the library's spelling) and "BO
 # term" pass unaided, so they need no entry.
+# Final review (0.8.0): the glossary is gone from the app; only the Model
+# and method lead keeps its allowance.
 _FTUE_BO_TERMS = {
     wording.MODEL_SUMMARY_LEAD,              # "Bayesian optimisation", said once
-    wording.GLOSSARY_OVERALL_TERM,           # Overall score: "objective", "weighted"
-    wording.GLOSSARY_ROUND_TERM,             # Round: "batch" (review M5)
-    wording.GLOSSARY_ROUND_MEANING,
-    wording.GLOSSARY_ROUND_MEANING_SETTINGS,
 }
-# The glossary's process-settings form is written out, not made by
-# for_project (review M4: for_project garbles BO definitions), so its cells
-# type "trial" for themselves, as PROCESS_STUDY_INTRO does.
-_FTUE_TRIAL_CELLS = set(wording.GLOSSARY_SETTINGS_TRIAL_CELLS)
-_FTUE_ALLOWED = _FTUE_BO_TERMS | _FTUE_TRIAL_CELLS
+_FTUE_ALLOWED = _FTUE_BO_TERMS
 
 # Sentences that are allowed to keep a banned word, each for a stated reason.
 _ALLOWED_EXACT = {
@@ -4638,10 +4632,7 @@ def test_no_old_vocabulary_reaches_the_user():
 
 # The names that carry the allowed BO terms (review R-B2), and the two
 # Method-and-definitions drawers that may say them (W2's, in ui_insights).
-_FTUE_NAMES = {"MODEL_SUMMARY_LEAD", "model_summary", "GLOSSARY_ROWS",
-               "GLOSSARY_ROWS_SETTINGS", "glossary_rows", "glossary_cells",
-               "GLOSSARY_OVERALL_TERM", "GLOSSARY_ROUND_TERM", "GLOSSARY_ROUND_MEANING",
-               "GLOSSARY_ROUND_MEANING_SETTINGS", "GLOSSARY_SETTINGS_TRIAL_CELLS"}
+_FTUE_NAMES = {"MODEL_SUMMARY_LEAD", "model_summary"}
 _FTUE_DRAWERS = {"_glossary", "_model_and_method"}
 
 
@@ -4670,7 +4661,7 @@ def test_the_ftue_allowance_is_scoped():
     written in wording.py alone; on screen, only Method and definitions'
     two drawers read them; and every other prose literal stays scanned."""
     root = pathlib.Path(__file__).resolve().parent.parent
-    bo_text = set(wording.glossary_cells()) | {wording.MODEL_SUMMARY_LEAD}
+    bo_text = {wording.MODEL_SUMMARY_LEAD}
 
     def refused(text):
         return (text not in _ALLOWED_EXACT and not text.startswith(_ALLOWED_PREFIXES)

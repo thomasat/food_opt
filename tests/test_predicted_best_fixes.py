@@ -177,15 +177,12 @@ def test_how_these_insights_are_made_says_the_process_is_assumed_unchanged(insig
     # Limits, word for word.
     assert wording.METHOD_README in [c.value for c in how.caption]
     section = open(README, encoding="utf-8").read().split("## How the Review works", 1)[1]
-    assert wording.HOW_SAME_PROCESS in section.split("\n## ", 1)[0]
-    assert wording.HOW_SAME_PROCESS == (
-        "Predictions assume your ingredients, suppliers and equipment behave as before.")
-    assert "ingredient" not in wording.how_same_process(values=True)
+    assert ("Predictions assume your ingredients, suppliers and equipment behave as "
+            "before.") in section.split("\n## ", 1)[0]
 
 
 def test_the_new_strings_pass_the_vocabulary_guard():
     from tests.test_food_bo import _BANNED
     for text in (wording.best_luck(30, "84", "79", "89"), wording.PREDICTED_SCORE_HELP,
-                 wording.PREDICTED_MEASUREMENTS_CAPTION, wording.HOW_SAME_PROCESS,
-                 wording.how_same_process(values=True)):
+                 wording.PREDICTED_MEASUREMENTS_CAPTION):
         assert not any(p.search(text) for p in _BANNED), text
