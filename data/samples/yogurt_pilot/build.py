@@ -36,7 +36,8 @@ open Round.
 
 Results: each rating is the median of a trained panel of five, 0-15, one per
 attribute per Batch; no Batch was repeated. Each Batch was mixed, cooked at
-90 C for 8 min and chilled (no culture or fermentation). The campaign's
+90 C for 8 min and chilled (no culture or fermentation: the paper's method is
+mix, cook, chill, with no culture among its ingredients). The campaign's
 budget was fixed at 10 Rounds of 3.
 
 No dates. The pilot was tasted Feb-May 2026, but its CSVs carry no date for

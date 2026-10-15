@@ -371,6 +371,21 @@ def test_the_docs_say_what_the_screen_says(doc):
     assert sp.BURGER in text and "Try the sample project" not in text
 
 
+@pytest.mark.parametrize("doc", ["README.md", "build.py"])
+def test_no_culture_says_where_it_comes_from(doc):
+    """'No culture or fermentation' is a claim about the pilot; where it is
+    made, its source is said with it: the paper's method (mix, cook,
+    chill) and its ingredients, none of them a culture."""
+    import re
+    text = " ".join((sp.SAMPLE_DIR / doc).read_text(encoding="utf-8").split())
+    claims = [m.start() for m in re.finditer("no culture or fermentation", text, re.I)]
+    assert claims
+    for at in claims:
+        said = text[at:at + 120]
+        assert "the paper's method is mix, cook, chill" in said, said
+        assert "no culture among its ingredients" in said, said
+
+
 def _xlsx_write_fails(monkeypatch):
     """Every write of the results file fails (a full or read-only disk);
     the project files are written by LocalStorage.save, not this."""
