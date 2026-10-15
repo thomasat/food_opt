@@ -3566,16 +3566,25 @@ def explore_map_chart(pool_mean, pool_sd, tested, picks, ref=None, opt=None, gai
     ink, _ = mark("bar_latest")
     # Review plots: one legend for the three kinds of mark (the caption
     # named them before), the ring and diamond drawn as on the chart.
-    kinds = [say(wording.PLOT_ALLOWED), say(wording.PLOT_TESTED), say(wording.PLOT_SUGGESTION)]
-    kind_colour = alt.Scale(domain=kinds, range=["#b8bcc4", ring_c, outline_colour()])
-    kind_fill = alt.Scale(domain=kinds, range=["#b8bcc4", "transparent", outline_colour()])
-    kind_shape = alt.Scale(domain=kinds, range=["circle", "circle", "diamond"])
+    # Honesty fix: a row the team entered is its own kind (hollow diamond),
+    # never "This Round's suggestion"; a legend entry only for kinds present.
+    mine_own = [bool(p.get("own")) for p in picks] if len(mine) else []
+    top = []
+    if not mine_own or not all(mine_own):
+        top.append((say(wording.PLOT_SUGGESTION), outline_colour(), outline_colour()))
+    if any(mine_own):
+        top.append((say(wording.PLOT_ENTERED), outline_colour(), "transparent"))
+    kinds = [say(wording.PLOT_ALLOWED), say(wording.PLOT_TESTED)] + [t[0] for t in top]
+    kind_colour = alt.Scale(domain=kinds, range=["#b8bcc4", ring_c] + [t[1] for t in top])
+    kind_fill = alt.Scale(domain=kinds, range=["#b8bcc4", "transparent"] + [t[2] for t in top])
+    kind_shape = alt.Scale(domain=kinds, range=["circle", "circle"] + ["diamond"] * len(top))
     # Round-2 fixes (P2 #14): the marks' legend in the top-right corner.
     legend = alt.Legend(title=None, orient="top-right", labelLimit=0, fillColor=_page(),
                         padding=6, cornerRadius=3)
     pool = pool.assign(what=kinds[0])
     tested = tested.assign(what=kinds[1])
-    mine = mine.assign(what=kinds[2])
+    mine = mine.assign(what=[say(wording.PLOT_ENTERED) if o else say(wording.PLOT_SUGGESTION)
+                             for o in mine_own] if len(mine) else [])
     if len(mine):
         mine["bo"] = [wording.plot_bo_map(m, d) for m, d in zip(mine["mean"], mine["sd"])]
     if len(tested):
@@ -3615,9 +3624,9 @@ def explore_map_chart(pool_mean, pool_sd, tested, picks, ref=None, opt=None, gai
                          shape=alt.Shape("what:N", scale=kind_shape, legend=legend)))
     if "gain" in pool.columns:
         kinds = kinds[1:]
-        kind_colour = alt.Scale(domain=kinds, range=[ring_c, outline_colour()])
-        kind_fill = alt.Scale(domain=kinds, range=["transparent", outline_colour()])
-        kind_shape = alt.Scale(domain=kinds, range=["circle", "diamond"])
+        kind_colour = alt.Scale(domain=kinds, range=[ring_c] + [t[1] for t in top])
+        kind_fill = alt.Scale(domain=kinds, range=["transparent"] + [t[2] for t in top])
+        kind_shape = alt.Scale(domain=kinds, range=["circle"] + ["diamond"] * len(top))
     layers = [
         cloud,
         # The neutral token (polish round): gray at Vega's default 0.7 was

@@ -7485,6 +7485,7 @@ PLOT_TESTED = f"Tested {FORMULATION}"
 PLOT_TESTED_NEAR = "Tested near this line"
 PLOT_ALLOWED = f"Allowed {FORMULATION} (sample)"
 PLOT_SUGGESTION = f"This {ROUND_CAP}'s suggestion"
+PLOT_ENTERED = f"Entered this {ROUND_CAP}"
 PLOT_START = "Start"
 PLOT_SCORE_EACH = f"Each {FORMULATION}'s score"
 PLOT_INSIDE = "Inside its 95 % range"
@@ -9141,14 +9142,19 @@ def profiler_cramped(names):
 MAP_DIAMONDS_CAPTION = f"Diamonds: this {ROUND_CAP}'s {FORMULATION}s."
 
 
-def why_chart_caption_full(n, line=True, gain=False, grey=False):
+def why_chart_caption_full(n, line=True, gain=False, grey=False, entered=0, total=0):
     """The map's "?": what each mark is, the colour, and what the zoom
     leaves out."""
     dots = (f"dots, {n} allowed {FORMULATION}s sampled evenly, coloured by Expected gain "
             f"(darker: more to gain{'; grey while the gain is greyed' if grey else ''})"
             if gain else f"grey dots, {n} allowed {FORMULATION}s sampled evenly")
     text = (f"Predicted Overall score (across) against model sd (up): {dots}; grey rings, "
-            f"tested {FORMULATION}s; orange diamonds, this {ROUND_CAP}'s {FORMULATION}s")
+            f"tested {FORMULATION}s; "
+            + ("" if entered >= total and total else
+               f"orange diamonds, this {ROUND_CAP}'s suggestions")
+            + ("" if not entered else
+               ("" if entered >= total else "; ")
+               + f"hollow orange diamonds, {FORMULATION}s entered this {ROUND_CAP}"))
     text += f"; dashed line, {WHY_REFERENCE}." if line else "."
     return (f"{text} Zoomed to the better scores: tested {FORMULATION}s predicted below the "
             "left edge are not drawn.")

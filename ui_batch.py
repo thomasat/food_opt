@@ -1375,7 +1375,8 @@ def why_chart(opt, why, ref=None, grey=False):
         return None
     tested = [{"mean": m, "sd": s}
               for m, s in zip(why.tested_mean.tolist(), why.tested_sd.tolist())]
-    picks = [{"mean": r.mean, "sd": r.sd, "no": str(r.formulation)} for r in why.rows]
+    picks = [{"mean": r.mean, "sd": r.sd, "no": str(r.formulation),
+              "own": bool(r.own)} for r in why.rows]
     return ui_insights.explore_map_chart(why.pool_mean, why.pool_sd, tested, picks, ref, opt,
                                          gain=getattr(why, "pool_value", None),
                                          muted_gain=grey)
@@ -1473,7 +1474,8 @@ def _why_fold(opt, preds):
                    help=wording.for_project(opt, " ".join([
                        wording.MAP_READING, wording.why_chart_caption_full(
                            f"{len(why.pool_mean):,}", line=ref is not None,
-                           gain=getattr(why, "pool_value", None) is not None, grey=grey)])))
+                           gain=getattr(why, "pool_value", None) is not None, grey=grey,
+                           entered=sum(1 for r in why.rows if r.own), total=len(why.rows))])))
 
 
 _GUARD_WORDS = {"floor": wording.GUARD_FLOOR, "noise": wording.GUARD_NOISE}
