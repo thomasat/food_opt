@@ -167,7 +167,9 @@ def compact(book, opt, rows, note=""):
     overview = result.active
     overview.title = OVERVIEW
     copy_cells(source, overview, last=split - 1)
-    navigation = wording.SHEET_NAVIGATION
+    # Preview 0.8.1: the Preparation sheet only when the Round has pre-mixes.
+    premixes = list(opt._premix_sheet_names([r['formulation'] for r in rows]).values())
+    navigation = wording.sheet_navigation(bool(premixes))
     # The line that says these amounts were re-sized survives the fold: it
     # is the first thing the bench needs and the navigation replaces the
     # banner it was written into.
@@ -179,17 +181,16 @@ def compact(book, opt, rows, note=""):
             if cell.value == wording.PREMIX_LOT_ON_ITS_PAGE:
                 cell.value = wording.PREMIX_LOT_ON_PREPARATION
                 sheet_link(cell, PREPARATION)
-    preparation = result.create_sheet(PREPARATION)
-    preparation['A1'] = wording.PREPARATION_SHEET_TITLE
-    preparation['A2'] = navigation + wording.PREPARATION_SHEET_INTRO
-    start = 4
-    for title in opt._premix_sheet_names([r['formulation'] for r in rows]).values():
-        page = book[title]
-        copy_cells(page, preparation, start=start)
-        preparation.cell(start, 1).comment = Comment(PREP + title, 'Food Opt')
-        start += page.max_row + 3
-    if start == 4:
-        preparation['A4'] = wording.PREPARATION_SHEET_EMPTY
+    if premixes:
+        preparation = result.create_sheet(PREPARATION)
+        preparation['A1'] = wording.PREPARATION_SHEET_TITLE
+        preparation['A2'] = navigation + wording.PREPARATION_SHEET_INTRO
+        start = 4
+        for title in premixes:
+            page = book[title]
+            copy_cells(page, preparation, start=start)
+            preparation.cell(start, 1).comment = Comment(PREP + title, 'Food Opt')
+            start += page.max_row + 3
     measured = result.create_sheet(RESULTS)
     measured['A1'] = wording.RESULTS_SHEET_TITLE
     measured['A2'] = navigation + wording.RESULTS_SHEET_INTRO
@@ -231,7 +232,8 @@ def compact(book, opt, rows, note=""):
     separate_formulations(measured, formulation_columns, measured.max_row)
     for sheet in result:
         linkrow = sheet.max_row + 3
-        for c, title in enumerate((OVERVIEW, PREPARATION, RESULTS), 1):
+        tabs = (OVERVIEW, PREPARATION, RESULTS) if premixes else (OVERVIEW, RESULTS)
+        for c, title in enumerate(tabs, 1):
             # Results hides percentage columns: never put navigation in one.
             column = 1 if c == 1 else (2 * c - 2 if sheet == measured else c)
             cell = sheet.cell(linkrow, column, title)
@@ -317,7 +319,8 @@ def prepare_import(source, opt, batch_no):
     if OVERVIEW not in book.sheetnames:
         out = io.BytesIO(); book.save(out); out.seek(0)
         return out
-    if not marker or RESULTS not in book.sheetnames or PREPARATION not in book.sheetnames:
+    # Preview 0.8.1: Preparation is there only when the Round has pre-mixes.
+    if not marker or RESULTS not in book.sheetnames:
         raise ValueError(wording.WORKBOOK_MISSING_SHEET)
     original = Workbook()
     summary = original.active
@@ -349,8 +352,8 @@ def prepare_import(source, opt, batch_no):
                         if measurements.cell(source_row, cell.column).data_type == 'f':
                             raise ValueError(wording.WORKBOOK_ACTUALS_ARE_NUMBERS)
                         page.cell(i, 3, value)
-    prep = book[PREPARATION]
-    starts = [(c.row, c.comment.text[len(PREP):]) for row in prep for c in row
+    prep = book[PREPARATION] if PREPARATION in book.sheetnames else None
+    starts = [(c.row, c.comment.text[len(PREP):]) for row in (prep or ()) for c in row
               if c.comment and c.comment.text.startswith(PREP)]
     for i, (start, title) in enumerate(starts):
         end = starts[i + 1][0] - 1 if i + 1 < len(starts) else prep.max_row

@@ -2100,7 +2100,8 @@ def _more_settings(opt, storage):
     """
     with st.expander(wording.MORE_SETTINGS_EXPANDER):
         _formulation_total(opt)
-        _tasting_noise(opt)
+        # Preview 0.8.1: Tasting noise hidden; the Review still reads it
+        # (insights.assumed_noise: 1 point unless Repeats measure it).
         _method_editor(opt)
         _also_record(opt)
         _targets_source_editor(opt)

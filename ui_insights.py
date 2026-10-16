@@ -2066,7 +2066,10 @@ def ceiling_stop(opt, facts):
     """Review critique (owner, follow-up): the stop signal shows when Best
     so far is within the tie threshold of the top score (at_ceiling) and
     What next? would otherwise make another Round — after a rise too (the
-    Progress word stays Rising); never while a Round is open."""
+    Progress word stays Rising); never while a Round is open.
+    Preview 0.8.1: the stop rule is off the app; this is always False, so
+    What next? says the next Round (and any Repeat request) instead."""
+    return False
     step = getattr(facts, "next", None) if facts is not None else None
     if step is None or step.kind not in CEILING_KINDS:
         return False
@@ -5149,8 +5152,10 @@ def pair_sentences(opt, lf):
     for name, o in (lf.orderings.items() if lf is not None else ()):
         ties, close = getattr(o, "ties", 0), getattr(o, "close", 0)
         if o.pairs + ties + close:
-            out.append(_say(opt, wording.pairs_sentence(learned_label(opt, name), o.right,
-                                                        o.pairs, close, ties)))
+            label = learned_label(opt, name)
+            # Preview 0.8.1: one plain line, the counts in its "?".
+            out.append((_say(opt, wording.clear_calls_line(label, o.right, o.pairs)),
+                        _say(opt, wording.pairs_help(label, o.right, o.pairs, close, ties))))
     return out
 
 
@@ -5244,8 +5249,8 @@ def _learned_section(opt, slot, computed, lf):
         return
     with slot.body, st.expander(_say(opt, wording.LEARNED_DETAILS_TITLE), expanded=False,
                                 key=LEARNED_FOLD_KEY):
-        for text in sentences:
-            st.markdown(text)
+        for text, tip in sentences:
+            st.markdown(text, help=tip)
         if chart is not None:
             show_chart(chart)
             st.caption(_say(opt, wording.STORY_TRUST_CAPTION))
@@ -6408,6 +6413,7 @@ def _drawn_stop(opt):
     """The stop marker the Latest chart draws: stop_signal's, only when a
     scored Round came after it (at the latest Round the What next? callout
     says it). None otherwise."""
+    return None     # Preview 0.8.1: no stop marker
     sig = stop_signal(opt)
     if sig is None:
         return None
@@ -6529,7 +6535,8 @@ def improving_chart(opt, highlight=None, height=None, upto=None):
     area_legend = alt.Legend(title=None, orient="top", labelLimit=0, symbolType="square",
                              symbolOpacity=0.35, symbolStrokeWidth=0,
                              **({"columns": 1} if narrow else {}))
-    need = tie_need(insights.noise_yardstick(opt)) if show_top else None
+    # Preview 0.8.1: no "within noise of top" zone (the stop rule is off).
+    need = None
     lit = round_highlight(opt, highlight) if highlight is not None else None
     if lit is not None:
         # Slim Review: the chosen Round, a light band under every mark.
@@ -7251,8 +7258,10 @@ def spider_frames(opt, data, r):
     return out
 
 
-_SPIDER_LINE_PX = 15        # px: one line of a spoke label (FONT_LABEL)
-_SPIDER_CHAR_PX = 6.6       # px per character of a spoke label
+# Preview 0.8.1: larger spoke and value labels (15 px, was FONT_LABEL 12).
+_SPIDER_FONT = 15
+_SPIDER_LINE_PX = 19        # px: one line of a spoke label (_SPIDER_FONT)
+_SPIDER_CHAR_PX = 8.3       # px per character of a spoke label
 _SPIDER_WRAP = 12           # characters a line of a side label, fitted to its column
 _SPIDER_KEY_SYMBOL_PX = 26  # px: a key entry's line symbol and the gap to its label
 _SPIDER_KEY_H = 56          # px under the rings, inside the plot, for the key (two rows)
@@ -7314,10 +7323,11 @@ def spider_chart(opt, data, r, size=SPIDER_SIZE, fit=False):
     grey, _ = mark("neutral")
     light, _ = _TRIED_GREYS[theme()]
     blue = model_blue()
-    kinds = [names["target"], names["best"], names["start"]] + (
-        [names["earlier"]] if f["earlier"] else [])
-    colour = alt.Scale(domain=kinds, range=[ink, blue, grey, _SPIDER_EARLIER[theme()]][:len(kinds)])
-    dash = alt.Scale(domain=kinds, range=[[1, 0], [1, 0], [6, 4], [1, 0]][:len(kinds)])
+    # Preview 0.8.1: target against our best only (no Start, no earlier
+    # Rounds' bests).
+    kinds = [names["target"], names["best"]]
+    colour = alt.Scale(domain=kinds, range=[ink, blue])
+    dash = alt.Scale(domain=kinds, range=[[1, 0], [1, 0]])
     where = {"orient": "bottom"}
     if fit:
         # The key centred under the rings (fix round, 2026-10-14): placed
@@ -7329,7 +7339,7 @@ def spider_chart(opt, data, r, size=SPIDER_SIZE, fit=False):
         where = {"orient": "none", "direction": "horizontal",
                  "legendX": alt.ExprRef(f"width / 2 - {w // 2}"),
                  "legendY": size + 10}
-    legend = alt.Legend(title=None, labelLimit=0, symbolType="stroke",
+    legend = alt.Legend(title=None, labelLimit=0, symbolType="stroke", labelFontSize=14,
                         symbolStrokeWidth=2.5, symbolSize=260, columns=2, columnPadding=24,
                         **where)
     domain = [-_SPIDER_PAD, _SPIDER_PAD]
@@ -7352,11 +7362,8 @@ def spider_chart(opt, data, r, size=SPIDER_SIZE, fit=False):
         alt.Chart(pd.DataFrame(f["spokes"])).mark_rule(color=light, strokeWidth=1, tooltip=False)
         .encode(x=alt.X("x0:Q", scale=xs, axis=None),
                 y=alt.Y("y0:Q", scale=ys, axis=None), x2="x1:Q", y2="y1:Q")]
-    if f["earlier"]:
-        layers.append(line(f["earlier"], strokeWidth=1.3, tooltip=False))
     layers.append(line(f["best"], strokeWidth=2.5, fill=blue, fillOpacity=0.25,
                        strokeJoin="round", tooltip=False))
-    layers.append(line(f["start"], strokeWidth=2, tooltip=False))
     if len(f["target"]) > 1:
         layers.append(line(f["target"], strokeWidth=3, strokeJoin="round", tooltip=False))
     if f["bands"]:
@@ -7382,20 +7389,16 @@ def spider_chart(opt, data, r, size=SPIDER_SIZE, fit=False):
                   alt.Tooltip("value:N", title=wording.STORY_VALUE),
                   alt.Tooltip("no:N", title=word), alt.Tooltip("round:N", title=_say(
                       opt, wording.ROUND_CAP))]
-    start_pts = [p for p in f["start"] if p["j"] < len(f["start"]) - 1]
-    layers.append(alt.Chart(pd.DataFrame(start_pts)).mark_point(
-        filled=False, size=34, strokeWidth=1.5, color=grey, opacity=1)
-        .encode(x=x, y=y, tooltip=point_tips))
     best_pts = [p for p in f["best"] if p["j"] < len(f["best"]) - 1]
     layers.append(alt.Chart(pd.DataFrame(best_pts)).mark_point(
         filled=True, size=40, color=blue, opacity=1).encode(x=x, y=y, tooltip=point_tips))
     lab = pd.DataFrame(f["labels"])
     for (align, baseline), part in lab.groupby(["align", "baseline"]):
-        layers += _halo_text(part, x, y, "text:N", blue, fontSize=FONT_LABEL,
+        layers += _halo_text(part, x, y, "text:N", blue, fontSize=_SPIDER_FONT - 1,
                              fontWeight="bold", align=align, baseline=baseline)
     sp = pd.DataFrame(f["spokes"])
     for (align, baseline), part in sp.groupby(["align", "baseline"]):
-        layers.append(alt.Chart(part).mark_text(color=ink, fontSize=FONT_LABEL, align=align,
+        layers.append(alt.Chart(part).mark_text(color=ink, fontSize=_SPIDER_FONT, align=align,
                                                 baseline=baseline, tooltip=False,
                                                 lineBreak="\n")
                       .encode(x=x, y=y, text="text:N"))

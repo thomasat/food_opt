@@ -699,7 +699,7 @@ def change_text(name, delta, size):
 # suggestion is never "trying something different" in one table and
 # "refines the best" in the other. ROLE_REFINES, ROLE_BALANCED and
 # ROLE_EXPLORES further down are these three.
-SUGGESTION_CLOSE = "refines the best"
+SUGGESTION_CLOSE = "close to the best"
 SUGGESTION_BALANCED = "balanced"
 SUGGESTION_DIFFERENT = "explores"
 SUGGESTION_SPREAD = "covering the allowed amounts"
@@ -718,6 +718,12 @@ def compared_with_column(best_no):
     formulation the changes are measured from once, at the top, so no cell
     under it has to repeat it."""
     return f"Compared with {FORMULATION_CAP} {best_no}"
+
+
+def largest_differences_caption(best_no):
+    """Preview 0.8.1, under the Round table: 'Amounts after the role: largest
+    differences from Formulation 16.'"""
+    return f"Amounts after the role: largest differences from {FORMULATION_CAP} {best_no}."
 
 
 def compared_with_line(column, cell):
@@ -1016,8 +1022,8 @@ HOW_IT_WORKS = [
     HOW_CHOSEN_2,
     "Generated formulations satisfy the limits you set. A "
     "formulation of your own is recorded as you typed it.",
-    "Each suggestion says whether it refines the best, explores, or is "
-    "balanced between the two, and what it changes.",
+    "Each suggestion says whether it is close to the best, explores, or is "
+    "balanced between the two, and where it differs most from the best.",
 ]
 
 # The fold directly under it, for the reader who wants the arithmetic. The
@@ -3838,6 +3844,16 @@ SHEET_NAVIGATION = (
 OVERVIEW_SHEET_INTRO = (
     f"Review the plan, prepare each {FORMULATION} separately, then enter "
     f"measurements on {RESULTS_SHEET} and upload this file in the app.")
+
+
+def sheet_navigation(premixes=True):
+    """Preview 0.8.1: the tabs named, Preparation only when there is one."""
+    if premixes:
+        return SHEET_NAVIGATION
+    return (f"Use the sheet tabs: {OVERVIEW_SHEET} → {RESULTS_SHEET}. Tabs are at the bottom "
+            "in Excel and at the top in Numbers. ")
+
+
 PREPARATION_SHEET_TITLE = f"{PREPARATION_SHEET} — Pre-mixes for this round"
 PREPARATION_SHEET_INTRO = (
     f"Prepare pre-mixes with fixed {INGREDIENT} percentages here. For blends "
@@ -4856,7 +4872,8 @@ def workbook_line_full(print_pack=False):
     return f"Enter the results {where} and upload it below, or type them here."
 
 
-WORKBOOK_TABS_HELP = ("The workbook has three sheets: Round overview, Preparation and Results. "
+WORKBOOK_TABS_HELP = ("The workbook has two sheets, Round overview and Results, and a Preparation "
+                      "sheet when the Round has pre-mixes. "
                       "Tick “Include individual formulation pages” for one printable page each.")
 
 
@@ -4865,8 +4882,8 @@ def workbook_tabs_help(print_pack=False):
     file a tick produces has no Round overview, Preparation or Results sheet."""
     if print_pack:
         return (f"The workbook has one {ROUND_CAP} sheet and one printable page per "
-                f"{FORMULATION}. Without the tick it has three sheets: {OVERVIEW_SHEET}, "
-                f"{PREPARATION_SHEET} and {RESULTS_SHEET}.")
+                f"{FORMULATION}. Without the tick it has {OVERVIEW_SHEET} and {RESULTS_SHEET}, "
+                f"and {PREPARATION_SHEET} when the {ROUND} has pre-mixes.")
     return WORKBOOK_TABS_HELP
 RECORD_RESULTS_LINE = "Leave a result blank until it is in."
 RECORD_RESULTS_HELP = ("One number per measurement; the panel mean where a panel rated it. "
@@ -6292,7 +6309,7 @@ TIP_LUCK = (
     "Probably helped by luck: Best so far is the highest of many scores, each with its own "
     "noise, so a Repeat of it is predicted lower.")
 TIP_ROLES = (
-    f"Refines the best, balanced, explores: how far a suggestion is from what was made: within "
+    f"Close to the best, balanced, explores: how far a suggestion is from what was made: within "
     f"15 % of Best so far, more than 30 % from every {FORMULATION} recorded, or in between. BO "
     "term: distance labels; not the acquisition's exploitation–exploration split.")
 TIP_NEAREST_TESTED = (
@@ -8269,11 +8286,11 @@ def forecast_line(name, cells, top):
 # forecast_help: see "rebuilt framing" at the end.
 
 
-PREVIEW_COLUMNS = ("#", "Role", PREDICTED_SCORE_COLUMN, "Changes vs Best so far")
+PREVIEW_COLUMNS = ("#", "Role", PREDICTED_SCORE_COLUMN, "Largest differences from Best so far")
 
 
 def preview_line(k, role, score_text, changes):
-    """'1 · refines the best · Overall score 96 (92–99+) · Salt −0.10 g'."""
+    """'1 · close to the best · Overall score 96 (92–99+) · Salt −0.10 g'."""
     parts = [f"{k}", role, f"{OVERALL_SCORE_COLUMN} {score_text}"]
     if changes:
         parts.append(changes)
@@ -8465,7 +8482,7 @@ def apart_line(role, changes, beyond=False, against_best=True):
 
 def roles_help(close_pct, far_pct):
     """The roles, for the preview's "?"."""
-    return (f"Refines the best: within {close_pct} % of each row's Lowest–Highest span of "
+    return (f"Close to the best: within {close_pct} % of each row's Lowest–Highest span of "
             f"{BEST_SO_FAR_COLUMN}. Explores: more than {far_pct} % from every {FORMULATION} "
             "tested, to learn where the model is unsure. Balanced: in between. Than anything "
             f"tested: an amount below or above every {FORMULATION} recorded so far.")
@@ -8474,14 +8491,14 @@ def roles_help(close_pct, far_pct):
 LEARNING_ROUND = "Learning round: predicted about level with your best."
 WIDEN_BEYOND = "Suggestions stay inside your limits; widening goes beyond them."
 STOP_HEAD = "Little left to gain inside your limits"
-STOP_WIDEN = "Widen a limit or stop."
-STOP_ADD = "Add an ingredient or stop."
+STOP_WIDEN = "Widen a limit, or make the next Round."
+STOP_ADD = "Add an ingredient, or make the next Round."
 
 
 def stop_help(threshold_text):
     return (f"No suggestion inside your limits is predicted to beat {BEST_SO_FAR_COLUMN} by "
             f"more than results vary ({threshold_text}), and the expected gain is under it "
-            "too. Widening a limit lets the next suggestions go further; or stop here.")
+            "too. Widening a limit lets the next suggestions go further.")
 
 
 # Tooltips that agree with the verdicts.
@@ -10372,6 +10389,24 @@ def pairs_sentence(label, right, called, close=0, ties=0):
     return f"{head}; {rest}." if rest else f"{head}."
 
 
+def clear_calls_line(label, right, called):
+    """Preview 0.8.1, one plain line per result: 'Consistency: 4 of 4 clear
+    calls right'; 'Thickness uniformity: no clear calls' (the pairs, too
+    close and measured equal are in its "?", pairs_help)."""
+    if not called:
+        return f"{label}: no clear calls"
+    return f"{label}: {right} of {called} clear {'call' if called == 1 else 'calls'} right"
+
+
+def pairs_help(label, right, called, close=0, ties=0):
+    """The line's "?": the full count (pairs_sentence) and what a clear
+    call is."""
+    return (pairs_sentence(label, right, called, close, ties) + "\n\nA clear call: two "
+            f"{FORMULATION}s of one Round whose forecasts are at least the result's noise apart; "
+            "right when the one forecast higher measured higher. Too close: forecasts nearer "
+            "than that. Measured equal: never called.")
+
+
 # The Forecast check's Round line (one-glance Review, fix round 1: back as
 # the section's one visible line; fix round 2: the landing fact alone, at
 # most ~10 words; the order of the pairs is in its "?").
@@ -10467,9 +10502,7 @@ METHOD_DEFINITIONS = (
     f"projects it caught about {SIMULATED_COVERAGE['measurements']} in 100 "
     f"({SIMULATED_COVERAGE['score']} for {OVERALL_SCORE_COLUMN}s).",
     f"**Tasting noise**: how far one {FORMULATION}'s {OVERALL_SCORE_COLUMN} moves when tasted "
-    f"again, in points; from Repeats, else assumed (set in Set up › {MORE_SETTINGS_EXPANDER}).",
-    "**Stop**: Best so far is closer to the top score than a new result must rise to be told "
-    "apart.",
+    f"again, in points; from Repeats, else assumed 1 point.",
     # learned.round_call / too_close: measured apart, forecasts at least the
     # result's noise apart and not both at the top of the Range (at_cap).
     "**Called · too close**: called when forecasts are at least the result's noise apart, not "

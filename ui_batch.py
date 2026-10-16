@@ -1096,6 +1096,10 @@ def _batch_table(opt, scale_to, tab_open=False):
     # those formulations are instead.
     if opt.compared_with_column() == wording.COMPARED_WITH_ALLOWED:
         st.caption(wording.for_project(opt, wording.HOW_CHOSEN_2))
+    elif opt.best_formulation_no() is not None:
+        # Preview 0.8.1: the amounts after the role are differences, not fixes.
+        st.caption(wording.for_project(opt, wording.largest_differences_caption(
+            opt.best_formulation_no())))
     # Last, after the lines about the table's amounts: kept for what the new
     # column means for a row predicted below Best so far, then the
     # per-measurement predictions one click away.
