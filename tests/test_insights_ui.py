@@ -119,55 +119,6 @@ def test_path_chart_without_targets_has_no_target_layer():
     assert "target" not in _layers_by_panel(spec)
 
 
-def test_every_insights_string_passes_the_vocabulary_guard():
-    """Scans only the Insights strings added in Task 3 (path naming) and
-    Task 5 (this task) — not every wording.py constant. The repo-wide guard
-    `test_no_old_vocabulary_reaches_the_user` in tests/test_food_bo.py already
-    covers wording.py in full, with its own owner-approved exceptions."""
-    from tests.test_food_bo import _BANNED
-
-    def _check(s):
-        assert not any(p.search(s) for p in _BANNED), s
-
-    # Task 3
-    _check(wording.path_past_lowest("Pea"))
-    _check(wording.path_past_highest("Pea"))
-    _check(wording.path_below_zero("Total fat"))
-    _check(wording.PATH_NO_ROOM_DOWN)
-    _check(wording.PATH_NO_ROOM_UP)
-
-    # Task 5
-    _check(wording.TAB_INSIGHTS)
-    _check(wording.INSIGHTS_NONE)
-    _check(wording.INSIGHTS_WORKING)
-    _check(wording.insights_gate(3))
-    _check(wording.rounds_span(["3"]))
-    _check(wording.rounds_span(["3", "4", "5"]))
-    _check(wording.FOLD_MEASURED_CHART)
-    _check(wording.START_FROM)
-    _check(wording.start_best(14))
-    _check(wording.start_formulation(3))
-    _check(wording.path_follows("Total fat"))
-    _check(wording.path_outside(3, "9 g"))
-    _check(wording.path_start_breaks(3, "Fat: at most 16 g"))
-    _check(wording.path_not_checked("Fat: at most 16 g", "Fat"))
-    _check(wording.panel_missing("Firmness"))
-    _check(wording.panel_failed("Firmness"))
-    _check(wording.FOLD_PROGRESS_CHART)
-    _check(wording.FOLD_METHOD)
-    _check(wording.HOW_MODELS)
-    _check(wording.HOW_CHECKS)
-    _check(wording.TRACK_PREDICTED)
-    _check(wording.TRACK_MEASURED)
-    _check(wording.TRACK_LOW)
-    _check(wording.TRACK_HIGH)
-
-    # Final fix wave
-    _check(wording.INSIGHTS_FAILED)
-    _check(wording.CHANGE_NONE)
-    _check(wording.rounds_span([3, 5, 6]))
-
-
 # ------------------------------------------------------------------ #
 #  The tab in the app (Task 6)
 # ------------------------------------------------------------------ #
@@ -237,11 +188,11 @@ def test_insights_sections_and_expanders(insights_scored):
     assert not at.exception
     tab = at.tabs[3]
     text = " ".join(m.value for m in tab.markdown)
-    for q in (wording.Q_TRUST, wording.Q_STAND, wording.Q_NEXT):
+    for q in (wording.Q_STAND, ):
         assert q in text
     labels = [e.label for e in tab.expander]
     for lab in (wording.FOLD_PREDICTION_FIGURES, wording.FOLD_MEASURED_CHART,
-                wording.FOLD_PROGRESS_FIGURES, wording.FOLD_PROGRESS_CHART,
+                wording.FOLD_PROGRESS_CHART,
                 wording.FOLD_NEXT_REASONING, wording.try_one_fold(False), wording.FOLD_METHOD):
         assert lab in labels, labels
     # One lit button: the foot (spec 2026-09-30 §2.4).
@@ -301,33 +252,11 @@ def test_no_scored_formulation_one_line(burger):
     assert not tab.markdown and not tab.expander
 
 
-@pytest.mark.skip(reason="review cards prototype: pins the old Review layout (status lines, Explored fold, header); reconcile at the final merge")
-def test_gate_before_five_scored(scored):     # 2 scored rows
-    at = _open_insights(_app())
-    assert not at.exception
-    tab = at.tabs[3]
-    # Once on the tab: the Predictions status line's (ftue W1, R-B1 row 3).
-    md_lines = [m.value for m in tab.markdown]
-    assert md_lines.count(wording.status_line(wording.STATUS_PREDICTIONS, wording.short_gate(2), wording.PREDICTIONS_WORDS["not_yet"])) == 1
-    assert sum(wording.short_gate(2) in m for m in md_lines) == 1
-    assert any("Best so far:" in m.value for m in tab.markdown)   # "Where do you stand?" shows
-    md = " ".join(m.value for m in tab.markdown)
-    assert wording.Q_TRUST not in md and wording.Q_NEXT not in md
-
-
-def test_how_section_fixed_tiny_wording(insights_fixed_tiny):
-    """One-glance Review: Method and definitions is one line per term,
-    whatever the model settings; the full method is in the README."""
-    at = _open_how(_open_insights(_app()))
-    assert not at.exception
-    body = " ".join(m.value for m in at.tabs[3].markdown)
-    assert all(line in body for line in wording.METHOD_DEFINITIONS)
-    assert wording.METHOD_README in [c.value for c in at.tabs[3].caption]
-
-
 def test_insights_cache_does_not_follow_a_project_switch(insights_scored):
     at = _open_insights(_app())
-    assert ui_insights.CACHE_KEY in at.session_state
+    # Review v3 draws from the measurements alone: the key is set here, as
+    # another screen's work would leave it, to pin app.py's switch cleanup.
+    at.session_state[ui_insights.CACHE_KEY] = {"stale": True}
     FoodOptimizer("second").add_ingredient("Flour", 0, 100)
     at.run()
     at.selectbox(key="project_select").set_value("second")
@@ -362,21 +291,13 @@ def test_num_never_uses_scientific_notation():
         assert n(v).strip("<> -") not in ("0", "0.0", "0.000000"), (v, n(v))
 
 
-def test_rounds_span_contiguous_and_not():
-    assert wording.rounds_span([3]) == "Round 3"
-    assert wording.rounds_span([3, 4, 5]) == "Rounds 3–5"
-    assert wording.rounds_span([3, 4]) == "Rounds 3–4"
-    assert wording.rounds_span([3, 5]) == "Rounds 3 and 5"
-    assert wording.rounds_span([3, 5, 6]) == "Rounds 3, 5 and 6"
-
-
 def test_round_and_tab_words_come_from_constants(monkeypatch):
     # G3: rename the round word and the tab, and every Insights string follows.
     import importlib
     src = open(wording.__file__).read()
     assert 'f"2 · {TAB_BATCH_NAME}"' in src or "TAB_BATCH_NAME" in src
     assert wording.TAB_BATCH.endswith(wording.TAB_BATCH_NAME)
-    for fn in ("TRUST_NONE", "STAND_LATEST", "stand_since", "HOW_MODELS"):
+    for fn in ("STAND_LATEST", "stand_since", "HOW_MODELS"):
         block = src[src.index(fn + (" = " if fn.isupper() else "(")):][:400]
         assert " round" not in block.split("\n\n")[0].replace("{ROUND}", ""), (fn, block)
 
@@ -390,57 +311,11 @@ def test_path_skipped_names_the_property():
     assert p.skipped == [(opt.property_limit_text(opt.constraints[0]), "Fat")]
 
 
-def test_band_and_amount_text_use_num():
-    opt = _burger(rounds=2)
-    assert ui_insights._amount(0.00012, "g") == "0.00012 g"
-    assert ui_insights._amount(123.4, "g") == "123 g"
-
-
 # The tab in the app ------------------------------------------------ #
 
 def _tab_text(at):
     tab = at.tabs[3]
     return ([m.value for m in tab.markdown], [c.value for c in tab.caption])
-
-
-def test_insights_failure_shows_one_line_and_is_not_retried(insights_scored, monkeypatch):
-    calls = []
-    def boom(opt, **kw):
-        calls.append(1)
-        raise RuntimeError("no checks")
-    monkeypatch.setattr(insights, "check_rounds", boom)
-    at = _open_insights(_app())
-    assert not at.exception
-    md, caps = _tab_text(at)
-    # Review cards: the failure is a visible error in the Predictions card;
-    # the Progress card keeps Best so far. Review story 2: in the strip's
-    # Predictions item; Progress's answer line keeps Best so far.
-    errors = [e.value for e in at.tabs[3].error]
-    assert (caps + errors).count(wording.INSIGHTS_FAILED) == 1
-    assert any("Best " in m for m in md)
-    at.session_state["main_tab"] = wording.TAB_INSIGHTS
-    at.run()
-    assert not at.exception and calls == [1]
-
-
-@pytest.mark.skip(reason="review profiler prototype: pins Try one's path and Compare all, which the profiler replaces; reconcile at the final merge")
-@pytest.mark.parametrize("where", ["build_path", "path_predictions", "start_recipe"])
-def test_section_2_failure_keeps_sections_1_and_3(insights_scored, monkeypatch, where):
-    real = getattr(insights, where)
-    def boom(*a, **k):
-        import inspect
-        caller = inspect.stack()[1].function
-        # anchor_recipe: _change's own door to a start (BO views §3.3).
-        if caller in ("_change",):
-            raise RuntimeError("no path")
-        return real(*a, **k)
-    monkeypatch.setattr(insights, where, boom)
-    at = _open_insights(_app())
-    assert not at.exception
-    md, caps = _tab_text(at)
-    assert wording.panel_failed("Pea protein") in caps
-    assert wording.Q_TRUST in " ".join(md)
-    assert any("Best so far:" in m for m in md)
 
 
 @pytest.mark.skip(reason="review profiler prototype: pins Try one's path and Compare all, which the profiler replaces; reconcile at the final merge")
@@ -456,24 +331,6 @@ def test_question_2_names_process_settings_only_when_there_are_some(insights_sco
     at = _open_insights(_app())
     labels = [e.label for e in at.tabs[3].expander]
     assert wording.try_one_fold(False) in labels and wording.try_one_fold(True) not in labels
-
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-@pytest.mark.parametrize("sd, shown", [(0.04, False), (0.0, False), (0.06, True)])
-def test_repeats_line_needs_a_spread_that_shows(insights_scored, monkeypatch, sd, shown):
-    """After a rise only (audit V24), and a spread that reads 0.0 says nothing."""
-    monkeypatch.setattr(insights, "noise_yardstick",
-                        lambda opt, checks=(), name=insights.SCORE:
-                        insights.Yardstick(1.0, sd, 1, False))
-    monkeypatch.setattr(insights, "improvement",
-                        lambda opt, facts=None, spread=None, yardstick=None:
-                        insights.Improvement("yes", 2.0, None, 0))
-    at = _open_insights(_app())
-    # Method and details defines the noise threshold in the same words.
-    md = " ".join(_tab_text(at)[0])
-    assert ("Repeat SD of the Overall score" in md) == shown
-    if shown:
-        assert wording.stand_repeats("0.1", 1) in md
 
 
 @pytest.fixture

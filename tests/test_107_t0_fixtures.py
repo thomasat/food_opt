@@ -7,7 +7,6 @@ have their 1280 × 800 screen."""
 import pathlib
 
 import insights
-import wording
 from tests import demo_projects as D
 
 
@@ -22,23 +21,6 @@ def test_the_snack_bar_sits_at_the_gate():
     opt = D.load(D.SNACK)
     assert opt.complete_count() == 3 < insights.MIN_ROWS
     assert set(opt.batch_history) == {1}
-
-
-def test_the_process_only_project_is_a_study_of_settings_alone():
-    opt = D.load(D.PROCESS_ONLY)
-    assert not opt.has_ingredients() and len(opt._process_settings()) == 3
-    assert wording.for_project(opt, wording.why_link(6)) == "Why Round 6 was suggested"
-    assert wording.for_project(opt, "Formulation 15") == "Trial 15"
-    # Line A's shape: Rounds of 5, 4, 4, 4 and 3, a Repeat of Best so far in
-    # Round 5, Round 6 open with 4 generated picks.
-    rounds = list(opt.batch_history)
-    assert [rounds.count(r) for r in range(1, 6)] == [5, 4, 4, 4, 4]
-    assert opt.notes_history[-1].startswith("Repeat of Formulation ")
-    assert (opt.pending_batch_no, len(opt.pending_batch)) == (6, 4)
-    record = opt.generation_records()[6]
-    assert record["regime"] == "warm"
-    assert record["picks"] == [int(row["formulation"]) for row in opt.pending_batch]
-    assert opt.complete_count() == 21
 
 
 def test_the_process_only_fixture_is_frozen_json():

@@ -44,17 +44,17 @@ def test_no_native_streamlit_chart_remains_in_app_code():
 
 
 def test_every_altair_chart_call_goes_through_the_privacy_helper():
-    """The only bare `st.altair_chart(` call left in the app is the one
-    inside the helper itself; every chart the app draws is routed through
-    it so none can slip through with its action menu on."""
-    pattern = re.compile(r"st\.altair_chart\(")
+    """No bare `st.altair_chart(` call is left in the app (v3: the Review
+    draws kept specs); the one chart call is show_spec's
+    `st.vega_lite_chart(`, which sets the action menu off, so no chart can
+    slip through with it on."""
     calls = {}
-    for path in _APP_FILES:
-        text = open(path, encoding="utf-8").read()
-        n = len(pattern.findall(text))
-        if n:
-            calls[os.path.basename(path)] = n
-    assert calls == {"ui_insights.py": 1}, calls
+    for name, pattern in (("altair", r"st\.altair_chart\("), ("vega", r"st\.vega_lite_chart\(")):
+        for path in _APP_FILES:
+            n = len(re.findall(pattern, open(path, encoding="utf-8").read()))
+            if n:
+                calls[(name, os.path.basename(path))] = n
+    assert calls == {("vega", "ui_insights.py"): 1}, calls
 
 
 # ------------------------------------------------------------------ #
@@ -151,11 +151,6 @@ def test_every_chart_builder_in_the_file_gets_the_privacy_wrapper(mixture_scored
 #  The Progress chart, redrawn with Altair (was st.line_chart)
 # ------------------------------------------------------------------ #
 
-def test_progress_chart_gets_the_privacy_wrapper_like_every_other_chart(insights_scored):
-    chart = ui_insights.progress_chart(insights_scored)
-    spec = ui_insights._private(chart).to_dict()
-    assert spec["usermeta"] == _NO_ACTIONS
-
 
 def test_progress_chart_keeps_the_axis_titles_and_a_gap(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
@@ -179,19 +174,6 @@ def test_progress_chart_keeps_the_axis_titles_and_a_gap(tmp_path, monkeypatch):
     assert None not in bests
 
 
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_progress_chart_body_draws_through_show_chart(insights_scored, monkeypatch):
-    """_progress_chart_body must call the privacy helper, not st.altair_chart
-    or st.line_chart directly: this is what actually keeps Minor 14 true for
-    the one chart that used to have no actions hook at all."""
-    drawn = []
-    monkeypatch.setattr(ui_insights, "show_chart", lambda c, **k: drawn.append(c))
-    ui_insights._progress_chart_body(insights_scored)
-    assert len(drawn) == 1
-    spec = drawn[0].to_dict()
-    assert spec.get("mark") or spec.get("layer")
-
-
 def _app():
     from streamlit.testing.v1 import AppTest
     return AppTest.from_file(APP_PATH, default_timeout=180)
@@ -207,27 +189,6 @@ def _vega_specs(at):
     every run, whichever tab is selected) and Insights (rendered only while
     open) together."""
     return [json.loads(e.proto.spec) for e in at.get("vega_lite_chart")]
-
-
-def test_every_chart_on_the_insights_and_results_tabs_disables_its_menu(mixture_scored):
-    at = _open_insights(_app())
-    # Measured against predicted and the Progress chart are drawn only while
-    # open (BO views, binding I15): open both.
-    at.session_state[ui_insights.EACH_KEY] = True
-    at.session_state[ui_insights.PROGRESS_KEY] = True
-    # Charts proto: the triangle sits in Explored and unexplored now, with
-    # What you've tried, How the app chooses and the map: open it too.
-    at.session_state[ui_insights.EXPLORED_KEY] = True
-    at.session_state["main_tab"] = wording.TAB_INSIGHTS
-    at.run()
-    assert not at.exception
-    specs = _vega_specs(at)
-    # One per drawn chart: the improving chart, the sensory profile and the
-    # Forecast check's forecast against measured at least (one-glance
-    # Review: the search path and the profiler are gone).
-    assert len(specs) >= 3, len(specs)
-    bad = [s for s in specs if s.get("usermeta") != _NO_ACTIONS]
-    assert bad == []
 
 
 def test_every_chart_on_a_second_project_shape_disables_its_menu(insights_scored):

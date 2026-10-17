@@ -30,18 +30,11 @@ def charts(tmp_path_factory):
         opt = D.load(D.LINE_A)
         computed = U._computed(opt, quiet=True)
         mp.setattr(U, "checks_for", lambda o, stage: computed["checks"])
-        fitted, checks = computed["fitted"], computed["checks"]
-        values = bo_views.map_values(opt, bo_views.next_model(opt))
-        picks = [{"mean": m, "sd": s, "no": str(n)} for n, m, s in values.picks]
-        tested = [{"mean": float(m), "sd": float(s), "no": n}
-                  for m, s, n in zip(values.tested_mean.tolist(), values.tested_sd.tolist(),
-                                     values.tested)]
+        view = U.round_view(opt)
         out = {
             "improving": U.improving_chart(opt),
-            "target": U.target_chart(opt),
-            "forecast": U.forecast_chart(opt, [c for c in checks if c.name == insights.SCORE]),
-            "map": U.explore_map_chart(values.pool_mean, values.pool_sd, tested, picks,
-                                       U.repeat_of_best(opt, fitted), opt),
+            "targets": U.targets_chart(opt, view),
+            "amounts": U.amounts_chart(opt, view),
         }
         missing = [k for k, v in out.items() if v is None]
         assert not missing, missing
@@ -51,7 +44,8 @@ def charts(tmp_path_factory):
 
 # One-glance Review (owner, 2026-10-14): the Called it? panels, the ordering
 # chart, the profiler and the search path are gone.
-NAMES = ["improving", "target", "forecast", "map"]
+# Review v3: Best so far, Best so far vs targets, Amounts in the top formulations.
+NAMES = ["improving", "targets", "amounts"]
 MIN_CHART_W = 380         # px: no chart narrower than this
 
 
@@ -122,9 +116,3 @@ def test_no_chart_narrower_than_380(charts, name):
 # label spreading went with them.
 
 
-def test_the_improving_labels_sit_above_every_mark(charts):
-    spec = charts["improving"]
-    texts = [d for d in _walk(spec) if isinstance(d.get("mark"), dict)
-             and d["mark"].get("type") == "text"
-             and d.get("encoding", {}).get("y", {}).get("field") == "lane"]
-    assert texts, "the Start and Best labels are drawn in their lanes"

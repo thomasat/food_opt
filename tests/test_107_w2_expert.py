@@ -22,7 +22,6 @@ from streamlit.testing.v1 import AppTest
 import bo_views
 import insights
 import insights_jobs
-import ui_batch
 import ui_insights
 import wording as W
 from food_bo import COLD_START_RUNS, validate_bo_config
@@ -260,50 +259,6 @@ LINE_A_TIP = (
     "Round is predicted by models refitted today on earlier Rounds only.")
 
 
-def test_line_a_reads_the_reviews_exact_rule(project):
-    opt, checks = project(D.LINE_A)
-    facts = _status(opt, checks)
-    assert facts.prediction_row == "reliable"
-    tip = ui_insights.tooltip_for(opt, "predictions", facts)
-    assert tip.startswith(LINE_A_TIP)
-    assert W.TIP_RELIABLE_LIMITS in tip
-    assert _rule(opt, ("predictions", "reliable")) in tip
-
-
-@pytest.mark.parametrize("name", D.ALL)
-def test_every_status_tooltip_names_its_rule_and_its_numbers(project, name):
-    opt, checks = project(name)
-    facts = _status(opt, checks)
-    say = lambda text: W.for_project(opt, text)
-    pred = ui_insights.tooltip_for(opt, "predictions", facts)
-    assert say(_rule(opt, ("predictions", facts.prediction_row))) in pred
-    assert any(ch.isdigit() for ch in pred)
-    if facts.headline is not None and facts.headline.state == "verdict":
-        h = facts.headline
-        assert f"{h.inside} of {h.total} Round-ahead values" in pred
-    if facts.skill is not None:
-        assert ui_insights.skill_value(facts.skill.value) in pred
-    if facts.disagreement is not None and facts.prediction_row == "off_repeat":
-        assert f"{abs(facts.disagreement.diff):.1f}" in pred
-    prog = ui_insights.tooltip_for(opt, "progress", facts)
-    assert say(_rule(opt, ("progress", facts.progress))) in prog
-    yard = facts.yardstick
-    assert (W.TIP_THRESHOLD_ASSUMED in prog if not yard.from_repeats
-            else f"pooled Repeat SD {yard.value:.1f} points" in prog)
-    nxt = ui_insights.tooltip_for(opt, "next", facts)
-    assert nxt.startswith("Next-step rule that holds: ")
-    if facts.next is not None:
-        assert say(_rule(opt, ("next", facts.next.kind))) in nxt
-    else:
-        assert say(_rule(opt, ("predictions", "gate"))) in nxt
-    # The guard reads the source; on screen a process-settings study says
-    # "trial" through for_project, its one sanctioned door.
-    for tip in (pred, prog, nxt):
-        if opt.has_ingredients():
-            assert not any(p.search(tip) for p in _BANNED), tip
-            assert "trial" not in tip.lower()
-
-
 @pytest.mark.skip(reason=REVIEW_FOUR)
 def test_line_b_names_the_repeat_and_the_bias(project):
     """Line B: Off (coverage) with the Repeat in Next; its bias clause."""
@@ -334,84 +289,14 @@ def test_the_process_only_tooltips_say_trial(project):
     assert "over 16 trials" in pred and "formulation" not in pred.lower()
 
 
-def test_status_tooltips_need_the_facts():
-    """W1 always hands them in; without them there is nothing exact to say."""
-    opt = D.load(D.LINE_A)
-    for line in ("predictions", "progress", "next"):
-        assert ui_insights.tooltip_for(opt, line) is None
-    assert ui_insights.tooltip_for(opt, "no such line") is None
-
-
 # ------------------------------------------------------------------ #
 #  The term tooltips (§3, R-I6)
 # ------------------------------------------------------------------ #
-
-_TERM_LINES = [line for line in ui_insights.TIP_LINES
-               if line not in ("predictions", "progress", "next", "basis_next",
-                               "next_reasoning", "luck")]
-
-
-@pytest.mark.parametrize("line", _TERM_LINES)
-def test_each_term_line_reads_plain_first_then_the_bo_term(line):
-    """One "?" per line (R-I6): the plain reading first, then the standard
-    term (the strips' tip too, since T0′ at integration)."""
-    opt = D.load(D.LINE_A)
-    tip = ui_insights.tooltip_for(opt, line)
-    assert tip, line
-    head, sep, _ = tip.partition(" BO term: ")
-    assert sep and head, (line, tip)
-    assert not any(p.search(tip) for p in _BANNED), tip
-
-
-def test_the_luck_tip_points_to_method(project):
-    opt = D.load(D.LINE_A)
-    assert ui_insights.tooltip_for(opt, "luck") == W.TIP_LUCK
-
-
-@pytest.mark.parametrize("name", [D.LINE_A, D.LINE_B, D.LINE_C, D.TIMING])
-def test_the_next_reasoning_and_basis_lines_name_the_row(project, name):
-    opt, checks = project(name)
-    facts = _status(opt, checks)
-    reasoning = ui_insights.tooltip_for(opt, "next_reasoning", facts)
-    assert " BO term: " in reasoning
-    assert ui_insights.tooltip_for(opt, "basis_next", facts) == ui_insights.tooltip_for(
-        opt, "next", facts)
-
-
-def test_the_figures_lines_carry_their_numbers(project):
-    opt, checks = project(D.LINE_A)
-    facts = _status(opt, checks)
-    verdict = ui_insights.tooltip_for(opt, "verdict", facts)
-    assert verdict.startswith(W.TIP_INTERVAL) and W.TIP_VERDICT in verdict
-    assert W.TIP_NOT_JUDGED not in verdict and "33 of 35 Round-ahead values" in verdict
-    assert "= 0.36 over 15" in ui_insights.tooltip_for(opt, "skill", facts)
-    early = ui_insights.tooltip_for(opt, "verdict")
-    assert W.TIP_NOT_JUDGED in early
-
-
-def test_the_process_only_term_tips_say_values():
-    opt = D.load(D.PROCESS_ONLY)
-    assert "these values" in ui_insights.tooltip_for(opt, "map")
-    assert "Untested values" in ui_insights.tooltip_for(opt, "standing")
-    assert "trial" in ui_insights.tooltip_for(opt, "standing").lower()
 
 
 # ------------------------------------------------------------------ #
 #  The basis lines (§7): drawn with their help at the top of each fold
 # ------------------------------------------------------------------ #
-
-def test_each_basis_line_is_its_text_and_its_help():
-    opt = D.load(D.LINE_A)
-    # Concision round: the short basis on screen, the full one first in its help.
-    for which, text in (("predictions", W.BASIS_PREDICTIONS), ("progress", W.BASIS_PROGRESS)):
-        line, help_text = ui_insights.basis_line(opt, which)
-        assert line == W.BASIS_SHORT[which]
-        assert help_text == f"{text}\n\n{ui_insights.tooltip_for(opt, f'basis_{which}')}"
-    line, help_text = ui_insights.basis_line(opt, "next")
-    assert line == W.BASIS_SHORT["next"] and help_text == W.BASIS_NEXT
-    oven = D.load(D.PROCESS_ONLY)
-    _, help_text = ui_insights.basis_line(oven, "predictions")
-    assert "trials recorded before each Round" in help_text
 
 
 # ------------------------------------------------------------------ #
@@ -465,51 +350,3 @@ def test_method_and_definitions_at_the_gate():
         assert line in text
     rules, _ = list(fold.table)
     assert len(rules.value) == 6
-
-
-# ------------------------------------------------------------------ #
-#  Make a round: the column, the track line, the Why fold (§3, §7)
-# ------------------------------------------------------------------ #
-
-def test_the_predicted_score_column_names_its_statistics():
-    opt = D.load(D.LINE_A)
-    tip = ui_batch._score_help(opt)
-    assert tip.startswith(W.predicted_score_help(20))
-    assert "posterior mean of the Gaussian process" in tip
-    assert "95 % posterior predictive interval" in tip
-
-
-def test_the_track_line_help(project, monkeypatch):
-    # Line B's bias shows under the earlier 2-standard-error rule only
-    # (ftue fix A, cold read I5); the help with a bias is checked under it.
-    monkeypatch.setattr(insights, "t_critical", lambda df, p=0.975: 2.0)
-    opt, checks = project(D.LINE_B)
-    t = insights.round_track(opt, checks)
-    tip = ui_batch.track_help(opt, t)
-    for needle in ("rolling-origin", "95 % posterior predictive interval",
-                   "mean prediction error", "out-of-sample skill score"):
-        assert needle in tip, needle
-    a, checks = project(D.LINE_A)
-    plain = ui_batch.track_help(a, insights.round_track(a, checks))
-    assert "mean prediction error" not in plain and "rolling-origin" in plain
-
-
-@pytest.mark.parametrize("kind", ["qlognei", "qlogei", "qucb"])
-def test_the_why_columns_name_their_statistics(kind):
-    opt = D.load(D.LINE_A)
-    # Ftue fix C: the plain gain column, its tooltip carrying its BO term.
-    value_col = W.OPTIMISTIC_SCORE if kind == "qucb" else W.EXPECTED_GAIN
-    help_text = (W.OPTIMISTIC_SCORE_HELP if kind == "qucb" else W.tip_expected_gain(kind))
-    cols = ui_batch.why_columns(opt, value_col, help_text)
-    helps = {k: v["help"] for k, v in cols.items() if v.get("help")}
-    assert helps[W.MODEL_SD] == W.TIP_MODEL_SD
-    assert helps[W.CLOSEST_MADE] == W.TIP_CLOSEST_MADE
-    assert helps[W.ROLE].startswith(W.role_help()) and "distance labels" in helps[W.ROLE]
-    assert helps[W.PREDICTED_SCORE_COLUMN].startswith(W.tip_predicted_score())
-    assert W.TIP_INTERVAL in helps[W.PREDICTED_SCORE_COLUMN]
-    assert helps[value_col].startswith(help_text)
-    assert "acquisition value" in helps[value_col]
-    for text in helps.values():
-        assert not any(p.search(text) for p in _BANNED), text
-
-

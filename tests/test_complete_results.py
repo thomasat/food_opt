@@ -487,7 +487,7 @@ def test_the_table_names_what_a_formulation_waits_for():
     assert _row(frame, 3)[wording.OVERALL_SCORE_COLUMN] == "waiting for Cook loss"
     assert (_row(frame, 4)[wording.OVERALL_SCORE_COLUMN]
             == "waiting for Juiciness and Cook loss")
-    assert _row(frame, 1)[wording.OVERALL_SCORE_COLUMN] == f"{opt.Y_history[0]:.2f}"
+    assert _row(frame, 1)[wording.OVERALL_SCORE_COLUMN] == f"{opt.Y_history[0]:.1f}"
 
 
 def test_a_measurement_that_does_not_apply_is_a_blank_number_in_the_frame():
@@ -498,7 +498,7 @@ def test_a_measurement_that_does_not_apply_is_a_blank_number_in_the_frame():
     # is the Results table's display formatting (review #5).
     assert pd.isna(_row(frame, 1)["Cook loss"])
     assert pd.api.types.is_numeric_dtype(frame["Cook loss"])
-    assert _row(frame, 1)[wording.OVERALL_SCORE_COLUMN] == f"{opt.Y_history[0]:.2f}"
+    assert _row(frame, 1)[wording.OVERALL_SCORE_COLUMN] == f"{opt.Y_history[0]:.1f}"
     details = {d['name']: d for d in opt.closeness_details(0)}
     assert details["Cook loss"]["measured"] == "—"
     assert details["Cook loss"]["off_by"] == "—"

@@ -4,8 +4,8 @@ Make a round -> Results -> Review -> Make a round.
 
 - After Save results (whole Round or part) Results' one lit button is
   "Review Round N", and it opens 4 · Review.
-- Make a round carries one line in the Review cards' own words, with an
-  "Open Review" link, red when a card is (Off, Check panel first).
+- v3: Make a round carries no line in the Review cards' words (no
+  verdicts there); only "Review Round N" while a Round is due its Review.
 - One lit button per screen.
 - The welcome lists Review as step 4."""
 import json
@@ -20,11 +20,10 @@ import wording
 from food_bo import FoodOptimizer
 from tests import demo_projects as D
 from tests.test_app_ui import APP_PATH, _tab_primaries
-from tests.test_review_cards import cards
 from ui_helpers import REVIEW_DOT_STYLE, REVIEW_DUE_KEY, open_rows
 
 # The cards' (Predictions, Progress) words and the Next card's word when it
-# is red, per demo project (tests/test_review_cards.py EXPECTED).
+# is red, per demo project (the v3 Review: no cards).
 STATUS = {
     D.SNACK: ("Not yet", "Too early", None),
     # Review learned: past the gate the word is the Model item's (the
@@ -91,8 +90,8 @@ def walked(tmp_path_factory):
                 at = _app(name, wording.TAB_INSIGHTS)
                 # Review story: the screen shows Progress, Predictions, Next;
                 # read in the (Predictions, Progress, Next) order pinned below.
-                # Review story 2: the words are the status strip's.
-                words = [c["word"] for c in cards(at)]
+                # v3: the Review has no cards or status words.
+                words = []
                 review_lit = _tab_primaries(at, REVIEW)
                 _go(at, wording.TAB_BATCH)
                 links = [b for b in at.tabs[BATCH].button if b.key == "link_review_status"]
@@ -101,27 +100,6 @@ def walked(tmp_path_factory):
             yield out
     finally:
         os.chdir(here)
-
-
-@pytest.mark.parametrize("name", list(STATUS))
-def test_make_a_round_line_matches_the_review_cards(walked, name):
-    words, _, line, links, _ = walked[name]
-    pred, prog, extra = STATUS[name]
-    # The cards say what this test expects ...
-    assert _plain(words[0]) == pred and words[1] == prog, words
-    if extra:
-        assert _plain(words[2]) == extra, words
-    # ... and Make a round's line says the same words, nothing new.
-    # Round 2 (P3 #18): the strip's own three items, in its words —
-    # 'Review: **Rising** · Predicts: Overall score · Stop, or change the target'.
-    if name == D.SNACK:
-        assert _plain(line) == wording.review_status_line(pred, prog, extra), line
-    else:
-        assert _plain(line).startswith(f"Review: **{prog}** · {pred}"), line
-        assert _plain(line).endswith(_plain(words[2])), (line, words)
-    assert line.startswith(":red[") == (name in RED), line
-    assert [b.label for b in links] == [wording.OPEN_REVIEW]
-    assert links[0].proto.type == "tertiary"
 
 
 @pytest.mark.parametrize("name", list(STATUS))
@@ -202,10 +180,12 @@ def test_save_results_then_review_round_n_opens_review(tmp_path, monkeypatch):
         _button(at, RESULTS, "review_round").click().run()
         assert at.session_state["main_tab"] == wording.TAB_INSIGHTS
         # Review's Next card leads back to Make a round.
-        assert _tab_primaries(at, REVIEW) == [wording.START_NEXT_BATCH]
+        # Review v3: What next?'s primary names the next Round.
+        assert _tab_primaries(at, REVIEW) == [wording.start_round_label(
+            at.session_state["optimizer"].next_batch_no())]
         _button(at, REVIEW, "insights_foot").click().run()
         assert at.session_state["main_tab"] == wording.TAB_BATCH
-        assert _status_line(at) is not None
+        assert _status_line(at) is None          # v3: no verdict line here
 
 
 def test_the_welcome_lists_review_as_step_four(tmp_path, monkeypatch):

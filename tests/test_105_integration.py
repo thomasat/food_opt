@@ -21,7 +21,6 @@ from streamlit.testing.v1 import AppTest
 
 import insights
 import insights_jobs
-import ui_batch
 import ui_insights
 import wording
 # Review four, ruling 2: the Why fold's "?" says the gain is greyed, not hidden.
@@ -142,72 +141,8 @@ def test_after_the_user_moves_on_the_poller_does_not_bring_it_back(poll_lands):
 
 
 # ------------------------------------------------------------------ #
-#  The Why fold says the A3 reason exactly (W2 × W1's skill_gate)
+#  The A3 reason is Progress's own words (W2 × W1's skill_gate)
 # ------------------------------------------------------------------ #
-
-from tests.test_094_make_a_round import _app, _fold, _open_round, _rerun  # noqa: E402
-
-
-def _why_caption(monkeypatch, gate, reasons=("skill",)):
-    opt = _open_round()
-    # Review four polish: the fold greys by the Predictions card's word;
-    # pinned here at Not yet, so the skill gate's own reason is its detail.
-    monkeypatch.setattr(insights, "score_predictions", lambda *a, **k: "not_yet")
-    monkeypatch.setattr(insights, "noise_guard",
-                        lambda *a, **k: insights.Guard(list(reasons), gate))
-    monkeypatch.setattr(insights, "skill_gate", lambda *a, **k: gate)
-    at = _app(opt)
-    at.session_state[ui_batch.WHY_KEY] = True
-    _rerun(at)
-    # Concision round: a withheld-gain line is short on screen, its full
-    # sentence in its help; both are returned.
-    caps = _fold(at).caption
-    return [c.value for c in caps] + [c.proto.help for c in caps if c.proto.help]
-
-
-def test_the_why_fold_says_too_few_checks(monkeypatch):
-    gate = insights.SkillGate("wait", 6)
-    line = wording.why_guard_line(gate_reason=wording.gain_reason_too_few(6))
-    assert line == ("Expected gain is not shown: fewer than 10 Round-ahead checks of "
-                    "the Overall score so far (6).")
-    # Review four polish (re-pinned): greyed by the card's word, the A3
-    # reason said after it.
-    line = wording.why_greyed_line("not_yet", wording.gain_reason_too_few(6))
-    assert wording.why_gain_greyed_said(line) in _why_caption(monkeypatch, gate)
-
-
-def test_the_why_fold_says_skill_under_0_20(monkeypatch):
-    fact = insights.SkillFact(0.09, 24, [3, 4, 5, 6, 7, 8], "unclear")
-    gate = insights.SkillGate("unclear", 24, fact)
-    # Review four polish (re-pinned): the card's word, then the A3 reason.
-    line = wording.why_greyed_line("not_yet", wording.gain_reason_unclear("0.09", 24))
-    assert wording.why_gain_greyed_said(line) in _why_caption(monkeypatch, gate)
-
-
-def test_the_why_fold_says_no_skill(monkeypatch):
-    fact = insights.SkillFact(-0.4, 24, [3, 4, 5, 6, 7, 8], "no_skill")
-    gate = insights.SkillGate("no_skill", 24, fact)
-    # Review four polish (re-pinned): the card's word, then the A3 reason.
-    line = wording.why_greyed_line("not_yet", wording.GAIN_REASON_SKILL)
-    assert wording.why_gain_greyed_said(line) in _why_caption(monkeypatch, gate)
-
-
-def test_the_why_fold_and_progress_give_one_reason(monkeypatch):
-    """The fold's words are Progress's reason (gain_reason), not a second
-    paraphrase of it."""
-    for gate in (insights.SkillGate("wait", 6),
-                 insights.SkillGate("unclear", 24, insights.SkillFact(0.09, 24, [3, 4], "unclear"))):
-        reason = ui_insights.gain_reason("skill", gate)
-        assert reason in wording.why_guard_line(gate_reason=reason)
-        assert reason in wording.gain_unreliable(reason)
-
-
-# ------------------------------------------------------------------ #
-#  Make a round's E3 kinds (W1 note b)
-# ------------------------------------------------------------------ #
-
-def test_the_e3_kinds_lose_the_bias_row_next_step_no_longer_makes():
-    assert "bias" not in ui_batch._E3_KINDS
 
 
 # ------------------------------------------------------------------ #
@@ -337,37 +272,3 @@ def test_pair_charts_grey_marks_reach_3_to_1(theme):
     for colour, opacity in colours:
         assert colour.startswith("#"), colour
         assert _contrast_on(colour, opacity, PAGES[theme]) >= 3.0, (colour, theme)
-
-
-# ------------------------------------------------------------------ #
-#  One message: Make a round's E3 line names the Rounds as Insights does
-#  (consistency printout, 02 final)
-# ------------------------------------------------------------------ #
-
-def test_make_a_rounds_next_step_line_names_insights_rounds(tmp_path, monkeypatch):
-    import bo_views
-    from food_bo import FoodOptimizer
-    from tests.test_app_ui import APP_PATH
-    monkeypatch.chdir(tmp_path)
-    state = E.state(E.PATTY)
-    opt = FoodOptimizer(state["project_name"])
-    opt.import_json(state)
-    opt.save()
-    with bo_views.fresh():
-        checks = insights.check_rounds(opt)
-        step = insights.next_step(opt, checks, None)
-        assert step.kind == "misses"
-        rounds = insights.headline(opt, checks).rounds
-        said = wording.first_sentence(ui_insights.next_step_text(opt, step, rounds)[0])
-        assert "Rounds 6–8" in said
-        at = AppTest.from_file(APP_PATH, default_timeout=600)
-        at.session_state["_loaded_project"] = opt.project_name
-        at.run()
-        at.session_state["main_tab"] = wording.TAB_INSIGHTS     # Insights works it out
-        at.run()
-        at.session_state["main_tab"] = wording.TAB_BATCH
-        at.run()
-        assert not at.exception
-        captions = [c.value for c in at.tabs[1].caption]
-        assert said in captions
-        assert not any("the verdict's Rounds" in c for c in captions)

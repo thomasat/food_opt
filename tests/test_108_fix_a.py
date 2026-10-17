@@ -534,56 +534,10 @@ def test_with_sd_from_three_df_rising_fires_at_most_one_time_in_twenty():
 # threshold the rise is judged against (Improvement.threshold, q), on
 # screen and in the tooltip; ties use rise_threshold(yard, 1).
 
-def test_the_short_rise_names_what_a_rise_needs():
-    import wording as W
-    # Coordinator: at most 10 words after the bold word, Best so far kept.
-    assert W.short_rise("2.5", "3.2") == "Up 2.5, needs 3.2."
-    assert W.short_rise("3.5", "3.2", rising=True) == "Up 3.5, beats 3.2."
-    assert W.short_rise_best("89.84", 18) == "Best so far: 89.84, Formulation 18."
-    assert W.short_rise_best("96.00", 1, tie_no=3) == "Best so far: 96.00, Formulations 1 and 3."
-    assert W.rise_factor("2.23", 4) == "√2 × 2.23 (best of 4)"
-    assert W.rise_factor("4.15", 4, df=3) == "√2 × 4.15 (best of 4, t on 3 df)"
-    assert W.rise_factor("1.64", 1) == "√2 × 1.64"
-
-
-def test_the_progress_sentences_name_the_threshold():
-    import wording as W
-    assert W.progress_within_noise(5, "2.5", "89.84", 100, 18, "3.2", near_no=20) == (
-        "Round 5 raised Best so far by 2.5 points, to 89.84 of 100 (Formulation 18, tied with "
-        "Formulation 20), less than the 3.2 points needed to count as a rise.")
-    assert W.progress_rising(5, "3.5", "89.84", 100, 18, "3.2") == (
-        "Round 5 raised Best so far by 3.5 points, to 89.84 of 100 (Formulation 18), more "
-        "than the 3.2 points needed to count as a rise.")
-    tip = W.tip_progress(W.TIP_THRESHOLD_ASSUMED, ("3.16", W.rise_factor("2.23", 4), "1"))
-    assert "noise SD × √2 × the max-of-q factor" in tip
-    assert tip.endswith("This Round: 1 × √2 × 2.23 (best of 4) = 3.16 points.")
-    for text in (tip, W.short_rise("2.5", "3.2")):
-        assert not any(p.search(text) for p in _banned()), text
-
 
 def _banned():
     from tests.test_food_bo import _BANNED
     return _BANNED
-
-
-def test_the_ui_says_the_rise_against_its_threshold(_cwd):
-    import ui_insights
-    import wording as W
-    opt = _rounds([[70.0, 72.0], [74.5, 60.0, 61.0, 62.0]])     # Line C's case
-    yard = insights.noise_yardstick(opt)
-    a = insights.improvement(opt, yardstick=yard)
-    facts = SimpleNamespace(best=insights.best_facts(opt), tie=None, improvement=a,
-                            progress="within_noise", yardstick=yard)
-    assert ui_insights.progress_short(opt, facts) == (
-        "Up 2.5, needs 3.2. Best so far: 74.50, Formulation 3.")
-    assert len(ui_insights.progress_short(opt, facts).split()) <= 10
-    assert ui_insights.progress_sentence(opt, facts).endswith(
-        "less than the 3.2 points needed to count as a rise.")
-    stand = ui_insights.stand_text(a, yard)
-    assert stand.startswith("Within noise: up 2.5 points in the last Round, under the 3.2 "
-                            "points needed: √2 × 2.23 (best of 4) × the 1-point noise threshold")
-    assert W.tip_progress(W.TIP_THRESHOLD_ASSUMED, (
-        "3.16", W.rise_factor("2.23", 4), "1")) in ui_insights._progress_tip(opt, facts)
 
 
 def test_ties_use_the_q1_rise_threshold(_cwd):

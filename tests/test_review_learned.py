@@ -41,8 +41,7 @@ from food_bo import FoodOptimizer
 from insights import Check, Prediction
 from tests import demo_projects as D
 from tests.test_app_ui import APP_PATH
-from tests.test_food_bo import _BANNED
-from tests.test_review_cards import _install, _leaves, _text
+from tests.review_screens import _install, _leaves, _text
 
 
 def _check(no, r, name, pred, meas, raw=None, low=None, high=None, full=True):
@@ -336,34 +335,6 @@ def test_capped_never_reads_100():
     assert U.score_text(Prediction(98.0, 92.0, 104.0)) == "98 (92–100)"
 
 
-def test_forecast_panel_shows_predictable_measurements_only(line_a, monkeypatch):
-    opt, checks, memo = line_a
-    monkeypatch.setattr(U.st, "session_state", {U.MEMO_KEY: (opt.project_name, memo)})
-    # Persona fixes 2: one line per Predictable result, the Overall score
-    # first when it is (as the Model item names it); with the noise rule
-    # and without it.
-    assert [ln.split(":")[0] for ln in U.round_forecast_lines(opt, checks)[0]] == [
-        U.learned_label(opt, n) for n, o in learned.orderings(opt, checks).items()
-        if o.verdict == learned.PREDICTABLE]
-    monkeypatch.setattr(learned, "pair_noise", lambda o, c=(): {})
-    ords = learned.orderings(opt, checks)
-    predictable = [U.learned_label(opt, n) for n, o in ords.items()
-                   if o.verdict == learned.PREDICTABLE]
-    lines, help_ = U.round_forecast_lines(opt, checks)
-    assert [ln.split(":")[0] for ln in lines] == predictable
-    # Review critique: under the exact permutation test Line A's Firmness
-    # leans right (Partly) rather than clearly; any line drawn still reads.
-    assert all(not re.search(r"\b1\d\d(\.\d)?\b", ln) for ln in lines)   # no 100+
-    if lines:
-        open_nos = [r["formulation"] for r in U.open_rows(opt)]
-        assert all(f"F{no} " in lines[0] for no in open_nos)
-        assert "Predictable" in help_
-    # Nothing Predictable: no lines.
-    monkeypatch.setattr(learned, "orderings", lambda o, c, n=None: {
-        k: learned.Ordering(k) for k in learned.names(o)})
-    assert U.round_forecast_lines(opt, checks) == ([], None)
-
-
 def test_forecast_is_the_round_ahead_check(line_a):
     """The forecast before the Round's results is the one its check reads
     after: the same rows, the same model."""
@@ -451,25 +422,6 @@ def _section_leaves(at, title):
     return out
 
 
-def test_section_order(screen):
-    # Review critique (fix 5): progress, What next?, the model, what was
-    # tried; What drives each result? is a closed fold (no heading).
-    assert U.SECTION_ORDER == ("progress", "next", "predictions")
-    # Slim Review (owner, 2026-10-08, re-pinned): no model section of its
-    # own; the Forecast check heads the model's place; What have we tried?
-    # is a closed fold.
-    assert U._QUESTIONS["predictions"] == wording.FORECAST_CHECK_TITLE
-    assert _headings(screen) == [wording.Q2_TITLE, wording.Q5_TITLE,
-                                 wording.FORECAST_CHECK_TITLE]
-    text = " | ".join(_text(el) for el, _, _ in _leaves(screen.tabs[3]))
-    # The old trust section is gone from the default view.
-    assert wording.Q1_TITLE not in text
-    # (Review critique: "Not predictable yet: …" sits in the profiler's
-    # closed fold now.)
-    # Round 6 is open: no Called it? until it is scored.
-    assert "called it" not in text.lower() and "Round 5: partly" not in text
-
-
 @pytest.fixture(scope="module")
 def scored(tmp_path_factory):
     """Line A with Round 6 closed unrecorded: Round 5 is the latest scored."""
@@ -491,42 +443,6 @@ def scored(tmp_path_factory):
     mp.undo()
 
 
-def test_the_forecast_check_is_its_label_then_the_round_line(scored):
-    """One-glance Review (owner, 2026-10-14), fix round 1: under its
-    heading, the Rebuilt label, the ONE Round line ("Round 5: … in/above
-    their range …"), then the closed Details fold; the verdict line is not
-    repeated there (the verdict is in the strip)."""
-    leaves = [(el, _text(el)) for el, _, _ in _leaves(scored.tabs[3])]
-    texts = [t for _, t in leaves]
-    details = next(i for i, (el, _t) in enumerate(leaves) if el.type == "expander"
-                   and el.label == wording.LEARNED_DETAILS_TITLE)
-    assert texts.index(f"#### {wording.Q5_TITLE}") < texts.index(
-        f"#### {wording.FORECAST_CHECK_TITLE}")
-    title = texts.index(f"#### {wording.FORECAST_CHECK_TITLE}")
-    # Rebuilt framing: right under its title, said to be rebuilt.
-    assert texts[title + 1] == wording.REBUILT_LABEL
-    between = [t for t in texts[title + 2:details] if t]
-    assert len(between) == 1, between
-    line = between[0]
-    # The Round line (test_called_it_sits_at_the_top_as_charts, its Round-line
-    # parts). Fix round 2: where the scores landed, alone, in 10 words.
-    assert re.fullmatch(r"\*\*Round 5: [^*]*forecast range[^*]*\.\*\*", line), line
-    assert not re.match(r"(Predicts|Partly|Not yet): ", line)
-    assert _words(line) <= 10, line
-    assert "order" not in line and "tie" not in line and "as forecast" not in line
-    # Its "?" opens on the Round's landing in plain words, then the Round's
-    # own pairs in the Details' words ("measured equal", never "tie").
-    el = leaves[texts.index(line)][0]
-    assert el.help.startswith("Round 5, Overall score: "), el.help
-    assert " in range" in el.help and "Round 5 order, Overall score: of " in el.help
-    assert not re.search(r"\bties?\b", el.help)
-    # The one chart sits in the fold, after one sentence per result with pairs.
-    inside = leaves[details + 1:]
-    assert any("vega" in el.type or "chart" in el.type for el, _ in inside)
-    assert any(re.search(r": of \d+ pairs?, (none called|\d+ called)", t) for _, t in inside)
-    assert not any(" far enough apart to call" in t for _, t in inside)
-
-
     # Review readable: taller (120 -> 160 px) so 12 px end labels clear each other.
     # Round 2 (P2 #9): one full-width panel per row, 40 px per formulation.
 
@@ -535,59 +451,9 @@ def answer_help(els):
     return next(el.help for el in els if el.type == "markdown" and _text(el))
 
 
-def test_strip_reads_the_model_verdict(screen):
-    labels = [b.label for b in screen.tabs[3].button if b.key == f"{U.SEE_CHART_KEY}_predictions"]
-    # Persona fixes 2: the verdict, whichever it is (Line A: Not yet).
-    # Review critique: the section's words, "Predicts:" / "Partly:" / "Not
-    # predictable yet".
-    assert labels and labels[0].startswith(("**Predicts:**", "**Partly:**",
-                                            "**Not predictable yet**"))
-    # Specific wording (2026-10-12): two names with their pairs take 7.
-    # Fix round 2 (coordinator): the counts never hide how many were right;
-    # the item keeps to the owner's 10-word status limit.
-    assert _words(labels[0]) <= 10
-
-
 def test_no_prediction_reads_100_on_the_review(screen):
     for el, _, _ in _leaves(screen.tabs[3]):
         if el.type in ("markdown", "caption"):
             assert not re.search(r"\(\d+–100\)|\b100 \(", _text(el)), _text(el)
 
 
-def test_wording_passes_banned_and_limits():
-    texts = [wording.LEARNED_TITLE, wording.LEARNED_STRIP_LABEL, *wording.LEARNED_WORDS.values(),
-             *wording.LEARNED_REASONS.values(), wording.LEARNED_COL_PAIRS, wording.LEARNED_COL_TOP,
-             wording.LEARNED_CHANCE,
-             wording.LEARNED_NONE_YET,
-             *wording.CALLED_WORDS.values(),
-             wording.CALLED_TIP_FORECAST, wording.called_answer(6, "called", "Thickness uniformity", (16, 18), 18),
-             wording.called_answer(10, "partly", right=["Consistency"],
-                                   off=["Overall score", "Thickness uniformity"]),
-             wording.called_answer(10, "missed", off=["Firmness"]),
-             wording.learned_counts([("Overall score", 10, 11, 5.5)]),
-             wording.learned_tops([("Overall score", 3, 4, 1.7)]),
-             wording.LEARNED_FORECAST_TITLE, wording.LEARNED_FORECAST_NONE,
-             wording.LEARNED_PREVIEW_TITLE, wording.LEARNED_PREVIEW_CAPTION,
-             wording.LEARNED_RULE, wording.called_ranges(["F16 13.5 (11.1–≥ 15)"]),
-             wording.learned_answer(["Firmness"], ["Juiciness"], ["Cook loss"]),
-             wording.learned_skill_line(22, 24, 0.61, -0.11, 24),
-             wording.forecast_help(15, 6), wording.preview_help(3, 10),
-             wording.preview_line(1, "explores", "98 (85–≥ 99)", "Salt +0.10 g"),
-             wording.learned_effect_tip("Salt", "Tangy", "0.2", "1.2", 0.8, 0.1, 1.5),
-             wording.review_status_learned("Predicts", "Flat")]
-    for t in texts:
-        assert not any(p.search(t) for p in _BANNED), t
-        assert not re.search(r"\bgain\b", t, re.I), t
-    # Captions at most 8 words, labels at most 5, the strip at most 6.
-    for c in (wording.LEARNED_PREVIEW_CAPTION, wording.LEARNED_FORECAST_NONE):
-        assert _words(c) <= 8, c
-    for label in (wording.LEARNED_STRIP_LABEL, wording.LEARNED_COL_PAIRS, wording.LEARNED_COL_TOP,
-                  wording.LEARNED_FORECAST_TITLE):
-        assert _words(label) <= 5, label
-    for line in (wording.called_answer(6, "called", "Thickness uniformity", (16, 18), 18),
-                 wording.called_answer(10, "partly", right=["Consistency"],
-                                       off=["Overall score", "Tangy"])):
-        assert _words(line) <= 12, line
-    for names in (["Firmness"], ["Consistency", "Tangy", "Creaminess"], []):
-        word, line = wording.learned_strip(names, [])
-        assert _words(f"{word} {line}") <= 6

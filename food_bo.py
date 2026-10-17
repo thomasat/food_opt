@@ -3953,7 +3953,7 @@ class FoodOptimizer:
             # A formulation still waiting shows what it waits for, never the
             # lowered number: a missing measurement counts as zero in it.
             row[wording.OVERALL_SCORE_COLUMN] = (
-                f"{float(self.Y_history[i]):.2f}" if complete
+                wording.score_shown(self.Y_history[i]) if complete
                 else wording.not_scored_missing(number_list(self.waiting_on(i)))
                 if self.is_set_aside(i)
                 else wording.waiting_for(number_list(self.waiting_on(i))))
@@ -5602,9 +5602,9 @@ class FoodOptimizer:
                 "Formulation": int(self.formulation_ids[i]),
                 wording.ROUND_CAP: "" if batch is None else int(batch),
                 wording.DATE_RECORDED_COLUMN: local_date(ts),
-                # Two decimals, as the screen shows it: a file that says
-                # 2.625 where the table says 2.62 reads as a third number.
-                # Blank while it waits for results, as a Not scored row's is.
+                # Two decimals: the screen shows one (score_shown), the
+                # file keeps the precision. Blank while it waits for
+                # results, as a Not scored row's is.
                 wording.OVERALL_SCORE_COLUMN: (round(float(self.Y_history[i]), 2)
                                                if self.fully_measured(i) else ""),
             }
@@ -7234,6 +7234,58 @@ class FoodOptimizer:
     #  Utility Scoring
     # ------------------------------------------------------------------ #
 
+    def score_parts(self, results_dict, formulation_no=None):
+        """Each measurement's part of the Overall score, in self.objectives
+        order: {'name', 'goal', 'applies', 'rating', 'utility'}. `utility`
+        is the fraction of its share the rating earns (1 on target, losing
+        1/(max - min) per point off), None when the measurement does not
+        apply or has no value. _compute_utility adds these up, and the
+        Results tab's "How the score is worked out" shows them
+        (score_breakdown), so the two can never disagree."""
+        parts = []
+        for obj in self.objectives:
+            applies = self._applies_to(obj, formulation_no, results_dict)
+            raw_val = results_dict.get(obj['name'])
+            utility = None
+            if applies and raw_val is not None:
+                val = float(raw_val)
+
+                min_v = obj.get('min_val', 0.0)
+                max_v = obj.get('max_val', 10.0)
+                rng = max_v - min_v
+                if rng == 0:
+                    rng = 1.0
+
+                norm_val = max(0.0, min(1.0, (val - min_v) / rng))
+
+                if obj['goal'] == 'max':
+                    utility = norm_val
+                elif obj['goal'] == 'min':
+                    utility = 1.0 - norm_val
+                elif obj['goal'] == 'target':
+                    targ_val = obj.get('target', (max_v + min_v) / 2)
+                    norm_targ = (targ_val - min_v) / rng
+                    utility = max(0.0, 1.0 - abs(norm_val - norm_targ))
+                else:
+                    utility = 0.0
+            parts.append({'name': obj['name'], 'goal': obj.get('goal'),
+                          'applies': applies,
+                          'rating': None if raw_val is None else float(raw_val),
+                          'utility': utility})
+        return parts
+
+    def _share_scale(self, parts):
+        """What the shares of the measurements that apply are multiplied
+        by so a formulation scored without some still reads on the full
+        0-100: 1 when all apply, None when none with a share does."""
+        if all(p['applies'] for p in parts):
+            return 1.0
+        share = sum(float(obj['weight']) for obj, p in zip(self.objectives, parts)
+                    if p['applies'])
+        if share <= 0:
+            return None
+        return sum(float(obj['weight']) for obj in self.objectives) / share
+
     def _compute_utility(self, results_dict, formulation_no=None):
         """Compute a weighted utility score from raw results.
 
@@ -7242,43 +7294,50 @@ class FoodOptimizer:
         partway — the loop below is the whole computation, unchanged. A
         formulation recorded before a measurement was added is scored on
         the ones that apply, their shares rescaled to the full score, so it
-        reads on the same 0-100 as every other."""
-        applicable = [obj for obj in self.objectives
-                      if self._applies_to(obj, formulation_no, results_dict)]
+        reads on the same 0-100 as every other. Each measurement's part is
+        score_parts'."""
+        parts = self.score_parts(results_dict, formulation_no)
         total_utility = 0.0
-        for obj in applicable:
-            raw_val = results_dict.get(obj['name'])
-            if raw_val is None:
+        for obj, part in zip(self.objectives, parts):
+            if part['utility'] is None:
                 continue
-            val = float(raw_val)
-
-            min_v = obj.get('min_val', 0.0)
-            max_v = obj.get('max_val', 10.0)
-            rng = max_v - min_v
-            if rng == 0:
-                rng = 1.0
-
-            norm_val = max(0.0, min(1.0, (val - min_v) / rng))
-
-            if obj['goal'] == 'max':
-                utility = norm_val
-            elif obj['goal'] == 'min':
-                utility = 1.0 - norm_val
-            elif obj['goal'] == 'target':
-                targ_val = obj.get('target', (max_v + min_v) / 2)
-                norm_targ = (targ_val - min_v) / rng
-                utility = max(0.0, 1.0 - abs(norm_val - norm_targ))
-            else:
-                utility = 0.0
-
-            total_utility += obj['weight'] * utility
-        if len(applicable) == len(self.objectives):
+            total_utility += obj['weight'] * part['utility']
+        if all(p['applies'] for p in parts):
             return total_utility
-        share = sum(float(obj['weight']) for obj in applicable)
-        if share <= 0:
+        scale = self._share_scale(parts)
+        if scale is None:
             return 0.0
-        return total_utility * (sum(float(obj['weight'])
-                                    for obj in self.objectives) / share)
+        return total_utility * scale
+
+    def score_breakdown(self, index):
+        """How formulation `index`'s Overall score is made up, most
+        important measurement first: one dict per measurement with 'name',
+        'goal', 'rating', 'target' (None unless a Target goal), 'low',
+        'high', 'applies', 'share_of_score' (its share, rescaled as
+        _compute_utility rescales it), 'utility' (score_parts') and
+        'points' (share x the fraction earned; 0 for a value still waiting,
+        None when it does not apply). The points add up to
+        Y_history[index]."""
+        results = self._results_at(index)
+        parts = self.score_parts(results, self._number_at(index))
+        scale = self._share_scale(parts) or 0.0
+        by_name = {}
+        for obj, part in zip(self.objectives, parts):
+            share = float(obj['weight']) * scale if part['applies'] else None
+            by_name[obj['name']] = {
+                'name': obj['name'], 'goal': obj.get('goal'),
+                'rating': part['rating'],
+                'target': (float(obj.get('target', (obj.get('max_val', 10.0)
+                                                    + obj.get('min_val', 0.0)) / 2))
+                           if obj.get('goal') == 'target' else None),
+                'low': float(obj.get('min_val', 0.0)),
+                'high': float(obj.get('max_val', 10.0)),
+                'applies': part['applies'], 'share_of_score': share,
+                'utility': part['utility'],
+                'points': (None if not part['applies']
+                           else 0.0 if part['utility'] is None
+                           else obj['weight'] * part['utility'] * scale)}
+        return [by_name[o['name']] for o in self.measurements_by_importance()]
 
     # ------------------------------------------------------------------ #
     #  History Editing

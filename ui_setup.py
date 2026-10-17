@@ -6,9 +6,8 @@ Three tiers, top to bottom (spec 1.5), and nothing else on the tab:
      hand, its per-row errors and its collapsed `Or upload an ingredients
      file` alternative;
   2. the measurements grid, the same way;
-  3. one collapsed `Preparation and records` — Default batch size, Tasting
-     noise, the Method, what else to record and where the targets came
-     from — then `Ingredient limits (optional)`, holding Limits and the
+  3. one collapsed `Preparation and records` — Default batch size, the
+     Method, what else to record and where the targets came from — then `Ingredient limits (optional)`, holding Limits and the
      properties those limits read — and one collapsed `Advanced` at the
      very foot, holding the model settings and the two explanations.
 
@@ -30,7 +29,6 @@ import storage as storage_backend
 import wording
 import custom_records
 import calculation_editor
-import insights
 from food_bo import (
     GRID_ID, RECORD_FIELDS, WORKBOOK_MIME, grid_signature,
     ingredients_template_workbook,
@@ -38,8 +36,7 @@ from food_bo import (
 from ui_helpers import (
     COPY_KEPT, ING_ERRORS_KEY, ING_GRID_KEY, ING_PENDING_KEY,
     ING_SAVE_KEY, MEAS_ERRORS_KEY, MEAS_GRID_KEY, MEAS_SAVE_KEY,
-    PROP_ERRORS_KEY, PROP_GRID_KEY, SETUP_CALLOUT_KEY, SETUP_CALLOUT_SLOT, TAB_BATCH,
-    TAB_SETUP, join_unit,
+    PROP_ERRORS_KEY, PROP_GRID_KEY, TAB_BATCH,
     all_grid_keys, armed_confirmation, armed_deletions_key,
     best_formulation_no,
     best_move_sentence, clear_formulation_total_box, clear_grid, grid_key,
@@ -574,7 +571,6 @@ def _variables(opt, storage):
     st.subheader(wording.for_project(opt, wording.VARIABLES_HEADER))
     st.caption(wording.INGREDIENT_GRID_CAPTION, help=wording.INGREDIENT_GRID_HELP)
     st.caption(wording.EDITABLE_TABLE_HELP)
-    _callout(opt)
     saved = opt.ingredient_grid_frame()
     opening, from_park = _opening_frame(ING_GRID_KEY, saved)
     hidden = (GRID_ID,) if _baseline_shown(opt, saved) else (GRID_ID, wording.BASELINE_LABEL)
@@ -641,51 +637,6 @@ def _variables(opt, storage):
         st.markdown(wording.BLEND_COMPOSITIONS_HEADING)
     pending = _premixes(opt, storage) or pending
     return pending, captions
-
-
-def _callout(opt):
-    """A7 (review I8): the line "Change X's Highest on Set up" lands on,
-    directly above the grid — the grid's rows are a canvas, so there is no
-    row to scroll to or light up. It names the row and the number to
-    change, and stays until the next Set up save (any flash) or a move to
-    another tab."""
-    change = st.session_state.get(SETUP_CALLOUT_KEY)
-    if change is None:
-        return
-    if st.session_state.get("main_tab") not in (None, TAB_SETUP):
-        st.session_state.pop(SETUP_CALLOUT_KEY, None)
-        return
-    text = callout_text(opt, change)
-    with st.container(key=SETUP_CALLOUT_SLOT):
-        if text:
-            st.info(wording.for_project(opt, text), icon=":material/arrow_downward:")
-
-
-def callout_text(opt, change):
-    """The callout for the Set up button labelled `change`, or "": a row's
-    Highest or Lowest with its value now, or the limit the predicted best
-    sits at (from the predicted best Insights already worked out)."""
-    for var in opt.variables:
-        for highest in (True, False):
-            if change != wording.change_on_setup(var['name'], highest=highest):
-                continue
-            value = float(var['bounds'][1 if highest else 0])
-            return wording.setup_callout(var['name'], join_unit(f"{value:g}",
-                                                                opt.unit_of(var['name'])),
-                                         highest=highest)
-    if change == wording.CHANGE_LIMITS_ON_SETUP:
-        import insights
-        import ui_insights
-        hit = st.session_state.get(ui_insights.BEST_KEY)
-        recipe = getattr(hit[1], "recipe", None) if hit else None
-        limits = [] if recipe is None else [
-            b for b in insights.binding_limits(opt, recipe) if b.kind == "limit"]
-        if limits:
-            return wording.setup_callout_limit(limits[0].text)
-        # Final review M-6: the predicted best for this data is not in hand
-        # (or no longer sits at a limit), so the fold is named instead.
-        return wording.SETUP_CALLOUT_LIMITS
-    return ""
 
 
 def _round_at_risk(opt, edited, force=()):
@@ -2051,48 +2002,6 @@ def _limit_half_written():
     return False
 
 
-# The project's tasting noise (spec 2026-10-13 §11): back off the Review,
-# next to Default batch size. Points of the Overall score, 1 SD of a single
-# tasting; the Review's noise readings use it until Repeats (3 df) measure
-# it. Suggestions never read it.
-TASTING_NOISE_KEY = "setup_tasting_noise"
-
-
-def _on_tasting_noise(opt):
-    """Save the chosen tasting noise; a failed save shows its error, as
-    every other Set up save does (a cloud failure lands in save_error)."""
-    try:
-        insights.set_tasting_noise(opt, st.session_state.get(TASTING_NOISE_KEY))
-    except (ValueError, TypeError, OSError, storage_backend.StorageError) as e:
-        st.error(str(e))
-        return
-    saved_ok(opt)
-
-
-def _tasting_noise(opt):
-    """Tasting noise: 0.5 / 1 / 2 / 3 points, 1 point the start (saved only
-    when not 1; insights.set_tasting_noise). Measured from Repeats instead
-    (insights.YARDSTICK_DF df or more): that value, read-only."""
-    try:
-        yard = insights.noise_yardstick(opt)
-    except Exception:
-        return
-    if getattr(yard, "from_repeats", False) and yard.value is not None:
-        st.caption(wording.for_project(opt, wording.tasting_noise_measured(f"{yard.value:.1f}")),
-                   help=wording.tasting_noise_measured_help(yard.df))
-        return
-    want = insights.assumed_noise(opt)
-    choices = list(insights.TASTING_NOISE_CHOICES)
-    if all(abs(want - c) > 1e-9 for c in choices):
-        choices = sorted(choices + [want])
-    if st.session_state.get(TASTING_NOISE_KEY) != want:
-        st.session_state[TASTING_NOISE_KEY] = want
-    st.selectbox(wording.TASTING_NOISE_LABEL, choices, key=TASTING_NOISE_KEY,
-                 format_func=wording.tasting_noise_option,
-                 help=wording.for_project(opt, wording.SETUP_NOISE_HELP),
-                 on_change=_on_tasting_noise, args=(opt,), disabled=confirmation_open())
-
-
 def _more_settings(opt, storage):
     """Shared preparation and records, separated from optional ingredient limits.
 
@@ -2100,7 +2009,9 @@ def _more_settings(opt, storage):
     """
     with st.expander(wording.MORE_SETTINGS_EXPANDER):
         _formulation_total(opt)
-        _tasting_noise(opt)
+        # v3: no Tasting noise here. The app keeps it internal, at its
+        # default (insights.assumed_noise: 1 point unless Repeats measure
+        # it); nothing on Set up speaks of noise or of when to stop.
         _method_editor(opt)
         _also_record(opt)
         _targets_source_editor(opt)

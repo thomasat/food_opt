@@ -222,7 +222,8 @@ def test_the_bar_reads_the_same_on_a_process_only_project(ferment_scored, monkey
 
 def test_the_round_checks_are_dropped_on_project_switch(insights_scored):
     at = _open_insights(_app())
-    assert at.session_state[ui_insights.ROUNDS_KEY]
+    # Review v3 fits nothing: the key as another screen's work leaves it.
+    at.session_state[ui_insights.ROUNDS_KEY] = {"stale": True}
     FoodOptimizer("second").add_ingredient("Flour", 0, 100)
     at.run()
     at.selectbox(key="project_select").set_value("second")

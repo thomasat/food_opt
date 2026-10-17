@@ -24,33 +24,32 @@ Choose **Open the yogurt pilot**. It opens **Yogurt pilot - Round 6 to score** o
 1. Go to **2 · Make a round** and open **Or upload results from a file**.
 2. Choose **Browse files** and open **Round 6 results (pilot).xlsx**: it is already in your **FoodOptimizer** folder. Or choose **Download the pilot's Round 6 results**, then upload that file.
 3. Review the imported values and choose **Save uploaded results**.
-4. Open **4 · Review**. After Round 6, it says **Stop: score within noise of 100**.
-5. Choose **See what happened next** to open **Yogurt pilot - all 10 Rounds**: the pilot's Rounds 7–10.
+4. Open **3 · Results** for Round 6's ratings against their targets, then **4 · Review** for the best so far.
+5. Under **What next?**, choose **Start Round 7** to have the app suggest Round 7, or **See the pilot's Rounds 7–10** to open **Yogurt pilot - all 10 Rounds**: what the pilot made next.
 
 To try it again, choose **Manage project → Start this sample over**. Your version is kept in **Saved copies**.
 
 To see how a project is set up, choose **Open the burger example**. It opens **Example setup - plant-based burger** on **1 · Set up**. Its values are illustrative and it has no results; it shows calculations (Hydration water as 2.2 × the textured proteins, Remaining water as the rest), pre-mixes, a process setting, records and a formulation total.
 
-For your own project, generate formulations in **Make a round** and download the workbook. Use **Round overview** for the plan, **Preparation** for pre-mixes, and **Results** for measurements. Upload the completed workbook, review the imported values, and save the results. Editing the workbook alone does not update the app. You can also enter measurements directly in the app.
+For your own project, generate formulations in **Make a round** and download the workbook. Use **Round overview** for the plan and **Results** for measurements; a Round with pre-mixes also has a **Preparation** sheet. Upload the completed workbook, review the imported values, and save the results. Editing the workbook alone does not update the app. You can also enter measurements directly in the app.
 
 The included **Start Here.txt** explains installation and the first-round workflow. In Numbers, select the sheet tabs if workbook links do not open.
 
 ## Review results
 
-**Results** opens on **Best so far**, based on your current measurements and targets. Use **View formulation** to inspect any other recorded formulation, including unscored entries. Its measurements, ingredient amounts and **% of formulation** appear together. Percentages exclude process settings and are unavailable for ingredient amounts in different units. The **All formulations** table below compares results in the app; **Show amounts** adds ingredient amounts to that table.
+**Results** opens on the last Round's results: each formulation's **Overall score** and its ratings, each measurement's target in the header. Off-target ratings are orange; a new best is blue. **How the score is worked out** shows one formulation's points per attribute: each point off target costs a fixed part of its share (1/15 when ratings run 0–15). **View formulation** shows any recorded formulation's amounts and **% of formulation**; **All formulations** compares them all.
 
 ## How the Review works
 
-The full method behind **4 · Review**; the app's **Definitions** keeps one line per term.
+The app has four tabs: **Set up**, **Make a round**, **Results** and **Review**. **4 · Review** shows measurements, not forecasts:
 
-- **Models.** One Gaussian process for the Overall score and one per measurement, each fitted to the formulations that have that value (kernel from your model settings; noise fitted). Suggestions use the Overall-score model only; it is fitted to the scores, not built from the measurement models, so the two can differ slightly.
-- **95 % range.** Mean ± 1.96 × predictive SD × a calibration factor, cut at the measurement's Range (0–100 for the Overall score). The calibration factor is the root-mean-square of standardised errors in 5-fold cross-validation, folds grouped by Round, at least 1; the Overall score's range for the predicted best and new formulations is widened again by a second factor, the root-mean-square of earlier Rounds' standardised Round-ahead errors (at least 1). The range covers one new measured value; on simulated projects it covered about 91 % of measurements and 90 % of Overall scores.
-- **Round-ahead check (the Forecast check).** Each Round is forecast by models fitted only to the formulations recorded before it, scored with today's targets, Share of score and model settings. The forecasts are rebuilt today, not saved from when each Round was made. Misses are counted against a binomial at 5 % per value: more than expected below 1 in 10, many more below 1 in 100.
-- **Pairs and verdicts.** Within a Round, a pair is ordered right when its forecasts put it in the measured order. Pairs measured equal, forecast less than one tasting noise apart, or both forecast at the top are not called. Predicts: called pairs right more often than chance (within-Round permutation test, Holm-adjusted across the results checked, p < 0.05, at least 5 pairs). Partly: right in more than half, p < 0.20 unadjusted. Not yet: otherwise, under 5 pairs called, or over half the pairs measured equal.
-- **No forecast.** A 95 % range covering the whole Range (each end within 1 % of its width of the Range's end) forecasts nothing; it is counted neither in nor out.
-- **Tasting noise.** The pooled SD of Repeats of the Overall score once it has 3 degrees of freedom (at least 0.05), from Repeats; until then the project's Tasting noise setting (Set up › Preparation and records; 1 point unless changed), assumed. A measurement's noise is its own Repeat SD, else derived from the Overall score's by its Range and Share of score. A pair is too close to call within one noise; Rising and the stop's tie use a 1-in-20 threshold on it (√2 × noise × a one-sided quantile for the top of the Round's results).
-- **Stop.** Best so far is within the tie threshold of the top score (the rise one new result needs to be told apart from the noise), so no higher score could be told apart.
-- **Limits.** No term p-values or coefficient table: formulations were chosen Round by Round, so term tests would not keep their error rates. Predictions assume your ingredients, suppliers and equipment behave as before. Best so far is one noisy maximum and tends to read high. Changing model settings re-scores every earlier Round. A noise threshold from 3 degrees of freedom has a 95 % interval of about 0.57 to 3.7 times the estimate. The first 5 scored formulations come from a space-filling design, not the model.
+- **Best so far.** Every Overall score by Round, the best so far and each Round's average. 100 means every attribute on target.
+- **Best vs targets.** The best formulation's rating for each attribute against its target.
+- **Amounts in the top formulations.** The ingredient amounts of the formulations within 5 points of the best, against the allowed amounts.
+
+Each score is a single tasting: each formulation is made once and rated once, so small differences may not be real. There is no stop rule; you decide when to stop. **Make a round** suggests the next formulations: a Gaussian process model fitted to the Overall scores picks the best bets to improve on the best so far, weighing how good they look and how unsure the model is. Its predictions are used to choose, not shown on screen.
+
+**Limits.** Predictions assume your ingredients, suppliers and equipment behave as before. Best so far is one noisy maximum and tends to read high. The first 5 scored formulations come from a space-filling design, not the model.
 
 ## Ingredients, calculations and limits
 

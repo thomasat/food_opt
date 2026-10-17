@@ -33,85 +33,10 @@ def _panels(chart):
 #  Measured against predicted (review M4)
 # ------------------------------------------------------------------ #
 
-def test_one_panel_per_measurement_then_the_overall_score():
-    opt = _patty(rows=6)
-    checks = [_check("Juiciness", 2, 4, 5.0, 5.5), _check("Firmness", 2, 4, 6.0, 6.2),
-              _check(insights.SCORE, 2, 4, 70.0, 72.0, 5.0)]
-    panels = _panels(ui_insights.measured_vs_predicted_chart(opt, checks))
-    titles = [p["title"] for p in panels]
-    assert titles == [ui_insights.panel_label(opt, n) for n in ("Firmness", "Juiciness")] + [
-        wording.OVERALL_SCORE_COLUMN]
-
-
-def test_both_axes_share_one_padded_domain():
-    opt = _patty(rows=6)
-    checks = [_check("Firmness", 2, 4, 3.0, 5.0), _check("Firmness", 3, 7, 8.0, 7.0)]
-    [panel] = _panels(ui_insights.measured_vs_predicted_chart(opt, checks))
-    domains = {tuple(layer["encoding"][axis]["scale"]["domain"])
-               for layer in panel["layer"] for axis in ("x", "y")}
-    assert len(domains) == 1
-    [(lo, hi)] = domains
-    # Low 3.0 (measured) to high 8.0 (the second's likely range), padded 5 %.
-    assert (lo, hi) == pytest.approx((3.0 - 0.25, 8.0 + 0.25))
-
-
-def test_the_bar_is_vertical_filled_means_inside_and_the_latest_round_is_darker():
-    opt = _patty(rows=6)
-    checks = [_check("Firmness", 2, 4, 3.0, 5.0), _check("Firmness", 3, 7, 7.2, 7.0)]
-    [panel] = _panels(ui_insights.measured_vs_predicted_chart(opt, checks))
-    line, bars, dots = panel["layer"]
-    assert line["mark"]["strokeDash"] == [4, 3]
-    assert bars["mark"]["type"] == "rule" and "y2" in bars["encoding"]
-    assert bars["encoding"]["x"]["field"] == wording.TRACK_PREDICTED
-    # Review plots: one dot layer, filled inside / hollow outside and the
-    # latest Round darker, both in one legend.
-    assert dots["encoding"]["fill"]["scale"]["domain"] == [wording.PLOT_INSIDE,
-                                                           wording.PLOT_OUTSIDE]
-    assert dots["encoding"]["fill"]["scale"]["range"][1] == "transparent"
-    assert dots["encoding"]["opacity"]["scale"]["range"] == [1.0, 0.45]
-
-
-def test_no_checks_no_chart():
-    assert ui_insights.measured_vs_predicted_chart(_patty(rows=0), []) is None
-
-
-def test_checks_only_for_outputs_gone_draw_no_chart():
-    checks = [_check("Crunch", 2, 4, 5.0, 5.0)]         # a measurement since deleted
-    assert ui_insights.measured_vs_predicted_chart(_patty(rows=6), checks) is None
-
 
 def _panel_rows(spec):
     """A one-panel chart's own rows (not the 1:1 line's)."""
     return next(rows for rows in spec["datasets"].values() if rows and "latest" in rows[0])
-
-
-def test_the_latest_round_and_the_inside_ones_are_marked_in_the_data():
-    opt = _patty(rows=6)
-    checks = [_check("Firmness", 2, 4, 3.0, 5.0), _check("Firmness", 3, 7, 7.2, 7.0)]
-    spec = ui_insights.measured_vs_predicted_chart(opt, checks).to_dict()
-    rows = _panel_rows(spec)
-    assert [(r[wording.ROUND_CAP], r["latest"], r["inside"]) for r in rows] == [
-        (2, False, False), (3, True, True)]
-
-
-def test_the_tooltips_carry_a_format():
-    opt = _patty(rows=6)
-    [panel] = _panels(ui_insights.measured_vs_predicted_chart(
-        opt, [_check("Firmness", 2, 4, 5.0, 5.0)]))
-    d = ui_insights.decimals(opt, "Firmness")
-    tips = {t["field"]: t.get("format") for t in panel["layer"][1]["encoding"]["tooltip"]}
-    assert tips[wording.FORMULATION_CAP] == "d"
-    assert tips[wording.TRACK_PREDICTED] == tips[wording.TRACK_LOW] == f".{d}f"
-    assert tips[wording.TRACK_MEASURED] == f".{max(1, d)}f"
-
-
-def test_a_clipped_likely_range_is_drawn_clipped():
-    """insights.predict clips a likely range to the measurement's Range; the
-    bar ends where the check says, at the Range's own edge."""
-    opt = _patty(rows=6)
-    check = insights.Check(4, 2, "Firmness", 9.5, 8.5, 10.0, 9.8, True, True, 9.5, 0.6)
-    [row] = _panel_rows(ui_insights.measured_vs_predicted_chart(opt, [check]).to_dict())
-    assert row[wording.TRACK_HIGH] == 10.0
 
 
 # ------------------------------------------------------------------ #

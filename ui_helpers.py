@@ -27,11 +27,6 @@ from food_bo import (  # noqa: F401  (re-exported)
 from wording import COPY_KEPT, TAB_BATCH, TAB_RESULTS, TAB_SETUP  # noqa: F401
 
 _FLASH_KEY = "_flash_messages"
-# Set up's callout (0.8.0 e2e fixes A7, review I8): the label of the
-# "Change … on Set up" button Insights' Next step offered, and the keyed slot
-# above the ingredient grid that button lands on.
-SETUP_CALLOUT_KEY = "_setup_callout"
-SETUP_CALLOUT_SLOT = "setup_callout"
 # The sticky messages on screen now (0.8.0 e2e fixes B3, review I10): what
 # render_flash showed with sticky=True, the tab it showed them on, and where.
 _STICKY_KEY = "_flash_sticky"
@@ -54,10 +49,8 @@ def flash(kind, message, sticky=False, place=None):
     """
     if kind not in ("success", "info", "warning", "error"):
         raise ValueError(f"unknown flash kind {kind!r}")
-    # The next message replaces the one that stayed; it also follows a
-    # save, which Set up's callout lasts until.
+    # The next message replaces the one that stayed.
     st.session_state.pop(_STICKY_KEY, None)
-    st.session_state.pop(SETUP_CALLOUT_KEY, None)
     st.session_state.setdefault(_FLASH_KEY, []).append((kind, message, bool(sticky), place))
 
 
@@ -362,24 +355,16 @@ REVIEW_DOT_STYLE = """<style>
   content: " \\2022"; color: var(--st-primary-color, #ff4b4b);
 }
 </style>"""
-# Ftue fix C: where the links land. A keyed expander carries no st-key-
-# class in the page (Streamlit 1.55), so each fold a link lands on sits in
-# a keyed container of its own, the place the page scrolls to: Make a
-# round's Why fold and "Add a formulation to this round" (keyed, so a link
-# can open it).
-WHY_PLACE = "why_these_place"
+# Ftue fix C: a keyed expander carries no st-key- class in the page
+# (Streamlit 1.55), so a fold the page scrolls to sits in a keyed container
+# of its own: "Add a formulation to this round" (keyed, so it can be opened).
 ADD_OWN_KEY = "add_own_fold"
 ADD_OWN_PLACE = "add_own_place"
-# The Repeat link's one-shot request to Make a round (review R-I3, ftue
-# fix C): {"project", "no": the formulation to repeat, "round": the Round
-# open when the link was clicked, or None}. Make a round fills the Add
-# fold from it once that Round (or, with None, the next one) is open.
-REPEAT_REQUEST_KEY = "_repeat_request"
 
 
 def go_to_tab(label, section="top"):
     """Move to another tab and rerun, landing at its top (or, `section`, at
-    the container of that key: Set up's callout, 0.8.0 e2e fixes A7). This is the ONLY
+    the container of that key). This is the ONLY
     way a flow changes tabs, and it is called from eight handlers only:
     Next: make a batch, Back to set up, Save results, Save uploaded
     results, Start the next batch, Change a measurement or an ingredient,
@@ -417,8 +402,8 @@ def ask_tab(label, section="top", fold=None, state=None):
     """on_click of a link to another tab (spec 2026-09-30-bo-views §5; 04
     §5): the move, where to land (`section`: "top" or a container's key)
     and a fold to open (`fold`: a keyed expander's key; set before it is
-    drawn, it opens). `state`: entries the tab moved to reads on arrival
-    (the Repeat link's request, ftue fix C). A callback, not go_to_tab's
+    drawn, it opens). `state`: entries the tab moved to reads on arrival.
+    A callback, not go_to_tab's
     st.rerun(): it runs before the script, so no half-typed form on the tab
     left is lost."""
     st.session_state["_pending_tab"] = label
@@ -467,14 +452,6 @@ def scroll_script(section, nonce):
     if (k > 0) setTimeout(() => follow(k - 1), 100);
   }})(80);
 }})(20);</script>"""
-
-
-def link(label, target, section="top", fold=None, key=None, state=None):
-    """The one form a link to another tab takes (04 §3): a text-style
-    (tertiary) button, never primary, so the screen's one lit button stays
-    lit; greyed while a confirmation is armed, as every other button is."""
-    return st.button(label, type="tertiary", key=key, disabled=confirmation_open(),
-                     on_click=ask_tab, args=(target, section, fold, state))
 
 
 def open_rows(opt):

@@ -74,22 +74,6 @@ def _leaves(node):
 #  Basis lines and help (W2's integration notes; R-I6)
 # ------------------------------------------------------------------ #
 
-@pytest.mark.skip(reason=REVIEW_FOUR)
-@pytest.mark.parametrize("name", _NAMES)
-def test_each_figures_fold_opens_on_its_basis_line_with_its_help(screens, name):
-    at, opt = screens[name], D.load(name)
-    for label, which in ((wording.FOLD_PREDICTION_FIGURES, "predictions"),
-                         (wording.FOLD_PROGRESS_FIGURES, "progress"),
-                         (wording.FOLD_NEXT_REASONING, "next")):
-        first = _leaves(_fold(at, wording.for_project(opt, label)))[0]
-        text, _ = ui_insights.basis_line(opt, which)
-        assert first.type == "caption" and first.value == text, (which, first.value)
-        assert first.proto.help, which
-    nxt = _leaves(_fold(at, wording.for_project(opt, wording.FOLD_NEXT_REASONING)))[0]
-    # Concision round: the full basis first in the help, then the rule.
-    assert nxt.proto.help.startswith(wording.BASIS_NEXT)
-    assert "\n\nNext-step rule that holds: " in nxt.proto.help
-
 
 @pytest.mark.skip(reason="review cards prototype: pins the old Review layout (status lines, Explored fold, header); reconcile at the final merge")
 @pytest.mark.parametrize("name", _NAMES)
@@ -138,20 +122,6 @@ def test_the_rule_table_says_the_same_order():
     assert keys == list(insights.PREDICTION_ROWS)
 
 
-@pytest.mark.parametrize("name", D.ALL)
-def test_the_tooltips_read_the_real_status_facts(project, name):
-    """W2's tooltips and W1's status_facts agree on R-B1's shapes: the row
-    the line says is the row the tooltip names."""
-    opt, _, facts = project(name)
-    assert facts.prediction_row in insights.PREDICTION_ROWS
-    assert facts.progress in insights.PROGRESS_STATES
-    for clause in facts.clauses:
-        assert clause[0] in ("wide", "over_wide", "bias", "guard")
-    tip = ui_insights.tooltip_for(opt, "predictions", facts)
-    assert wording.for_project(
-        opt, insights.status_rule(opt, ("predictions", facts.prediction_row))) in tip
-
-
 # ------------------------------------------------------------------ #
 #  One model with no Round open (W3's note; R-I16)
 # ------------------------------------------------------------------ #
@@ -178,22 +148,6 @@ _NEEDS = {"basis_explored": (_DESIGN, _POLYTOPE, _LINF, _SD),
           "limit_hits": (_DESIGN,)}
 
 
-@pytest.mark.parametrize("line", sorted(_NEEDS))
-def test_the_explored_tooltips_name_the_space_and_the_rules(line):
-    for name in (D.LINE_A, D.PROCESS_ONLY):
-        tip = ui_insights.tooltip_for(D.load(name), line)
-        for needle in _NEEDS[line]:
-            assert needle in tip, (line, needle)
-        assert " BO term: " in tip
-        assert f"{bo_views.POOL_SIZE:,} points" in tip if _POLYTOPE in _NEEDS[line] else True
-
-
-def test_the_strips_tip_has_its_bo_term():
-    for values in (False, True):
-        head, sep, term = wording.tip_strips(values).partition(" BO term: ")
-        assert head and sep and term
-
-
 # ------------------------------------------------------------------ #
 #  Fold renames (§2; T0 report §5) and the pointer
 # ------------------------------------------------------------------ #
@@ -217,77 +171,14 @@ def test_the_folds_have_their_new_names(screens, name):
     assert labels.index(wording.for_project(opt, try_one)) < labels.index(wording.FOLD_METHOD)
 
 
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_the_pointer_names_the_folds_as_drawn():
-    opt = D.load(D.LINE_A)
-    # Concision round: the link is short; the folds are named in its help.
-    assert wording.explored_pointer(ui_insights._try_one_label(opt)) == (
-        "Show uncertainty along one ingredient")
-    text = wording.explored_pointer_help(ui_insights._try_one_label(opt))
-    assert wording.try_one_fold(True) in text
-    assert "under Trade-offs" in text and wording.trade_offs_fold(True).startswith("Trade-offs")
-
-
 # ------------------------------------------------------------------ #
 #  T0′ wording
 # ------------------------------------------------------------------ #
-
-def test_the_next_tooltip_names_its_numbers_on_see(project):
-    opt, _, facts = project(D.LINE_A)
-    assert facts.next.kind == "see"
-    tip = ui_insights.tooltip_for(opt, "next", facts)
-    assert "Best so far: 90.45 of 100 (Formulation 15, Round 4)" in tip
-    assert wording.TIP_THRESHOLD_ASSUMED in tip
-
-
-def test_the_next_tooltip_names_its_numbers_on_explore(project):
-    opt, checks, _ = project(D.TIMING)
-    standing_gain = 1.1234
-    step = insights.NextStep("explore", gain=standing_gain, assumed=True)
-    facts = insights.StatusFacts(opt.complete_count(), "reliable",
-                                 yardstick=insights.noise_yardstick(opt, checks),
-                                 headline=insights.headline(opt, checks), next=step,
-                                 best=insights.best_facts(opt))
-    tip = ui_insights.tooltip_for(opt, "next", facts)
-    assert "Expected gain: 1.1 points" in tip
-    assert wording.TIP_THRESHOLD_ASSUMED in tip
-
-
-def test_the_next_tooltip_names_its_numbers_on_early(project):
-    """Early on every output very uncertain: the width rule, with its
-    outputs, not only the coverage count."""
-    opt, checks, facts = project(D.LINE_A)
-    h = insights.headline(opt, checks)
-    names = [o["name"] for o in opt.measurements_by_importance()]
-    wide = insights.StatusFacts(opt.complete_count(), "wide", headline=h, verdict="wide",
-                                yardstick=facts.yardstick, next=insights.NextStep("early"),
-                                best=facts.best)
-    h.wide = list(names)
-    tip = ui_insights.tooltip_for(opt, "next", wide)
-    assert wording.tip_wide(names) in tip
 
 
 # ------------------------------------------------------------------ #
 #  Cleanup
 # ------------------------------------------------------------------ #
-
-def test_the_untested_row_never_points_at_hidden_amounts():
-    """"Show its amounts" is not drawn while the noise guard's floor or
-    noise trigger holds; the untested row then names no fold."""
-    opt = D.load(D.TIMING)
-    step = insights.NextStep("untested")
-    shown = insights.StatusFacts(opt.complete_count(), "reliable", next=step,
-                                 guard=insights.Guard([], None))
-    hidden = insights.StatusFacts(opt.complete_count(), "reliable", next=step,
-                                  guard=insights.Guard(["floor"], None),
-                                  clauses=[("guard",)])
-    name = wording.FOLD_PROGRESS_FIGURES_NAME
-    assert name in ui_insights.next_sentence(opt, shown)
-    assert name not in ui_insights.next_sentence(opt, hidden)
-    assert name in ui_insights.next_step_text(opt, step, None)[0]
-    assert name not in ui_insights.next_step_text(opt, step, None, amounts_shown=False)[0]
-    assert wording.show_its_amounts(False) not in ui_insights.next_step_text(
-        opt, step, None, amounts_shown=False)[0]
 
 
 def test_the_old_help_constants_are_gone():

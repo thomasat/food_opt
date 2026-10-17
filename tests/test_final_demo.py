@@ -124,29 +124,6 @@ def test_the_project_has_the_pilots_round_bests():
 #  B5 · the tasting noise: its effects at 1, 2 and 3 points
 # ------------------------------------------------------------------ #
 
-@pytest.mark.parametrize("sigma, rising, stop_round", [(1, True, 6), (2, False, 6), (3, False, 4)])
-def test_the_noise_moves_the_rise_the_tie_and_the_stop(sigma, rising, stop_round):
-    opt = _opt(noise=None if sigma == 1 else sigma)
-    assert insights.assumed_noise(opt) == sigma
-    yard = insights.noise_yardstick(opt)
-    assert yard.value == sigma and yard.assumed and not yard.from_repeats
-    # Rising needs σ × √2 × z(0.95^(1/3)) = 3.0 σ for the best of 3.
-    a = insights.improvement(opt, yardstick=yard)
-    assert a.threshold == pytest.approx(3.0 * sigma, abs=0.01)
-    assert (a.state == "yes") == rising
-    # The tie / ceiling threshold: σ × √2 × 1.645 = 2.33 σ.
-    need = U.tie_need(yard)
-    assert need == pytest.approx(2.326 * sigma, abs=0.01)
-    # The stop: the first Round whose best is within it of the top.
-    sig = U.stop_signal(opt)
-    assert sig[0] == stop_round
-    assert sig[3] == pytest.approx(_score(opt, 16) - (_score(opt, 16) if stop_round == 6
-                                                       else _score(opt, 10)))
-    facts = NS(best=NS(score=_score(opt, 16)), yardstick=yard)
-    assert U.at_ceiling(opt, facts)                       # 1.7 below the top at every σ
-    # The marker only when a Round came after the stop.
-    assert (U._drawn_stop(opt) is not None) == (stop_round < 6)
-
 
 @pytest.mark.parametrize("sigma", [1, 2, 3])
 def test_the_noise_moves_the_derived_noise_and_the_pairs_too_close(sigma):
@@ -164,113 +141,15 @@ def test_the_noise_moves_the_derived_noise_and_the_pairs_too_close(sigma):
     assert (call.close == 1) == (sigma > 1.5)
 
 
-@pytest.mark.parametrize("sigma, within", [(1, 3), (2, 4), (3, 4)])
-def test_within_noise_of_target_follows_the_noise(sigma, within):
-    opt = _opt(noise=None if sigma == 1 else sigma)
-    res = opt.results_history[opt.best_index()]
-    got = U.within_noise_of_target(opt, res)
-    half = insights.Z95 * 0.3 * sigma
-    assert got == (within, 4, f"{half:.1f}")
-    text = U.on_target_help_text(opt, res)
-    assert text.startswith("On target as rated: 3 of 4 (the rating equals the target).")
-    assert f"Within noise of target (±{half:.1f}, where 95 % of single tastings land): " \
-           f"{within} of 4." in text
-    _clean(text)
-
-
-@pytest.mark.parametrize("sigma", [1, 2, 3])
-def test_the_texts_and_the_band_say_the_noise(sigma):
-    opt = _opt(noise=None if sigma == 1 else sigma)
-    pts = "1 point" if sigma == 1 else f"{sigma} points"
-    assert U.noise_sd_text(opt) == f"{sigma}"
-    # Fix round (owner, 2026-10-14): no noise band on the score chart.
-    spec = json.dumps(U.improving_chart(opt).to_dict(), ensure_ascii=False)
-    assert "assumed noise (1 SD)" not in spec and "Noise from Repeats" not in spec
-    facts = _facts(opt)
-    facts.next = None
-    tip = U.ceiling_tip(opt, facts)
-    # Spec §11: the noise basis in one plain line, with the Repeat to check it.
-    assert (f"Assumes results repeat within about {pts} until Repeats measure it. "
-            "Repeat Formulation 16 to check.") in tip
-    assert "assumed noise of" not in tip and wording.REPEAT_CONFIRMS not in tip
-    assert f"{U.tie_need(facts.yardstick):.1f} is needed to tell two single results apart" in tip
-    assert wording.progress_rise_answer("95.0", "98.3", "3.3", f"{3 * sigma:.1f}",
-                                        sd_text=f"{sigma}").endswith(
-        f"needs {3 * sigma:.1f} if tasting noise ≈ {pts})")
-    # The "?" of the noise threshold, from the project's noise.
-    assert U._threshold_tip(insights.noise_yardstick(opt)).startswith(pts)
-
-
-def test_the_measured_noise_takes_over_from_three_df(tmp_path):
-    opt = _opt(noise=3)
-    k = len(ROWS)
-    same = _recipe(15)                                   # F16's amounts, made 4 times
-    for j, vals in enumerate([(12, 5, 4.5, 13), (12, 5, 3.5, 13), (12, 4.5, 4, 13)]):
-        opt.tell(same, dict(zip([n for n, _ in TARGETS], vals)), formulation_no=19 + j,
-                 batch_no=7)
-    yard = insights.noise_yardstick(opt)
-    assert yard.df == 3 and yard.from_repeats and not yard.assumed
-    assert yard.value != 3 and yard.value < 1.5           # the Repeats', not the setting
-    assert learned.overall_noise(opt)[1] is False
-    assert insights.improvement(opt, yardstick=yard) is None or True
-    # Set up › More settings shows it, read-only: a caption, no selectbox.
-    fake = _FakeSt()
-    ui_setup.st, real = fake, ui_setup.st
-    try:
-        ui_setup._tasting_noise(opt)
-    finally:
-        ui_setup.st = real
-    kinds = [c[0] for c in fake.calls]
-    assert "selectbox" not in kinds
-    cap = next(c for c in fake.calls if c[0] == "caption")
-    assert cap[1][0] == wording.tasting_noise_measured(f"{yard.value:.1f}")
-    assert cap[1][0] == f"Tasting noise: {yard.value:.1f} points, measured from Repeats"
-    assert _words(cap[1][0]) <= 10
-    assert cap[2]["help"] == "Measured from your 3 Repeats, so the setting is ignored."
-    # The stop's "?" says the measured basis, with no Repeat to ask for.
-    facts = _facts(opt)
-    facts.yardstick = yard
-    assert U.noise_basis_text(opt, facts) == (
-        f"Results repeat within about {yard.value:.1f} points, measured from 3 Repeats.")
-    assert k == 18
-
-
-def test_set_up_offers_the_four_choices_with_1_point_the_start(monkeypatch):
-    """Spec §11: Tasting noise in Set up › More settings, next to Default
-    batch size: 0.5 / 1 / 2 / 3 points, 1 point the start, said plainly."""
-    opt = _opt()
-    fake = _FakeSt()
-    monkeypatch.setattr(ui_setup, "st", fake)
-    monkeypatch.setattr(ui_setup, "confirmation_open", lambda: False)
-    ui_setup._tasting_noise(opt)
-    sb = next(c for c in fake.calls if c[0] == "selectbox")
-    label, choices = sb[1]
-    assert label == wording.TASTING_NOISE_LABEL == "Tasting noise"
-    assert list(choices) == [0.5, 1.0, 2.0, 3.0]
-    assert fake.session_state[ui_setup.TASTING_NOISE_KEY] == 1.0
-    fmt = sb[2]["format_func"]
-    assert [fmt(v) for v in choices] == ["0.5 points", "1 point", "2 points", "3 points"]
-    assert sb[2]["on_change"] is ui_setup._on_tasting_noise
-    help_ = sb[2]["help"]
-    assert help_ == ("Points of the Overall score: how far two tastings of the same formulation "
-                     "usually differ. Used for when to stop. Repeats measure it; then this is "
-                     "ignored.")
-    assert help_.count(". ") + 1 <= 3                     # three short sentences
-    # A saved 2 points is what the box starts on; a choice is saved (not 1).
-    insights.set_tasting_noise(opt, 2.0)
-    fake.session_state.clear()
-    ui_setup._tasting_noise(opt)
-    assert fake.session_state[ui_setup.TASTING_NOISE_KEY] == 2.0
-    fake.session_state[ui_setup.TASTING_NOISE_KEY] = 3.0
-    ui_setup._on_tasting_noise(opt)
-    assert json.load(open("final_demo.pkl"))["tasting_noise"] == 3.0
-    fake.session_state[ui_setup.TASTING_NOISE_KEY] = 1.0
-    ui_setup._on_tasting_noise(opt)
-    assert "tasting_noise" not in json.load(open("final_demo.pkl"))
-    # In More settings, right after Default batch size.
-    src = inspect.getsource(ui_setup._more_settings)
-    assert src.index("_formulation_total(opt)") < src.index("_tasting_noise(opt)") \
-        < src.index("_method_editor(opt)")
+def test_set_up_has_no_tasting_noise_control():
+    """v3: Tasting noise is no longer shown in Set up; it stays internal at
+    its default (insights.assumed_noise), and Set up says nothing of noise
+    or of when to stop."""
+    assert not hasattr(ui_setup, "_tasting_noise")
+    assert not hasattr(ui_setup, "TASTING_NOISE_KEY")
+    src = inspect.getsource(ui_setup)
+    assert "TASTING_NOISE_LABEL" not in src and "SETUP_NOISE_HELP" not in src
+    assert insights.assumed_noise(_opt()) == 1.0
 
 
 def test_the_review_has_no_noise_control():
@@ -353,63 +232,28 @@ def test_an_earlier_round_draws_only_the_rounds_up_to_it():
     dots = [r for r in _dataset_rows(early) if r.get(score) is not None and "full" in r]
     assert dots and max(r[U._say(opt, wording.FORMULATION_CAP)] for r in dots) == 9
     texts = json.dumps(early, ensure_ascii=False)
-    assert "Best: 92.5 (Round 3)" in texts and "Best: 98.3 (Round 6)" not in texts
+    # Review v3: the best is named by its formulation(s).
+    assert "Best: 92.5 (F7)" in texts and "Best: 98.3 (F16)" not in texts
     assert "Stop signal" not in texts and "after the stop" not in texts
     # Round averages and the best line only to Round 3.
     rounds = {r.get("round") for r in _dataset_rows(early) if "avg" in r}
     assert rounds == {wording.round_tick(r) for r in (1, 2, 3)}
     # The axes as at the latest: a step never moves them.
     def domains(d):
-        return sorted({json.dumps(v) for v in re.findall(r'"domain": (\[[^\]]*\])', json.dumps(d))})
+        # Positions only: the key's own labels count what is drawn (v3).
+        return sorted({v for v in re.findall(r'"domain": (\[[^\]]*\])', json.dumps(d))
+                       if '"' not in v})
     assert domains(early) == domains(full)
     # The kept spec: one per Round on view, the latest the full chart.
     a = U.improving_spec(opt, 6, height=U.PANEL_CHART_H)
     b = U.improving_spec(opt, 3, height=U.PANEL_CHART_H)
-    assert "Best: 98.3 (Round 6)" in str(a)
-    assert "Best: 98.3 (Round 6)" not in str(b)
-
-
-def test_what_changed_keeps_one_height_and_play_steps_every_two_seconds(monkeypatch):
-    opt = _opt()
-    assert U.changes_height(opt) == U.CHANGES_BASE_H + 2 * U.CHANGES_ROW_H
-    for r in (1, 2, 6):                     # Rounds 1-2: no picture; Round 6: the picture
-        fake = _FakeSt()
-        monkeypatch.setattr(U, "st", fake)
-        U._changes_block(opt, r)
-        styles = [c[1][0] for c in fake.calls if c[0] == "html"]
-        assert styles == [f"<style>.st-key-insights_changes {{ min-height: "
-                          f"{U.changes_height(opt)}px; }}</style>"]
-        # Round panel (spec §10, re-pinned): the title, the picture or the
-        # still-the-start line, then two notes or held places.
-        drawn = [c[0] for c in fake.calls if c[0] in ("markdown", "empty", "vega_lite_chart",
-                                                      "caption")]
-        assert len(drawn) == 4                              # as many elements every Round
-    same = [c for c in fake.calls]
-    assert same
-    assert U.REPLAY_STEP_SECS == 2.0
-    assert wording.replay_play_help(1, 6) == "Round 1 to 6, one every 2 seconds."
-    # Stop is still seen within a slice (≤ 0.3 s).
-    assert U.REPLAY_SLICE_SECS <= 0.1
-    # The earlier Round's frame adds no height (1 px border plus an inset shadow).
-    assert "border: 1px solid" in U.REPLAY_STYLE and "box-shadow: inset" in U.REPLAY_STYLE
+    assert "Best: 98.3 (F16)" in str(a)
+    assert "Best: 98.3 (F16)" not in str(b)
 
 
 # ------------------------------------------------------------------ #
 #  B3 · the stop marker on the Latest chart
 # ------------------------------------------------------------------ #
-
-def test_the_stop_marker_after_its_round_with_the_gain_since():
-    opt = _opt(noise=3)
-    (r, then, now, gain, need), x = U._drawn_stop(opt)
-    assert (r, round(then, 2), round(now, 2), round(gain, 2)) == (4, 95.0, 98.33, 3.33)
-    assert x == 12.5 and need == pytest.approx(6.98, abs=0.01)
-    texts = json.dumps(U.improving_chart(opt).to_dict(), ensure_ascii=False)
-    assert "Stop signal (Round 4)" in texts and "after the stop: +3.3" in texts
-    # At 1 point the stop is the latest Round: no marker (the callout says it).
-    assert U._drawn_stop(_opt("one", noise=None)) is None
-    assert "Stop signal" not in json.dumps(U.improving_chart(_opt("one2")).to_dict())
-    # Model-free: the rule is at_ceiling's, at each Round's best.
-    assert U.stop_signal(_opt("low", noise=0.5)) is None     # 1.7 ≥ 1.16: never
 
 
 # ------------------------------------------------------------------ #
@@ -484,160 +328,10 @@ def test_the_play_state_is_not_the_play_buttons_widget_state():
 #  B1 · the stop callout; no primary button at the stop
 # ------------------------------------------------------------------ #
 
-def test_the_stop_callout_and_its_lines(monkeypatch):
-    opt = _opt()
-    fake = _FakeSt()
-    monkeypatch.setattr(U, "st", fake)
-    U._stop_callout(opt, _facts(opt))
-    keys = [c[2].get("key") for c in fake.calls if c[0] == "container"]
-    assert "insights_stop_callout" in keys
-    md = [c[1][0] for c in fake.calls if c[0] == "markdown"]
-    # Sceptic review (2026-10-14), re-pinned: the score within noise of 100;
-    # Tangy's 1.0 under beyond its own ±0.6.
-    assert md == ["**Stop: score within noise of 100**",
-                  "1.7 below the top; 2.3 needed to tell two results apart.",
-                  "On target 3 of 4; Tangy 1.0 under, beyond noise."]
-    assert not [c for c in fake.calls if c[0] == "button"]
-    helps = [c[2].get("help") for c in fake.calls if c[0] == "markdown"]
-    assert "tasted once, averages about" in helps[1]
-    assert helps[2].startswith("On target as rated: 3 of 4")
-    assert helps[2].endswith("Beyond its noise: Tangy 1.0 under (±0.6).")
-    # Warm, never error-red; the headline larger.
-    assert "rgba(214, 158, 46" in U.STRIP_STYLE and "#b7791f" in U.STRIP_STYLE
-    assert ".st-key-insights_stop_head" in U.STRIP_STYLE
-    for t in md:
-        _clean(t)
-    assert _words(md[0]) <= 14 and all(_words(t) <= 12 for t in md[1:])
-    # The strip: Stop, with its numbers.
-    label = U.strip_stop_label(opt, _facts(opt))
-    assert label == ":orange[**Stop**] 1.7 below top; 2.3 needed" and _words(label) <= 10
-
-
-def test_no_primary_button_at_the_stop(monkeypatch):
-    fake = _FakeSt()
-    monkeypatch.setattr(U, "st", fake)
-    monkeypatch.setattr(U, "confirmation_open", lambda: False)
-    monkeypatch.setattr(U, "_say", lambda o, t: t)
-    U._ceiling_foot(NS())
-    [btn] = [c for c in fake.calls if c[0] == "button"]
-    assert btn[2]["type"] == "tertiary" and btn[1][0] == wording.SETUP_BUTTON_SHORT
-    # _finish puts _ceiling_foot in the strip's place at the stop.
-    src = inspect.getsource(U._finish)
-    assert "_ceiling_foot(opt)" in src
-
-
-@pytest.mark.parametrize("kind,lines", [
-    ("misses", [("Repeat Formulation 16 to check noise", False)]),   # Round 6 sample
-    ("close", []),                                                   # all 10 sample
-])
-def test_the_stop_repeat_is_one_quiet_line_under_the_callout(monkeypatch, kind, lines):
-    """Both samples' What next? at the stop: the Repeat request sits in the
-    answer's place, under the callout, as one caption, whether the Next
-    card says it (Round 6's) or not (all 10's), so it lines up the same."""
-    fake = _FakeSt()
-    monkeypatch.setattr(U, "st", fake)
-    monkeypatch.setattr(U, "_say", lambda o, t: t)
-    card = U.Card("x", list(lines))
-    monkeypatch.setattr(U, "card_for", lambda o, f, w: card)
-    monkeypatch.setattr(U, "ceiling_stop", lambda o, f: True)
-    monkeypatch.setattr(U, "_stop_callout", lambda o, f: None)
-    monkeypatch.setattr(U, "repeat_asks", lambda o, f, c: [])
-    monkeypatch.setattr(U, "_why_link_offered", lambda o: False)
-    facts = NS(next=NS(kind=kind, assumed=True), best=NS(formulation=16))
-    U._next_body(NS(), None, facts)
-    captions = [c[1][0] for c in fake.calls if c[0] == "caption"]
-    assert captions == ["Repeat Formulation 16 to check noise"]
-    # Not assumed (a measured noise): no Repeat request at all.
-    fake.calls.clear()
-    card.lines = []
-    U._next_body(NS(), None, NS(next=NS(kind="close", assumed=False),
-                                best=NS(formulation=16)))
-    assert not [c for c in fake.calls if c[0] == "caption"]
-
-
-def test_the_review_at_the_stop_end_to_end():
-    """The app itself: the callout leads What next?, the strip says Stop,
-    no primary button on the Review, no noise control on it (spec §11);
-    the Tasting noise in Set up › More settings moves the stop's numbers
-    and is saved."""
-    opt = _opt("e2e")
-    opt.save()
-    at = AppTest.from_file(APP_PATH, default_timeout=900)
-    at.session_state["_loaded_project"] = opt.project_name
-    at.run()
-    at.session_state["main_tab"] = wording.TAB_INSIGHTS
-    at.run()
-    assert not at.exception, [e.message for e in at.exception]
-    review = at.tabs[3]
-    texts = [m.value for m in review.markdown]
-    assert "**Stop: score within noise of 100**" in texts
-    assert "1.7 below the top; 2.3 needed to tell two results apart." in texts
-    # The stop's "?" states its noise basis in one plain line.
-    line = next(m for m in review.markdown
-                if m.value == "1.7 below the top; 2.3 needed to tell two results apart.")
-    assert ("Assumes results repeat within about 1 point until Repeats measure it. Repeat "
-            "Formulation 16 to check.") in line.proto.help
-    stop = next(b for b in review.button if (b.key or "").endswith("_next"))
-    assert stop.label.startswith(":orange[**Stop**] 1.7 below top; 2.3 needed")
-    assert not [b for b in review.button if b.proto.type == "primary"]
-    # Rising at 1 point; no noise control on the Review.
-    assert any(t.startswith("**Rising.** Best 95.0 → 98.3 (+3.3; needs 3.0 if tasting noise ≈ "
-                            "1 point)") for t in texts)
-    assert not [s for s in review.selectbox if s.label == wording.TASTING_NOISE_LABEL]
-    assert wording.TASTING_NOISE_LABEL not in texts
-    # The Tasting noise to 3, in Set up › More settings.
-    at.session_state["main_tab"] = wording.TAB_SETUP
-    at.run()
-    sb = at.selectbox(key=ui_setup.TASTING_NOISE_KEY)
-    assert sb.value == 1.0 and sb.label == wording.TASTING_NOISE_LABEL
-    sb.set_value(3.0).run()
-    assert not at.exception, [e.message for e in at.exception]
-    at.session_state["main_tab"] = wording.TAB_INSIGHTS
-    at.run()
-    assert not at.exception, [e.message for e in at.exception]
-    texts = [m.value for m in at.tabs[3].markdown]
-    assert "1.7 below the top; 7.0 needed to tell two results apart." in texts
-    line = next(m for m in at.tabs[3].markdown
-                if m.value == "1.7 below the top; 7.0 needed to tell two results apart.")
-    assert "Assumes results repeat within about 3 points until Repeats measure it." \
-        in line.proto.help
-    assert any(t.startswith("**Within noise.** Best 95.0 → 98.3 (+3.3; needs 9.0 if tasting "
-                            "noise ≈ 3 points)") for t in texts)
-    assert json.load(open("e2e.pkl"))["tasting_noise"] == 3.0
-
 
 # ------------------------------------------------------------------ #
 #  A1 · the labels say "best after Round r"
 # ------------------------------------------------------------------ #
-
-def test_the_labels_name_the_best_after_the_round_and_its_own_round():
-    opt = _opt()
-    data = U.spider_data(opt)
-    got = {r: U.spider_round_answer(opt, data, r) for r in data.rounds}
-    assert got[5] == "Best so far, F10 (Round 4): on target 2 of 4; Tangy 2.0 over."
-    assert got[6] == "Best so far, F16 (Round 6): on target 3 of 4; Tangy 1.0 under."
-    assert got[2].startswith("Best so far, F3 (Round 1): ")
-    assert all(U.limit_words(t) <= U.SPIDER_ANSWER_WORDS == 12 for t in got.values())
-    # The profile's key and What changed's column.
-    f = U.spider_frames(opt, data, 5)
-    assert f["names"]["best"] == "Best after Round 5: F10 (Round 4)"
-    # Round panel (spec §10, re-pinned): What changed's picture names it alike.
-    head = U.changes_picture(opt, U.what_changed(opt, 5))["best"]
-    assert head == "Best after Round 5: F10 (Round 4)"
-    assert U.changes_picture(opt, U.what_changed(opt, 6))["best"] == "Best after Round 6: F16"
-    assert wording.best_after(10, 21, 7) == "Best after Round 10: F21 (Round 7)"
-    # A Round whose best is still the start: the placeholder line.
-    ch = U.what_changed(opt, 2)
-    assert ch.same and wording.changes_same(ch.start_round) == "Best so far is still Round 1's best."
-    for t in list(got.values()) + [f["names"]["best"], head]:
-        _clean(t)
-
-
-def test_a_long_name_keeps_its_miss_with_the_short_head():
-    line = wording.spider_answer(10, 3, 4, ["Thickness uniformity 0.5 under"], True,
-                                 no=21, made_round=7, short=True)
-    assert line == "Best F21 (Round 7): on target 3 of 4; Thickness uniformity 0.5 under."
-    assert U.limit_words(line) <= 12
 
 
 # ------------------------------------------------------------------ #
@@ -653,102 +347,13 @@ def _lf(right, pairs, close, ties, p=0.03, p_holm=0.15, tested=5):
     return lf
 
 
-def test_the_pairs_line_says_called_of_all():
-    assert wording.score_pairs_called("Overall score", 5, 5, 12) == \
-        "Overall score (5 of 12 pairs called, 5 right)"   # fix round 2: one form
-    assert wording.learned_count("Overall score", 7, 9, total=24) == \
-        "Overall score 9 of 24 pairs called, 7 right"
-    assert wording.learned_count_needed("Overall score", 4, 4, 5, total=12) == \
-        "Overall score 4 of 12 pairs called, 4 right (needs 5)"
-    line = wording.learned_line(wording.learned_count("Overall score", 7, 9, total=24),
-                                [("Predicts", ["Consistency (11/11)"])])
-    assert line == ("So far: Overall score 9 of 24 pairs called, 7 right. "
-                    "Predicts: Consistency (11/11).")
-    assert _words(line) <= wording.LEARNED_LINE_WORDS == 14
-
-
-def test_the_pairs_help_gives_the_chance_raw_and_adjusted():
-    opt = NS(objectives=[], utility_ceiling=lambda: 100.0, has_ingredients=lambda: True)
-    text = U.pairs_called_text(opt, _lf(5, 5, 6, 1))
-    assert text == ("Overall score: 5 of 12 pairs called (6 too close, 1 measured equal); 5 right. "
-                    "Chance by luck: 3 in 100; 15 in 100 adjusted for checking 5 results.")
-    _clean(text)
-    assert U._chance_words(0.0625) == "6 in 100"
-
-
 # ------------------------------------------------------------------ #
 #  A4 · the stop's "?" — one tasting, regression to the mean
 # ------------------------------------------------------------------ #
-
-@pytest.mark.parametrize("sigma", [1, 2, 3])
-def test_the_stop_help_reframes_the_perfect_score(sigma):
-    opt = _opt(noise=None if sigma == 1 else sigma)
-    perfect = U.perfect_noisy_score(opt)
-    assert perfect == pytest.approx(100 - 4 * (25 / 15) * 0.3 * sigma * math.sqrt(2 / math.pi),
-                                    abs=0.01)
-    facts = _facts(opt)
-    facts.next = None
-    tip = U.ceiling_tip(opt, facts)
-    assert (f"A formulation exactly on target, tasted once, averages about {perfect:.1f} with "
-            f"this noise") in tip
-    assert "single tastings scatter around it" in tip
-    assert "would score about" not in tip and "only pulls the score down" not in tip
-    _clean(tip)
 
 
 # ------------------------------------------------------------------ #
 #  A5 · the score caption; the wording rules
 # ------------------------------------------------------------------ #
 
-def test_the_score_caption():
-    assert wording.SCORE_IS_MATCH == "Score = match to your targets, not liking."
-    assert _words(wording.SCORE_IS_MATCH) <= 8
-    assert "wording.SCORE_IS_MATCH" in inspect.getsource(U._panel_captions)
 
-
-def test_every_final_demo_string_keeps_the_rules():
-    statuses = [wording.stop_strip_line("1.7", "2.3"),
-                wording.tasting_noise_measured("1.4", 4)]
-    # Spec §11: the noise basis, one plain line each ("?" text, short).
-    bases = [wording.noise_basis("1", repeat_no=16), wording.noise_basis("3"),
-             wording.noise_basis("1.4", measured=True, repeats=4)]
-    assert bases[0] == ("Assumes results repeat within about 1 point until Repeats measure it. "
-                        "Repeat Formulation 16 to check.")
-    assert bases[2] == "Results repeat within about 1.4 points, measured from 4 Repeats."
-    for t in bases:
-        assert _words(t) <= 16, t
-    headlines = [wording.STOP_CALLOUT_HEAD, wording.stop_callout_line("1.7", "2.3"),
-                 wording.stop_on_target(3, 4, ["Tangy 1.0 under"]),
-                 wording.stop_on_target(3, 4, ["Tangy 1.0 under"], True, [True]),
-                 wording.score_pairs_called("Overall score", 5, 5, 12)]
-    captions = [wording.SCORE_IS_MATCH, wording.stop_marker(6), wording.after_stop("0.8")]
-    labels = [wording.TASTING_NOISE_LABEL, wording.STOP_WORD,
-              wording.tasting_noise_option(1.0), wording.tasting_noise_option(0.5)]
-    assert wording.tasting_noise_option(1.0) == "1 point"          # no "(assumed)"
-    for t in statuses:
-        assert _words(t) <= 10, t
-    for t in headlines:
-        assert _words(t) <= 14, t
-    for t in captions:
-        assert _words(t) <= 10, t
-    for t in labels:
-        assert _words(t) <= 5, t
-    for t in statuses + headlines + captions + labels + [
-            wording.SETUP_NOISE_HELP, wording.TASTING_NOISE_MEASURED_HELP,
-            wording.tasting_noise_measured_help(4), *bases,
-            wording.stop_marker_help(4, "95.0", "98.3", "3.3", "7.0"),
-            wording.on_target_help(3, 4, 4, "0.6"),
-            wording.pairs_called_help("Overall score", 5, 5, 12, 6, 1, "3 in 100", "15 in 100", 5),
-            wording.ceiling_help("98.3", "100", "1.7", "2.3", "98.4", True, sd_text="2"),
-            wording.story_improving_help("84.2", "96.1", 1, 6, "2.3"),
-            wording.tip_threshold_assumed("2")]:
-        _clean(t)
-    # Every status names what, how many and against what.
-    assert re.fullmatch(r"[\d.]+ below top; [\d.]+ needed", wording.stop_strip_line("1.7", "2.3"))
-    # The final demo strings sit under their own heading in wording.py.
-    src = open(wording.__file__).read()
-    tail = src[src.index("# --- final demo ---"):]
-    for name in ("STOP_CALLOUT_HEAD", "TASTING_NOISE_LABEL", "SETUP_NOISE_HELP", "def noise_basis",
-                 "SCORE_IS_MATCH", "def best_after",
-                 "def pairs_called_help", "def stop_marker"):
-        assert name in tail, name

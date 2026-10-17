@@ -19,19 +19,11 @@ import ui_insights
 import wording
 from tests import demo_projects as D
 from tests.test_food_bo import _BANNED
-from tests.test_review_cards import _install, _leaves, _open
+from tests.review_screens import _install, _leaves, _open
 
 
 def _words(text):
     return len(text.split())
-
-
-def test_status_line_says_review_not_last_round():
-    line = wording.review_status_line("Off", "Rising")
-    assert line.startswith("Review: ") and "Last" not in line
-    assert wording.REVIEW_STATUS_CHECKING.startswith("Review: ")
-    plain = line.replace("*", "")
-    assert _words(plain) <= 10, plain
 
 
 def test_limit_fact_is_short_and_agrees_with_the_chart_heading():

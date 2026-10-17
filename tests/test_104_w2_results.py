@@ -13,14 +13,12 @@ from streamlit.testing.v1 import AppTest
 import insights
 import ui_batch
 import ui_results
-import ui_setup
 import wording
 from food_bo import FoodOptimizer
 from tests import e2e_fixtures as E
 from tests.test_app_ui import (  # noqa: F401
     APP_PATH, _submit_button, _tab_primaries, burger, scored, scored_open_batch)
 from tests.test_complete_results_ui import one_waiting  # noqa: F401
-from ui_helpers import SCROLL_KEY, SETUP_CALLOUT_KEY
 
 # ------------------------------------------------------------------ #
 #  Sticky flashes (review I10)
@@ -301,48 +299,4 @@ def test_save_uploaded_results_is_lit_once_the_preview_shows(scored_open_batch):
 #  Set up's callout (A7, review I8)
 # ------------------------------------------------------------------ #
 
-def test_the_callout_names_the_row_and_its_highest(burger):
-    text = ui_setup.callout_text(burger, wording.change_on_setup("Pea protein"))
-    assert text == wording.setup_callout("Pea protein", "25 g")
-    assert ui_setup.callout_text(burger, wording.change_on_setup(
-        "Methylcellulose", highest=False)) == wording.setup_callout(
-        "Methylcellulose", "0 g", highest=False)
-    assert ui_setup.callout_text(burger, "Something else") == ""
 
-
-def test_the_callout_lands_above_the_grid_and_clears_on_a_tab_move(burger):
-    at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.session_state["_loaded_project"] = "burger"
-    at.run()
-    at.session_state[SETUP_CALLOUT_KEY] = wording.change_on_setup("Pea protein")
-    at.session_state["main_tab"] = wording.TAB_SETUP
-    at.session_state[SCROLL_KEY] = "setup_callout"
-    at.run()
-    assert not at.exception
-    said = wording.setup_callout("Pea protein", "25 g")
-    assert said in [i.value for i in at.tabs[0].info]
-    scripts = [h.proto.body for h in at.get("html")]
-    assert any(".st-key-setup_callout" in body for body in scripts)
-    at.session_state["main_tab"] = wording.TAB_RESULTS
-    at.run()
-    assert said not in [i.value for i in at.info]
-    assert SETUP_CALLOUT_KEY not in at.session_state
-
-
-def test_the_insights_button_goes_to_the_callout(monkeypatch):
-    """_setup_button: the label is kept for the callout and the move lands
-    on its slot, not the top of Set up."""
-    import ui_insights
-    script = """
-import streamlit as st
-import ui_insights
-ui_insights._setup_button("Change Pea protein's Highest on Set up")
-"""
-    at = AppTest.from_string(script)
-    at.run()
-    at.button[0].click()
-    at.run()
-    assert at.session_state[SETUP_CALLOUT_KEY] == "Change Pea protein's Highest on Set up"
-    assert at.session_state["_pending_tab"] == wording.TAB_SETUP
-    assert at.session_state[SCROLL_KEY] == "setup_callout"
-    assert ui_insights._setup_button.__doc__

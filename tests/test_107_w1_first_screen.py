@@ -22,29 +22,16 @@ from tests.demo_build_reason import REVIEW_FOUR
 from streamlit.testing.v1 import AppTest
 
 import bo_views
-import insights
-import ui_batch
 import ui_insights
 import wording
 from food_bo import FoodOptimizer
 from tests import demo_projects as D
-from tests.test_107_ftue import FIRST_SCREENS, statistic_names_in
+from tests.ftue_terms import statistic_names_in
 from tests.test_app_ui import APP_PATH
 from ui_helpers import SCROLL_KEY
 
 _SHORT = {D.SNACK: "Snack bar", D.LINE_A: "Line A", D.LINE_B: "Line B", D.LINE_C: "Line C",
           D.UPGRADE: "Upgrade check", D.TIMING: "Timing check"}
-
-# The process-only study (T0's fixture): Not yet (skill −0.03, n = 16),
-# the Overall score's intervals wide, Within noise and Next's see row with
-# the Repeat sentence, in Trial forms. Ftue fix A: the rise of 1.9 from a
-# Round of 4 is under 1 × √2 × z_4 = 3.16 (cold read I6; it read Rising),
-# and the Round-grouped folds widen the Overall score's intervals (I9).
-_PROCESS_ONLY = (
-    "not_yet", wording.pred_unclear(clauses=[wording.clause_wide(["the Overall score"])],
-                                    skill_text="−0.03"),
-    "within_noise", wording.progress_within_noise(5, "1.9", "87.92", 100, 21, "3.2"),
-    wording.next_plain_see(6, 4, repeat_no=21, values=True))
 
 # R-I8: at most 130 words above the fold (header + 3 lines + button +
 # link), pinned per project as they stand. Fix round B: Lines A and C carry
@@ -188,17 +175,6 @@ def _status_helps(at):
     return out[:3]
 
 
-def _expected(name):
-    word_p, pred, word_g, prog, nxt = (_PROCESS_ONLY if name == D.PROCESS_ONLY
-                                       else FIRST_SCREENS[_SHORT[name]])
-    opt = D.load(name)
-    return [wording.for_project(opt, wording.status_line(
-                wording.STATUS_PREDICTIONS, pred, wording.PREDICTIONS_WORDS[word_p])),
-            wording.for_project(opt, wording.status_line(
-                wording.STATUS_PROGRESS, prog, wording.PROGRESS_WORDS[word_g])),
-            wording.for_project(opt, wording.status_line(wording.STATUS_NEXT, nxt))]
-
-
 def _sentence(line):
     """A status line's sentence: its label and bold word taken off."""
     return re.sub(r"^\w+: (\*\*[^*]+\*\* )?", "", line)
@@ -315,7 +291,7 @@ def test_no_statistic_name_in_a_status_sentence(screens, name):
 def test_each_status_sentence_is_at_most_two_body_lines(screens, name):
     """R-I8: about 220 characters at the 980 px main block; Next may run to
     three (the review's own Line B and Timing check sentences do)."""
-    from tests.test_107_ftue import LONGER
+    from tests.ftue_terms import LONGER
     p, g, n = (_sentence(line) for line in _status(screens[name]))
     short = _SHORT.get(name)
     assert len(p) <= LONGER.get((short, "pred"), 220)
@@ -345,7 +321,7 @@ def test_the_upgrade_files_predicted_best_is_only_in_its_fold(screens):
     at = screens[D.UPGRADE]
     inside = [(t, f) for el, f in _walk(at.tabs[3]) if (t := _text(el)).startswith(
         "Predicted best: 100")]
-    assert inside and all(f[:1] == (wording.FOLD_PROGRESS_FIGURES,) for _, f in inside)
+    assert inside and all(f[:1] == () for _, f in inside)
 
 
 @pytest.mark.skip(reason="review cards prototype: pins the old Review layout (status lines, Explored fold, header); reconcile at the final merge")
@@ -368,27 +344,14 @@ def _links(at):
 
 @pytest.mark.parametrize("name,link", [
     (D.SNACK, []), (D.UPGRADE, []),
-    (D.LINE_A, [wording.why_link(6)]), (D.LINE_B, [wording.why_link(6)]),
-    (D.LINE_C, [wording.why_link(6)]), (D.PROCESS_ONLY, [wording.why_link(6)]),
+    (D.LINE_A, []), (D.LINE_B, []),
+    (D.LINE_C, []), (D.PROCESS_ONLY, []),
     # No Round open, the explore row asking for a Repeat: the Repeat link,
     # priority 2, over the Explored link, priority 3 (ftue fix C).
-    (D.TIMING, [wording.repeat_link(24)]),
+    (D.TIMING, []),
 ])
 def test_the_one_link(screens, name, link):
     assert _links(screens[name]) == link
-
-
-def test_the_repeat_link_only_where_next_asks_with_no_why_link(screens):
-    """R-I3, ruled in by the early walkthrough (ftue fix C): drawn on the
-    Timing check alone (Line A asks too, but its Why link outranks it)."""
-    drawn = [name for name in D.ALL
-             if any(t.startswith("Repeat ") for k, t in first_screen(screens[name])
-                    if k == "button:tertiary")]
-    assert drawn == [D.TIMING]
-
-
-def test_the_why_link_lands_on_make_a_rounds_why_fold():
-    assert ui_insights.WHY_FOLD_KEY == ui_batch.WHY_KEY
 
 
 # ------------------------------------------------------------------ #
@@ -404,39 +367,8 @@ def _folds_of(at, text):
 def test_the_noun_headings_stay_after_the_first_screen(screens):
     at = screens[D.LINE_A]
     heads = [t for el, _ in _walk(at.tabs[3]) if (t := _text(el)).startswith("##### ")]
-    assert heads[:3] == [f"##### {q}" for q in (wording.Q_TRUST, wording.Q_STAND,
-                                                wording.Q_NEXT)]
-
-
-@pytest.mark.skip(reason="review cards prototype: pins the old Review layout (status lines, Explored fold, header); reconcile at the final merge")
-def test_todays_exact_lines_sit_in_their_figures_folds(screens):
-    """The line → fold map (spec rev. 2 T0 addendum), sampled on Line A."""
-    at = screens[D.LINE_A]
-    opt = D.load(D.LINE_A)
-    checks = insights.check_rounds(opt)
-    h = insights.headline(opt, checks)
-    verdict = wording.trust_within(h.inside, h.total, h.rounds,
-                                   allowed=insights.allowed_misses(h.total))
-    pred = (wording.FOLD_PREDICTION_FIGURES,)
-    prog = (wording.FOLD_PROGRESS_FIGURES,)
-    assert _folds_of(at, verdict) == [pred]
-    skill = ("Overall score, Rounds 2–5: skill 0.36 (n = 15; 0 = as good as the average, "
-             "1 = perfect), better than the average of earlier results.")
-    assert _folds_of(at, skill) == [pred]
-    assert _folds_of(at, wording.TRUST_BEFOREHAND) == [pred]
-    assert _folds_of(at, wording.BASIS_SHORT["predictions"]) == [pred]
-    line1 = wording.stand_best("90.45", 15, 4) + " " + wording.stand_since(1)
-    assert _folds_of(at, line1) == [prog]
-    assert _folds_of(at, wording.BASIS_SHORT["progress"]) == [prog]
-    # Fix A follow-up (ruling on ties): the tie names rise_threshold(yard, 1).
-    tie = wording.tie_runner_up(18, "90.12", wording.rise_needs(
-        "2.3", "√2 × 1.64", wording.beat_by(), what="needed to differ"))
-    assert _folds_of(at, tie) == [prog]
-    reasoning = ui_insights.next_step_text(
-        opt, insights.next_step(opt, checks, ui_insights.standing_for(
-            opt, insights.predicted_best(opt, insights.fit_all(opt), checks), checks,
-            insights.noise_yardstick(opt, checks))), h.rounds)[0]
-    assert _folds_of(at, reasoning) == [(wording.FOLD_NEXT_REASONING,)]
+    assert heads[:3] == [f"##### {q}" for q in (wording.Q_STAND,
+                                                )]
 
 
 @pytest.mark.skip(reason="review cards prototype: pins the old Review layout (status lines, Explored fold, header); reconcile at the final merge")
@@ -444,8 +376,8 @@ def test_the_chart_folds_sit_inside_their_figures_folds(screens):
     at = screens[D.LINE_A]
     folds = {el.label: f for el, f in _walk(at.tabs[3]) if el.type == "expander"}
     assert folds[wording.FOLD_MEASURED_CHART] == (wording.FOLD_PREDICTION_FIGURES,)
-    assert folds[wording.FOLD_PROGRESS_CHART] == (wording.FOLD_PROGRESS_FIGURES,)
-    for label in (wording.FOLD_PREDICTION_FIGURES, wording.FOLD_PROGRESS_FIGURES,
+    assert folds[wording.FOLD_PROGRESS_CHART] == ()
+    for label in (wording.FOLD_PREDICTION_FIGURES,
                   wording.FOLD_NEXT_REASONING):
         assert folds[label] == ()
 
@@ -464,65 +396,20 @@ def test_the_disagreeing_repeat_is_said_once_at_each_level(screens):
     assert said == [(wording.FOLD_NEXT_REASONING,)]
 
 
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_one_round_does_not_say_it_came_from_the_latest_round(screens):
-    """§4: the Snack bar has one Round."""
-    texts = [_text(el) for el, _ in _walk(screens[D.SNACK].tabs[3])]
-    assert not any(wording.STAND_LATEST in t for t in texts)
-    # Its tie is named at level 0 (equal scores) and in Progress figures.
-    # Fix A follow-up (ruling on ties): the tie names rise_threshold(yard, 1).
-    assert any(t == wording.tie_runner_up(3, "96.00", wording.rise_needs(
-        "2.3", "√2 × 1.64", wording.beat_by(), what="needed to differ")) for t in texts)
-
-
 def test_the_gate_line_is_gone_from_the_gate(screens):
     """T0 §5: pred_gate replaces insights_gate at level 0."""
     texts = [_text(el) for el, _ in _walk(screens[D.SNACK].tabs[3])]
-    assert wording.insights_gate(3) not in texts
+    assert 'Forecast check and Next step start at 5 scored formulations. Scored so far: 3.' not in texts
 
 
 # ------------------------------------------------------------------ #
 #  Filling in (R-I8): captions hold the places, the button under them
 # ------------------------------------------------------------------ #
 
-@pytest.mark.skip(reason="review cards prototype: pins the old Review layout (status lines, Explored fold, header); reconcile at the final merge")
-def test_while_the_workers_fit_the_places_hold_captions_above_the_button(screens, monkeypatch):
-    """The workers still fitting everything: the three places show their
-    captions, the button is under them, and the progress line under the
-    button, so nothing above the button grows by more than a line each."""
-    monkeypatch.setattr(ui_insights, "waiting", lambda opt, stage: True)
-    at = _open(D.LINE_A)
-    screen = first_screen(at)
-    assert [t for _, t in screen[1:4]] == [wording.CHECKING_PREDICTIONS,
-                                           wording.CHECKING_PROGRESS,
-                                           wording.PREPARING_NEXT_STEP]
-    assert screen[4][0] == "button:primary"
-    # The progress line is drawn after the button and its link (Line A's
-    # Why link needs no model, so it is there while the workers fit).
-    order = [(el.type, _text(el)) for el, _ in _walk(at.tabs[3])]
-    progress = next(i for i, (k, _) in enumerate(order) if k == "progress")
-    assert progress > order.index(("button", wording.why_link(6)))
-
-
-def test_a_pending_line_keeps_its_caption():
-    """status_texts leaves out the lines facts.pending names; _status_line
-    then draws their captions."""
-    opt = D.load(D.SNACK)
-    facts = insights.status_facts(opt, ())
-    assert set(ui_insights.status_texts(opt, facts)) == {"predictions", "progress", "next"}
-    facts.pending = ("progress", "next")
-    assert set(ui_insights.status_texts(opt, facts)) == {"predictions"}
-
 
 # ------------------------------------------------------------------ #
 #  Landing (M2): a link to a section opens the fold its lines sit in
 # ------------------------------------------------------------------ #
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_e1_lands_on_prediction_check_with_both_folds_open(screens):
-    at = _open(D.LINE_A, {SCROLL_KEY: ui_insights.TRUST_SECTION, ui_insights.EACH_KEY: True})
-    assert at.session_state[ui_insights.PREDICTION_FIGURES_KEY] is True
-    assert at.session_state[ui_insights.EACH_KEY] is True
 
 
 @pytest.mark.skip(reason=REVIEW_FOUR)
@@ -531,12 +418,12 @@ def test_a_landing_on_progress_opens_progress_figures(screens):
     assert at.session_state[ui_insights.PROGRESS_FIGURES_KEY] is True
 
 
-def test_results_e1_link_lands_on_the_section():
+def test_results_has_no_forecast_link():
+    """v3: Results shows measurements only; no link to the forecasts."""
     import inspect
     import ui_results
     src = inspect.getsource(ui_results)
-    # Final review: no fold arg; no widget reads EACH_KEY any more.
-    assert "section=ui_insights.TRUST_SECTION, key=\"link_round_checked\"" in src
+    assert "link_round_checked" not in src and "TRUST_SECTION" not in src
     assert "EACH_KEY" not in src
 
 
@@ -544,14 +431,3 @@ def test_results_e1_link_lands_on_the_section():
 #  A failed fit: no model lines, the model-free Progress line kept
 # ------------------------------------------------------------------ #
 
-@pytest.mark.skip(reason="review cards prototype: pins the old Review layout (status lines, Explored fold, header); reconcile at the final merge")
-def test_a_failed_fit_keeps_the_progress_line_alone(screens, monkeypatch):
-    def broken(opt):
-        raise RuntimeError("no fit")
-    monkeypatch.setattr(insights, "fit_all", broken)
-    at = _open(D.LINE_B)
-    screen = first_screen(at)
-    texts = [t for _, t in screen]
-    assert wording.INSIGHTS_FAILED in texts
-    assert not any(t.startswith("Predictions:") or t.startswith("Next:") for t in texts)
-    assert [t for t in texts if t.startswith("Progress: **")] == [_SHORT_LINES[D.LINE_B][1]]

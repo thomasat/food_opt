@@ -54,7 +54,7 @@ def test_invalid_edits_are_atomic(project, changes):
 def test_compact_workbook_results_and_actual_import(project):
     project.set_records('actual', True)
     book = load_workbook(io.BytesIO(project.workbook_bytes(project.pending_batch, 100, print_pack=False)))
-    assert [s.title for s in book if s.sheet_state == 'visible'] == ['Round overview', 'Preparation', 'Results']
+    assert [s.title for s in book if s.sheet_state == 'visible'] == ['Round overview', 'Results']
     assert book.active.title == 'Round overview'
     results = book['Results']
     results.cell(result_row(results), 2, 8)
@@ -188,7 +188,7 @@ def test_the_yogurt_sample_generates_feasible_rounds(tmp_path, monkeypatch):
         assert limit['min'] - 1e-6 <= sum(recipe.values()) <= limit['max'] + 1e-6
     opt.set_pending_batch(suggestions)
     book = load_workbook(io.BytesIO(opt.workbook_bytes(opt.pending_batch, opt.open_round_size(), print_pack=False)))
-    assert [s.title for s in book if s.sheet_state == 'visible'] == ['Round overview', 'Preparation', 'Results']
+    assert [s.title for s in book if s.sheet_state == 'visible'] == ['Round overview', 'Results']
 
 
 def test_suggestions_honour_calculated_rows_the_rest_row_and_the_total(tmp_path, monkeypatch):
@@ -311,7 +311,7 @@ def test_workbook_separates_formulations_and_has_internal_navigation(project):
             assert header.border.left.style == 'medium'
             assert header.fill.fgColor.rgb in ('00DDEBF7', '00E2EFDA')
         links = [c for row in sheet for c in row if c.hyperlink]
-        assert {c.hyperlink.location for c in links} >= {"'Results'!A1", "'Preparation'!A1", "'Round overview'!A1"}
+        assert {c.hyperlink.location for c in links} >= {"'Results'!A1", "'Round overview'!A1"}
         assert all(c.hyperlink.target is None for c in links)
         assert all(not sheet.column_dimensions[c.column_letter].hidden for c in links)
     sheet = book['Results']
@@ -663,13 +663,13 @@ def test_the_download_caption_describes_the_file_the_box_produces(project):
     app = str(Path(__file__).resolve().parents[1] / 'app.py')
     at = AppTest.from_file(app, default_timeout=180).run()
     said = [c.value for c in at.caption]
-    assert wording.workbook_line(False) in said
-    assert wording.workbook_line(True) not in said
+    assert wording.workbook_sheets(False) in said
+    assert wording.workbook_sheets(True) not in said
     at.checkbox(key='workbook_print_pack').set_value(True).run()
     assert not at.exception
     said = [c.value for c in at.caption]
-    assert wording.workbook_line(True) in said
-    assert wording.workbook_line(False) not in said
+    assert wording.workbook_sheets(True) in said
+    assert wording.workbook_sheets(False) not in said
     # ...and the sheet the standing caption names is in the file it names it
     # for.
     book = load_workbook(io.BytesIO(project.workbook_bytes(

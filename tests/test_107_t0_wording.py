@@ -13,7 +13,6 @@ import pytest
 import wording as W
 from tests.test_080_wording import _FROZEN
 from tests.test_090_wording import _STYLE
-from tests.test_107_ftue import FIRST_SCREENS, UNREACHED
 from tests.test_food_bo import _ALLOWED_EXACT, _BANNED, _FTUE_ALLOWED
 
 
@@ -41,83 +40,33 @@ def _facts(**kw):
     return types.SimpleNamespace(**base)
 
 
-def _status_lines():
-    out = [W.STATUS_PREDICTIONS, W.STATUS_PROGRESS, W.STATUS_NEXT,
-           *W.PREDICTIONS_WORDS.values(), *W.PROGRESS_WORDS.values(),
-           W.status_line(W.STATUS_PREDICTIONS, W.pred_gate(3), "Not yet"),
-           W.status_line(W.STATUS_NEXT, W.next_plain_tail()),
-           W.CHECKING_PREDICTIONS, W.CHECKING_PROGRESS, W.PREPARING_NEXT_STEP,
-           W.pred_gate(0), W.pred_gate(1), W.pred_too_few(1), W.pred_too_few(0),
-           W.pred_off_coverage([4], 3, 12, 1), W.pred_off_coverage([3, 5], 9, 30, 0),
-           W.pred_caution([3, 4, 5], 5, 35, 1), W.pred_no_skill(),
-           W.pred_unclear(("1.2", False), [W.clause_wide(["the Overall score"])]),
-           W.pred_reliable([4], 12, 12, 1), W.clause_guard(settings_only=True),
-           W.progress_one_round(values=True), W.progress_one_round(cold=False),
-           W.progress_too_early("96.00", 100, 1, one_round=True),
-           W.progress_too_early("96.00", 100, 1, one_round=True, values=True),
-           W.progress_tied(1, 3, "96.00", 100.0), W.progress_luck("90", 24),
-           W.progress_rising(5, "2.5", "89.84", 100, 18, "1.2"), W.vary_threshold(),
-           W.vary_threshold("1.2"), W.tie_runner_up(18, "90.12", W.beat_by()),
-           W.tie_runner_up(18, "90.12", W.beat_by("1.2")),
-           W.next_plain_repeat(21, 11, "10.5"), W.next_plain_repeat(21, 11, "4.0", False, "7.4",
-                                                                    values=True),
-           W.next_plain_repeat_ask(15), W.next_plain_repeat_ask(15, values=True),
-           W.next_plain_repeat_ask(15, open_round=True, after_results=True),
-           W.next_plain_misses(), W.next_plain_no_skill(),
-           W.next_plain_untested(6, values=True), W.next_plain_explore("1.1", values=True),
-           W.next_plain_close(settings_only=True, repeat_no=7, values=True),
-           W.next_plain_close(W.widen_limit("Fat per 100 g: at most 10 g")),
-           W.next_plain_see(), W.next_plain_see(repeat_no=15), W.next_plain_see(6, 4),
-           W.next_plain_rising()]
-    for _, pred, _, prog, nxt in FIRST_SCREENS.values():
-        out += [pred, prog, nxt]
-    return out + list(UNREACHED.values())
-
-
 def _fold_lines():
-    return [W.FOLD_PREDICTION_FIGURES, W.FOLD_PROGRESS_FIGURES, W.FOLD_NEXT_REASONING,
+    return [W.FOLD_PREDICTION_FIGURES, W.FOLD_NEXT_REASONING,
             W.FOLD_MEASURED_CHART, W.FOLD_PROGRESS_CHART, W.FOLD_METHOD, W.FOLD_EXPLORED,
             W.try_one_fold(True), W.try_one_fold(False), W.try_one_fold(True, False),
-            W.trade_offs_fold(), W.trade_offs_fold(False), W.BASIS_PREDICTIONS,
-            W.BASIS_PROGRESS, W.BASIS_NEXT, W.basis_explored(), W.basis_explored(values=True),
-            W.basis_explored(total=False)]
+            W.trade_offs_fold(), W.trade_offs_fold(False),
+            ]
 
 
 def _tooltip_lines():
-    return [W.TIP_INTERVAL, W.TIP_VERDICT, W.TIP_NOT_JUDGED, W.TIP_SKILL, W.TIP_ROUND_AHEAD,
-            W.TIP_MEAN_ERROR, W.TIP_NOISE_THRESHOLD, W.tip_repeats(), W.tip_repeats(True),
-            W.TIP_PROGRESS_WORDS, W.tip_predicted_score(), W.tip_predicted_score(True),
-            W.TIP_MODEL_SD, W.TIP_PREDICTED_BEST, W.TIP_EXPECTED_IMPROVEMENT, W.tip_untested(),
-            W.tip_untested(True), W.tip_local_effect(), W.tip_local_effect(True),
-            W.TIP_ACTIVE_BOUNDS, W.TIP_LUCK, W.TIP_ROLES, W.TIP_NEAREST_TESTED,
-            W.tip_coverage(["Firmness", "Juiciness", "Cook loss"], [3, 4, 5], 32, 35, 3),
-            W.tip_coverage(["Firmness"], [6], 11, 12, 1),
-            W.tip_coverage_early(["Firmness", "Cook loss"], [2, 3], 6),
-            W.tip_coverage_early(["Firmness"], [], 1), W.TIP_COVERAGE_NONE,
-            W.tip_skill([2, 3, 4, 5], "0.36", 15), W.tip_skill_too_few(2), W.TIP_REFITTED,
-            W.TIP_RELIABLE_LIMITS, W.tip_repeat_off(21, 11, "10.5", "7.4"),
-            W.tip_bias("−5.5", 16, [2, 3, 4, 5]), W.tip_wide(["Firmness", "Cook loss"]),
-            W.tip_guard([W.GUARD_FLOOR, W.GUARD_NOISE]),
-            W.tip_threshold_measured("1.2", 4, 3), W.tip_threshold_measured("1.2", 4),
-            W.TIP_THRESHOLD_ASSUMED, W.tip_progress(W.TIP_THRESHOLD_ASSUMED),
-            W.tip_next("Close", W.status_rule_rows()[-3][2])]
+    return [
+            W.tip_local_effect(), W.tip_local_effect(True),
+            W.TIP_NEAREST_TESTED,
+            ]
 
 
 def _explored_lines():
     return [W.STRIPS_TITLE, W.strips_caption(), W.strips_caption(True),
             W.STRIP_TESTED, W.STRIP_WAITING, W.STRIP_SUGGESTED, W.STRIP_REACHABLE,
             W.STRIP_LATEST, W.STRIP_COUNT, W.strip_value_title(), W.strip_value_title(True),
-            W.tip_strips(), W.tip_strips(values=True), W.tip_strips(total=False),
-            W.TIP_LIMIT_HITS, W.tip_design_space("3,000"), W.MAP_TITLE, W.MAP_READING, W.MAP_NOT_YET, W.MAP_HIDDEN,
-            W.MAP_COLD, W.TIP_MAP, W.explored_pointer(W.try_one_fold(True)),
+            W.MAP_TITLE, W.MAP_NOT_YET, W.MAP_HIDDEN,
+            W.MAP_COLD, W.explored_pointer(W.try_one_fold(True)),
             W.explored_pointer(W.try_one_fold(True, False), settings_only=True),
             W.explored_pointer(W.try_one_fold(False), triangle=False),
-            W.why_link(6), W.repeat_link(24),
-            W.SKILL_SCALE, W.skill_line("0.36", 15, [2, 3, 4, 5], "skill"),
-            W.next_untested(round_no=6), W.next_untested(values=True, open_round=False)]
+            ]
 
 
-_GROUPS = [_status_lines, _fold_lines, _tooltip_lines, _explored_lines]
+_GROUPS = [_fold_lines, _tooltip_lines, _explored_lines]
 
 
 @pytest.mark.parametrize("group", _GROUPS)
@@ -154,14 +103,9 @@ def test_the_settings_only_forms_name_no_ingredient_or_amount():
     settings alone (review I14, M4). Re-pinned (one-glance Review, fix round
     1) on the live forms: the removed What have we tried? forms
     (strips_no_gap, explored_link) and glossary rows are gone."""
-    for text in (W.progress_one_round(values=True), W.clause_guard(settings_only=True),
-                 W.next_plain_repeat_ask(15, values=True), W.next_plain_untested(6, values=True),
-                 W.next_plain_explore("1.1", values=True),
-                 W.next_plain_close(settings_only=True, repeat_no=7, values=True),
-                 W.try_one_fold(True, False), W.basis_explored(values=True),
-                 W.tip_repeats(True), W.tip_predicted_score(True), W.tip_untested(True),
+    for text in (
+                 W.try_one_fold(True, False),
                  W.tip_local_effect(True), W.strips_caption(True),
-                 W.tip_strips(values=True),
                  W.explored_pointer(W.try_one_fold(True, False), settings_only=True),
                  *W.model_summary(_facts(values=True, total=False)),
                  *[c for row in W.status_rule_rows(settings_only=True) for c in row]):
@@ -234,130 +178,8 @@ _EXACT = {
 }
 
 
-@pytest.mark.parametrize("name", sorted(_EXACT))
-def test_the_first_screens_of_the_review_word_for_word(name):
-    pred_key, pred, prog_key, prog, nxt = FIRST_SCREENS[name]
-    assert (pred, prog, nxt) == _EXACT[name]
-    assert pred_key in W.PREDICTIONS_WORDS and prog_key in W.PROGRESS_WORDS
-
-
-def test_the_status_words_and_labels():
-    """The owner's words (2026-10-01), R-I10's Progress words, M7's label."""
-    assert W.PREDICTIONS_WORDS == {"reliable": "Reliable", "not_yet": "Not yet", "off": "Off"}
-    assert W.PROGRESS_WORDS == {"rising": "Rising", "within_noise": "Within noise",
-                                "flat": "Flat", "too_early": "Too early",
-                                "no_new_best": "No new best"}
-    assert W.status_line("Predictions", "X.", "Reliable") == "Predictions: **Reliable.** X."
-    assert W.status_line("Next", "Make the next Round.") == "Next: Make the next Round."
-
-
-def test_the_templates_for_unreached_states():
-    """R-B1: the states no demo project reaches, and its clause order."""
-    assert W.pred_caution([3, 4, 5], 5, 35, 3) == (
-        "In Rounds 3–5, more results than expected fell outside the range the app predicted "
-        "(5 of 35, where up to 3 are normal).")
-    assert W.PRED_WIDE == ("The app's predictions are still very uncertain, so results "
-                           "landing inside them prove little yet.")
-    assert W.pred_unclear() == ("Score predictions are not yet clearly better than simply "
-                                "using the average of earlier scores.")
-    assert W.PRED_OFF_REPEAT == (
-        "A Repeat came out far from its original (see Next), so the conditions the predictions "
-        "learned from may have changed.")
-    assert W.pred_reliable([3, 4, 5], 36, 36, 4, [W.CLAUSE_OVER_WIDE]).endswith(
-        "earlier results; the predicted range was wider than it needed to be.")
-    assert W.pred_reliable([3], 11, 12, 1, [W.clause_wide(["Cook loss"]),
-                                            W.clause_bias("1.2", False),
-                                            W.clause_guard()]).endswith(
-        "earlier results; those for Cook loss are still very uncertain; scores have come in "
-        "about 1.2 points above the predictions; the app does not yet read what each ingredient "
-        "does.")
-    assert "(up to 1 miss is normal)" in W.pred_reliable([3], 11, 12, 1)
-    # Fix A follow-up (decision 4): the threshold, not the noise SD.
-    assert W.progress_within_noise(5, "0.4", "89.84", 100, 18, "2.3") == (
-        "Round 5 raised Best so far by 0.4 points, to 89.84 of 100 (Formulation 18), less than "
-        "the 2.3 points needed to count as a rise.")
-    # R-I2: no line but Next's repeat row says "check".
-    for text in (*_status_lines(),):
-        if "check it before" in text:
-            assert text.endswith(W.CHECK_IF_CHANGED), text
-    assert "since Round" not in " ".join(_status_lines())
-
-
-def test_the_next_sentences_one_per_row():
-    """R-I5: the untested row points under Progress figures; the close row
-    names what binds; a Repeat sentence says "in the next Round" while a
-    Round is open."""
-    assert W.next_plain_untested(6) == (
-        "The model's highest prediction is in amounts you have not tried yet (its amounts are "
-        "under Progress figures). To test it directly, add it to Round 6 as your own "
-        "formulation.")
-    assert W.next_plain_close(W.raise_highest("Textured pea protein")) == (
-        "You are close to the top within these ingredients and limits: no formulation is "
-        "predicted to beat Best so far by more than results vary. To look further, raise the "
-        "Highest of Textured pea protein.")
-    assert W.next_plain_misses() == (
-        "Recent results fell outside the range the app predicted more often than they should, "
-        "so new predictions can miss by more than their range shows. Make the next Round.")
-    assert W.next_plain_rising(6, 4) == (
-        "Best so far is rising. Record the 4 formulations still open in Round 6, then make the "
-        "next Round.")
-    assert W.next_plain_explore("1.1", no=6, left=4, repeat_no=24).endswith(
-        "In the next Round, include a Repeat of Formulation 24 to measure how much they vary.")
-
-
-def test_the_in_place_edits():
-    """Review T0's three edits in place (R-I5, R-I7, R-I9) and their pins
-    (M11)."""
-    assert W.skill_line("−0.47", 16, [2, 3, 4, 5], "no_skill") == (
-        "Overall score, Rounds 2–5: skill −0.47 (n = 16; 0 = as good as the average, 1 = "
-        "perfect), no better than the average of earlier results.")
-    assert "(Show its settings, under Progress figures)" in W.next_untested(values=True)
-    # Round 2: "tied" for equal values only; close ones are within noise.
-    assert W.tie_runner_up(18, "90.12", W.beat_by()) == (
-        "Formulation 18, at 90.12, is within noise of Best so far: the 1-point noise "
-        "threshold.")
-
-
-def test_the_fold_labels_and_links():
-    """§2, 02 §4, R-I4, R-I14."""
-    # Concision round (2026-10-01): fold labels and links at most 5 words.
-    assert W.FOLD_PREDICTION_FIGURES == "Prediction figures"
-    assert W.FOLD_PROGRESS_FIGURES == "Progress figures"
-    assert (W.FOLD_NEXT_REASONING, W.FOLD_MEASURED_CHART, W.FOLD_METHOD, W.FOLD_EXPLORED) == (
-        "Next-step reasoning", "Measured against predicted", "Definitions",
-        "Explored and unexplored")
-    assert W.trade_offs_fold() == "Trade-offs"
-    assert W.why_link(6) == "Why Round 6 was suggested"
-    assert W.for_project(_SettingsOnly(), W.repeat_link(24)) == "Repeat Trial 24"
-    # Every Basis line starts the same way (R-I6: the fold's help sits on it).
-    for text in (W.BASIS_PREDICTIONS, W.BASIS_PROGRESS, W.BASIS_NEXT, W.basis_explored()):
-        assert text.startswith("Basis: "), text
-
-
-def test_the_status_tooltip_is_the_reviews_exact_rule():
-    """R-B1: Line A's Predictions tooltip, and each window named on its own
-    (I13)."""
-    tip = " ".join([W.tip_coverage(["Firmness", "Juiciness", "Cook loss"], [3, 4, 5], 32, 35, 3),
-                    W.tip_skill([2, 3, 4, 5], "0.36", 15), W.TIP_REFITTED])
-    assert tip == (
-        "Measurements (Firmness, Juiciness, Cook loss), Rounds 3–5: 32 of 35 Round-ahead values "
-        "inside their 95 % posterior predictive intervals (5-fold cross-validation widening); a "
-        "binomial count at 5 % per value allows up to 3 misses in 35 at the 1-in-10 level. "
-        "Overall score, Rounds 2–5: out-of-sample skill 1 − SSE/SSE(mean of the rows before "
-        "each Round) = 0.36 over 15 formulations, at least 0.20 over at least 10 needed. Each "
-        "Round is predicted by models refitted today on earlier Rounds only.")
-    # R-I11: Reliable's own limits, both figures.
-    # Ftue fix A re-measured both (I9 folds): 12.5 % and 11.0 % (were 15 %
-    # and 12 %); coverage 91 % and 90 % (was 89 %).
-    assert "12.5 %" in W.TIP_RELIABLE_LIMITS and "11.0 %" in W.TIP_RELIABLE_LIMITS
-    assert "91 %" in W.TIP_RELIABLE_LIMITS and "90 %" in W.TIP_RELIABLE_LIMITS
-
-
 @pytest.mark.parametrize("tip", [
-    W.TIP_INTERVAL, W.TIP_VERDICT, W.TIP_NOT_JUDGED, W.TIP_SKILL, W.TIP_ROUND_AHEAD,
-    W.TIP_MEAN_ERROR, W.TIP_NOISE_THRESHOLD, W.tip_repeats(), W.TIP_PROGRESS_WORDS,
-    W.tip_predicted_score(), W.TIP_MODEL_SD, W.TIP_PREDICTED_BEST, W.TIP_EXPECTED_IMPROVEMENT,
-    W.tip_untested(), W.tip_local_effect(), W.TIP_ACTIVE_BOUNDS, W.TIP_ROLES,
+    W.tip_local_effect(), 
     W.TIP_NEAREST_TESTED])
 def test_each_term_tooltip_reads_plain_first_then_the_bo_term(tip):
     """§3: the plain reading first, then the standard term."""

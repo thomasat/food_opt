@@ -8,16 +8,12 @@ answers right after launch."""
 import concurrent.futures as cf
 import json
 import os
-import re
 
 import pytest
-from tests.demo_build_reason import REVIEW_FOUR
 from streamlit.testing.v1 import AppTest
 
 import bo_views
-import insights
 import insights_jobs
-import ui_batch
 import ui_insights
 import wording
 # Review four, ruling 2: the Why fold's "?" says the gain is greyed, not hidden.
@@ -38,26 +34,10 @@ def _isolate(tmp_path, monkeypatch):
         yield
 
 
-def _app(name, tab=wording.TAB_BATCH, why_open=True):
-    at = AppTest.from_file(APP_PATH, default_timeout=300)
-    at.session_state["_loaded_project"] = name
-    at.run()
-    at.session_state["main_tab"] = tab
-    if why_open:
-        at.session_state[ui_batch.WHY_KEY] = True
-    at.run()
-    assert not at.exception
-    return at
-
-
 def _rerun(at, tab=wording.TAB_BATCH):
     at.session_state["main_tab"] = tab
     at.run()
     assert not at.exception
-
-
-def _fold(at):
-    return next(e for e in at.tabs[1].expander if e.label == wording.WHY_THESE)
 
 
 def _install(name):
@@ -72,79 +52,6 @@ def _install(name):
 # ------------------------------------------------------------------ #
 #  1. The Why map's reference line (refresh item 6; spec-review I6/I7)
 # ------------------------------------------------------------------ #
-
-def _map_spec(monkeypatch):
-    """A list that receives the map's Vega-Lite spec each time it is drawn."""
-    got = []
-    real = ui_batch.why_chart
-
-    def why_chart(*a, **k):
-        chart = real(*a, **k)
-        if chart is not None:
-            got.append(chart.to_dict())
-        return chart
-    monkeypatch.setattr(ui_batch, "why_chart", why_chart)
-    return got
-
-
-def _layer_values(spec, mark):
-    """The data rows of every layer drawn with `mark`."""
-    out = []
-    for layer in spec["layer"]:
-        m = layer["mark"]["type"] if isinstance(layer["mark"], dict) else layer["mark"]
-        if m == mark:
-            out.append(spec["datasets"][layer["data"]["name"]])
-    return out
-
-
-def _predicted_repeat(opt):
-    """Best so far's predicted Repeat as Insights' outline takes it: the
-    Overall-score display model's mean at Best so far's amounts."""
-    with insights.memo_in_use({}):
-        score = insights.fit(opt, insights.SCORE, list(range(len(opt.Y_history))))
-    [p] = insights.predict(opt, score, [opt._encode(insights.start_recipe(opt, opt.best_index()))])
-    return p.mean
-
-
-@pytest.mark.parametrize("kind", ["qlognei", "qlogei", "qucb"])
-def test_the_map_line_is_best_so_far_s_predicted_repeat(kind, monkeypatch):
-    """Like with like on a predicted axis (binding speed-spec I7), the
-    reference the Insights outline uses, for every acquisition: qUCB too,
-    and qLogNEI no longer at the model's best tested mean."""
-    opt = _burger(rounds=4)
-    if kind != "qlognei":
-        opt.set_bo_config({"acquisition": kind})
-    ui_batch.ask_alone(opt, n_suggestions=3)
-    specs = _map_spec(monkeypatch)
-    at = _app(opt.project_name)
-    spec = specs[-1]
-    [rule] = _layer_values(spec, "rule")
-    assert rule[0]["ref"] == pytest.approx(_predicted_repeat(opt), abs=1e-6)
-    labels = [row.get("label") for rows in _layer_values(spec, "text") for row in rows]
-    assert wording.WHY_REFERENCE in labels
-    assert wording.WHY_REFERENCE == "Best so far (predicted Repeat)"
-    captions = [c.value for c in _fold(at).caption]
-    # Demo build: the legend names the marks; the caption says how to read
-    # the map, the marks and the sample in its "?".
-    assert wording.PLOT_CAPTION_MAP in captions
-    helps = [c.proto.help for c in _fold(at).caption]
-    assert any(wording.why_chart_caption_full(f"{bo_views.POOL_SIZE:,}") in h for h in helps)
-
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_the_map_and_the_outline_read_one_reference(monkeypatch):
-    """The map draws what ui_insights.repeat_of_best gives, the function
-    the Predicted above Best so far outline compares with."""
-    opt = _burger(rounds=4)
-    ui_batch.ask_alone(opt, n_suggestions=3)
-    monkeypatch.setattr(ui_insights, "repeat_of_best", lambda o, fitted: 42.5)
-    specs = _map_spec(monkeypatch)
-    _app(opt.project_name)
-    [rule] = _layer_values(specs[-1], "rule")
-    assert rule[0]["ref"] == 42.5
-    import inspect
-    assert "repeat_of_best(opt, fitted)" in inspect.getsource(ui_insights._mixture_extra)
-
 
 def test_the_map_caption_names_the_line_only_when_it_is_drawn():
     with_line = wording.why_chart_caption("3,000")
@@ -171,7 +78,7 @@ def test_the_new_lines_pass_the_guards():
     from tests.test_090_wording import _STYLE
     from tests.test_food_bo import _BANNED
     lines = [wording.best_luck(11, "84", "62", "100", "90.09"),
-             wording.WHY_REFERENCE, wording.why_chart_caption("3,000"), wording.WHY_CHECKING]
+             wording.why_chart_caption("3,000"), ]
     assert [t for t in lines if any(p.search(t) for p in _BANNED)] == []
     assert [t for t in lines if any(p.search(t) for p in _STYLE)] == []
     assert [t for t in lines if t.count("—") > 1] == []
@@ -190,8 +97,9 @@ def test_method_and_details_says_the_term():
     # One-glance Review (owner, 2026-10-14): the fold is one line per term
     # and the luck line's statistics term is off the screen; the
     # caveat itself lives in the README's "How the Review works", Limits.
-    assert [m.value for m in how.markdown] == list(wording.METHOD_DEFINITIONS)
-    assert wording.METHOD_README in [c.value for c in how.caption]
+    # Review v3: the five terms, worked out for this project; no README line.
+    assert [m.value for m in how.markdown] == [f"- {line}" for line in
+                                               ui_insights.definitions(opt)]
     section = open(README, encoding="utf-8").read().split("## How the Review works", 1)[1]
     assert "Best so far is one noisy maximum and tends to read high." in \
         section.split("\n## ", 1)[0]
@@ -226,80 +134,9 @@ def _seed(at, opt, stage):
     at.session_state[ui_insights.MEMO_KEY] = (opt.project_name, memo)
 
 
-def _columns(at):
-    return [list(d.value.columns) for d in _fold(at).dataframe]
-
-
-def test_line_b_opened_before_the_checks_says_why_and_shows_the_roles(monkeypatch):
-    """Line B opened on Make a round while the workers have the Overall
-    score's models but not the verdict's: the fold says the Prediction
-    check is still being calculated and shows no expected gain;
-    once the checks are in it gives the verdict's reason. The roles are
-    model-free from the 0.8.0 e2e fixes (A2, review I3; this reverts
-    11152ff's role part), so they are shown at every point, in the
-    Compared with cell's words."""
-    _workers(monkeypatch, _Stuck())
-    opt = _install(demo.LINE_B)
-    at = AppTest.from_file(APP_PATH, default_timeout=300)
-    at.session_state["_loaded_project"] = opt.project_name
-    at.run()
-    _seed(at, opt, "column")
-    at.session_state[ui_batch.WHY_KEY] = True
-    _rerun(at)
-    captions = [c.value for c in _fold(at).caption]
-    # Ftue fix C: the withheld lines in the fold's own column name.
-    assert wording.why_gain_greyed_said(wording.why_gain_said(wording.WHY_CHECKING)) in captions
-    assert all(wording.ROLE in cols and wording.EXPECTED_GAIN not in cols
-               for cols in _columns(at))
-    roles = [list(d.value[wording.ROLE]) for d in _fold(at).dataframe]
-    _seed(at, opt, "all")
-    _rerun(at)
-    captions = [c.value for c in _fold(at).caption]
-    assert wording.why_gain_greyed_said(wording.why_gain_said(wording.why_guard_line(verdict=True))) in captions
-    assert wording.why_gain_greyed_said(wording.why_gain_said(wording.WHY_CHECKING)) not in captions
-    # The same words before and after the checks land: nothing withdrawn.
-    assert [list(d.value[wording.ROLE]) for d in _fold(at).dataframe] == roles
-
-
-def test_without_workers_the_open_fold_works_out_its_own_checks():
-    """No workers (or they failed): the open fold calculates the checks the
-    withhold rule reads, so Line B says the verdict's reason at once; the
-    roles stay (model-free, 0.8.0 e2e fixes A2)."""
-    opt = _install(demo.LINE_B)
-    at = _app(opt.project_name)
-    captions = [c.value for c in _fold(at).caption]
-    assert wording.why_gain_greyed_said(wording.why_gain_said(wording.why_guard_line(verdict=True))) in captions
-    assert all(wording.ROLE in cols and wording.EXPECTED_GAIN not in cols
-               for cols in _columns(at))
-
-
 # ------------------------------------------------------------------ #
 #  4. The next Round's figure never holds up the first answers (item 2)
 # ------------------------------------------------------------------ #
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_the_verdict_is_drawn_before_the_figure_is_worked_out(monkeypatch):
-    """Insights draws the Prediction check and Best so far's lines before
-    the next Round's expected gain is calculated (about 1.5 s at
-    60 x 4), so the first answers never wait for it."""
-    opt = _burger(rounds=5, noise=0.6)
-    # A model with skill, so the figure is worked out at all (A3 gate, 0.8.0
-    # e2e fixes, review I4), and a record that does not withhold it (ftue
-    # fix A's folds read this project as More misses than expected).
-    monkeypatch.setattr(insights, "skill_gate", lambda opt, checks, fact=None: None)
-    monkeypatch.setattr(ui_insights, "withheld", lambda opt, score, checks: None)
-    order = []
-    real_trust, real_gain = ui_insights._trust, ui_insights.latest_gain
-    monkeypatch.setattr(ui_insights, "_trust",
-                        lambda *a, **k: order.append("verdict") or real_trust(*a, **k))
-    monkeypatch.setattr(ui_insights, "latest_gain",
-                        lambda *a, **k: order.append("gain") or real_gain(*a, **k))
-    at = AppTest.from_file(APP_PATH, default_timeout=300)
-    at.session_state["_loaded_project"] = opt.project_name
-    at.run()
-    _rerun(at, wording.TAB_INSIGHTS)
-    assert "verdict" in order and "gain" in order
-    assert order.index("verdict") < order.index("gain")
 
 
 def test_while_the_workers_fit_the_figure_is_worked_out_after_the_page(monkeypatch):

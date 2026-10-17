@@ -52,7 +52,7 @@ def test_each_screen_offers_at_most_one_link(monkeypatch):
     at = AppTest.from_file(APP_PATH, default_timeout=300)
     at.session_state["_loaded_project"] = opt.project_name
     at.run()
-    # No Round open: Results' E1; Make a round's E3 (Next step forced to a
+    # No Round open: Make a round's E3 (Next step forced to a
     # boxed-in best) once Insights has worked its checks out.
     monkeypatch.setattr(insights, "next_step", lambda *a, **k: insights.NextStep("close"))
     _run(at, wording.TAB_INSIGHTS)
@@ -67,11 +67,10 @@ def test_each_screen_offers_at_most_one_link(monkeypatch):
             per_tab.setdefault(i, []).append(b)
             assert b.proto.type == "tertiary", b.key
         assert all(len(v) <= 1 for v in per_tab.values()), per_tab
-    # Review guide: Make a round's status line carries its one link to
-    # Review; E3 keeps its sentence without one.
-    # Each screen as the reader sees it, open (the status line is drawn
-    # only on its open tab).
-    assert seen == {"link_round_checked", "link_review_status"}
+    # v3: no screen links anywhere: Results has no link to the forecasts
+    # (no "measured against predicted"), Make a round no status line, the
+    # Review no Why or Repeat link.
+    assert seen == set()
 
 
 def test_the_new_screens_say_no_retired_word():
@@ -82,9 +81,6 @@ def test_the_new_screens_say_no_retired_word():
     at = AppTest.from_file(APP_PATH, default_timeout=300)
     at.session_state["_loaded_project"] = opt.project_name
     at.run()
-    at.session_state[ui_batch.WHY_KEY] = True
-    at.session_state[ui_insights.EACH_KEY] = True
-    at.session_state[ui_insights.PROGRESS_KEY] = True
     at.session_state[ui_insights.HOW_KEY] = True
     said = []
     for tab in (wording.TAB_INSIGHTS, wording.TAB_BATCH):

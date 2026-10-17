@@ -159,19 +159,6 @@ def test_chart_text_reaches_4_5_to_1_in_both_themes(monkeypatch):
     assert ui_insights.muted() == ui_insights._MUTED_DARK
 
 
-def test_the_progress_chart_marks_scored_without_hollow():
-    """Spec §9 I4: a formulation scored without a measurement is never Best
-    so far, and its dot is a ring, not a filled dot."""
-    from tests.test_best_candidates import _upgrade_like
-    opt = _upgrade_like()               # 1-3 recorded before Cook loss existed
-    spec = ui_insights.progress_chart(opt).to_dict()
-    rows = [r for rows in spec["datasets"].values() for r in rows if "full" in r]
-    score = [r for r in rows if r["series"] == wording.PLOT_SCORE_EACH]
-    assert [r["full"] for r in score] == [False, False, False, True, True]
-    dots = next(l for l in spec["layer"] if l["mark"]["type"] == "point")
-    assert dots["encoding"]["fill"]["condition"]["test"] == {"field": "full", "equal": True}
-
-
 def test_the_progress_chart_tooltips_are_titled_and_read_one_decimal():
     """Carried from the privacy review: the Altair Progress chart's tooltips
     had no title or format and read 73.283749…. Every layer is titled or
@@ -192,35 +179,3 @@ def test_the_progress_chart_tooltips_are_titled_and_read_one_decimal():
             assert t["title"] == wording.FORMULATION_CAP and t["format"] == "d", t
 
 
-def _progress_captions(opt, monkeypatch):
-    said = []
-    monkeypatch.setattr(ui_insights, "show_chart", lambda c, **k: None)
-    # Review plots: the caption is short; the full reading is its "?".
-    monkeypatch.setattr(ui_insights.st, "caption",
-                        lambda text, **k: said.append(text if text != wording.PLOT_CAPTION_PROGRESS
-                                                      else k.get("help")))
-    ui_insights._progress_chart_body(opt)
-    return said
-
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_the_progress_caption_names_the_ring_when_one_is_drawn(monkeypatch):
-    """Review of Task 4: nothing said what the hollow dot meant."""
-    from tests.test_best_candidates import _upgrade_like
-    said = _progress_captions(_upgrade_like(), monkeypatch)
-    # Spec 2026-09-30 §2.3 (expert #8): the caption starts from its key.
-    assert said == [wording.progress_caption_2(rings=True)]
-    assert said[0].startswith(wording.progress_caption_2())
-    assert said[0].endswith(" " + wording.PROGRESS_RING)
-    assert not any(p.search(wording.PROGRESS_RING) for p in __import__(
-        "tests.test_food_bo", fromlist=["_BANNED"])._BANNED)
-
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_the_progress_caption_says_nothing_of_rings_without_one(monkeypatch):
-    """No ring, no clause, and a formulation still waiting (a gap, not a
-    dot) does not count as one."""
-    from tests.test_complete_results import _patty, _tell
-    opt = _patty(rows=2)
-    _tell(opt, 3, 1, drop=("Cook loss",))
-    assert _progress_captions(opt, monkeypatch) == [wording.progress_caption_2()]

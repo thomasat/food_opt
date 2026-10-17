@@ -71,7 +71,7 @@ def test_best_first_sorts_scored_without_after_every_measurement():
     assert frame[wording.BEST_SO_FAR_COLUMN].tolist()[0] == "★"
     # The score cell stays a number: the tail lives in sentences only.
     cell = frame.loc[frame["Formulation"] == 1, wording.OVERALL_SCORE_COLUMN].item()
-    assert cell == f"{opt.Y_history[0]:.2f}"
+    assert cell == f"{opt.Y_history[0]:.1f}"
 
 
 def test_repeats_and_nearest_compare_only_the_same_formulations():

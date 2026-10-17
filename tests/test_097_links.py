@@ -6,7 +6,6 @@ lands at the top of the tab (the Results scroll bug)."""
 import pathlib
 
 import pytest
-from tests.demo_build_reason import REVIEW_FOUR
 from streamlit.testing.v1 import AppTest
 
 import insights
@@ -55,30 +54,6 @@ def _blocks(node, out=None):
 #  The mechanism (04 §5)
 # ------------------------------------------------------------------ #
 
-_PROBE = """
-import streamlit as st
-import ui_helpers
-ui_helpers.link("Prediction check", "Insights", section="insights_stand",
-                fold="insights_each", key="link_probe")
-st.text_input("typed", key="typed")
-"""
-
-
-def test_a_link_is_tertiary_and_its_click_parks_the_move(tmp_path):
-    script = tmp_path / "probe.py"
-    script.write_text(_PROBE)
-    at = AppTest.from_file(str(script))
-    at.run()
-    [button] = at.button
-    assert button.proto.type == "tertiary"
-    at.text_input(key="typed").set_value("6.30")
-    button.click()
-    at.run()
-    assert at.session_state["_pending_tab"] == "Insights"
-    assert at.session_state[ui_helpers.SCROLL_KEY] == "insights_stand"
-    assert at.session_state["insights_each"] is True
-    assert at.text_input(key="typed").value == "6.30"        # nothing typed is lost
-
 
 def test_go_to_tab_lands_at_the_top(monkeypatch):
     """04 §1: after Save results the move landed ~1,400 px down."""
@@ -115,7 +90,8 @@ def test_insights_sections_carry_the_keys_links_land_on():
     opt = _burger(rounds=4)
     at = _app(opt, wording.TAB_INSIGHTS)
     ids = _blocks(at.tabs[3])
-    for key in (ui_insights.TRUST_SECTION, ui_insights.STAND_SECTION):
+    # Review v3: Are we improving? and What next? (the Forecast check is gone).
+    for key in (ui_insights.STAND_SECTION, ui_insights.NEXT_SECTION):
         assert any(i.endswith(f"-{key}") for i in ids), key
     assert at.session_state[ui_helpers.INSIGHTS_OPENED_KEY] == insights.data_key(opt)
 
@@ -123,31 +99,6 @@ def test_insights_sections_carry_the_keys_links_land_on():
 # ------------------------------------------------------------------ #
 #  E1: Results after Save results (04 §3, review I7)
 # ------------------------------------------------------------------ #
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_e1_asks_whether_the_last_round_came_out_as_predicted():
-    opt = _burger(rounds=4)
-    at = _app(opt, wording.TAB_RESULTS)
-    [e1] = _links(at)
-    assert e1.key == "link_round_checked"
-    assert e1.label == "Round 4: measured against predicted"
-    assert e1.proto.type == "tertiary"
-    assert not [b for b in at.tabs[2].button if b.proto.type == "primary"
-                and str(b.key or "").startswith("link_")]
-    e1.click()
-    at.run()
-    assert not at.exception
-    assert at.session_state["main_tab"] == wording.TAB_INSIGHTS
-    assert at.session_state[ui_insights.EACH_KEY] is True
-    # Ftue M2: it lands on Prediction check, and its figures fold opens
-    # with the chart fold inside it.
-    assert any(f".st-key-{ui_insights.TRUST_SECTION}" in s for s in _scripts(at))
-    assert at.session_state[ui_insights.PREDICTION_FIGURES_KEY] is True
-    # T47 review I-2: the fold is drawn open — its content is there (it is
-    # worked out only while open).
-    fold = next(e for e in at.tabs[3].expander if e.label == wording.FOLD_MEASURED_CHART)
-    assert [(c.value, c.proto.help) for c in fold.caption] == [
-        (wording.PLOT_CAPTION_MVP, wording.MVP_CAPTION)]
 
 
 def test_e1_is_gone_while_a_round_is_open():
@@ -163,9 +114,9 @@ def test_e1_waits_for_a_checkable_round():
     assert _links(_app(opt, wording.TAB_RESULTS)) == []
 
 
-def test_e1_in_a_process_only_project():
-    """T47 review minor 3: E1 drawn in a study of process settings alone;
-    its label names no formulation."""
+def test_no_e1_in_a_process_only_project():
+    """v3: Results has no "measured against predicted" link in any
+    project (it was E1)."""
     from tests.test_094_make_a_round import _ferment
     opt = _ferment()
     opt.ask(2)
@@ -173,9 +124,7 @@ def test_e1_in_a_process_only_project():
         opt.tell(row["recipe"], {"Acidity": 5.0}, formulation_no=row["formulation"],
                  batch_no=opt.pending_batch_no)
     opt.set_pending_batch(None)
-    [e1] = _links(_app(opt, wording.TAB_RESULTS))
-    assert e1.label == wording.round_measured_against_predicted(2)
-    assert "ormulation" not in e1.label
+    assert _links(_app(opt, wording.TAB_RESULTS)) == []
 
 
 def test_opening_a_project_lands_at_the_top():

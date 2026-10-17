@@ -3766,7 +3766,7 @@ class TestSharesAreTheWeights:
         saved = FoodOptimizer(opt.project_name)
         assert saved.Y_history[0] == pytest.approx(100.0)
         assert wording.overall_score_line(
-            saved.Y_history[0], saved.utility_ceiling()) == "Overall score 100.00 of 100."
+            saved.Y_history[0], saved.utility_ceiling()) == "Overall score 100.0 of 100."
 
     def test_a_measurement_deleted_leaves_the_rest_at_a_hundred(
             self, tmp_path, monkeypatch):
@@ -4404,7 +4404,8 @@ class TestRoundTwoFixes:
 
     def test_the_downloaded_scores_are_the_scores_on_screen(self, tmp_path,
                                                             monkeypatch):
-        """The table shows 2.62; the file used to hold 2.625."""
+        """The table shows 2.6; the file keeps 2.62 (two decimals, never
+        2.625), and reads as the screen's number at one decimal."""
         opt = self._opt(tmp_path, monkeypatch)
         opt.add_objective("Juiciness", 0.75, goal="target", target=7,
                           min_val=0, max_val=10, unit="/10")
@@ -4413,7 +4414,7 @@ class TestRoundTwoFixes:
                  batch_no=1)
         frame = pd.read_csv(io.StringIO(opt.history_csv()))
         on_screen = opt.history_frame()["Overall score"].iloc[0]
-        assert f"{frame['Overall score'].iloc[0]:.2f}" == on_screen
+        assert f"{frame['Overall score'].iloc[0]:.1f}" == on_screen
         assert frame["Overall score"].iloc[0] == round(
             float(opt.Y_history[0]), 2)
 
@@ -4440,6 +4441,8 @@ _FTUE_ALLOWED = _FTUE_BO_TERMS
 _ALLOWED_EXACT = {
     # The glossary and Model and method (above): exact strings, one scope.
     *_FTUE_ALLOWED,
+    # v3 (owner's tweak to the final-v3 Results mock): the fold's one name.
+    wording.SCORE_WORKED_OUT_FOLD,
     # Custom records apply to formulations and process-only trials.
     wording.CUSTOM_FIELD_HELP, wording.CUSTOM_SCOPE_NAMES["formulation"],
     wording.CUSTOM_SECTION_NAMES["formulation"],
@@ -4881,7 +4884,10 @@ def test_no_old_vocabulary_reaches_the_user_outside_python():
             # Process-only studies deliberately use trials in the user guide.
             if name == "desktop/start_here.txt" and line == "and time. A project containing only process settings uses trials and does":
                 continue
-            if any(pattern.search(line) for pattern in _BANNED):
+            # v3: the Results fold, named as the screen names it.
+            scanned = line.replace("worked out", "") if "score is" in line or \
+                line.startswith("worked out shows") else line
+            if any(pattern.search(scanned) for pattern in _BANNED):
                 offenders.append((name, i, line))
     swift = (root / _USER_FACING_SWIFT).read_text()
     for fragment in _SWIFT_NOT_PROSE:
@@ -5692,7 +5698,7 @@ class TestWhatEachFormulationIsTrying:
         review I3): Formulations 1-5 hold 40-45 g of water."""
         opt = self._warm(self._opt(tmp_path, monkeypatch))
         assert opt.suggestion_kind({"Water": 55.0, "Wheat gluten": 20.0}) == \
-            "refines the best"
+            "close to the best"
         assert opt.suggestion_kind({"Water": 55.1, "Wheat gluten": 20.0}) == \
             "balanced"
         assert opt.suggestion_kind({"Water": 75.0, "Wheat gluten": 20.0}) == \
@@ -5719,7 +5725,7 @@ class TestWhatEachFormulationIsTrying:
             "explores"
         assert opt.suggestion_kind(
             {"Water": 40.0, "Wheat gluten": 20.0, "Salt": 0.5}) == \
-            "refines the best"
+            "close to the best"
 
     def test_a_fixed_variable_does_not_decide_the_kind(self, tmp_path,
                                                         monkeypatch):
@@ -5731,7 +5737,7 @@ class TestWhatEachFormulationIsTrying:
         moved = {"Water": 40.0, "Wheat gluten": 20.0, "Salt": 5.0}
         assert opt.suggestion_kind(moved) == "explores"
         opt.add_ingredient("Salt", 0, 0)
-        assert opt.suggestion_kind(moved) == "refines the best"
+        assert opt.suggestion_kind(moved) == "close to the best"
 
     def test_the_cold_start_is_spread_across_the_allowed_amounts(
             self, tmp_path, monkeypatch):
@@ -5798,7 +5804,7 @@ class TestWhatEachFormulationIsTrying:
         assert opt.compared_with_text({"Water": 60.0, "Wheat gluten": 20.0}) \
             == "Balanced · Water +20.00 g"
         assert opt.compared_with_text({"Water": 41.0, "Wheat gluten": 20.0}) \
-            == "Refines the best · Water +1.00 g"
+            == "Close to the best · Water +1.00 g"
 
     def test_the_batch_table_carries_the_column_and_the_sheet_does_not(
             self, tmp_path, monkeypatch):
@@ -5811,7 +5817,7 @@ class TestWhatEachFormulationIsTrying:
         assert list(df.columns)[-1] == "Compared with Formulation 1"
         assert list(df["Compared with Formulation 1"]) == [
             "Explores · Water +40.00 g",
-            "Refines the best · Water +1.00 g"]
+            "Close to the best · Water +1.00 g"]
         # ... and not on the sheets: a workbook's rows are the ingredients
         # to weigh out, and a column of prose is not one of them.
         summary = _book(opt.workbook_bytes(opt.pending_batch, None)).worksheets[0]
@@ -5832,7 +5838,7 @@ class TestWhatEachFormulationIsTrying:
         # gluten the same distance the other way. The KIND is read off the
         # amounts the project stores, because the allowed amounts it is a
         # fraction of are the project's own: 52 g against 40 g is still close.
-        assert cell == ("Refines the best · Water +6.67 g, "
+        assert cell == ("Close to the best · Water +6.67 g, "
                         "Wheat gluten −6.67 g"), cell
         # The frame itself carries the two decimals the screen shows.
         assert df["Water (g)"].iloc[0] == 86.67
@@ -5870,7 +5876,7 @@ class TestWhatEachFormulationIsTrying:
         recipe = {"Water": 41.0, "Wheat gluten": 20.0}
         assert wording.compared_with_line(opt.compared_with_column(),
                                           opt.compared_with_text(recipe)) == \
-            ("Compared with Formulation 1: Refines the best · "
+            ("Compared with Formulation 1: Close to the best · "
              "Water +1.00 g")
 
 

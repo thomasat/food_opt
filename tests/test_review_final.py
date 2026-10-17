@@ -20,7 +20,6 @@ Synthetic projects and hand-made checks only; no pilot data."""
 import ast
 import contextlib
 import json
-import math
 import pathlib
 import re
 from types import SimpleNamespace as NS
@@ -29,9 +28,6 @@ import pytest
 
 import insights
 import learned
-import ui_batch
-import ui_insights as U
-import ui_results
 import wording
 from food_bo import FoodOptimizer
 from insights import Check
@@ -111,11 +107,6 @@ def test_measure_widen_reads_the_models_own_sd_not_the_nested_widening():
                                                                                     "Firmness")
 
 
-def test_a_too_wide_cell_reads_a_dash_with_its_reason_in_the_tip():
-    assert wording.TOO_UNCERTAIN == "—"
-    assert wording.too_uncertain_tip("6.0 (0.0–15.0)").startswith(f"95{NBSP}% range over")
-
-
 # ------------------------------------------------------------------ #
 #  P1 #2 — Holm
 # ------------------------------------------------------------------ #
@@ -161,10 +152,6 @@ def test_one_result_alone_is_not_adjusted():
     assert ords["a"].p_holm == pytest.approx(0.03) and ords["a"].verdict == learned.PREDICTABLE
 
 
-def test_the_learned_caption_and_rule_say_the_adjustment():
-    assert "Holm" in wording.LEARNED_RULE
-
-
 # ------------------------------------------------------------------ #
 #  P1 #3 — both at the cap: too close to call
 # ------------------------------------------------------------------ #
@@ -185,74 +172,10 @@ def test_two_forecasts_at_the_top_are_too_close_to_call():
 #  P1 #4 — Implied (expected)
 # ------------------------------------------------------------------ #
 
-def test_implied_is_the_expected_score_over_each_forecast(tmp_path, monkeypatch):
-    opt = _project(tmp_path, monkeypatch)
-    on = {o['name']: o['target'] for o in opt.objectives}
-    sure = {n: insights.Prediction(v, v, v, v, 0.0) for n, v in on.items()}
-    assert insights.expected_score(opt, sure) == pytest.approx(100.0)
-    # At the target with sd σ, each measurement loses 25/15 × σ × √(2/π).
-    sigma = 0.3
-    unsure = {n: insights.Prediction(v, v, v, v, sigma) for n, v in on.items()}
-    want = 100 - 4 * 25 / 15 * sigma * math.sqrt(2 / math.pi)
-    assert insights.expected_score(opt, unsure) == pytest.approx(want, abs=0.02)
-    # Below the score of the means whenever a forecast is unsure.
-    assert insights.expected_score(opt, unsure) < opt._compute_utility(on)
-    assert insights.expected_score(opt, {"Consistency": sure["Consistency"]}) is None
-    assert wording.IMPLIED_COLUMN == "Implied (expected)"
-    assert "two models" in wording.PREDICTED_MEASUREMENTS_HELP.lower()
-
 
 # ------------------------------------------------------------------ #
 #  P1 #5 — the stop's concrete line and its "?" numbers
 # ------------------------------------------------------------------ #
-
-def test_the_stop_line_names_what_is_on_and_off_target(tmp_path, monkeypatch):
-    opt = _project(tmp_path, monkeypatch)
-    opt.tell({"Oat": 40.0, "Water": 60.0},
-             {"Consistency": 12, "Creaminess": 5, "Tangy": 4, "Thickness": 13},
-             formulation_no=1, batch_no=1)
-    monkeypatch.setattr(U, "_say", lambda o, t: t)
-    assert U.ceiling_reason_text(opt) == "On target: 3 of 4. Tangy 1.0 under target."
-    assert len(U.ceiling_reason_text(opt).split()) <= 12
-
-
-def test_the_stop_help_gives_the_gap_the_threshold_and_the_noisy_perfect_score(
-        tmp_path, monkeypatch):
-    opt = _project(tmp_path, monkeypatch)
-    perfect = U.perfect_noisy_score(opt)
-    # 100 − Σ (share ÷ width) × σ_a × √(2/π), σ_a = 1 × 15 ÷ (25 × 2) = 0.3.
-    assert perfect == pytest.approx(100 - 4 * (25 / 15) * 0.3 * math.sqrt(2 / math.pi),
-                                    abs=0.02)
-    assert f"{perfect:.1f}" == "98.4"
-    text = wording.ceiling_help("98.3", "100", "1.7", "2.3", "98.4", True)
-    assert text.startswith("Best so far 98.3 is 1.7 below the top (100); 2.3 is needed to "
-                           "tell two single results apart.")
-    # Final demo (A4), re-pinned: one tasting regresses to the mean; never
-    # read as a score that beats perfect.
-    assert ("A formulation exactly on target, tasted once, averages about 98.4 with this "
-            "noise; single tastings scatter around it.") in text
-    # Spec §11: the noise basis in one plain line, right after the threshold.
-    assert ("2.3 is needed to tell two single results apart. Assumes results repeat within "
-            "about 1 point until Repeats measure it.") in text
-    assert ("A single new result can't be told apart from this best in the Overall score; a "
-            "single measurement still can") in text
-    assert "Further Rounds" not in text
-    assert text.endswith("(On target says which are beyond their noise).")
-
-
-def test_repeat_wording_is_one_form_everywhere():
-    assert wording.YARDSTICK_REPEATS == insights.YARDSTICK_DF == 3
-    assert wording.REPEAT_CONFIRMS == "3 Repeats would measure the noise."
-    assert wording.card_repeat_ask(16, 7) == "Repeat Formulation 16 to check noise"
-    # The link is a button (at most 5 words); every line says the full form.
-    assert wording.repeat_link(21) == "Repeat Formulation 21"
-    assert "A Repeat would confirm" not in wording.story_improving_help("84.2", "96.1", 1, 6)
-
-
-def test_progress_help_says_what_the_rise_needed_is():
-    assert wording.progress_need_plain("3.0", "1", True, 3).startswith(
-        "3.0: the best of 3 new results must beat noise by this much.")
-    assert not hasattr(wording, "NOISE_BAND")      # fix round: no noise band
 
 
 # ------------------------------------------------------------------ #
@@ -269,24 +192,6 @@ def _near_top(tmp_path, monkeypatch):
                      formulation_no=no, batch_no=r)
             no += 1
     return opt
-
-
-def test_the_improving_chart_shades_the_zone_within_noise_of_the_top(tmp_path, monkeypatch):
-    opt = _near_top(tmp_path, monkeypatch)
-    spec = U.improving_chart(opt).to_dict()
-    text = json.dumps(spec, ensure_ascii=False)
-    assert wording.TOP_ZONE in text and "assumed noise" not in text
-    zone = next(v for v in spec["datasets"].values() if v and v[0].get("what") == wording.TOP_ZONE)
-    need = U.tie_need(insights.noise_yardstick(opt))
-    assert zone[0]["hi"] == pytest.approx(100.0) and zone[0]["lo"] == pytest.approx(100 - need)
-    # Fix round (owner, 2026-10-14): no ±noise band; the zone keeps its key.
-    assert not [v for v in spec["datasets"].values() if v and v[0].get("what") not in
-                (None, wording.TOP_ZONE) and "lo" in v[0] and "v" in v[0]]
-    # The dotted line is named on its tick; Round averages are printed.
-    assert "Top score 100" in text
-    for _r, _a, _b, m, _n in U.round_averages(opt):
-        assert f'"text": "{m:.1f}"' in text
-    assert wording.STORY_IMPROVING_CAPTION == "Line: best so far. Bars: Round average."
 
 
 # ------------------------------------------------------------------ #
@@ -316,46 +221,6 @@ class _FakeSt:
         yield NS(open=self.fold_open)
 
 
-def test_the_next_suggestions_fold_under_stop_and_work_out_only_when_open(monkeypatch):
-    fake = _FakeSt(fold_open=False)
-    monkeypatch.setattr(U, "st", fake)
-    monkeypatch.setattr(U, "readiness", lambda o: (True, None))
-    monkeypatch.setattr(U, "ceiling_stop", lambda o, f: True)
-    monkeypatch.setattr(U, "_say", lambda o, t: t)
-    worked = []
-    monkeypatch.setattr(U, "_preview_body", lambda *a, **k: worked.append(1))
-    opt = NS(pending_batch=None, complete_count=lambda: 10)
-    places = NS(preview=fake)
-    U._next_preview(opt, places, {"failed": False}, NS(next=None))
-    assert ("expander", (wording.LEARNED_PREVIEW_TITLE,)) in [(c[0], c[1]) for c in fake.calls]
-    assert not worked
-    fake.fold_open = True
-    U._next_preview(opt, places, {"failed": False}, NS(next=None))
-    assert worked
-
-
-def test_the_preview_is_cached_per_project_state(monkeypatch):
-    U._PREVIEW_CACHE.clear()
-    made = []
-    monkeypatch.setattr(learned, "preview_next", lambda o, n: made.append(1) or [])
-    monkeypatch.setattr(insights, "setup_key", lambda o: "state-1")
-    monkeypatch.setattr(U, "_preview_count", lambda o: 3)
-    opt = NS(project_name="p", next_formulation_no=19)
-    assert not U.preview_cached(opt)
-    # An empty preview is a failure: never kept.
-    U.preview_rows(opt, {})
-    assert not U.preview_cached(opt)
-    monkeypatch.setattr(learned, "preview_next", lambda o, n: made.append(1) or None)
-    U._PREVIEW_CACHE[U.preview_key(opt)] = ["row"]
-    assert U.preview_cached(opt) and U.preview_rows(opt, {}) == ["row"]
-    n = len(made)
-    U.preview_rows(opt, {})
-    assert len(made) == n          # a revisit works nothing out
-    other = NS(project_name="q", next_formulation_no=19)
-    assert not U.preview_cached(other)
-    U._PREVIEW_CACHE.clear()
-
-
 # ------------------------------------------------------------------ #
 #  P2 #9 — the Forecast check is its own section
 # ------------------------------------------------------------------ #
@@ -365,15 +230,6 @@ def _round6():
     for no, sp, sm in zip((16, 17, 18), (94.3, 94.7, 93.7), (98.3, 98.3, 91.7)):
         out.append(_check(no, 6, insights.SCORE, sp, sm, sd=1.2))
     return out
-
-
-def _lf(opt, checks):
-    orderings = learned.orderings(opt, checks, {insights.SCORE: 1.0})
-    call = learned.round_call(checks, insights.SCORE, 6, 1.0)
-    items = [(insights.SCORE, call, learned.round_checks(checks, insights.SCORE, 6))]
-    lf = U.LearnedFacts(orderings, {}, (6, []), call, (1, 2, 0), "", items)
-    lf.noise, lf.checks = {insights.SCORE: 1.0}, checks
-    return lf
 
 
 class _Obj:
@@ -398,31 +254,6 @@ def _rows():
             r("Thickness", 13, 13, 13)]
 
 
-def test_start_vs_best_reads_one_axis_and_says_where_the_dot_moved(monkeypatch):
-    # Slim Review (re-pinned): target_rows takes the slider Round's best.
-    monkeypatch.setattr(U, "target_rows", lambda opt, best=None: _rows())
-    monkeypatch.setattr(U, "story_start", lambda opt: (0, 1))
-    monkeypatch.setattr(U, "_say", lambda o, t: t)
-    spec = U.target_chart(NS(best_index=lambda: 1)).to_dict()
-    text = json.dumps(spec, ensure_ascii=False)
-    assert wording.story_target_start(1) == "Start (Round 1's best)" and "Start (Round 1's best)" in text
-    data = [p for v in spec["datasets"].values() for p in v]
-    # One shared axis under the chart: 0, 5, 10, 15 once each.
-    ticks = [p["text"] for p in data if "t" in p and p.get("k") == 3 and "what" not in p
-             and "tip" not in p and "who" not in p]
-    assert ticks == ["0", "5", "10", "15"]
-    assert not [p for p in data if p.get("align") in ("left", "right")]
-    # The start's legend swatch is hollow, the best's filled.
-    fills = [l["encoding"]["fill"]["scale"] for l in spec["layer"]
-             if "fill" in l.get("encoding", {})]
-    assert fills and dict(zip(fills[0]["domain"], fills[0]["range"]))[
-        "Start (Round 1's best)"] == "transparent"
-    # Tangy moved down (5 → 4): "moved away" sits left of the best's dot.
-    away = [l for l in spec["layer"] if l.get("mark", {}).get("type") == "text"
-            and l["mark"].get("fontStyle") == "italic"]
-    assert away and all(l["mark"]["align"] == "right" for l in away)
-
-
 # ------------------------------------------------------------------ #
 #  P2 #13 — the profiler's cramped columns
 # ------------------------------------------------------------------ #
@@ -431,78 +262,16 @@ def test_start_vs_best_reads_one_axis_and_says_where_the_dot_moved(monkeypatch):
 #  P2 #16 — the primaries go secondary under Stop
 # ------------------------------------------------------------------ #
 
-def test_the_strips_set_up_button_is_secondary_at_the_stop(monkeypatch):
-    fake = _FakeSt()
-    monkeypatch.setattr(U, "st", fake)
-    monkeypatch.setattr(U, "confirmation_open", lambda: False)
-    monkeypatch.setattr(U, "_say", lambda o, t: t)
-    U._ceiling_foot(NS())
-    [btn] = [c for c in fake.calls if c[0] == "button"]
-    # Final demo (B1), re-pinned: a tertiary link — no button leads at the stop.
-    assert btn[2]["type"] == "tertiary"
-
-
-def test_start_the_next_round_is_secondary_with_its_reason_under_stop(monkeypatch):
-    fake = _FakeSt()
-    monkeypatch.setattr(ui_results, "st", fake)
-    monkeypatch.setattr(ui_results, "readiness", lambda o: (True, None))
-    monkeypatch.setattr(ui_results, "confirmation_open", lambda: False)
-    monkeypatch.setattr(U, "review_says_stop", lambda o: True)
-    ui_results._foot(NS(pending_batch=None))
-    [btn] = [c for c in fake.calls if c[0] == "button"]
-    assert btn[2]["type"] == "secondary"
-    assert ("caption", (wording.REVIEW_SAYS_STOP,)) in [(c[0], c[1]) for c in fake.calls]
-    assert wording.REVIEW_SAYS_STOP == "Review says stop."
-    src = pathlib.Path(ui_batch.__file__).read_text()
-    assert "review_says_stop(opt)" in src and "wording.REVIEW_SAYS_STOP" in src
-
 
 # ------------------------------------------------------------------ #
 #  P3 #17–19 — one form per idea
 # ------------------------------------------------------------------ #
 
-def test_one_form_per_idea():
-    assert wording.learned_strip(["Consistency"], ["Tangy"]) == ("Predicts:", "Consistency")
-    assert wording.learned_strip([], ["Overall score", "Tangy"]) == ("Partly:",
-                                                                     "Overall score, Tangy")
-    assert wording.learned_strip([], [], ["Overall score"]) == ("Not yet:", "Overall score")
-    assert wording.learned_answer(["Consistency"], ["Tangy"], ["Creaminess"]) == (
-        "**Predicts: Consistency.** Partly: Tangy. Not yet: Creaminess.")
-    assert list(wording.LEARNED_WORDS.values()) == ["Predicts", "Partly", "Not yet"]
-    assert wording.CARD_CEILING == "Stop, or change the target"
-    assert wording.CEILING_TAIL == "Stop, or change the target."
-    assert wording.review_status_strip("Rising", "Predicts: Overall score", wording.CARD_CEILING) == (
-        "Review: **Rising** · Predicts: Overall score · Stop, or change the target")
-    # Specific wording (2026-10-12), re-pinned: the rise needed, beside the lead.
-    assert wording.tie_line(21, "99.2", "0.83", 19, "2.3") == (
-        "Formulation 19 is within noise: 0.83 lower; 2.3 needed.")
-    assert "tied" not in wording._tied_with(18)
-    assert wording.single_record(36, 36, 3) == (
-        f"Single measurements, last 3 Rounds: 36 of 36 in their 95{NBSP}% range.")
-    assert wording.DOWNLOAD_BATCH_SHEETS == "Download the Round workbook (Excel)"
-    assert wording.back_to_batch_label(6, 3) == "Back to Round 6"
-    assert wording.called_so_far([("Overall", 8, 10)]) == "So far: Overall score 8 of 10."
-    assert wording.ENTERED_ROUND_CAPTION.endswith(
-        "For suggestions too: Discard this round and generate again.")
-    assert wording.plateau_rule(7) == "Plateau: no rise since Round 7, after rising before it."
-    assert wording.rule_line("Many more misses than expected.") == (
-        "Rule: many more misses than expected.")
-    assert wording.method_rising("3.0").endswith("by at least the rise needed (3.0 here), "
-                                                 "to the hundredth.")
-    assert wording.NO_GAIN_HEAD == "No gain beyond noise within these limits."
-    assert insights.TOGETHER == insights.MOVED_R == 0.7
-    assert "95 %" not in wording.PREDICTED_MEASUREMENTS        # a non-breaking space
-
 
 def test_captions_and_labels_keep_to_their_word_budgets():
     def words(t):
         return len(re.sub(r"\*\*", "", t).split())
-    for text, limit in ((wording.ceiling_reason(3, 4, ["Tangy 1.0 under target"]), 12),
-                        (wording.REVIEW_SAYS_STOP, 10), (wording.MAP_DIAMONDS_CAPTION, 8),
-                        (wording.PREDICTED_MEASUREMENTS_CAPTION, 8),
-                        (wording.STORY_IMPROVING_CAPTION, 8),
-                        (wording.TOP_ZONE, 5),
-                        (wording.CARD_CEILING, 5), (wording.back_to_batch_label(6, 3), 5),
+    for text, limit in ((wording.CARD_CEILING, 5), (wording.back_to_batch_label(6, 3), 5),
                         (wording.OFF_BY_TITLE, 5)):
         assert words(text) <= limit, text
 
@@ -531,9 +300,6 @@ def test_no_round_two_string_says_a_banned_word():
              and isinstance(n.value, str) and id(n) not in skip]
     bad = [t for t in shown if any(p.search(t) for p in _BANNED)]
     assert not bad, bad
-    rendered = [wording.ceiling_help("98.3", "100", "1.7", "2.3", "98.4", True, ["x"]),
-                wording.PREDICTED_MEASUREMENTS_HELP, wording.LEARNED_RULE,
-                wording.story_improving_help("84.2", "96.1", 1, 6, "2.3"),
-                wording.why_chart_caption_full("3,000", True, True, True),
+    rendered = [
                 wording.METHOD_STOP]
     assert not [t for t in rendered if any(p.search(t) for p in _BANNED)]

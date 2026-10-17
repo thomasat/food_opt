@@ -78,7 +78,7 @@ def test_workbook_both_scopes_custom_only_and_hidden(project, print_pack):
     a = cr.add_field(project, 'Operator', 'formulation')
     b = cr.add_field(project, 'Expiry date', 'ingredient')
     book = load_workbook(io.BytesIO(project.workbook_bytes(project.pending_batch, 100, print_pack=print_pack)))
-    if not print_pack: assert [s.title for s in book if s.sheet_state == 'visible'] == ['Round overview', 'Preparation', 'Results']
+    if not print_pack: assert [s.title for s in book if s.sheet_state == 'visible'] == ['Round overview', 'Results']
     cells = marked(book)
     assert len(cells) == 4
     for i, c in enumerate(cells):

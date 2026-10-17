@@ -15,8 +15,6 @@ import pytest
 import learned
 import ui_insights as U
 import wording
-from tests.test_090_wording import _STYLE
-from tests.test_food_bo import _BANNED
 
 README = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "README.md")
 
@@ -59,182 +57,31 @@ def _ordering(name, right, pairs, ties=0, close=0):
     return learned.Ordering(name, right=right, pairs=pairs, ties=ties, close=close)
 
 
-def test_pair_sentences_from_the_verdicts(monkeypatch):
-    monkeypatch.setattr(U, "learned_label", lambda opt, name: name)
-    monkeypatch.setattr(U, "_say", lambda opt, text: text)
-    lf = types.SimpleNamespace(orderings={
-        "Overall score": _ordering("Overall score", 5, 5, ties=1, close=6),
-        "Creaminess": _ordering("Creaminess", 0, 0),
-        "Tangy": _ordering("Tangy", 0, 0, close=12),
-    })
-    assert U.pair_sentences(None, lf) == [
-        "Overall score: of 12 pairs, 5 called, all 5 right; 6 too close, 1 measured equal.",
-        "Tangy: of 12 pairs, none called; 12 too close."]
-    assert U.pair_sentences(None, None) == []
-
-
 # ------------------------------------------------------------------ #
 #  What is gone
 # ------------------------------------------------------------------ #
-
-def test_the_review_has_three_sections_and_no_tried_or_drives():
-    assert U.SECTION_ORDER == ("progress", "next", "predictions")
-    assert set(U.SECTION_KEYS) == {"progress", "next", "predictions"}
-    for gone in ("_tried_section", "_drives_section", "_profiler", "profile_chart",
-                 "search_path_chart", "learned_chart", "learned_rows", "called_chart",
-                 "check_bias_line", "explored_link", "_model_and_method",
-                 "_status_table", "_glossary", "how_paragraphs", "details_frame"):
-        assert not hasattr(U, gone), gone
-    for gone in ("Q3_TITLE", "Q4_TITLE", "LEARNED_CHART_X", "LEARNED_KEY_CHANCE",
-                 "PROFILER_CAPTION", "STORY_PATH_CAPTION", "MODEL_LIMITS", "HOW_VERDICT"):
-        assert not hasattr(wording, gone), gone
-
-
-def test_the_forecast_check_draws_one_chart_in_its_details():
-    import inspect
-    src = inspect.getsource(U._learned_section)
-    assert "forecast_chart(" in src and src.count("show_chart(") == 1
-    assert "LEARNED_DETAILS_TITLE" in src
-    # Fix round 1: the Round line is the one visible line; the verdict line
-    # only when there is no Round to check.
-    assert "called_line(opt, lf)" in src
-    assert "None if line is not None else learned_verdict_line(opt, lf)" in src
-
-
-def test_the_round_line_and_its_question_mark(monkeypatch):
-    """Finding 1: the Round line, as at 5fb2b95, and its "?" opening on the
-    Round's landing in plain words."""
-    monkeypatch.setattr(U, "_short", lambda opt, text: text)
-    monkeypatch.setattr(U, "_say", lambda opt, text: text)
-    monkeypatch.setattr(U, "no_forecast", lambda opt, c: False)
-    import insights
-    ck = lambda no, low, high, measured, predicted: insights.Check(  # noqa: E731
-        no, 6, insights.SCORE, predicted, low, high, measured, low <= measured <= high, True)
-    cks = [ck(16, 80.0, 86.0, 90.0, 83.0), ck(17, 82.0, 88.0, 91.0, 85.0),
-           ck(18, 70.0, 80.0, 75.0, 75.0)]
-    call = learned.round_call(cks, insights.SCORE, 6, 1.0)
-    lf = types.SimpleNamespace(items=[(insights.SCORE, call, cks)], called=(6, []),
-                               orderings={})
-    line = U.called_line(None, lf)
-    # Fix round 2: the landing fact alone, at most 10 words.
-    assert line == "**Round 6: 2 of 3 above their forecast range.**", line
-    assert _words(line) <= 10
-    # Its "?": the landing in plain words, then the Round's own pairs.
-    assert U.called_help(None, lf) == (
-        "Round 6, Overall score: 1 of 3 in range; 2 misses, both higher than forecast.\n\n"
-        "Round 6 order, Overall score: of 3 pairs, 3 called, all 3 right.")
-    assert U.called_line(None, types.SimpleNamespace(items=[], called=(None, []))) is None
-
-
-def test_no_forecast_points_stay_neutral_and_the_colours_do_not_merge():
-    """The band's blue and the measured dots' ink and orange are two scales:
-    a shared colour scale drew every dot in the band's blue."""
-    import inspect
-    src = inspect.getsource(U.forecast_chart)
-    assert 'resolve_scale(color="independent")' in src
-    assert "none_name" in src and 'mark("neutral")' in src
 
 
 # ------------------------------------------------------------------ #
 #  Method and definitions
 # ------------------------------------------------------------------ #
 
-def test_method_is_a_few_one_line_definitions_and_the_readme():
-    lines = wording.METHOD_DEFINITIONS
-    assert 6 <= len(lines) <= 7
-    terms = [re.match(r"\*\*(.+?)\*\*: ", line).group(1) for line in lines]
-    assert terms == ["Overall score", "95 % range", "Tasting noise", "Stop",
-                     "Called · too close", "No forecast", "Predicts · Partly · Not yet"]
-    # Final review (owner: keep this fold short): every line about 25 words;
-    # the exact thresholds are in the README.
-    for line in lines:
-        assert _words(line) <= 26, line
-    # A link (the README is not in the app bundle), its caption short.
-    assert "](https://github.com/thomasat/food_opt#how-the-review-works)" in \
-        wording.METHOD_README
-    assert _words(wording.METHOD_README) <= 8
-    # The verdict words the Forecast check shows are defined here.
-    for word in wording.LEARNED_WORDS.values():
-        assert word in lines[-1]
 
-
-def test_each_definition_is_true_to_the_rule_the_app_applies():
-    """Findings 3, 5, 8: the verdicts as learned.judge / holm decide them,
-    the 95 % range's coverage as the app's ruling says it (never '95 times
-    in 100'), the called threshold as the result's own noise."""
-    by = {re.match(r"\*\*(.+?)\*\*: ", line).group(1): line
-          for line in wording.METHOD_DEFINITIONS}
-    # Final review: the screen says each verdict plainly, every Not yet
-    # cause named (learned.judge: neither test passes, under 5 pairs, or
-    # over half measured equal); the exact thresholds are the README's.
-    verdicts = by["Predicts · Partly · Not yet"]
-    assert "Predicts: ordered right well beyond chance." in verdicts
-    assert "Partly: mostly right, weaker evidence." in verdicts
-    assert "Not yet: neither, too few pairs, or most pairs measured equal." in verdicts
-    assert learned.PARTLY_MIN == learned.MIN_PAIRS and learned.FLAT_TIES == 0.5
-    section = open(README, encoding="utf-8").read().split("## How the Review works", 1)[1]
-    section = section.split("\n## ", 1)[0]
-    for rule in ("Holm-adjusted", f"p < {learned.VERDICT_P:.2f}",
-                 f"at least {learned.MIN_PAIRS} pairs", f"p < {learned.PARTLY_P:.2f} unadjusted",
-                 "right in more than half", f"under {learned.PARTLY_MIN} pairs called",
-                 "over half the pairs measured equal", "or both forecast at the top"):
-        assert rule in section, rule
-    rng = by["95 % range"]
-    assert "95 times in 100" not in rng
-    assert f"{wording.SIMULATED_COVERAGE['measurements']} in 100" in rng
-    assert f"({wording.SIMULATED_COVERAGE['score']} for Overall scores)" in rng
-    # Final review: the at-cap rule (learned.too_close) is said, so the line
-    # is true in every state.
-    called = by["Called · too close"]
-    assert "at least the result's noise apart" in called
-    assert "not both at the Range's top" in called and "Measured-equal pairs: neither." in called
-    noise = by["Tasting noise"]
-    assert noise.endswith(f"(set in Set up › {wording.MORE_SETTINGS_EXPANDER}).")
-
-
-def test_the_readme_holds_the_full_method_in_25_lines():
+def test_the_readme_says_the_v3_review_in_25_lines():
+    """v3: four tabs; the Review shows best so far, best vs targets and the
+    amounts in the top formulations; single tastings; no stop rule and no
+    forecasts on screen."""
     text = open(README, encoding="utf-8").read()
     assert "## How the Review works" in text
     section = text.split("## How the Review works", 1)[1].split("\n## ", 1)[0]
     lines = [line for line in section.splitlines() if line.strip()]
     assert 3 <= len(lines) <= 25
-    for term in ("Gaussian process", "calibration factor", "Holm", "No forecast",
-                 "Tasting noise", "Stop", "second factor", "1-in-20 threshold",
-                 "No term p-values or coefficient table",
-                 "until then the project's Tasting noise setting (Set up › Preparation and records; "
-                 "1 point unless changed), assumed"):
+    for term in ("four tabs", "Best so far", "Best vs targets",
+                 "Amounts in the top formulations", "single tasting", "no stop rule",
+                 "not shown on screen", "Gaussian process"):
         assert term in section, term
-    assert "a fixed rule, not a significance test" not in section
-    assert "barely varies" not in section
+    for gone in ("Holm", "calibration factor", "No forecast", "Tasting noise", "**Stop.**",
+                 "95 % range", "Round-ahead"):
+        assert gone not in section, gone
 
 
-def test_the_new_strings_pass_the_guards():
-    texts = [*wording.METHOD_DEFINITIONS, wording.METHOD_README, wording.METHOD_LINK_HELP,
-             wording.METHOD_LINK, wording.LEARNED_DETAILS_TITLE,
-             wording.pairs_sentence("Tangy", 5, 9, 2, 1),
-             wording.pairs_sentence("Tangy", 0, 0, 12), wording.pairs_sentence("Tangy", 1, 1),
-             wording.round_landing(6, "Overall score", 1, 2, 0),
-             wording.so_far_pairs("Overall score: 5 of 12 pairs called; 5 right."),
-             wording.check_line(6, 1, 2, 0, "order too close to call")]
-    for text in texts:
-        assert not any(p.search(text) for p in _BANNED), text
-        assert not any(p.search(text) for p in _STYLE), text
-        assert text.count("—") <= 1, text
-    assert _words(wording.LEARNED_DETAILS_TITLE) <= 5
-    assert _words(wording.METHOD_LINK_HELP) <= 14
-    # Labels at most 5 words; the link promises only what the fold holds.
-    assert _words(wording.METHOD_LINK) <= 5 and "How the app knows" != wording.METHOD_LINK
-    assert f"{len(wording.METHOD_DEFINITIONS)} terms" in wording.METHOD_LINK_HELP
-
-
-def test_stale_pointers_are_gone():
-    """Finding 10: no text points at what Method and definitions no longer
-    holds; no shadowed constant is left."""
-    import inspect
-    assert "Method and definitions" not in wording.BASIS_NEXT
-    assert "Method and definitions" not in wording.TIP_LUCK
-    src = inspect.getsource(wording)
-    assert src.count("\nLEARNED_DETAILS_TITLE = ") == 1
-    assert src.count("\nMETHOD_LINK_HELP = ") == 1 and src.count("\nEV_METHOD = ") == 1
-    doc = U.forecast_chart.__doc__
-    assert "hollow" not in doc and "orange outside" in doc and "No" in doc

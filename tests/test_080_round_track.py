@@ -57,29 +57,9 @@ def test_an_unreliable_verdict_adds_see_insights():
     assert t.see_insights and not t.rough
 
 
-def test_the_lines_read_as_the_spec_says():
-    """Rewritten for the BO-views wave (03 §5.8, review I7)."""
-    assert wording.round_track_holding(11, 11, rounds=[3, 4, 5]) == (
-        "Overall score, Rounds 3–5: 11 of 11 inside their 95 % interval.")
-    assert wording.round_track_rough(6, 12, "5.0", rounds=[3, 4, 5]) == (
-        "Overall score, Rounds 3–5: 6 of 12 inside their 95 % interval; Overall scores have "
-        "come in about 5.0 points below the predictions. More misses than expected.")
-    assert wording.round_track_rough(6, 12, "1.0", below=False).endswith(
-        "scores have come in about 1 point above the predictions. More misses than expected.")
-    assert wording.round_track_rough(6, 12, see_insights=True, allowed=2).endswith(
-        "95 % intervals allow up to 2 misses in 12; measured values: many more misses than "
-        "expected.")
-    assert wording.insights_progress(4, 6) == (
-        "Checking predictions against your results: 4 of 6 Rounds checked…")
-    assert wording.insights_progress(0, 1).endswith("0 of 1 Round checked…")
-
-
 def test_plan_a_strings_pass_the_vocabulary_guard():
     lines = [wording.insights_progress(4, 6), wording.insights_progress(0, 1),
-             wording.PREDICTION_PENDING, wording.round_track_holding(11, 11),
-             wording.round_track_holding(11, 11, True), wording.round_track_rough(6, 12, "5.0"),
-             wording.round_track_rough(6, 12, "1.0", False, True),
-             wording.round_track_rough(6, 12)]
+             ]
     assert [t for t in lines if any(p.search(t) for p in _BANNED)] == []
 
 
@@ -93,14 +73,6 @@ def test_a_wide_or_over_wide_verdict_shows_nothing(state, monkeypatch):
     assert insights.round_track(opt, checks) is not None            # a record that holds
     monkeypatch.setattr(insights, "verdict_state", lambda *a: state)
     assert insights.round_track(opt, checks) is None
-
-
-def test_the_holding_line_adds_see_insights_after_an_unreliable_verdict():
-    """Review C M-1; T0 review I-3: the unreliable verdict's own name on
-    Insights, "Many more misses than expected"."""
-    assert wording.round_track_holding(11, 11, True).endswith(
-        "; measured values: many more misses than expected.")
-    assert "measured values" not in wording.round_track_holding(11, 11)
 
 
 def test_no_line_when_the_overall_scores_own_range_is_wide(monkeypatch):

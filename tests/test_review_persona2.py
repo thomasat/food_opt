@@ -61,20 +61,6 @@ def plain(monkeypatch):
     monkeypatch.setattr(U, "decimals", lambda o, n: 1)
 
 
-def _lf(opt, checks, r, noise):
-    orderings = learned.orderings(opt, checks, noise)
-    rr, calls = learned.called_it(opt, checks, r, noise)
-    score_call = learned.round_call(checks, insights.SCORE, r, noise.get(insights.SCORE, 0.0))
-    named = [(insights.SCORE, score_call)] + calls
-    items = [(n, call, learned.round_checks(checks, n, r)) for n, call in named]
-    mine = learned.round_checks(checks, insights.SCORE, r)
-    landing = (sum(c.inside for c in mine), sum(c.measured > c.high for c in mine),
-               sum(c.measured < c.low for c in mine))
-    lf = U.LearnedFacts(orderings, {}, (rr, calls), score_call, landing, "", items)
-    lf.noise, lf.checks = noise, checks
-    return lf
-
-
 def _earlier():
     """Rounds 4-5: Consistency forecast 3 points apart, ordered right."""
     checks = []
@@ -124,30 +110,6 @@ def test_too_close_pairs_are_left_out_of_the_record_and_verdict():
     # A noise above every gap: nothing to count, Not yet (too few).
     far = learned.ordering(checks, "Consistency", 7.0)
     assert far.pairs == 0 and far.verdict == learned.NOT_YET and far.reason == "few"
-
-
-def test_so_far_counts_only_pairs_that_count(plain):
-    opt = _Obj()
-    # Noise 1: Round 6's Overall pair F17 > F18 counts with Rounds 4-5's six.
-    lf = _lf(opt, _round6(), 6, NOISE)
-    # Round 2: "Overall score", no "pairs"; Consistency 6 of 6 alone is not
-    # Predictable before Round 6 once adjusted for the 2 results (Holm), so
-    # its panel and count are not drawn.
-    assert U.called_so_far(opt, lf) == "So far: Overall score 7 of 7."
-    # Noise above every Overall gap: nothing to count, said so.
-    lf = _lf(opt, _round6(), 6, {insights.SCORE: 9.0, "Consistency": 1.0})
-    lf.items = lf.items[:1]
-    assert U.called_so_far(opt, lf) == "So far: every pair too close to call."
-
-
-def test_bias_line(plain):
-    opt = _Obj()
-    # Consistency measured 2 below every forecast, with noise 1: a bias.
-    checks = _round6(cons_pred=(14.0, 13.0, 15.0), cons_meas=(12.0, 11.0, 12.5))
-    lf = _lf(opt, checks, 6, NOISE)
-    # One on the other side, or within noise: no line.
-    checks = _round6(cons_pred=(14.0, 13.0, 15.0), cons_meas=(12.0, 11.0, 15.5))
-    assert learned.round_bias(learned.round_checks(checks, "Consistency", 6), 0.0) is None
 
 
 # Review critique (fix 1): no slopegraph; too close to call is said in the panel's
@@ -222,83 +184,14 @@ def _opt(tmp_path, monkeypatch):
     return opt
 
 
-def test_widen_reason(tmp_path, monkeypatch):
-    monkeypatch.setattr(U, "_say", lambda o, t: t)
-    opt = _opt(tmp_path, monkeypatch)
-    text = U.widen_reason_text(opt, NS(kind="lowest", name="Water", text="Water"))
-    # Best so far (35 g of Water) is not at the Lowest (30 g): the predicted best is.
-    assert text == ("The predicted best sits at Water's Lowest (30 g). To test below it, "
-                    "widen the limit.")
-    assert wording.widen_reason("highest", "Salt", "2 g") == \
-        "Your best sits at Salt's Highest (2 g). To test above it, widen the limit."
-    assert U.widen_reason_text(opt, NS(kind="limit", name="Fat", text="Fat ≤ 20 g")) is None
-
-
-def test_suggestion_moving_the_other_way_says_so(tmp_path, monkeypatch):
-    opt = _opt(tmp_path, monkeypatch)
-    there = insights.start_recipe(opt, opt._best_recipe_index())
-    up = dict(there, Water=there["Water"] + 10)
-    lowest = NS(kind="lowest", name="Water")
-    line = U.apart_text(opt, up, "explores", lowest)
-    assert line == "Explores: more Water (checks the other side)"
-    # Towards the limit, or with no limit advice: as before.
-    down = dict(there, Water=there["Water"] - 3)
-    assert "other side" not in U.apart_text(opt, down, "explores", lowest)
-    assert "other side" not in U.apart_text(opt, up, "explores")
-    # Another change stays, the other side said after it.
-    both = dict(there, Water=there["Water"] + 10, **{"Wheat gluten": there["Wheat gluten"] + 5})
-    line = U.apart_text(opt, both, "balanced", lowest)
-    assert line.endswith("; more Water (checks the other side)") and "Wheat gluten" in line
-
-
 # ------------------------------------------------------------------ #
 #  4. The score caption
 # ------------------------------------------------------------------ #
-
-def test_score_caption(monkeypatch):
-    monkeypatch.setattr(U, "_say", lambda o, t: t)
-    opt = NS(objectives=[{"name": n, "weight": 25.0, "goal": "target", "min_val": 0,
-                          "max_val": 15} for n in "ABCD"])
-    text = U.score_recipe_text(opt)
-    assert text == "Score: 25 per measurement, minus 25 × distance ÷ 15."
-    assert _words(text, numbers=False) <= 10
-    opt.objectives[0]["weight"] = 40.0
-    assert U.score_recipe_text(opt) is None       # mixed shares: the "?" says it
-    opt = NS(objectives=[{"name": "Firm", "weight": 100.0, "goal": "max", "min_val": 0,
-                          "max_val": 10}])
-    assert U.score_recipe_text(opt) is None
 
 
 # ------------------------------------------------------------------ #
 #  5. Plateau
 # ------------------------------------------------------------------ #
-
-def test_plateau_word(monkeypatch):
-    monkeypatch.setattr(U, "story_numbers", lambda o: (81.5, 1, 88.0, 4, 12))
-    facts = NS(progress="flat", best=NS(score=88.0))
-    assert U.plateau_round(None, facts) == 4
-    assert U.progress_word(None, facts) == "Plateau since Round 4"
-    # No rise since the first Round: Flat stays Flat.
-    monkeypatch.setattr(U, "story_numbers", lambda o: (88.0, 1, 88.0, 1, 3))
-    assert U.progress_word(None, facts) == "Flat"
-    # Another status: its own word.
-    monkeypatch.setattr(U, "story_numbers", lambda o: (81.5, 1, 88.0, 4, 12))
-    assert U.progress_word(None, NS(progress="rising", best=NS(score=88.0))) == "Rising"
-
-
-def test_plateau_card_and_answer(monkeypatch):
-    monkeypatch.setattr(U, "story_numbers", lambda o: (81.5, 1, 88.0, 4, 12))
-    facts = NS(progress="flat", best=NS(score=88.0, formulation=12, round=4), tie=None,
-               improvement=NS(rounds=3))
-    opt = NS(utility_ceiling=lambda: 100.0, formulation_ids=[])
-    card = U.progress_card(opt, facts)
-    assert card.word == "Plateau since Round 4"
-    # Round 2: the plateau line names its best.
-    assert card.lines[0][0] == "81.5 → 88.0 of 100 · Formulation 12"
-    assert wording.answer_line(card.word, card.lines[0][0]) == \
-        "**Plateau since Round 4.** 81.5 → 88.0 of 100 · Formulation 12."
-    assert wording.review_status_learned("Predicts", card.word) == \
-        "Review: Model **Predicts** · Progress **Plateau since Round 4**"
 
 
 # ------------------------------------------------------------------ #
@@ -310,26 +203,3 @@ def _strings():
     return re.findall(r'"((?:[^"\\\n]|\\.)*)"', src)
 
 
-def test_persona2_wording_limits():
-    assert _words(wording.FORECAST_CHECK_TITLE) <= 3
-    assert _words(wording.LEARNING_ROUND_WHY) <= 10
-    assert _words(wording.plateau_word(7), numbers=False) <= 5
-    assert _words(wording.score_recipe("25", "15"), numbers=False) <= 10
-    for text in (wording.LEARNED_RULE, wording.ENTERED_ROUND_CAPTION):
-        assert "better than forecast" not in text and "not a miss" not in text
-        assert "only your own" not in text
-
-
-def test_model_item_names_the_overall_score(monkeypatch):
-    """The Model item agrees with the Forecast check's record: an Overall
-    score that is Predictable is named, first."""
-    monkeypatch.setattr(U, "_say", lambda o, t: t)
-    o = lambda v: NS(verdict=v)
-    ords = {insights.SCORE: o(learned.PREDICTABLE), "Consistency": o(learned.NOT_YET),
-            "Tangy": o(learned.PREDICTABLE)}
-    assert U.model_names(None, ords, learned.PREDICTABLE) == ["Overall score", "Tangy"]
-    assert wording.learned_strip(["Overall score"], []) == ("Predicts:", "Overall score")
-    lf = U.LearnedFacts(ords, {}, (6, []), None, (0, 0, 0), "")
-    assert lf.model_names(None, learned.NOT_YET) == ["Consistency"]
-    # The profiler's list stays the measurements' own.
-    assert lf.names_by(learned.PREDICTABLE) == ["Tangy"]

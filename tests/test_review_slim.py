@@ -27,15 +27,13 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 import bo_views
-import learned
-import insights
 import ui_insights as U
 import wording
 from food_bo import FoodOptimizer
 from tests import demo_projects as D
 from tests.test_app_ui import APP_PATH
 from tests.test_food_bo import _BANNED
-from tests.test_review_cards import _leaves, _text
+from tests.review_screens import _leaves, _text
 
 _n = itertools.count(1)
 
@@ -134,103 +132,22 @@ def _label(r, last):
     return wording.replay_label(r, last)
 
 
-def test_one_control_drives_the_chart_the_profile_and_what_changed():
-    # Layout study (re-pinned): the slider is now the Replay panel's
-    # control — ◀ Round N of M ▶, Replay Rounds — over all three parts.
-    opt = _spider_opt()
-    at = _review(opt)
-    assert not [s for s in at.tabs[3].select_slider if s.label == wording.ROUND_CAP]
-    keys = {b.key for b in at.tabs[3].button}
-    assert {"insights_replay_prev", "insights_replay_next", "insights_replay_play"} <= keys
-    assert at.button(key="insights_replay_next").disabled       # on the latest
-    assert not at.button(key="insights_replay_prev").disabled
-    texts = [m.value for m in at.tabs[3].markdown]
-    answer = next(t for t in texts if t.startswith("**") and "→" in t)
-    assert _label(4, 4) in texts
-    assert "**What changed by Round 4**" in texts
-    # The control sits above all three parts, under the section's answer line.
-    k = texts.index(_label(4, 4))
-    assert texts.index(answer) < k < texts.index("**What changed by Round 4**") \
-        < texts.index(f"**{wording.SPIDER_TITLE}**")
-    # ◀ twice: Round 2, every part follows.
-    _step(at, "insights_replay_prev")
-    texts = _step(at, "insights_replay_prev")
-    assert _label(2, 4) in texts
-    # Final demo (A1), re-pinned: the best after Round 2, F4, made in it.
-    assert any(t.startswith("Best so far, F4 (Round 2): on target") for t in texts)
-    assert "**What changed by Round 2**" in texts
-    # Round panel (spec §10, re-pinned): What changed's picture names them.
-    pictures = [s for s in _specs(at) if "Best after Round 2: F4" in json.dumps(s)
-                and "Start (F2)" in json.dumps(s) and "start_text" in json.dumps(s)]
-    assert len(pictures) == 1
-    # The chart: Round 2's Formulations shaded, the marker on F4 itself.
-    band, marker = next((b, m) for b, m in map(_band_and_marker, _specs(at)) if b)
-    assert band == (3.5, 6.5)
-    assert marker["v"] == pytest.approx(_score(opt, 4)) and marker["f"] == "F4"
-    assert marker["x"] == 4
-    # The section's answer line is about the latest Round, whatever the panel.
-    assert answer in texts
-
-
 def test_the_section_reruns_as_one_fragment():
     src = inspect.getsource(U)
     assert "@st.fragment\ndef _progress_fragment(" in src
     body = inspect.getsource(U._progress_fragment)
     assert "_replay_bar(" in body and "shown_round(" in body
-    for part in ("_improving_part(", "_profile_part(", "_changes_block("):
+    # Review v3: the headline and the three charts all step with the Round.
+    for part in ("headline_text(", "_improving_part(", "_targets_part(", "_amounts_part("):
         assert part in body
-    # No slider, no fragment of the profile's own.
+    # No slider, no fragment of its own for any part.
     assert "select_slider" not in inspect.getsource(U._replay_bar)
     assert not hasattr(U, "_spider_fragment")
-    assert inspect.getsource(U._spider_block).count("select_slider") == 0
-    # The answer line is drawn with the cards, outside the fragment.
-    assert "progress_answer_text" not in body
-
-
-def test_one_scored_round_draws_no_control_and_no_highlight():
-    opt = _spider_opt([r for r in ROWS if r[0] == 1])
-    at = _review(opt)
-    assert not [s for s in at.tabs[3].select_slider if s.label == wording.ROUND_CAP]
-    assert not [b for b in at.tabs[3].button if (b.key or "").startswith("insights_replay")]
-    texts = [m.value for m in at.tabs[3].markdown]
-    assert not any(t.startswith(f"**{wording.ROUND_CAP} ") and "** of " in t for t in texts)
-    assert all(_band_and_marker(s) == (None, None) for s in _specs(at))
 
 
 # ------------------------------------------------------------------ #
 #  1a · The score chart's highlight
 # ------------------------------------------------------------------ #
-
-def test_the_chart_highlights_the_round_and_keeps_every_later_round():
-    opt = _spider_opt()
-    plain = U.improving_chart(opt).to_dict()
-    lit = U.improving_chart(opt, highlight=2).to_dict()
-    # Two layers more, nothing removed: the dots of Rounds 3 and 4 stay.
-    body = lambda d: d["layer"][1]["layer"]     # noqa: E731 — under the Rounds' axis
-    assert len(body(lit)) == len(body(plain)) + 2
-    band = body(lit)[0]
-    assert band["mark"]["type"] == "rect" and "y" not in band["encoding"]
-    data = lit["datasets"][band["data"]["name"]][0]
-    assert (data["x"], data["x2"]) == (3.5, 6.5)
-    marker = next(l for l in body(lit) if l["mark"].get("shape") == "diamond")
-    m = lit["datasets"][marker["data"]["name"]][0]
-    assert m["v"] == pytest.approx(_score(opt, 4)) and m["round"] == wording.round_tick(2)
-    assert m["x"] == 4                  # on F4's own dot
-    dots = next(l for l in body(lit) if l["mark"].get("type") == "point"
-                and l["mark"].get("size") == 30)
-    assert len(lit["datasets"][dots["data"]["name"]]) == len(ROWS)
-    # The kept spec the slider sends draws the same band and marker.
-    band2, marker2 = _band_and_marker(U.improving_spec(opt, 2))
-    assert band2 == (3.5, 6.5) and marker2["v"] == pytest.approx(m["v"])
-    assert _band_and_marker(U.improving_spec(opt, None)) == (None, None)
-    # Round 3: the marker on the tie's first-made formulation, F7.
-    assert U.round_highlight(opt, 3)[4] == 7
-    # Round 4: Best so far is still F7, made in Round 3: the band over
-    # Round 4, the marker on F7, outside it.
-    a, b, x, v, no = U.round_highlight(opt, 4)
-    assert (a, b, x, no) == (9.5, 10.5, 7.0, 7) and v == pytest.approx(_score(opt, 7))
-    band4, marker4 = _band_and_marker(U.improving_spec(opt, 4))
-    assert band4 == (9.5, 10.5) and marker4["x"] == 7 and marker4["f"] == "F7"
 
 
 def test_round_bests_follow_best_index_rule():
@@ -239,21 +156,6 @@ def test_round_bests_follow_best_index_rule():
     assert rounds == [1, 2, 3, 4]
     assert {r: int(opt.formulation_ids[i]) for r, i in at.items()} == {1: 2, 2: 4, 3: 7, 4: 7}
     assert at[4] == opt.best_index()
-
-
-def test_the_kept_spec_is_private_and_reused():
-    opt = _spider_opt()
-    U._SPEC_CACHE.clear()
-    a = U.improving_spec(opt, None)
-    assert a["usermeta"] == {"embedOptions": {"actions": False}}
-    assert U.improving_spec(opt, None) is a                 # worked out once
-    b = U.improving_spec(opt, 3)
-    # Final demo (B2), re-pinned: an earlier Round draws its own chart (only
-    # the Rounds up to it), the band and the marker added to that.
-    early = U.chart_spec(next(k for k in U._SPEC_CACHE if k[0] == "improving" and k[-1] == 3),
-                         lambda: None)
-    assert b is not a and len(U._plot_layers(b)) == len(U._plot_layers(early)) + 2
-    assert len(U._plot_layers(a)) == len(U._plot_layers(U.improving_spec(opt, None)))
 
 
 # ------------------------------------------------------------------ #
@@ -284,100 +186,9 @@ def _changes_opt(rows=CHANGE_ROWS):
     return opt
 
 
-def test_what_changed_at_an_earlier_round_judges_limits_up_to_it():
-    opt = _changes_opt()
-    early = U.what_changed(opt, 2)
-    assert (early.start_no, early.best_no, early.round_no) == (2, 4, 2)
-    # Round panel (spec §10, re-pinned): the limits are in the title's "?".
-    assert early.limits_help.startswith("Best so far sits at: Starch's Highest (5 g).")
-    assert "lies beyond" not in early.limits_help          # nothing tested beyond, by Round 2
-    latest = U.what_changed(opt, 3)
-    assert latest.best_no == 4
-    assert latest.limits_help.startswith("Best so far sits at: Starch's Highest (5 g).")
-    assert "Formulation 5 lies beyond Starch's Highest (5 g)." in latest.limits_help
-    # Round 1: Best so far is still the start.
-    first = U.what_changed(opt, 1)
-    assert first.same and first.limits_help is None
-    # The rows are Best so far at that Round minus the Start.
-    row = next(r for r in early.rows if r.name == "Starch")
-    assert (row.start, row.best, row.change) == ("2 g", "5 g", "+3 g")
-
-
-def test_a_formulation_with_no_round_always_counts_as_recorded():
-    opt = _changes_opt()
-    opt.tell({"Oil": 9.0, "Sugar": 1.0, "Starch": 5.9}, {"Firmness": 2.0}, formulation_no=6)
-    opt.batch_history[-1] = None
-    assert "lies beyond" in U.what_changed(opt, 2).limits_help
-
-
-def test_the_open_rounds_rows_count_only_at_the_latest_round():
-    rows = CHANGE_ROWS[:4] + [(3, 5, 8.0, 1.0, 4.0, 4.0)]
-    opt = _changes_opt(rows)
-    opt.pending_batch = [{'formulation': 6, 'recipe': {"Oil": 8.0, "Sugar": 1.0, "Starch": 5.8}}]
-    assert "lies beyond" in U.what_changed(opt, 3).limits_help             # today
-    assert "lies beyond" not in U.what_changed(opt, 2).limits_help         # by Round 2
-
-
-def test_the_picture_and_title_name_the_round():
-    opt = _changes_opt()
-    pic = U.changes_picture(opt, U.what_changed(opt, 2))
-    # Final demo (A1), re-pinned to the picture (spec §10).
-    assert (pic["start"], pic["best"]) == ("Start (F2)", "Best after Round 2: F4")
-    assert wording.changes_title(2) == "What changed by Round 2"
-    assert wording.changes_title(None) == wording.CHANGES_TITLE
-    # No slider: today's best, as before.
-    assert U.changes_picture(opt, U.what_changed(opt))["best"] == "Best so far (F4)"
-
-
 # ------------------------------------------------------------------ #
 #  2 · The model's verdicts in the Forecast check
 # ------------------------------------------------------------------ #
-
-def _lf(**verdicts):
-    """LearnedFacts with hand-made orderings: name -> (right, pairs, verdict)."""
-    orderings = {}
-    for name, (right, pairs, verdict) in verdicts.items():
-        name = insights.SCORE if name == "score" else name.replace("_", " ")
-        orderings[name] = learned.Ordering(name, right=right, pairs=pairs, verdict=verdict,
-                                           tested=len(verdicts))
-    return U.LearnedFacts(orderings, {}, (None, []), None, (0, 0, 0), "")
-
-
-def test_the_verdict_line_merges_the_so_far_count():
-    opt = _spider_opt()
-    P, H, N = learned.PREDICTABLE, learned.PARTLY, learned.NOT_YET
-    ten = _lf(score=(7, 9, H), Consistency=(11, 11, P), Creaminess=(5, 12, N),
-              Tangy=(11, 14, H), Thickness_uniformity=(5, 10, N))
-    line, help_ = U.learned_verdict_line(opt, ten)
-    # Specific wording (2026-10-12), re-pinned: each verdict name with its pairs.
-    # Sceptic review (2026-10-14), re-pinned: called of all pairs.
-    # Fix round 2: past 14 words with the count beside it, the verdicts.
-    assert line == ("Predicts: Consistency (11 of 11 pairs called, 11 right). "
-                    "Partly: Overall score, Tangy.")
-    six = _lf(score=(5, 5, H), Consistency=(3, 3, N), Creaminess=(2, 4, N), Tangy=(5, 6, H),
-              Thickness_uniformity=(2, 3, N))
-    line6, _ = U.learned_verdict_line(opt, six)
-    # With the pairs, count and names would take 15 words: the names alone.
-    assert line6 == "Partly: Overall score (5 of 5 pairs called, 5 right), Tangy."
-    for text in (line, line6):
-        assert _words(text) <= 14 == wording.LEARNED_LINE_WORDS
-    # The "?" says the three words plainly and the adjustment.
-    for word in ("Predicts:", "Partly:", "Not yet:", "Adjusted for checking 5 results"):
-        assert word in help_
-    # Fewer counted pairs than a verdict needs: said in the same line.
-    few = _lf(score=(4, 4, N), Consistency=(3, 3, N), Creaminess=(1, 2, N),
-              Tangy=(5, 6, H), Thickness_uniformity=(2, 3, N))
-    line4 = U.learned_verdict_line(opt, few)[0]
-    # Specific wording: the count a verdict needs, not "too few to judge".
-    assert line4 == "Partly: Tangy (6 of 6 pairs called, 5 right)."
-    assert _words(line4) <= 14
-    assert learned.MIN_PAIRS == 5
-    # No Overall-score pairs: the groups alone, no "So far:".
-    none = _lf(score=(0, 0, N), Tangy=(5, 6, H))
-    # Specific wording (2026-10-12), re-pinned: the pairs behind Partly.
-    assert U.learned_verdict_line(opt, none)[0] == (
-        "Partly: Tangy (6 of 6 pairs called, 5 right). Not yet: Overall score.")
-    assert U.learned_verdict_line(opt, _lf()) is None
 
 
 @pytest.fixture(scope="module")
@@ -405,38 +216,6 @@ def scored(tmp_path_factory):
 def _headings(at):
     return [_text(el)[5:] for el, _, _ in _leaves(at.tabs[3])
             if el.type == "markdown" and _text(el).startswith("#### ")]
-
-
-def test_the_model_section_is_gone_and_its_line_sits_in_the_forecast_check(scored):
-    at, opt = scored
-    assert wording.LEARNED_TITLE not in _headings(at)
-    assert _headings(at) == [wording.Q2_TITLE, wording.Q5_TITLE, wording.FORECAST_CHECK_TITLE]
-    texts = [_text(el) for el, _, _ in _leaves(at.tabs[3])]
-    head = texts.index(f"#### {wording.FORECAST_CHECK_TITLE}")
-    lf = at.session_state[U.LEARNED_KEY][1]          # the screen's own verdicts
-    # One-glance Review, fix round 1 (re-pinned): with the latest Round
-    # checked, the Forecast check's one line is the Round line; the verdict
-    # line is not repeated (the verdict is in the strip).
-    line = U.called_line(opt, lf)
-    assert line is not None and texts.count(line) == 1 and texts.index(line) > head
-    assert U.learned_verdict_line(opt, lf)[0] not in texts
-    assert not [t for t in texts if t.startswith("So far:")]
-    # The strip's Model item is unchanged: the verdicts' words.
-    word, names = wording.learned_strip(lf.model_names(opt, learned.PREDICTABLE),
-                                        lf.model_names(opt, learned.PARTLY),
-                                        lf.model_names(opt, learned.NOT_YET))
-    assert any(t.startswith(f"**{word}**") for t in texts)
-
-
-def test_the_ordering_chart_sits_in_a_closed_details_fold(scored):
-    at, _opt = scored
-    folds = [e for e in at.tabs[3].expander if e.label == wording.LEARNED_DETAILS_TITLE]
-    assert len(folds) == 1 and not folds[0].proto.expanded
-    assert len(wording.LEARNED_DETAILS_TITLE.split()) <= 5
-    inside = [_text(el) for el, _, _ in _leaves(folds[0])]
-    assert folds[0].get("vega_lite_chart")
-    # Order: the Forecast check, its fold, then What have we tried?.
-    labels = [e.label for e in at.tabs[3].expander]
 
 
 # ------------------------------------------------------------------ #
@@ -467,29 +246,4 @@ def _stub_opt(tight=True):
 #  Word limits and banned words
 # ------------------------------------------------------------------ #
 
-def test_word_limits():
-    assert _words(wording.replay_label(10, 10)) <= 5      # a label
-    for label in (wording.REPLAY_PLAY, wording.REPLAY_STOP, wording.REPLAY_BACK,
-                  wording.REPLAY_EARLIER, wording.REPLAY_LATEST):
-        assert _words(label) <= 5
-    assert _words(wording.replay_play_help(1, 10)) <= 8
-    assert _words(wording.changes_title(10)) <= 5
-    assert _words(wording.LEARNED_DETAILS_TITLE) <= 5
-    assert _words(wording.STORY_IMPROVING_CAPTION) <= 8
-    assert _words(wording.REPLAY_HELP) <= wording.TOOLTIP_WORDS
-    assert _words(wording.learned_verdicts_help(5)) <= wording.TOOLTIP_WORDS
 
-
-def test_no_banned_word():
-    opt = _changes_opt()
-    ch = U.what_changed(opt, 2)
-    lf = _lf(score=(5, 5, learned.PARTLY), Tangy=(5, 6, learned.PARTLY))
-    texts = [wording.replay_label(4, 10), wording.REPLAY_HELP, wording.REPLAY_PLAY,
-             wording.REPLAY_STOP, wording.REPLAY_BACK, wording.REPLAY_EARLIER,
-             wording.REPLAY_LATEST, wording.replay_to(3), wording.replay_play_help(1, 6),
-             wording.changes_title(4),
-             wording.changes_best_column(10, 4), wording.LEARNED_DETAILS_TITLE,
-             wording.learned_verdicts_help(5), wording.learned_verdicts_help(1),
-             *U.learned_verdict_line(_spider_opt(), lf), ch.limits_help,
-             *[r["label"] for r in U.changes_picture(opt, ch)["rows"]]]
-    assert [(t, _banned(t)) for t in texts if _banned(t)] == []

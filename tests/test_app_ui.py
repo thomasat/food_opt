@@ -1670,8 +1670,10 @@ def test_own_formulation_joins_the_open_batch(burger):
     # The table above says three, and the row says what it is.
     assert any(m.value == wording.make_these(1, 3)
                for m in at.markdown), [m.value for m in at.markdown]
-    table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
-    assert list(table["Note"]) == ["", "", wording.OWN_FORMULATION_NOTE]
+    # v3: the Round table names the app's two (not yet made) Suggestion 1
+    # and 2, and the reader's own row by its number.
+    assert [c.split(" · ")[0] for c in at.tabs[1].table[0].value.columns] == [
+        "Suggestion 1", "Suggestion 2", "F3"]
     assert any(s.value == "Formulation 3 added to Round 1."
                for s in at.success), [s.value for s in at.success]
 
@@ -1792,7 +1794,7 @@ def test_the_trial_table_carries_units_and_a_total(open_batch):
     at.run()
     assert any(m.value == wording.make_these(1, 2)
                for m in at.markdown), [m.value for m in at.markdown]
-    table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
+    table = _round_table(at)
     # No what-is-it-trying column during the cold start: every cell under it
     # said the header back, word for word.
     assert list(table.columns) == ["Formulation", "Pea protein (g)",
@@ -1813,7 +1815,7 @@ def test_a_batch_size_rescales_the_screen_the_sheet_and_the_record(open_batch):
     at.run()
     at.number_input(key="scale_total").set_value(22.0)
     at.run()
-    table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
+    table = _round_table(at)
     assert table["Pea protein (g)"].iloc[0] == pytest.approx(20.0)
     # One caption about the size on this tab, not two: it names the number
     # the files were written for, under the files.
@@ -2281,12 +2283,59 @@ def _displayed(element):
     ).read_pandas()
 
 
+def _round_shown(at):
+    """v3: Make a round's table (ingredients down, the Round across) read
+    back in the old shape, as the strings on screen: one row per
+    formulation of the open Round ("Formulation" its number), one column
+    per row of the table ("Name (unit)"; "Total (g)" or "Total"). Best so
+    far's column is left out, and each cell is its amount alone, without
+    the change in brackets or a limit tag."""
+    table = at.tabs[1].table[0].value
+    opt = at.session_state["optimizer"]
+    app = [int(r["formulation"]) for r in opt.pending_batch if not r.get("note")]
+    header = table.index.name or ""
+    unit = header[header.index("(") + 1:-1] if header.endswith(")") else None
+    names = []
+    for label in table.index:
+        label = str(label).strip("*")
+        if label.startswith(wording.TOTAL_ROW):
+            names.append(f"{wording.TOTAL_ROW} ({unit})" if unit else wording.TOTAL_ROW)
+        else:
+            names.append(f"{label} ({unit})" if unit else label)
+    rows = []
+    for column in table.columns:
+        if column.startswith("Best so far"):
+            continue
+        head = column.split(" · ")[0]
+        no = (app[int(head.split()[-1]) - 1] if head.startswith("Suggestion")
+              else int(re.sub(r"\D", "", head)))
+        row = {"Formulation": no}
+        for name, cell in zip(names, table[column]):
+            text = str(cell).strip("*").split("  \n")[0]
+            row[name] = re.sub(r" \([+−-][^)]*\)$", "", text)
+        rows.append(row)
+    return pd.DataFrame(rows, columns=["Formulation"] + names)
+
+
+def _round_table(at):
+    """_round_shown with every number as a number."""
+    def number(text):
+        try:
+            return float(text)
+        except (TypeError, ValueError):
+            return text
+    frame = _round_shown(at)
+    for column in frame.columns[1:]:
+        frame[column] = frame[column].map(number)
+    return frame
+
+
 def test_amounts_stay_as_generated_until_a_total_is_typed(open_batch):
     """The two formulations weigh 11 g and 22 g. Nothing may quietly rewrite
     the second one to the first one's size just because the tab was opened."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
+    table = _round_table(at)
     assert list(table["Total (g)"]) == [11.0, 22.0], table.to_dict()
     assert (at.number_input(key="scale_total").proto.placeholder
            == "e.g. 100")
@@ -2305,7 +2354,7 @@ def test_typing_the_first_rows_own_total_still_scales_the_others(open_batch):
     at.run()
     at.number_input(key="scale_total").set_value(11.0)
     at.run()
-    table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
+    table = _round_table(at)
     assert list(table["Total (g)"]) == pytest.approx([11.0, 11.0])
     assert table["Pea protein (g)"].iloc[1] == pytest.approx(10.0)
     assert any(c.value == "Sheets show each formulation made to 11 g."
@@ -2322,8 +2371,7 @@ def test_the_batch_table_never_dresses_a_setting_as_an_amount(burger):
                                "Cook temperature": 180.0}])
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    shown = _displayed(next(d for d in at.dataframe
-                            if "Formulation" in d.value.columns))
+    shown = _round_shown(at)
     assert shown["Pea protein (g)"].iloc[0] == "10.00"
     assert shown["Cook temperature"].iloc[0] == "180", shown.to_dict()
 
@@ -2617,7 +2665,7 @@ def test_best_heading_off_by_table_and_score_caption(scored):
     # measurement on target" would be a false claim about the formulation
     # the table above it is describing. What the ceiling means is said once,
     # on Set up. One line, the rest behind its "?" (spec 2026-09-30 §4, V10):
-    score = next(c for c in at.tabs[2].caption if c.value == "Overall score 88.00 of 100.")
+    score = next(c for c in at.tabs[2].caption if c.value == "Overall score 88.0 of 100.")
     assert score.proto.help == wording.OVERALL_SCORE_HELP
 
 
@@ -4116,7 +4164,7 @@ def test_a_process_setting_carries_its_own_unit_everywhere(burger):
                                  "Cook temperature": 180.0}])
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
+    table = _round_table(at)
     assert "Cook temperature (°C)" in table.columns, list(table.columns)
     assert ("Cook temperature (°C)", 180.0) in _sheet_amounts(at), \
         _sheet_amounts(at)
@@ -4323,8 +4371,7 @@ def test_a_process_setting_is_rounded_wherever_it_is_shown(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert not at.exception
-    shown = _displayed(next(d for d in at.dataframe
-                            if "Formulation" in d.value.columns))
+    shown = _round_shown(at)
     assert shown["Cook temperature (°C)"].iloc[0] == "188.49", shown.to_dict()
     assert ("Cook temperature (°C)", 188.49) in _sheet_amounts(at), \
         _sheet_amounts(at)
@@ -4408,10 +4455,10 @@ def test_the_batch_table_carries_each_unit_and_a_per_unit_total(mixed_units):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert not at.exception
-    frame = next(d for d in at.dataframe if "Formulation" in d.value.columns)
-    assert list(frame.value.columns) == ["Formulation", "Pea protein (g)",
-                                         "Water (ml)", "Total"]
-    assert _displayed(frame)["Total"].iloc[0] == "10.00 g · 40.00 ml"
+    frame = _round_shown(at)
+    assert list(frame.columns) == ["Formulation", "Pea protein (g)",
+                                   "Water (ml)", "Total"]
+    assert frame["Total"].iloc[0] == "10.00 g · 40.00 ml"
 
 
 def test_scaling_is_offered_only_when_the_ingredients_share_a_unit(mixed_units):
@@ -4439,8 +4486,7 @@ def test_a_scale_left_behind_does_not_rewrite_a_mixed_unit_batch(mixed_units):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["scale_total"] = 400.0
     at.run()
-    frame = next(d for d in at.dataframe if "Formulation" in d.value.columns)
-    assert _displayed(frame)["Total"].iloc[0] == "10.00 g · 40.00 ml"
+    assert _round_shown(at)["Total"].iloc[0] == "10.00 g · 40.00 ml"
 
 
 def test_the_sheet_writes_every_amount_in_its_own_unit(mixed_units):
@@ -4599,10 +4645,10 @@ def test_nothing_that_belongs_to_ingredients_shows_without_any(ferment):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert not at.exception
-    frame = next(d for d in at.dataframe if "Formulation" in d.value.columns)
-    assert list(frame.value.columns) == ["Formulation",
-                                         "Incubation temperature (°C)",
-                                         "Incubation time (h)"]
+    frame = _round_shown(at)
+    assert list(frame.columns) == ["Formulation",
+                                   "Incubation temperature (°C)",
+                                   "Incubation time (h)"]
     assert [n.key for n in at.number_input if n.key == "scale_total"] == []
     assert not any("Scaling needs" in c.value for c in at.caption), \
         [c.value for c in at.caption]
@@ -4953,21 +4999,22 @@ def test_the_compared_with_column_reads_the_amounts_on_the_table(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
-    column = "Compared with Formulation 1"
-    # As generated, the only change is +20.00 g of protein.
-    table = next(d.value for d in at.dataframe if column in d.value.columns)
-    assert table[column].iloc[0] == \
-        "Explores · Pea protein +20.00 g"
+    # v3: each cell of the Round table carries its change from Best so far
+    # (F1). As generated, the only change is +20.00 g of protein.
+    table = at.tabs[1].table[0].value
+    mine = table.columns[1]
+    assert table.columns[0].startswith("Best so far (F1")
+    assert table.loc["Pea protein", mine] == "30.00 (+20.00)"
+    assert table.loc["Methylcellulose", mine] == "10.00"
     at.number_input(key="scale_total").set_value(20.0)
     at.run()
-    # Scaled to 20 g the table reads 15.00 / 5.00 against 10.00 / 10.00, and
-    # the cell reads the table: the best is scaled to the same total. The
-    # larger share of its span first (0.8.0 e2e fixes B2): 5 g of an allowed
-    # 0-3 g before 5 g of an allowed 0-25 g.
-    table = next(d.value for d in at.dataframe if column in d.value.columns)
-    assert table[column].iloc[0] == (
-        "Explores · Methylcellulose −5.00 g, "
-        "Pea protein +5.00 g"), table[column].iloc[0]
+    # Scaled to 20 g the table reads 15.00 / 5.00 against 10.00 / 10.00: the
+    # best is scaled to the same total, so each change is between two
+    # numbers on the screen.
+    table = at.tabs[1].table[0].value
+    assert table.loc["Pea protein", table.columns[0]] == "10.00"
+    assert table.loc["Pea protein", mine] == "15.00 (+5.00)"
+    assert table.loc["Methylcellulose", mine] == "5.00 (−5.00)"
 
 
 def _uploader_keys(at):
@@ -6273,7 +6320,7 @@ def test_how_it_works_says_what_the_model_does_in_five_lines(burger):
     assert len(HOW_IT_WORKS) == 5
     assert "the app varies" in text and "aims for" in text
     assert "Generated formulations satisfy the limits you set" in text
-    assert "refines the best, explores, or is balanced between the two" in text
+    assert "change from the best so far" in text and wording.LESS_TRIED in text
     # Nothing here is arithmetic. Share of score IS said — it is the column
     # the reader types into now, so the fold that explains the screen has to
     # name it — but a bare "Share" is still nobody's word.
@@ -7174,8 +7221,7 @@ def test_a_round_with_a_rest_row_takes_any_batch_size_it_fits_in(rest_round):
         assert not at.exception
         assert not any("not reachable" in e.value for e in at.error), \
             [e.value for e in at.error]
-        table = next(d.value for d in at.dataframe
-                     if "Formulation" in d.value.columns)
+        table = _round_table(at)
         assert table["Total (g)"].iloc[0] == pytest.approx(size)
     at.number_input(key="scale_total").set_value(5.0)
     at.run()
@@ -7633,8 +7679,7 @@ def test_every_amount_on_the_round_table_is_two_decimals(open_batch):
     at.number_input(key="scale_total").set_value(25.0)
     at.run()
     assert not at.exception
-    table = next(d.value for d in at.dataframe
-                 if "Formulation" in d.value.columns)
+    table = _round_table(at)
     for column in ("Pea protein (g)", "Methylcellulose (g)", "Total (g)"):
         for value in table[column]:
             assert float(value) == round(float(value), 2), (column, value)
@@ -7693,8 +7738,7 @@ def test_a_batch_size_the_ingredients_cannot_make_is_refused(open_batch):
     # Not made to it: the round, the table and the sheets are all still 25 g.
     saved = FoodOptimizer("burger")
     assert saved.pending_batch_total == 25.0
-    table = next(d.value for d in at.dataframe
-                 if "Formulation" in d.value.columns)
+    table = _round_table(at)
     assert list(table["Total (g)"]) == pytest.approx([25.0, 25.0])
     # The refusal above the table has just named 25 g as the size the round
     # IS ("The round stays at 25 g."), so the caption under the download
@@ -8060,7 +8104,7 @@ def test_tab_two_reads_as_the_three_steps_of_the_work(open_batch):
             < _first(order, wording.STEP_PRINT_HEADING)
             < _first(order, wording.DOWNLOAD_BATCH_SHEETS)
             < _first(order, wording.STEP_RECORD_HEADING)
-            < _first(order, wording.formulation_heading(1))
+            < _first(order, wording.suggestion_heading(1))
             < _first(order, "0 of 2 complete")
             < _first(order, wording.SAVE_RESULTS)), order
     # The two folded extras come after Save, in one order, and the one
@@ -8154,8 +8198,8 @@ def test_how_it_works_is_five_lines(burger):
         "amounts. After that, each Round aims closer to your targets.",
         "Generated formulations satisfy the limits you set. "
         "A formulation of your own is recorded as you typed it.",
-        "Each suggestion says whether it refines the best, explores, or is "
-        "balanced between the two, and what it changes.",
+        "Each suggestion shows its change from the best so far. One far from "
+        "every formulation made is marked Less-tried area.",
     ], wording.HOW_IT_WORKS
     assert not _advanced(at).proto.expanded
     text = _advanced_block(at, wording.HOW_IT_WORKS_HEADING)
@@ -8235,8 +8279,7 @@ def test_the_stored_total_opens_the_box_in_a_new_session(open_batch):
     fresh.run()
     assert not fresh.exception
     assert fresh.number_input(key="scale_total").value == 25.0
-    table = next(d.value for d in fresh.dataframe
-                 if "Formulation" in d.value.columns)
+    table = _round_table(fresh)
     assert list(table["Total (g)"]) == pytest.approx([25.0, 25.0])
     assert any(c.value == "Sheets show each formulation made to 25 g."
                for c in fresh.caption), [c.value for c in fresh.caption]
@@ -8261,8 +8304,7 @@ def test_emptying_the_box_leaves_the_round_at_the_size_it_was_made_to(
     assert not at.exception
     assert at.number_input(key="scale_total").value == 25.0
     # Nothing is rewritten: the round is still the 25 g one.
-    table = next(d.value for d in at.dataframe
-                 if "Formulation" in d.value.columns)
+    table = _round_table(at)
     assert list(table["Total (g)"]) == pytest.approx([25.0, 25.0])
     assert FoodOptimizer("burger").pending_batch_total == 25.0
 
@@ -8381,8 +8423,7 @@ def test_a_restored_total_opens_a_box_the_session_had_seen_empty(open_batch):
     assert not at.exception
     assert at.number_input(key="scale_total").value == 150.0
     assert FoodOptimizer("burger").pending_batch_total == 150.0
-    table = next(d.value for d in at.dataframe
-                 if "Formulation" in d.value.columns)
+    table = _round_table(at)
     assert list(table["Total (g)"]) == pytest.approx([150.0, 150.0])
 
 
@@ -8576,8 +8617,9 @@ def test_an_out_of_range_result_is_said_where_it_was_typed(open_batch):
     assert said == ["Firmness 12 N is outside your range of 0 to 10 N."
                     " Check the value, or adjust Scale minimum or Scale maximum in Set up."], said
     order = _tab_flow(at)
+    # The grid names an unmade app suggestion as the table does (v3).
     assert (order.index(said[0])
-            < _first(order, wording.formulation_heading(2))), order
+            < _first(order, wording.suggestion_heading(2))), order
     save = _submit_button(at, wording.SAVE_RESULTS)
     assert not save.disabled
     save.click().run()
@@ -9059,11 +9101,10 @@ def test_each_formulation_says_what_it_is_trying(burger):
     at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
     assert not at.exception
-    table = next(d.value for d in at.dataframe if "Formulation" in d.value.columns)
-    # Straight after Formulation on screen (spec 2026-09-30 §3), after the
-    # predicted column when there is one; the sheet keeps its own order.
-    assert "Compared with Formulation 1" in list(table.columns)[1:3]
-    line = "Refines the best · Pea protein +1.00 g"
+    # v3: the screen's Round table shows the change in each cell and no
+    # role words; the batch frame (the sheet's source) keeps the line.
+    table = burger.batch_frame(burger.pending_batch)
+    line = "Close to the best · Pea protein +1.00 g"
     assert table["Compared with Formulation 1"].iloc[0] == line
     # On paper there is no column header to read the cell against, so the
     # line carries it.
@@ -9087,7 +9128,7 @@ def test_an_own_formulation_gets_the_same_line(burger):
     # three kinds of suggestion, and calling it one took credit for their
     # own bench standard.
     assert list(table["Compared with Formulation 1"]) == [
-        "Refines the best · Pea protein +1.00 g",
+        "Close to the best · Pea protein +1.00 g",
         "Your own formulation · Pea protein +10.00 g"]
 
 
@@ -9348,8 +9389,7 @@ def test_a_row_that_misses_the_total_says_so_under_the_table(burger):
     assert ("Formulation 2 adds up to 13.00 g, not the 20 g batch size."
             in captions), captions
     # ... and the row is shown at what it really adds up to.
-    frame = next(d.value for d in at.dataframe
-                 if "Formulation" in d.value.columns)
+    frame = _round_table(at)
     assert list(frame["Total (g)"]) == [20.0, 13.0]
 
 
@@ -9927,10 +9967,11 @@ def test_the_round_tab_reads_in_one_order(open_batch):
         wording.STEP_PRINT_HEADING,
         wording.STEP_RECORD_HEADING,
         # One heading per row of the round, inside step 3, each with its
-        # own More fold (spec 2026-09-30 §3, V11).
-        wording.formulation_heading(1),
+        # own More fold (spec 2026-09-30 §3, V11). v3: an unmade app
+        # suggestion is named as the table above names it.
+        wording.suggestion_heading(1),
         wording.MORE,
-        wording.formulation_heading(2),
+        wording.suggestion_heading(2),
         wording.MORE,
         wording.ADD_OWN_EXPANDER,
         wording.UPLOAD_EXPANDER,
@@ -10206,8 +10247,7 @@ def test_a_worked_out_row_is_greyed_on_the_own_form_and_weighed_in_the_round(
     reloaded = FoodOptimizer("rest_burger")
     assert reloaded.pending_batch[0]["recipe"] == {"Pea protein": 12.0,
                                                   "Water": 38.0}
-    table = next(d.value for d in at.dataframe
-                 if "Formulation" in d.value.columns)
+    table = _round_table(at)
     # The round table wears the mark the printed sheets do.
     assert list(table["Water · calculated (g)"]) == [38.0]
 

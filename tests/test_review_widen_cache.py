@@ -16,7 +16,6 @@ import pytest
 
 import insights
 import insights_jobs
-import ui_batch
 import ui_insights as U
 from tests.test_insights import _burger
 
@@ -80,50 +79,3 @@ def _session(monkeypatch, memo):
     return state
 
 
-def test_results_shows_one_range_cold_or_warm(monkeypatch):
-    """Results' Measured against predicted table: cold (only the verdict's
-    models fitted, so the part "trust" needs is read) and warm (every model
-    in the saved cache, every check worked out) show the same ranges."""
-    opt = _burger(rounds=6, noise=0.4)
-    last = 6
-    cold_memo = {}
-    insights_jobs.compute_inline(opt, cold_memo, insights_jobs.stage_specs(
-        opt, insights_jobs.plan(opt), "trust"))
-    _session(monkeypatch, cold_memo)
-    assert U._cached(opt) is None
-    cold = U.cached_checks(opt)
-    cold_frame = U.round_predicted_frame(opt, cold, last)
-
-    warm_memo = {}
-    insights_jobs.compute_inline(opt, warm_memo, insights_jobs.plan(opt))
-    _session(monkeypatch, warm_memo)
-    U._computed(opt, quiet=True)
-    warm = U.cached_checks(opt)
-    assert U._cached(opt) is not None
-    warm_frame = U.round_predicted_frame(opt, warm, last)
-
-    assert cold_frame.equals(warm_frame)
-    names = _measurements(opt)
-    got = _ranges(cold, names)
-    assert got == {k: v for k, v in _ranges(warm, names).items() if k in got}
-
-
-@pytest.mark.parametrize("workers", [True, False])
-def test_make_a_round_waits_for_the_checks_rather_than_show_an_unwidened_range(monkeypatch,
-                                                                              workers):
-    """Until the checks are worked out, Make a round's Predicted
-    measurements are left out, never drawn unwidened and then redrawn wider
-    once the checks land; without workers it still fits nothing for them
-    (review C I-4)."""
-    opt = _burger(rounds=5, noise=0.4)
-    rows = list(range(len(opt.Y_history)))
-    with insights.memo_in_use({}):
-        fitted = {n: insights.fit(opt, n, rows) for n, _, _ in insights.outputs(opt)}
-    monkeypatch.setattr(ui_batch, "open_rows", lambda o: [{"formulation": 99,
-                                                           "recipe": opt.recipe_history[0]}])
-    monkeypatch.setattr(U, "column_models", lambda o: (fitted, 1.0))
-    monkeypatch.setattr(U, "checks_for", lambda o, stage: None)
-    monkeypatch.setattr(U, "waiting", lambda o, stage: workers)
-    monkeypatch.setattr(U, "checks_here", lambda o: pytest.fail("fitted on Make a round"))
-    preds = ui_batch._round_predictions(opt)
-    assert set(preds[99]) == {insights.SCORE}

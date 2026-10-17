@@ -46,7 +46,11 @@ def test_no_heading_repeats_the_box(one_waiting):
 def test_the_score_is_the_first_line_under_the_box_with_its_help(scored):
     at = _results()
     opt = FoodOptimizer("burger")
-    first = at.tabs[2].caption[0]
+    # v3: after Round N results' caption and its fold's line, the first
+    # line under the View formulation box.
+    captions = at.tabs[2].caption
+    assert captions[0].value == ui_results.round_results(opt)["caption"]
+    first = captions[2]
     assert first.value == wording.overall_score_line(
         float(opt.Y_history[opt.best_index()]), opt.utility_ceiling())
     assert first.proto.help == wording.OVERALL_SCORE_HELP
@@ -88,7 +92,7 @@ def test_a_lead_within_one_point_is_a_tie(tmp_path, monkeypatch):
     old = max(range(3), key=lambda i: opt.Y_history[i])
     opt.Y_history[3] = opt.Y_history[old] + 0.2
     line = ui_results._progress_line(opt)
-    assert line == wording.tie_line(4, f"{opt.Y_history[3]:.2f}", "0.20",
+    assert line == wording.tie_line(4, f"{opt.Y_history[3]:.1f}", "0.2",
                                     int(opt.formulation_ids[old]), "2.3")
     assert ui_results._move_sentence(opt, int(opt.formulation_ids[old]), 4) == line
 
@@ -139,7 +143,7 @@ def test_a_late_value_that_makes_a_tie_is_said_under_best_so_far(tmp_path, monke
     _submit_button(at, "Save Juiciness").click()
     at.run()
     assert not at.exception
-    tie = wording.tie_line(2, "70.50", "0.50", 1, "2.3")
+    tie = wording.tie_line(2, "70.5", "0.5", 1, "2.3")
     flashes = [f.value for f in at.success]
     # Re-pinned (concision round): the short tie line no longer says
     # Formulation 2 scored, so the flash says it once, first.
@@ -178,7 +182,7 @@ def test_a_process_only_tie_says_trial(trial_tie):
     # Concision round and fix A follow-up (ruling on ties): the short line.
     # Specific wording (2026-10-12), re-pinned (failed on b70b8a5): the
     # tie line with the rise one new result needs.
-    assert "Trial 1 is within noise: 0.50 lower; 2.3 needed." in said, said
+    assert "Trial 1 is within noise: 0.5 lower; 2.3 needed." in said, said
     assert not any("Formulation" in c for c in said), said
 
 
@@ -196,7 +200,7 @@ def test_scoring_a_not_scored_trial_flashes_trial(trial_tie):
     flashes = [f.value for f in at.success]
     # Concision round and fix A follow-up (ruling on ties): the short line.
     # Specific wording (2026-10-12), re-pinned (failed on b70b8a5).
-    assert ("Trial 3 scored. Trial 2 is within noise: 0.50 lower; 2.3 needed. "
+    assert ("Trial 3 scored. Trial 2 is within noise: 0.5 lower; 2.3 needed. "
             + wording.COPY_KEPT) in flashes, flashes
     assert not any("Formulation" in f for f in flashes), flashes
 
@@ -213,7 +217,7 @@ def test_the_tie_uses_the_repeats_from_three_pairs(tmp_path, monkeypatch):
     # Fix A follow-up (ruling on ties): rise_threshold(yard, 1), t on 4 df:
     # 2.0 × √2 × 2.13 = 6.0.
     # Specific wording (2026-10-12), re-pinned (failed on b70b8a5).
-    assert ui_results._tie(opt, old, 3).endswith("1.50 lower; 6.0 needed.")
+    assert ui_results._tie(opt, old, 3).endswith("1.5 lower; 6.0 needed.")
 
 
 # ------------------------------------------------------------------ #
