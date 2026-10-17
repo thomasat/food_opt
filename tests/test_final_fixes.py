@@ -51,14 +51,6 @@ def test_the_header_leaves_out_a_round_moved_to_not_scored():
 #  M-5 every formulation waiting: no "0 ... more", no empty question
 # ------------------------------------------------------------------ #
 
-def test_header_text_with_every_formulation_waiting():
-    opt = _patty(rows=0)
-    for no in (1, 2, 3):
-        _tell(opt, no, 1, drop=("Cook loss",))
-    # Ledger, early five-second re-test (fix round B): the header names the
-    # waiting formulation(s) by number instead of counting "N more".
-    assert ui_insights.header_text(opt) == "Formulations 1–3 are waiting for Cook loss."
-
 
 # ------------------------------------------------------------------ #
 #  I-2 Best so far's help in a process-only project
@@ -257,7 +249,6 @@ def _a_model_with_skill(monkeypatch):
     (review I4) withholds them below 10 checks or skill 0.20, which these
     small projects are. tests/test_102_w1_insights.py covers the gate."""
     monkeypatch.setattr(insights, "skill_gate", lambda opt, checks, fact=None: None)
-
 
 
 def test_a_row_that_only_carries_float_noise_did_not_vary():

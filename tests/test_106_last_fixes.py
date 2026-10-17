@@ -128,35 +128,6 @@ def standing_of():
     return get
 
 
-def test_03_clean_has_no_luck_line_its_steady_bias_explains_the_gap(standing_of):
-    """Final review I-1: predictions of the Overall score run 2.1 points low
-    (Rounds 3–8), and F23's predicted Repeat is 1.6 below its measured
-    91.69. The gap is the model's bias, not chance."""
-    plain, standing, bias, opt, best = standing_of(E.BAR_CLEAN)
-    assert plain                      # what the screen said before
-    assert bias == pytest.approx(2.13, abs=0.01)
-    top = float(opt.Y_history[opt.best_index()])
-    assert 0 < top - best.repeat.mean <= bias
-    assert not standing.luck
-
-
-@pytest.mark.parametrize("name", [D.LINE_B, D.TIMING, NOISY_RECOMMENDED])
-def test_the_luck_line_stays_where_no_bias_explains_it(standing_of, name):
-    plain, standing, bias, opt, best = standing_of(name)
-    assert plain and standing.luck, (name, bias)
-
-
-def test_a_low_bias_smaller_than_the_gap_keeps_the_luck_line(standing_of):
-    plain, standing, bias, opt, best = standing_of(E.BAR_CLEAN)
-    top = float(opt.Y_history[opt.best_index()])
-    gap = top - best.repeat.mean
-    yard = insights.noise_yardstick(opt, insights.check_rounds(opt)).value
-    assert insights.best_standing(opt, best, yard, score_bias=gap - 0.01).luck
-    assert not insights.best_standing(opt, best, yard, score_bias=gap).luck
-    # A bias the other way (predictions run high) explains nothing here.
-    assert insights.best_standing(opt, best, yard, score_bias=-5.0).luck
-
-
 # ------------------------------------------------------------------ #
 #  M-7: an unchanged measurements grid leaves the shares alone
 # ------------------------------------------------------------------ #
@@ -266,15 +237,6 @@ def test_the_a3_no_skill_line_names_the_rule():
 ])
 def test_bias_item_units(unit, said):
     assert wording.bias_item("Crumbliness", "0.4", unit) == said
-
-
-def test_03_clean_bias_line_reads_points_not_score(standing_of, monkeypatch):
-    # Crumbliness's bias shows under the earlier 2-standard-error rule only
-    # (ftue fix A, cold read I5); its wording is checked under that rule.
-    monkeypatch.setattr(insights, "t_critical", lambda df, p=0.975: 2.0)
-    *_, opt, _best = standing_of(E.BAR_CLEAN)
-    line = ui_insights.steady_bias_text(opt, insights.check_rounds(opt))
-    assert "Crumbliness by about 0.4 points" in line and " score;" not in line
 
 
 # ------------------------------------------------------------------ #

@@ -332,12 +332,6 @@ def test_line_a_still_ranks_its_effects(tabs):
                for t in said)
 
 
-def test_the_guard_says_setting_effects_for_a_process_only_study():
-    guard = insights.Guard(["floor"])
-    assert "setting effects" in ui_insights.guard_text(guard, settings_only=True)
-    assert ui_insights.guard_text(insights.Guard(["skill"])) == wording.guard_skill_line()
-
-
 # ------------------------------------------------------------------ #
 #  Measured against predicted and the other lines with their basis
 # ------------------------------------------------------------------ #
@@ -349,7 +343,7 @@ def test_method_and_details_is_drawn_only_while_open(tabs):
     assert not fold.markdown and not fold.caption and not fold.dataframe
     fold = next(e for e in tabs["A how"].tabs[3].expander if e.label == wording.FOLD_METHOD)
     # One-glance Review: one line per term, no table.
-    assert [m.value for m in fold.markdown] == list(wording.METHOD_DEFINITIONS)
+    assert _definition_lines(m.value for m in fold.markdown) == list(wording.METHOD_TERMS)
     assert not fold.dataframe
 
 
@@ -380,3 +374,8 @@ def test_the_correlated_pair_carries_its_r(tmp_path, monkeypatch):
     assert r >= insights.TOGETHER
     # T0 review I-4: the pair is ranked by |r|, and the sentence says so.
     assert f"(|r| = {r:.2f})" in wording.moved_together(a, b, f"{r:.2f}")
+
+
+def _definition_lines(values):
+    """Review v3: Definitions is one bullet per term, in order."""
+    return [v.split(":", 1)[0].lstrip("- ") for v in values]

@@ -477,7 +477,8 @@ def test_a_limit_edit_works_out_the_best_again(insights_scored, monkeypatch):
 
 def test_a_project_switch_drops_the_best(warm_round):
     at = _open_insights(_app())
-    assert ui_insights.BEST_KEY in at.session_state
+    # Review v3 fits nothing: the key as Make a round's work leaves it.
+    at.session_state[ui_insights.BEST_KEY] = {"stale": True}
     FoodOptimizer("second").add_ingredient("Flour", 0, 100)
     at.run()
     at.selectbox(key="project_select").set_value("second")

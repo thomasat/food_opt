@@ -32,45 +32,6 @@ def _rounds(scores_by_round):
     return opt
 
 
-def test_yes_when_the_latest_round_rose_by_more_than_a_point_without_repeats():
-    opt = _rounds([[70.0, 72.0], [75.1]])
-    a = insights.improvement(opt)
-    assert (a.state, a.sd) == ("yes", None)
-    assert a.rise == pytest.approx(3.1)
-    # Fix A follow-up (decision 4): the threshold, √2 × 1.645 × 1 = 2.3.
-    assert ui_insights.stand_text(a) == (
-        "Rising: up 3.1 points in the last Round, above the 2.3 points needed: √2 × 1.64 × the "
-        "1-point noise threshold.")
-
-
-def test_barely_when_the_rise_is_within_a_point_without_repeats():
-    opt = _rounds([[70.0, 72.0], [72.4]])
-    a = insights.improvement(opt)
-    assert a.state == "barely"
-    assert ui_insights.stand_text(a) == (
-        "Within noise: up 0.4 points in the last Round, under the 2.3 points needed: √2 × 1.64 "
-        "× the 1-point noise threshold.")
-
-
-def test_barely_against_the_spread_between_repeats(monkeypatch):
-    opt = _rounds([[86.46], [86.68]])
-    monkeypatch.setattr(insights, "repeat_sd", lambda o, name: insights.RepeatSpread(0.29, 1))
-    a = insights.improvement(opt)
-    assert a.state == "barely"
-    # Fix A follow-up (decisions 3, 4): an SD from 1 pair (0 df given) is
-    # judged on z; the line names 0.29 × √2 × 1.645 = 0.67.
-    assert ui_insights.stand_text(a) == (
-        "Within noise: up 0.2 points in the last Round, under the 0.7 points needed: √2 × 1.64 "
-        "× the noise threshold (Repeat SD 0.3 points).")
-
-
-def test_not_lately_after_two_or_more_rounds_without_a_higher_score():
-    opt = _rounds([[90.0], [80.0], [85.0], [70.0]])
-    a = insights.improvement(opt)
-    assert (a.state, a.rounds) == ("not_lately", 3)
-    assert ui_insights.stand_text(a) == "Flat: no higher score in 3 Rounds."
-
-
 def test_no_answer_after_one_round_or_one_round_without_a_rise():
     assert insights.improvement(_rounds([[70.0, 72.0]])) is None
     assert insights.improvement(_rounds([[72.0], [70.0]])) is None
@@ -153,17 +114,6 @@ def test_a_round_still_waiting_is_not_a_round_without_a_higher_score():
     assert f.rounds_since == 1 and not f.latest
 
 
-def test_a_rise_stays_yes_while_the_next_round_waits():
-    opt = _rounds([[70.0], [75.0]])
-    _waiting_round(opt, 3, 3)
-    a = insights.improvement(opt)
-    assert a.state == "yes" and a.rise == pytest.approx(5.0)
-    assert ui_insights.stand_text(a) == (
-        "Rising: up 5.0 points in the last Round, above the 2.3 points needed: √2 × 1.64 × the "
-        "1-point noise threshold.")
-    assert insights.best_facts(opt).latest
-
-
 def test_a_round_moved_to_not_scored_is_not_counted():
     opt = _rounds([[70.0], [75.0]])
     _waiting_round(opt, 3, 3)
@@ -176,44 +126,6 @@ def test_a_round_moved_to_not_scored_is_not_counted():
     opt2.set_aside_formulation(3)
     assert insights.improvement(opt2) is None
     assert insights.best_facts(opt2).rounds_since == 1
-
-
-def test_a_rise_that_rounds_to_its_threshold_says_its_hundredths():
-    """Review M-1: a rise under its threshold must not read as it. Fix A
-    follow-up (decision 4): the threshold is √2 × 1.645 × 1 = 2.33, so the
-    case is 2.31, not 0.96 against 1 point."""
-    opt = _rounds([[70.0], [72.31]])
-    a = insights.improvement(opt)
-    assert a.state == "barely"
-    assert ui_insights.stand_text(a) == (
-        "Within noise: up 2.31 points in the last Round, under the 2.33 points needed: √2 × "
-        "1.64 × the 1-point noise threshold.")
-
-
-def test_a_rise_and_threshold_that_round_alike_say_their_hundredths(monkeypatch):
-    """Fix A follow-up (decision 4): the rise is compared with its threshold,
-    0.29 × √2 × 1.645 = 0.67; 0.66 and 0.67 both read 0.7, so hundredths."""
-    opt = _rounds([[70.0], [70.66]])
-    monkeypatch.setattr(insights, "repeat_sd", lambda o, name: insights.RepeatSpread(0.29, 1))
-    a = insights.improvement(opt)
-    assert a.state == "barely"
-    assert ui_insights.stand_text(a) == (
-        "Within noise: up 0.66 points in the last Round, under the 0.67 points needed: √2 × "
-        "1.64 × the noise threshold (Repeat SD 0.3 points).")
-
-
-def test_repeats_that_matched_exactly_count_as_no_repeats():
-    """Review M-1: a spread under 0.05 (0 here) is not shown, so the answer
-    is judged against 1 point, as without Repeats, never "Yes — up 0.4"."""
-    opt = _rounds([[70.0], [70.4, 70.4]])
-    opt.recipe_history[2] = dict(opt.recipe_history[1])
-    opt.X_history[2] = list(opt.X_history[1])
-    assert insights.repeat_sd(opt, insights.SCORE) == insights.RepeatSpread(0.0, 1, 1, 1)
-    a = insights.improvement(opt)
-    assert (a.state, a.sd) == ("barely", None)
-    assert ui_insights.stand_text(a) == (
-        "Within noise: up 0.4 points in the last Round, under the 2.8 points needed: √2 × 1.95 "
-        "(best of 2) × the 1-point noise threshold.")
 
 
 def test_improvement_takes_what_the_tab_already_worked_out(monkeypatch):

@@ -126,20 +126,6 @@ def test_too_close_pairs_are_left_out_of_the_record_and_verdict():
     assert far.pairs == 0 and far.verdict == learned.NOT_YET and far.reason == "few"
 
 
-def test_so_far_counts_only_pairs_that_count(plain):
-    opt = _Obj()
-    # Noise 1: Round 6's Overall pair F17 > F18 counts with Rounds 4-5's six.
-    lf = _lf(opt, _round6(), 6, NOISE)
-    # Round 2: "Overall score", no "pairs"; Consistency 6 of 6 alone is not
-    # Predictable before Round 6 once adjusted for the 2 results (Holm), so
-    # its panel and count are not drawn.
-    assert U.called_so_far(opt, lf) == "So far: Overall score 7 of 7."
-    # Noise above every Overall gap: nothing to count, said so.
-    lf = _lf(opt, _round6(), 6, {insights.SCORE: 9.0, "Consistency": 1.0})
-    lf.items = lf.items[:1]
-    assert U.called_so_far(opt, lf) == "So far: every pair too close to call."
-
-
 def test_bias_line(plain):
     opt = _Obj()
     # Consistency measured 2 below every forecast, with noise 1: a bias.
@@ -222,51 +208,9 @@ def _opt(tmp_path, monkeypatch):
     return opt
 
 
-def test_widen_reason(tmp_path, monkeypatch):
-    monkeypatch.setattr(U, "_say", lambda o, t: t)
-    opt = _opt(tmp_path, monkeypatch)
-    text = U.widen_reason_text(opt, NS(kind="lowest", name="Water", text="Water"))
-    # Best so far (35 g of Water) is not at the Lowest (30 g): the predicted best is.
-    assert text == ("The predicted best sits at Water's Lowest (30 g). To test below it, "
-                    "widen the limit.")
-    assert wording.widen_reason("highest", "Salt", "2 g") == \
-        "Your best sits at Salt's Highest (2 g). To test above it, widen the limit."
-    assert U.widen_reason_text(opt, NS(kind="limit", name="Fat", text="Fat ≤ 20 g")) is None
-
-
-def test_suggestion_moving_the_other_way_says_so(tmp_path, monkeypatch):
-    opt = _opt(tmp_path, monkeypatch)
-    there = insights.start_recipe(opt, opt._best_recipe_index())
-    up = dict(there, Water=there["Water"] + 10)
-    lowest = NS(kind="lowest", name="Water")
-    line = U.apart_text(opt, up, "explores", lowest)
-    assert line == "Explores: more Water (checks the other side)"
-    # Towards the limit, or with no limit advice: as before.
-    down = dict(there, Water=there["Water"] - 3)
-    assert "other side" not in U.apart_text(opt, down, "explores", lowest)
-    assert "other side" not in U.apart_text(opt, up, "explores")
-    # Another change stays, the other side said after it.
-    both = dict(there, Water=there["Water"] + 10, **{"Wheat gluten": there["Wheat gluten"] + 5})
-    line = U.apart_text(opt, both, "balanced", lowest)
-    assert line.endswith("; more Water (checks the other side)") and "Wheat gluten" in line
-
-
 # ------------------------------------------------------------------ #
 #  4. The score caption
 # ------------------------------------------------------------------ #
-
-def test_score_caption(monkeypatch):
-    monkeypatch.setattr(U, "_say", lambda o, t: t)
-    opt = NS(objectives=[{"name": n, "weight": 25.0, "goal": "target", "min_val": 0,
-                          "max_val": 15} for n in "ABCD"])
-    text = U.score_recipe_text(opt)
-    assert text == "Score: 25 per measurement, minus 25 × distance ÷ 15."
-    assert _words(text, numbers=False) <= 10
-    opt.objectives[0]["weight"] = 40.0
-    assert U.score_recipe_text(opt) is None       # mixed shares: the "?" says it
-    opt = NS(objectives=[{"name": "Firm", "weight": 100.0, "goal": "max", "min_val": 0,
-                          "max_val": 10}])
-    assert U.score_recipe_text(opt) is None
 
 
 # ------------------------------------------------------------------ #

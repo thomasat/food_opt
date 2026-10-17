@@ -90,128 +90,6 @@ def _changes_drawn(opt):
 
 
 @pytest.mark.parametrize("name", D.ALL)
-def test_the_questions_in_order_one_chart_each(screens, name):  # noqa: F811
-    at = screens[name]
-    got = sections(at)
-    assert list(got) == [wording.for_project(D.load(name), q) for q in STORY]
-    gate = name == D.SNACK
-    for q, items in got.items():
-        charts = sum(t in CHART for t, _ in items)
-        if gate and q == wording.FORECAST_CHECK_TITLE:
-            # Before 5 scored: one line, no chart.
-            assert charts == 0 and ("caption", wording.Q_WAIT) in items, (q, items)
-        elif q == wording.FORECAST_CHECK_TITLE:
-            # One-glance Review: one chart, forecast against measured, in
-            # its closed Details fold.
-            assert charts == 1, (q, items)
-        elif q == wording.Q2_TITLE:
-            # Review story: the best so far and Closer to target, side by side;
-            # Round panel (spec §10, re-pinned): What changed is a picture.
-            assert charts == 2 + _changes_drawn(D.load(name)), (q, items)
-        elif q == wording.Q5_TITLE:
-            assert charts == 0, (q, items)       # review story 2: words and buttons
-        else:
-            assert charts == 1, (q, items)
-
-
-@pytest.mark.parametrize("name", D.ALL)
-def test_answer_lines_open_with_the_cards_word(screens, name):  # noqa: F811
-    at = screens[name]
-    p, g, n = cards(at)
-    got = sections(at)
-    plain = lambda w: re.sub(r":\w+\[(.*?)\]", r"\1", w)   # noqa: E731
-    firsts = {q: next((t for k, t in items if k == "markdown"), None)
-              for q, items in got.items()}
-    opt = D.load(name)
-    q1, q2 = (firsts[wording.for_project(opt, k)] for k in QUESTIONS)
-    if name != D.SNACK:
-        # Review learned: the section's answer names what the model predicts.
-        # Slim Review (re-pinned): one verdict line in the Forecast check,
-        # merged with its "So far:" count.
-        # One-glance Review, fix round 1 (re-pinned): the Round line once
-        # the latest Round is checked, else the verdict line.
-        texts = [t for k, t in got[wording.FORECAST_CHECK_TITLE] if k == "markdown"]
-        q1 = next(t for t in texts
-                  if re.match(r"(So far: |(Predicts|Partly|Not yet): |\*\*Round \d+: )", t))
-        if q1.startswith("**Round "):
-            # Fix round 2: the landing fact alone, at most 10 words.
-            assert _words(q1) <= 10, q1
-            q1 = None
-        else:
-            assert re.search(r"(Predicts|Partly|Not yet): ", q1), q1
-    assert q2.startswith(f"**{plain(g['word'])}.**")
-    for line in (q1, q2):
-        if line:
-            # Review critique: a headline up to 14 words (the assumed noise
-            # is said beside a rise: "needs 3.2 if tasting noise ≈ 1 point").
-            assert _words(line) <= 14, line
-
-
-@pytest.mark.parametrize("name", D.ALL)
-def test_captions_and_labels_within_the_limits(screens, name):  # noqa: F811
-    for q, items in sections(screens[name]).items():
-        assert _words(q) <= 5
-        for kind, text in items:
-            if kind == "caption" and text != wording.Q_WAIT:
-                assert _words(text) <= 10, text       # captions 8, a greyed reason 10
-            if kind == "button":
-                assert _words(text) <= 5, text
-
-
-@pytest.mark.parametrize("name", D.ALL)
-def test_each_card_links_to_its_question(screens, name):  # noqa: F811
-    at = screens[name]
-    # Review story 2: each strip item is itself the link (its word and line,
-    # one tertiary button, keyed as the old "See chart ↓").
-    buttons = {b.key: b for b in at.tabs[3].button}
-    for which in ("predictions", "progress", "next"):
-        b = buttons[f"{U.SEE_CHART_KEY}_{which}"]
-        assert b.proto.type == "tertiary"
-        assert b.proto.help.startswith("Scrolls to: ")
-    # Predictions -> Q1, Progress -> Q2, Next -> What next?, each landing
-    # on the keyed place its section is drawn in (the links from Results
-    # and Make a round land on the first two).
-    assert U.SECTION_KEYS == {"predictions": U.TRUST_SECTION, "progress": U.STAND_SECTION,
-                              "next": U.NEXT_SECTION}
-    assert U._QUESTIONS["predictions"] == wording.FORECAST_CHECK_TITLE   # slim Review
-    assert U._QUESTIONS["next"] == wording.Q5_TITLE
-
-
-def test_a_card_link_lands_on_its_question(screens):  # noqa: F811
-    at = screens[D.LINE_A]
-    landed = {}
-    real = U.ask_tab
-
-    def spy(label, section="top", fold=None, state=None):
-        landed["section"] = section
-        return real(label, section, fold, state)
-    for which, key in (("progress", U.STAND_SECTION), ("next", U.NEXT_SECTION)):
-        [b] = [b for b in at.tabs[3].button if b.key == f"{U.SEE_CHART_KEY}_{which}"]
-        U.ask_tab = spy
-        try:
-            b.click().run()
-        finally:
-            U.ask_tab = real
-        assert not at.exception
-        # The callback is bound with its section (on_click args).
-        assert at.session_state["main_tab"] == wording.TAB_INSIGHTS
-    src = U._strip_item.__code__.co_names
-    assert "SECTION_KEYS" in src and "ask_tab" in src
-
-
-@pytest.mark.parametrize("name", D.ALL)
-def test_one_method_link_and_one_fold(screens, name):  # noqa: F811
-    at = screens[name]
-    folds = [el.label for el, f, _ in _leaves(at.tabs[3]) if el.type == "expander" and not f]
-    # One-glance Review: the Forecast check's details fold (once the model
-    # has checks), then Method and definitions.
-    details = [] if name == D.SNACK else [wording.LEARNED_DETAILS_TITLE]
-    assert folds == details + [wording.FOLD_METHOD]
-    links = [b for b in at.tabs[3].button if b.label == wording.METHOD_LINK]
-    assert len(links) == 1 and links[0].proto.type == "tertiary"
-
-
-@pytest.mark.parametrize("name", D.ALL)
 def test_one_primary_on_the_screen(screens, name):  # noqa: F811
     at = screens[name]
     primaries = [el for el, _, _ in _leaves(at.tabs[3])
@@ -301,32 +179,6 @@ CARDS = {
 }
 
 
-@pytest.mark.parametrize("name", list(CARDS))
-def test_the_predictions_card(screens, name):  # noqa: F811
-    p, _, n = cards(screens[name])
-    word, first = CARDS[name]
-    assert p["word"] == word
-    assert p["lines"][:len(first)] == first
-    assert not any(line.startswith(":red[") and "Measurements" in line for line in p["lines"])
-    # Review learned: the "?" is the sentence, the evidence (the ordering
-    # counts, then the Overall score's coverage and skill), then the rule.
-    ev = p["help"].split("\n\n")[1]
-    assert ev.startswith("Evidence: pairs ordered right from earlier Rounds")
-    # Review critique (fix 13): about 120 words; the rule itself is in
-    # Method and definitions (it no longer fits after the evidence).
-    assert len(p["help"].split()) <= wording.TOOLTIP_WORDS
-    # The Overall score's record, in plain words (its expert line may not fit).
-    assert "Overall score: " in p["help"] and ("landed in their predicted range" in p["help"]
-                                               or "inside the 95 % predicted range" in p["help"])
-
-
-def test_a_disagreeing_repeat_stays_red_on_next(screens):  # noqa: F811
-    p, _, n = cards(screens[D.LINE_B])
-    assert n["word"] == ":red[Check panel first]"
-    assert ":red[**Before Round 6**]" in n["lines"]
-    assert all("Repeat came out" not in line for line in p["lines"])
-
-
 def test_evidence_reports_both():
     assert wording.ev_predictions(10, 12, "0.69", 12, 27, 36) == (
         "Overall score 10 of 12 in range, skill 0.69 (n = 12); measurements 27 of 36 in "
@@ -380,21 +232,6 @@ def _open(name):
     at.run()
     assert not at.exception, [e.message for e in at.exception]
     return at
-
-
-def test_pilot_cards_on_the_overall_score(pilot):
-    p = cards(_open(R5))[0]
-    # Review learned: the Model item, by the ordering rule (no pilot names
-    # here); no red line.
-    # Persona fixes 2: pairs too close to call (forecasts under one noise SD
-    # apart) no longer count, so fewer verdicts reach Predicts.
-    # Review critique: the permutation test and the noise split over the
-    # measurements: one measurement leans right at Round 5 (Partly:).
-    assert p["word"] == "Partly:"
-    assert not any(line.startswith(":red[") for line in p["lines"])
-    at = _open(ALL10)
-    assert cards(at)[0]["word"] == "Predicts:"
-    assert list(sections(at)) == STORY
 
 
 def test_new_strings_pass_the_vocabulary_guard():
@@ -461,25 +298,3 @@ def test_score_predictions_is_the_cards_word(tmp_path, monkeypatch, name):
 # test_q4_is_coloured_by_role with them.
 
 
-def test_q2_marks_its_rounds():
-    opt = D.load(D.LINE_A)
-    spec = U.progress_chart(opt).to_dict()
-    text = json.dumps(spec)
-    assert wording.Q2_X_TITLE in text and _words(wording.Q2_X_TITLE) <= 5
-    rules, labels = U.round_marks(opt, [int(n) for n in opt.formulation_ids])
-    rounds = [r for r in dict.fromkeys(opt.batch_history) if r is not None]
-    assert [t for _, t in labels] == [wording.round_tick(r) for r in rounds]
-    assert len(rules) == len(rounds) - 1
-    assert "'R1'" in text
-    # One Round: nothing to mark.
-    assert U.round_marks(D.load(D.SNACK), [1, 2, 3]) is None
-
-
-def test_the_strip_is_one_row_each_item_its_own_link():
-    import inspect
-    src = inspect.getsource(U._places)
-    # Review story 2: the cards became one strip, one row, the primary at
-    # its right end; each item is itself the link to its section.
-    assert 'height="stretch"' not in src and "horizontal=True" in src
-    assert src.index("_strip_item(opt, None, None, which)") < src.index("_foot(opt)")
-    assert "on_click=ask_tab" in inspect.getsource(U._strip_item)

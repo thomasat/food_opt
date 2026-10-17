@@ -47,18 +47,6 @@ def test_each_interface_has_its_final_signature(module, name, params):
     assert list(inspect.signature(func).parameters) == params
 
 
-def test_the_optional_arguments_default_to_none():
-    """Callers in other waves may leave them out."""
-    sig = inspect.signature
-    assert sig(insights.status_facts).parameters["standing"].default is None
-    assert sig(insights.status_facts).parameters["gain"].default is None
-    assert sig(insights.status_rules).parameters["checks"].default is None
-    assert sig(insights.tested_strips).parameters["pool"].default is None
-    assert sig(insights.strip_gaps).parameters["k"].default == 2
-    assert sig(ui_insights.tooltip_for).parameters["facts"].default is None
-    assert sig(ui_insights.explore_map_chart).parameters["ref"].default is None
-
-
 def _fields(cls):
     return [f.name for f in dataclasses.fields(cls)]
 
@@ -98,12 +86,3 @@ def test_the_rule_keys_are_the_words_keys():
                      for k in insights.PREDICTION_ROWS]
 
 
-def test_the_new_fold_keys_are_their_own():
-    """M3, R-I14: W1's link and W3's fold share EXPLORED_KEY; the renamed
-    folds keep theirs."""
-    keys = [ui_insights.EXPLORED_KEY, ui_insights.MORE_KEY, ui_insights.EACH_KEY,
-            ui_insights.PROGRESS_KEY, ui_insights.HOW_KEY, ui_insights.TRUST_SECTION,
-            ui_insights.STAND_SECTION, "insights_try_one"]
-    assert len(set(keys)) == len(keys)
-    assert set(ui_insights.TIP_LINES) >= {"predictions", "progress", "next"}
-    assert len(set(ui_insights.TIP_LINES)) == len(ui_insights.TIP_LINES)

@@ -975,7 +975,8 @@ _line = _batch_line(_opt)
 def _insights_stages():
     """The parts of the open screen that wait for Insights' fits."""
     if tab_insights.open:
-        return ("column", "trust", "stand", "all")
+        # Review v3: measurements only, so nothing on it waits for a fit.
+        return ()
     if tab_batch.open and open_rows(_opt):
         # "all" too: after a failed fit in the verdict's Rounds the track
         # line waits for everything (Plan A review C M-3).

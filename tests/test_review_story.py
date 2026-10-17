@@ -102,55 +102,6 @@ def screens(tmp_path_factory):
 #  The order: a story
 # ------------------------------------------------------------------ #
 
-@pytest.mark.parametrize("name", [D.LINE_A, D.SNACK, D.PROCESS_ONLY])
-def test_sections_and_cards_in_story_order(screens, name):
-    at = screens[name]
-    opt = D.load(name)
-    assert list(sections(at)) == [wording.for_project(opt, q) for q in STORY]
-    # The cards in the same order, Next last.
-    labels = [c["label"] for c in cards(at, order="screen")]
-    # Review learned: Model once the model's verdicts are in (the gate
-    # keeps Predictions).
-    model = wording.CARD_PREDICTIONS if name == D.SNACK else wording.LEARNED_STRIP_LABEL
-    assert labels == [wording.CARD_PROGRESS, model, wording.CARD_NEXT]
-    assert U.SECTION_ORDER == ("progress", "next", "predictions")
-    assert U._STATUS_ORDER == ("progress", "predictions", "next")
-
-
-@pytest.mark.parametrize("name", [D.LINE_A, D.SNACK, D.PROCESS_ONLY])
-def test_improving_has_two_charts(screens, name):
-    got = sections(screens[name])
-    opt = D.load(name)
-    improving = got[wording.for_project(opt, wording.Q2_TITLE)]
-    # Round panel (spec §10, re-pinned): What changed is a picture.
-    from tests.test_review_four import _changes_drawn
-    assert sum(t in CHART for t, _ in improving) == 2 + _changes_drawn(opt)
-    # Re-pinned (sensory profile, 2026-10-08): from U.SPIDER_MIN measurements
-    # Start vs best's dot chart is the spider, under its own title.
-    title = (wording.SPIDER_TITLE if len(opt.objectives) >= U.SPIDER_MIN
-             else wording.STORY_TARGET_TITLE)
-    assert ("markdown", f"**{wording.for_project(opt, title)}**") in improving
-
-
-@pytest.mark.parametrize("name", [D.LINE_A, D.SNACK, D.PROCESS_ONLY])
-def test_word_limits(screens, name):
-    at = screens[name]
-    for q, items in sections(at).items():
-        assert _words(q) <= 5
-        firsts = [t for k, t in items if k == "markdown" and not t.startswith("**Closer")]
-        if firsts:
-            # Review critique: a headline up to 14 words (a rise says its
-            # assumed noise: "needs 3.2 if tasting noise ≈ 1 point").
-            assert _words(firsts[0]) <= 14, firsts[0]
-        for kind, text in items:
-            if kind == "caption" and text != wording.for_project(D.load(name), wording.Q_WAIT):
-                assert _words(text) <= 10, text
-            if kind in ("button", "toggle"):
-                assert _words(text) <= 5, text
-    for c in cards(at):
-        for line in c["lines"]:
-            assert _words(line) <= 10, line
-
 
 # ------------------------------------------------------------------ #
 #  Are we improving?
@@ -178,48 +129,6 @@ def test_round_averages_are_the_rounds_means():
         assert n == len(mine) and mean == pytest.approx(sum(mine) / len(mine))
 
 
-def test_improving_chart_names_the_start_and_the_best():
-    opt = D.load(D.LINE_A)
-    spec = json.dumps(U.improving_chart(opt).to_dict())
-    s, r0, b, rb, _ = U.story_numbers(opt)
-    assert wording.story_point(wording.STORY_START, f"{s:.1f}", r0) in spec
-    assert wording.story_point(wording.STORY_BEST, f"{b:.1f}", rb) in spec
-    assert wording.STORY_ROUND_AVERAGE in spec and wording.Q2_X_TITLE in spec
-    assert "'R1'" in spec                       # the Rounds marked along the top
-
-
-def test_closer_to_target_rows_targets_and_directions():
-    opt = D.load(D.LINE_A)
-    rows = U.target_rows(opt)
-    assert [r["name"] for r in rows] == [o["name"] for o in opt.measurements_by_importance()]
-    s, b = U.story_start(opt)[0], opt.best_index()
-    for r in rows:
-        obj = next(o for o in opt.objectives if o["name"] == r["name"])
-        assert r["goal"] == obj["goal"]
-        assert r["target"] == (obj["target"] if obj["goal"] == "target" else None)
-        assert (r["low"], r["high"]) == (obj["min_val"], obj["max_val"])
-        assert r["start"] == opt.results_history[s].get(r["name"])
-        assert r["best"] == opt.results_history[b].get(r["name"])
-    spec = U.target_chart(opt).to_dict()
-    text = json.dumps(spec, ensure_ascii=False)
-    # Line A: two targets and one "lower is better" (Cook loss): its arrow
-    # points to the low end; a label per row says which.
-    goals = {r["name"]: r["goal"] for r in rows}
-    assert "min" in goals.values() and "target" in goals.values()
-    for r in rows:
-        assert wording.story_target_row(r["name"], r["goal"], r["target"]) in text
-    assert "triangle-left" in text
-    # Review critique (fix 6): the target a large ink diamond (was a dashed tick).
-    assert '"shape": "diamond"' in text
-    # Higher is better: an arrow at the high end.
-    obj = next(o for o in opt.objectives if o["goal"] == "min")
-    obj["goal"] = "max"
-    assert "triangle-right" in json.dumps(U.target_chart(opt).to_dict())
-    assert wording.story_target_row("Firmness", "max") == "Firmness · higher"
-    assert wording.story_target_row("Cook loss", "min") == "Cook loss · lower"
-    assert wording.story_target_row("Juiciness", "target", 7.0) == "Juiciness · target 7"
-
-
 def test_the_progress_card_goes_from_start_to_best():
     assert wording.card_progress("87.8", "90.5", "same for 2 Rounds") == \
         "87.8 → 90.5 · same for 2 Rounds"
@@ -242,58 +151,6 @@ def _checks():
             insights.Check(9, 3, S, 85.0, 80.0, 90.0, 77.0, False, True),
             insights.Check(10, 4, S, 86.0, 82.0, 90.0, 88.0, True, True),
             insights.Check(10, 4, "Firmness", 6.0, 5.0, 7.0, 6.2, True, True)]
-
-
-def test_forecast_chart_spec():
-    opt = D.load(D.LINE_A)
-    chart = U.forecast_chart(opt, _checks())
-    spec = chart.to_dict()
-    text = json.dumps(spec, ensure_ascii=False)   # round 2: "95 %" has a non-breaking space
-    rows = [r for v in spec["datasets"].values() for r in v if "measured" in r]
-    # The Overall score's checks only, one row per formulation checked.
-    assert sorted(r[wording.FORMULATION_CAP] for r in rows) == [7, 8, 9, 10]
-    assert {r["state"] for r in rows} == {wording.STORY_LANDED_IN, wording.STORY_LANDED_OUT}
-    # The model blue bar, filled ink inside, orange outside (round 2: a
-    # miss in the one accent colour, as on the Forecast check); no red.
-    assert U.model_blue() in text and U.outline_colour() in text
-    assert U.mark("bar_latest")[0] in text
-    assert "#d62728" not in text.lower() and '"red"' not in text
-    for w in (wording.STORY_FORECAST, wording.STORY_LANDED_IN, wording.STORY_LANDED_OUT,
-              wording.Q2_X_TITLE, wording.STORY_NO_FORECAST):
-        assert w in text, w
-    # The same x axis as the improving chart.
-    assert U._x_domain(opt) == [min(map(int, opt.formulation_ids)) - 0.7,
-                                max(map(int, opt.formulation_ids)) + 0.7]
-    assert json.dumps(U._x_domain(opt)) in text
-    assert json.dumps(U._x_domain(opt)) in json.dumps(U.improving_chart(opt).to_dict())
-    assert U.forecast_chart(opt, []) is None
-
-
-def test_trust_counts_and_lines():
-    assert U.trust_counts(_checks()) == (2, 4, 1, 1)
-    assert wording.story_trust_answer(13, 15) == "13 of 15 landed in their predicted range"
-    assert wording.story_misses(2, 0) == "Both misses scored higher than predicted."
-    assert wording.story_misses(0, 1) == "The miss scored lower than predicted."
-    assert wording.story_misses(1, 1) == "1 scored higher than predicted, 1 lower."
-    assert wording.story_misses(0, 0) == ""
-    assert "BO term" in wording.story_trust_help(13, 15)
-
-
-def test_trust_answer_on_line_a(screens):
-    # Review learned: the trust evidence is what the model learned.
-    # Slim Review (re-pinned): the verdicts are one line in the Forecast
-    # check; beside the Overall score's pair count they would run past 14
-    # words, so the groups alone.
-    line = next(t for k, t in sections(screens[D.LINE_A])[wording.FORECAST_CHECK_TITLE]
-                if k == "markdown" and re.match(r"(So far|Predicts|Partly|Not yet)", t))
-    # Persona fixes 2: pairs under one tasting noise apart left out.
-    # Review critique: the exact permutation test (and each measurement's
-    # share of the noise): they lean right, not clearly.
-    # Specific wording (2026-10-12), re-pinned: each name with its pairs.
-    # Sceptic review (2026-10-14), re-pinned: called of all pairs; past 14
-    # words with every count, so the first count alone, the names kept.
-    assert line == ("Partly: Overall score (5 of 21 pairs called, 5 right), Firmness, "
-                    "Cook loss.")
 
 
 # ------------------------------------------------------------------ #
@@ -361,107 +218,9 @@ def pilot(tmp_path_factory, pilot_dir):
         os.chdir(here)
 
 
-def test_pilot_story(pilot):
-    opt = FoodOptimizer(ALL10)
-    s, r0, b, rb, _ = U.story_numbers(opt)
-    assert r0 == 1 and b > s and rb > r0
-    avgs = U.round_averages(opt)
-    assert avgs[-1][3] > avgs[0][3]                 # the Round average rose too
-    rows = U.target_rows(opt)
-    assert all(r["goal"] == "target" for r in rows)
-    # The best is closer to every target than the start, or as close.
-    assert sum(abs(r["best"] - r["target"]) for r in rows) < \
-        sum(abs(r["start"] - r["target"]) for r in rows)
-    at = _open(ALL10)
-    got = sections(at)
-    # Round 2 (P2 #9): the Forecast check is its own section after What next?.
-    assert list(got) == STORY       # one-glance Review: three sections
-    line = next(t for k, t in got[wording.Q2_TITLE] if k == "markdown")
-    # Review story 2: "of 100", so Flat at 96.4 reads as near the ceiling.
-    # Persona fixes 2: Flat after a rise reads "Plateau since Round N".
-    # Round 2: the plateau line names its best.
-    assert re.fullmatch(r"\*\*Plateau since Round \d+\.\*\* \d+\.\d → \d+\.\d of 100 · "
-                        r"Formulation \d+\.", line), line
-    items, _ = strip(at)
-    # The strip, by pattern only (no pilot numbers in the repository).
-    # Review learned: the Model item (by pattern only: no pilot names).
-    assert re.fullmatch(r"Plateau since Round \d+", items[0]["word"]) and \
-        items[1]["word"] == "Predicts:"
-    # Persona fixes: 'Flat · best 99.2 of 100' (the start stays on the chart).
-    assert re.fullmatch(r"· best \d+\.\d of 100", items[0]["line"]), items[0]
-    # Specific wording (2026-10-12), re-pinned: each name with its pairs.
-    # Sceptic review (2026-10-14), re-pinned: called of all pairs.
-    # Fix round 2: one form, never hiding how many were right.
-    assert re.fullmatch(r"[A-Z][\w ]+ \(\d+ of \d+ called, \d+ right\)"
-                        r"(, [A-Z][\w ]+)?( \+\d+)?", items[1]["line"]), items[1]
-    # Slim Review (re-pinned): the verdict line in the Forecast check.
-    # Sceptic review (2026-10-14), re-pinned: the verdict's own pairs, called
-    # of all, take the line's 14 words; the Overall score's count is in its "?".
-    # One-glance Review, fix round 1 (re-pinned): the Forecast check's one
-    # line is the Round line; the verdict is the strip's (above).
-    lines = [t for k, t in got[wording.FORECAST_CHECK_TITLE] if k == "markdown"
-             and t.startswith(("**Round ", "Predicts: ", "Partly: ", "Not yet: "))]
-    assert len(lines) == 1 and re.match(r"\*\*Round \d+: ", lines[0]), lines
-    before = cards(_open(R6), order="screen")
-    assert [c["word"] for c in before[:2]] == ["No new best", "Partly:"]
-
-
 # ------------------------------------------------------------------ #
 #  Review story 2: the strip above the charts, What next? at the end
 # ------------------------------------------------------------------ #
-
-@pytest.mark.parametrize("name", [D.LINE_A, D.SNACK, D.PROCESS_ONLY])
-def test_the_strip_has_three_items_and_the_one_primary(screens, name):
-    at = screens[name]
-    items, buttons = strip(at)
-    # Review learned: the Predictions item reads Model once the model's
-    # verdicts are in (the gate keeps Predictions); its key is unchanged.
-    model = wording.CARD_PREDICTIONS if name == D.SNACK else wording.LEARNED_STRIP_LABEL
-    assert [i["label"] for i in items] == [wording.CARD_PROGRESS, model, wording.CARD_NEXT]
-    keys = {wording.LEARNED_STRIP_LABEL: "predictions"}
-    for i in items:
-        # Review critique (fix 13): about 120 words, plain first.
-        assert i["word"] and i["help"] and len(i["help"].split()) <= wording.TOOLTIP_WORDS, i
-        assert i["key"] == f"{U.SEE_CHART_KEY}_{keys.get(i['label'], i['label'].lower())}"
-    # The page's one primary sits at the strip's right end, and nowhere else.
-    assert [t for t, _ in buttons] == ["primary"], buttons
-    primaries = [el.label for el, _, _ in _leaves(at.tabs[3])
-                 if el.type == "button" and el.proto.type == "primary"]
-    assert primaries == [buttons[0][1]]
-
-
-@pytest.mark.parametrize("name", [D.LINE_A, D.SNACK, D.PROCESS_ONLY])
-def test_no_chart_above_the_first_section_and_what_next_last(screens, name):
-    at = screens[name]
-    heads = [_text(el)[5:] for el, _, _ in _leaves(at.tabs[3])
-             if el.type == "markdown" and _text(el).startswith("#### ")]
-    # Review critique (fix 5): What next? straight after Are we improving?.
-    assert heads[:2] == [wording.Q2_TITLE, wording.Q5_TITLE]
-    for el, _, _ in _leaves(at.tabs[3]):
-        if el.type == "markdown" and _text(el).startswith("#### "):
-            break
-        assert el.type not in CHART and el.type != "subheader", el.type
-    # What next? holds the Next word with its "?" and no primary.
-    rows = section(at, wording.Q5_TITLE)
-    # Persona fixes 2: the Next word is a small answer line, not a subheader.
-    heads = [el for el, _ in rows if el.type == "subheader" or (
-        el.type == "markdown" and re.fullmatch(r"(:red\[)?\*\*[^*]+\.\*\*\]?", _text(el)))]
-    assert len(heads) == 1 and heads[0].proto.help
-    assert not [el for el, _ in rows if el.type == "button" and el.proto.type == "primary"]
-
-
-def test_what_next_holds_the_secondary_actions(screens):
-    at = screens[D.LINE_A]
-    nxt = cards(at)[2]
-    assert nxt["next_word"] == nxt["word"] == "Record Round 6"
-    assert nxt["next_help"] == nxt["help"]
-    assert "Repeat Formulation 15 to check noise" in nxt["lines"]   # round 2: one form
-    # The Set up secondary and the one link sit here, never in the strip.
-    keys = [el.key for el, _ in section(at, wording.Q5_TITLE) if el.type == "button"]
-    assert keys and set(keys) <= {"insights_change_setup", "insights_why_link",
-                                  U.REPEAT_LINK_KEY, "insights_explored_link"}, keys
-    _, buttons = strip(at)
-    assert all(t == "primary" for t, _ in buttons)
 
 
 @pytest.mark.parametrize("name", [D.LINE_A, D.SNACK, D.PROCESS_ONLY])
@@ -477,22 +236,3 @@ def test_strip_word_limits(screens, name):
             assert _words(text) <= 5, text
 
 
-def test_strip_helpers():
-    class _C:
-        word, tone, lines = "Flat", None, [("x", False)]
-    assert U.strip_label(_C, "88.4 → 96.4 of 100", False) == "**Flat** 88.4 → 96.4 of 100"
-    _C.word, _C.tone = "Check panel first", "off"
-    assert U.strip_label(_C, "", False) == ":red[**Check panel first**]"
-    _C.word, _C.tone = "Not yet", None
-    assert U.strip_label(_C, "3 / 16 missed", True) == "**Not yet** :red[**3 / 16 missed**]"
-    assert wording.strip_short("Overall score: 13 / 15 in range") == "13 / 15 in range"
-    assert wording.strip_progress(None, "96.0 of 100") == "Best 96.0 of 100"
-    for text in (wording.Q5_TITLE, wording.SEE_CHART_HELP, wording.EV_METHOD,
-                 wording.REVIEW_STATUS_HELP, wording.GAIN_REASON_NOT_YET,
-                 wording.GAIN_REASON_OFF, wording.tip_hero_hidden("x"),
-                 wording.tip_gain_greyed("x"), wording.strip_jump_help(wording.Q2_TITLE)):
-        assert not any(p.search(text) for p in _BANNED), text
-        assert "card" not in text.lower(), text
-    src = open(wording.__file__).read()
-    assert src.index("# --- review story ---") < src.index("# --- review story 2 ---") < \
-        src.index("def strip_progress(")

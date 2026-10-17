@@ -148,35 +148,6 @@ def test_synthetic_cards_never_say_panel(line_a):
         assert _words(t) <= (14 if t == ui_insights.misses_line(facts) else 6), t
 
 
-def test_synthetic_tooltip_holds_the_evidence(line_a):
-    checks = _synthetic(line_a)
-    facts = _facts(line_a, checks)
-    d = facts.diagnosis
-    tip = ui_insights.tooltip_for(line_a, "predictions", facts)
-    assert f"({d.misses} of {d.checked} values;" in tip
-    assert f"On new ground: {d.far} of {d.misses} misses, {d.far_checked} of {d.checked}" in tip
-    assert "Firmness 5 of " in tip and "(above, mean error +4.0)" in tip
-    assert "Diagnosis rule, first that holds" in tip and "Here: new ground." in tip
-    assert "only a disagreeing Repeat can" in tip
-    assert "Overall score, Rounds 3–5: 12 of 12 in range." in tip
-    assert not BENCH.search(tip)
-
-
-def test_synthetic_explanation_is_one_story(line_a):
-    checks = _synthetic(line_a)
-    h = insights.headline(line_a, checks)
-    text = ui_insights.verdict_text(line_a, h, "unreliable", checks=checks)
-    for bad in CONTRADICTION:
-        assert bad not in text, text
-    assert "Many more misses than expected." in text
-    assert "Firmness 5 of 12 (above, mean error +4.0)" in text
-    assert wording.DIAG_READING["new_ground"] in text
-    step = insights.next_step(line_a, checks)
-    said, _ = ui_insights.next_step_text(line_a, step, h.rounds)
-    assert "too narrow" not in said and "mostly on new ground" in said
-    assert not BENCH.search(said)
-
-
 # ------------------------------------------------------------------ #
 #  Demo projects: Line B keeps its check; the others unchanged
 # ------------------------------------------------------------------ #
@@ -196,15 +167,6 @@ def demos(tmp_path_factory):
         os.chdir(here)
 
 
-def test_line_b_still_checks_the_panel(demos):
-    p, _, n = cards(demos[D.LINE_B])
-    # Review polish, one action, one card: the Next card carries the check.
-    assert ":red[**Check panel before Round 6**]" not in p["lines"]
-    assert n["word"] == ":red[Check panel first]"
-    assert "Look at the panel, suppliers and equipment." in n["help"]
-    assert not any(line in p["lines"] for line in wording.CARD_DIAG.values())
-
-
 def test_one_way_says_which_way():
     """Ruling 1: one way names the side when every measurement agrees."""
     assert wording.card_diag("one_way", "above") == "Results mostly above predictions"
@@ -212,33 +174,6 @@ def test_one_way_says_which_way():
     assert wording.card_diag("one_way", "mixed") == "Each measurement misses one way"
     for side in ("above", "below", "mixed"):
         assert _words(wording.card_diag("one_way", side)) <= 6
-
-
-@pytest.mark.parametrize("name,line", [(D.LINE_C, "Repeat Formulation 18 to check noise"),
-                                       (D.PROCESS_ONLY, "Repeat Trial 21 to check noise")])
-def test_cv_widening_asks_for_a_repeat_not_the_panel(demos, name, line):
-    """Ruling 2: the CV-widening rule names the panel only with Repeat
-    evidence; these two have one Repeat pair (1 df), so they ask for one."""
-    p, _, n = cards(demos[name])
-    # One action, one card (demo build): when the Next card already asks
-    # for this Repeat (process-only: "Round 7: Repeat Trial 21"), the
-    # Predictions card does not say it again.
-    # Review learned 2: the request is What next?'s alone (the Model
-    # section repeats no old-card line).
-    asked = [t for t in n["lines"] if line.split(" to check")[0] in t]
-    assert len(asked) == 1 and line not in p["lines"], (p["lines"], n["lines"])
-    texts = [p["word"], *p["lines"], p["help"]]
-    assert not [t for t in texts if BENCH.search(t)]
-    if name == D.PROCESS_ONLY:
-        # Review four, ruling 1: Off on the Overall score (4 of 16 missed);
-        # the Repeat request is the Next card's alone. Review learned: the
-        # word is the Model item's, the miss line still red.
-        # Sceptic review, fix round 1: 6 of its 16 Overall-score checks have a
-        # 95 % range over the whole Range (no forecast), counted nowhere.
-        assert p["word"] == "Predicts:" and p["lines"][0] == ":red[**4 / 10 missed**]"
-        return
-    assert "to check noise" in p["help"]     # round 2: the one form of the Repeat request
-    assert ("the same values again" in p["help"]) == (name == D.PROCESS_ONLY)
 
 
 def test_repeats_that_vary_a_lot_back_the_panel_advice(line_a):
@@ -349,26 +284,3 @@ def _check_without_repeat(at, name, word):
         assert not any(bad in t for t in texts)
 
 
-def test_pilot_round_5_never_says_panel(pilot):
-    # 9 Overall-score checks: under SKILL_MIN, Not yet (ruling 1).
-    # Review learned: the Model item's word (the ordering rule).
-    # Persona fixes 2: pairs too close to call (forecasts under one noise SD
-    # apart) no longer count, so fewer verdicts reach Predicts.
-    # Review critique: the permutation test and the noise split: Partly.
-    _check_without_repeat(_open_review(R5), R5, "Partly:")
-
-
-def test_pilot_round_6_scored_never_says_panel(pilot):
-    # The Overall score 10 of 12 in range, skill 0.69: Reliable (ruling 1).
-    # Persona fixes 2: pairs too close to call (forecasts under one noise SD
-    # apart) no longer count, so fewer verdicts reach Predicts.
-    # Round 2 (P1 #2): Holm across the 5 results checked: the Overall
-    # score's 5 of 5 is Partly, not Predicts.
-    _check_without_repeat(_score_round_6(), R6, "Partly:")
-
-
-def test_pilot_all_10_is_not_off(pilot):
-    at = _open_review(ALL10)
-    p = cards(at)[0]
-    assert p["word"] == "Predicts:"     # review learned: the Model item (critique: colon)
-    assert not [t for t in _all_text(at) if BENCH.search(t)]

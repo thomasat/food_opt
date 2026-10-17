@@ -251,16 +251,6 @@ def test_the_poller_never_reruns_the_page_during_a_replay():
     assert "not replaying()" in src and "app_rerun()" in src
 
 
-def test_a_replay_step_draws_as_many_elements_as_any_round():
-    # Nothing of the Round before lingers (dimmed) while a step waits.
-    # Round panel (spec §10, re-pinned): the title, the picture (or the
-    # still-the-start line) and the Unchanged line, or a held place.
-    # Round panel (fix round 2): the notes row keeps two places at every Round.
-    assert inspect.getsource(U._changes_block).count("_changes_notes(") == 2
-    assert "_hold(1)" in inspect.getsource(U._changes_notes)
-    assert "_hold(1)" in inspect.getsource(U._replay_bar)
-
-
 # ------------------------------------------------------------------ #
 #  The panel in the app
 # ------------------------------------------------------------------ #
@@ -269,7 +259,6 @@ def test_the_control_frame_label_and_back_to_latest():
     opt = _spider_opt()
     at = _review(opt)
     texts = [m.value for m in at.tabs[3].markdown]
-    today = next(t for t in texts if t.startswith("**") and "→" in t)
     assert wording.replay_label(4, 4) in texts
     assert f":gray-badge[{wording.REPLAY_LATEST}]" in texts
     assert "insights_replay_latest" not in _keys(at)
@@ -284,8 +273,8 @@ def test_the_control_frame_label_and_back_to_latest():
     assert ".st-key-insights_replay_panel_past" in U.REPLAY_STYLE
     assert any(".st-key-insights_replay_panel_past" in h.proto.body
                for h in at.get("html"))
-    # The section's answer line and What next? stay about today.
-    assert today in texts
+    # Review v3: the headline is about the Round on view.
+    assert any(t.startswith("**Best ") for t in texts)
     # Back to latest.
     texts = _click(at, "insights_replay_latest")
     assert wording.replay_label(4, 4) in texts
@@ -300,10 +289,8 @@ def test_replay_starts_on_the_first_round():
     # the browser reruns only the fragment and steps on, test_replay_tick.)
     texts = _click(at, "insights_replay_play")
     assert wording.replay_label(1, 4) in texts
-    # Final demo (A1), re-pinned: Round 1's best named by its Formulation.
-    assert any(t.startswith("Best so far, F2 (Round 1): on target") for t in texts)
-    band, marker = next((b, m) for b, m in map(_band_and_marker, _specs(at)) if b)
-    assert band == (0.5, 3.5) and marker["f"] == "F2"
+    # Review v3: Round 1's best named by its Formulation in the headline.
+    assert "**Best 91.7: F2 (Round 1).**" in texts, texts
     assert at.button(key="insights_replay_prev").disabled
 
 
@@ -327,7 +314,7 @@ def test_one_round_has_no_control_and_no_frame():
     at = _review(opt)
     assert not {k for k in _keys(at) if (k or "").startswith("insights_replay")}
     texts = [m.value for m in at.tabs[3].markdown]
-    assert f"**{wording.SPIDER_TITLE}**" in texts
+    assert any(t.startswith("**Best so far vs targets") for t in texts)
 
 
 # ------------------------------------------------------------------ #
@@ -339,55 +326,6 @@ def _flat_layers(spec):
     for layer in spec.get("layer", []):
         out += _flat_layers(layer) if "layer" in layer else [layer]
     return out
-
-
-def test_the_profile_stays_legible_beside_the_chart():
-    # Round panel (spec §10, re-pinned): the profile is PANEL_SPIDER_H tall
-    # and as wide as its column (fit), its rings as large as the column lets.
-    opt = _spider_opt()
-    data = U.spider_data(opt)
-    spec = U.spider_chart(opt, data, 4, size=U.PANEL_SPIDER_H, fit=True).to_dict()
-    # The rings' radius in px at a column's plot width (the x domain's own
-    # expression): at least 100 px in the narrowest side-by-side column
-    # (393 px at 1152 x 720), the 340 px square's 155 px once there is room.
-    expr = next(l["encoding"]["x"]["scale"]["domain"][1]["expr"]
-                for l in _flat_layers(spec) if "scale" in l["encoding"].get("x", {}))
-    radius = lambda w: (w / 2) / eval(expr, {"width": w, "max": max, "min": min})  # noqa: E731
-    assert radius(393) >= 100
-    assert radius(600) == pytest.approx((U.PANEL_SPIDER_H / 2 - 19) / 1.08)
-    assert radius(600) >= U.PANEL_SPIDER / 2 / 1.1
-    assert "width" not in spec and spec["height"] == U.PANEL_SPIDER_H + U._SPIDER_KEY_H
-    # The side spokes' labels: the name, then the target on its own line;
-    # top and bottom stay on one.
-    texts = [row["text"] for name, rows in spec["datasets"].items() for row in rows
-             if isinstance(row, dict) and "text" in row and "align" in row
-             and "x1" in row]
-    sides = {t for t in texts if "\n" in t}
-    assert len(sides) == 2 and all(t.split("\n")[-1].startswith("target") for t in sides)
-    assert all(len(line) <= U._SPIDER_WRAP for t in sides for line in t.split("\n")[:-1])
-    drawn = {t for t in texts if U.SPOKE_SEP in t}
-    assert len(drawn) == 2                        # the top and bottom spokes, one line
-
-
-def test_what_changed_names_the_best_after_the_round():
-    opt = _spider_opt()
-    ch = U.what_changed(opt, 2)
-    # Final demo (A1), re-pinned to the picture (spec §10): 'Best after
-    # Round 2: F4' (made in Round 2; an earlier one adds its Round).
-    assert U.changes_picture(opt, ch)["best"] == "Best after Round 2: F4"
-    # No chart toolbar pops over the control (a click meant for Replay).
-    assert '[class*="st-key-insights_replay_panel"] [data-testid="stElementToolbar"]' \
-        in U.REPLAY_STYLE
-
-
-def test_the_slim_score_chart_keeps_its_marks():
-    opt = _spider_opt()
-    slim = U.improving_spec(opt, 2, height=U.PANEL_CHART_H)
-    full = U.improving_spec(opt, 2)
-    assert slim is not full
-    assert _band_and_marker(slim) == _band_and_marker(full)
-    assert len(U._plot_layers(slim)) == len(U._plot_layers(full))
-    assert U.PANEL_CHART_H < U.IMPROVING_HEIGHT
 
 
 def test_no_banned_word_in_the_control():

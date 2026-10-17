@@ -451,25 +451,6 @@ def _section_leaves(at, title):
     return out
 
 
-def test_section_order(screen):
-    # Review critique (fix 5): progress, What next?, the model, what was
-    # tried; What drives each result? is a closed fold (no heading).
-    assert U.SECTION_ORDER == ("progress", "next", "predictions")
-    # Slim Review (owner, 2026-10-08, re-pinned): no model section of its
-    # own; the Forecast check heads the model's place; What have we tried?
-    # is a closed fold.
-    assert U._QUESTIONS["predictions"] == wording.FORECAST_CHECK_TITLE
-    assert _headings(screen) == [wording.Q2_TITLE, wording.Q5_TITLE,
-                                 wording.FORECAST_CHECK_TITLE]
-    text = " | ".join(_text(el) for el, _, _ in _leaves(screen.tabs[3]))
-    # The old trust section is gone from the default view.
-    assert wording.Q1_TITLE not in text
-    # (Review critique: "Not predictable yet: …" sits in the profiler's
-    # closed fold now.)
-    # Round 6 is open: no Called it? until it is scored.
-    assert "called it" not in text.lower() and "Round 5: partly" not in text
-
-
 @pytest.fixture(scope="module")
 def scored(tmp_path_factory):
     """Line A with Round 6 closed unrecorded: Round 5 is the latest scored."""
@@ -491,61 +472,12 @@ def scored(tmp_path_factory):
     mp.undo()
 
 
-def test_the_forecast_check_is_its_label_then_the_round_line(scored):
-    """One-glance Review (owner, 2026-10-14), fix round 1: under its
-    heading, the Rebuilt label, the ONE Round line ("Round 5: … in/above
-    their range …"), then the closed Details fold; the verdict line is not
-    repeated there (the verdict is in the strip)."""
-    leaves = [(el, _text(el)) for el, _, _ in _leaves(scored.tabs[3])]
-    texts = [t for _, t in leaves]
-    details = next(i for i, (el, _t) in enumerate(leaves) if el.type == "expander"
-                   and el.label == wording.LEARNED_DETAILS_TITLE)
-    assert texts.index(f"#### {wording.Q5_TITLE}") < texts.index(
-        f"#### {wording.FORECAST_CHECK_TITLE}")
-    title = texts.index(f"#### {wording.FORECAST_CHECK_TITLE}")
-    # Rebuilt framing: right under its title, said to be rebuilt.
-    assert texts[title + 1] == wording.REBUILT_LABEL
-    between = [t for t in texts[title + 2:details] if t]
-    assert len(between) == 1, between
-    line = between[0]
-    # The Round line (test_called_it_sits_at_the_top_as_charts, its Round-line
-    # parts). Fix round 2: where the scores landed, alone, in 10 words.
-    assert re.fullmatch(r"\*\*Round 5: [^*]*forecast range[^*]*\.\*\*", line), line
-    assert not re.match(r"(Predicts|Partly|Not yet): ", line)
-    assert _words(line) <= 10, line
-    assert "order" not in line and "tie" not in line and "as forecast" not in line
-    # Its "?" opens on the Round's landing in plain words, then the Round's
-    # own pairs in the Details' words ("measured equal", never "tie").
-    el = leaves[texts.index(line)][0]
-    assert el.help.startswith("Round 5, Overall score: "), el.help
-    assert " in range" in el.help and "Round 5 order, Overall score: of " in el.help
-    assert not re.search(r"\bties?\b", el.help)
-    # The one chart sits in the fold, after one sentence per result with pairs.
-    inside = leaves[details + 1:]
-    assert any("vega" in el.type or "chart" in el.type for el, _ in inside)
-    assert any(re.search(r": of \d+ pairs?, (none called|\d+ called)", t) for _, t in inside)
-    assert not any(" far enough apart to call" in t for _, t in inside)
-
-
     # Review readable: taller (120 -> 160 px) so 12 px end labels clear each other.
     # Round 2 (P2 #9): one full-width panel per row, 40 px per formulation.
 
 
 def answer_help(els):
     return next(el.help for el in els if el.type == "markdown" and _text(el))
-
-
-def test_strip_reads_the_model_verdict(screen):
-    labels = [b.label for b in screen.tabs[3].button if b.key == f"{U.SEE_CHART_KEY}_predictions"]
-    # Persona fixes 2: the verdict, whichever it is (Line A: Not yet).
-    # Review critique: the section's words, "Predicts:" / "Partly:" / "Not
-    # predictable yet".
-    assert labels and labels[0].startswith(("**Predicts:**", "**Partly:**",
-                                            "**Not predictable yet**"))
-    # Specific wording (2026-10-12): two names with their pairs take 7.
-    # Fix round 2 (coordinator): the counts never hide how many were right;
-    # the item keeps to the owner's 10-word status limit.
-    assert _words(labels[0]) <= 10
 
 
 def test_no_prediction_reads_100_on_the_review(screen):

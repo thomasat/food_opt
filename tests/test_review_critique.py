@@ -92,21 +92,6 @@ def _lf(opt, checks, r, noise):
 #  1. Forecast check: shared axis, misses flagged, ties counted
 # ------------------------------------------------------------------ #
 
-def test_the_check_line_counts_ties(plain):
-    """Restored with the Round line (one-glance Review, fix round 1)."""
-    opt = _Obj()
-    lf = _lf(opt, _round6(), 6, {insights.SCORE: 1.0, "Consistency": 0.3})
-    line = U.called_line(opt, lf)
-    # Fix round 2: the line is the landing alone; the Round's pairs, the
-    # measured-equal one counted aloud, are in its "?" in the Details' words.
-    assert "order" not in line and "tie" not in line and "equal" not in line
-    help_ = U.called_help(opt, lf)
-    assert "Round 6 order, Overall score: of 3 pairs, 1 called, right; 1 too close, 1 measured " \
-           "equal." in help_
-    assert "tie" not in help_
-    assert wording.round_order(6, "Tangy", 0, 0, 2) == (
-        "Round 6 order, Tangy: of 2 pairs, none called; 2 too close.")
-
 
 # ------------------------------------------------------------------ #
 #  2. The stop signal at the top score
@@ -124,23 +109,6 @@ def test_ceiling_reads_within_the_tie_threshold():
     assert U.at_ceiling(opt, NS(best=NS(score=98.3), yardstick=_yard()))
     assert not U.at_ceiling(opt, NS(best=NS(score=95.0), yardstick=_yard()))
     assert not U.at_ceiling(opt, NS(best=None, yardstick=_yard()))
-
-
-def test_the_ceiling_card_says_stop_and_never_widen(monkeypatch):
-    monkeypatch.setattr(U, "_say", lambda o, t: t)
-    opt = NS(pending_batch=[], pending_batch_no=None, next_batch_no=lambda: 11,
-             utility_ceiling=lambda: 100.0)
-    step = insights.NextStep("close", binding=insights.Binding("highest", "Water", "Water"))
-    facts = NS(next=step, best=NS(score=99.2, formulation=21), yardstick=_yard())
-    card = U.next_card(opt, facts)
-    assert card.word == wording.CARD_CEILING and card.lines == []
-    assert wording.answer_line(wording.CEILING_HEAD, wording.CEILING_TAIL) == (
-        "**Within noise of the top score.** Stop, or change the target.")
-    # Round 2: the gap and the threshold in numbers, and the noisy-perfect score.
-    tip = wording.ceiling_help("99.2", "100", "0.8", "2.3", "98.4", True,
-                               ["Water's Highest (42 g)"])
-    assert "Water's Highest (42 g)" in tip
-    assert "Assumes results repeat within about 1 point until Repeats measure it." in tip
 
 
 def test_widening_names_every_limit_and_a_moved_pair():
@@ -252,41 +220,6 @@ def _rows():
             r("Thickness", 13, 12.5, 13)]
 
 
-def test_target_moves_and_answer_line(monkeypatch):
-    monkeypatch.setattr(U, "target_rows", lambda opt: _rows())
-    monkeypatch.setattr(U, "_say", lambda o, t: t)
-    assert [U.target_move(r)[0] for r in _rows()] == ["onto", "onto", "stayed", "away"]
-    assert U.target_answer(None) == "2 moved onto target, 1 stayed on target, 1 moved 0.5 away."
-    assert wording.STORY_TARGET_TITLE == "Start vs best, against target"
-
-
-def test_target_chart_colours_segments_and_never_hides_the_start(monkeypatch):
-    # Slim Review (re-pinned): target_rows takes the slider Round's best.
-    monkeypatch.setattr(U, "target_rows", lambda opt, best=None: _rows())
-    monkeypatch.setattr(U, "story_start", lambda opt: (0, 1))
-    monkeypatch.setattr(U, "_say", lambda o, t: t)
-    opt = NS(best_index=lambda: 1)
-    spec = U.target_chart(opt).to_dict()
-    layers = spec["layer"]
-    datasets = spec["datasets"]
-    joins = next(v for v in datasets.values() if v and "t0" in v[0] and "what" in v[0])
-    kinds = {j["what"] for j in joins}
-    assert kinds == {wording.TARGET_KEY_CLOSER, wording.TARGET_KEY_AWAY}
-    assert any(j["note"] == wording.TARGET_AWAY_LABEL for j in joins)
-    # The target a diamond, the start a ring larger than the best's dot.
-    pts = [l for l in layers if isinstance(l.get("mark"), dict) and l["mark"]["type"] == "point"]
-    sizes = {l["mark"].get("shape", "circle"): l["mark"].get("size") for l in pts
-             if l["mark"].get("filled") is False}
-    assert sizes["diamond"] > sizes["circle"]
-    best_dot = next(l for l in pts if l["mark"].get("filled") is True and l["mark"].get("size") == 70)
-    assert best_dot
-    # Tangy: start = best = target; its start point is still drawn.
-    drawn = [p for v in datasets.values() for p in v
-             if isinstance(p, dict) and p.get("k") == 2 and "tip" in p]
-    # Round 2: the start's legend reads "Start (Round 1's best)".
-    assert {p["what"] for p in drawn} >= {"Start (Round 1's best)", wording.BEST_SO_FAR_COLUMN}
-
-
 # ------------------------------------------------------------------ #
 #  Range notation; Results' flags
 # ------------------------------------------------------------------ #
@@ -386,9 +319,6 @@ def test_show_as_lines_is_gone():
 #  Page order (a synthetic project through the app)
 # ------------------------------------------------------------------ #
 
-def test_section_order_constant():
-    assert U.SECTION_ORDER == ("progress", "next", "predictions")
-
 
 @pytest.fixture(scope="module")
 def line_a(tmp_path_factory):
@@ -402,33 +332,6 @@ def line_a(tmp_path_factory):
             yield _open(D.LINE_A), D.load(D.LINE_A)
     finally:
         os.chdir(here)
-
-
-def test_the_page_reads_in_the_ruled_order(line_a):
-    from tests.test_review_cards import _leaves, _text
-    at, opt = line_a
-    say = lambda t: wording.for_project(opt, t)  # noqa: E731
-    seen = []
-    for el, folds, _ in _leaves(at.tabs[3]):
-        text = _text(el)
-        if el.type == "markdown" and text.startswith("#### "):
-            seen.append(text[5:])
-        elif el.type == "markdown" and text == f"**{say(wording.FORECAST_CHECK_TITLE)}**":
-            seen.append("Forecast check")
-        elif el.type == "expander" and not folds:
-            seen.append(el.label)
-    heads = [say(wording.Q2_TITLE), say(wording.Q5_TITLE)]
-    assert seen[:2] == heads
-    rest = seen[2:]
-    # Slim Review (re-pinned): no model section of its own; the Forecast
-    # check holds its verdict line and, in a closed fold, its chart; then
-    # What have we tried? and the profiler, both closed.
-    model = say(wording.FORECAST_CHECK_TITLE)
-    assert say(wording.LEARNED_TITLE) not in rest
-    assert rest[:2] == [model, say(wording.LEARNED_DETAILS_TITLE)]
-    assert rest[-1] == say(wording.FOLD_METHOD)
-    # No toggle left on the tab.
-    assert not [t for t in at.tabs[3].toggle]
 
 
 def test_review_tooltips_are_about_120_words(line_a):
@@ -448,41 +351,3 @@ def test_review_tooltips_are_about_120_words(line_a):
 #  Follow-up (owner): the stop signal after a rise too
 # ------------------------------------------------------------------ #
 
-def test_the_ceiling_stop_fires_on_a_rising_round(monkeypatch):
-    monkeypatch.setattr(U, "_say", lambda o, t: t)
-    opt = NS(pending_batch=[], pending_batch_no=None, next_batch_no=lambda: 7,
-             utility_ceiling=lambda: 100.0)
-    facts = NS(next=insights.NextStep("rising", assumed=False),
-               best=NS(score=98.3, formulation=16), yardstick=_yard())
-    assert U.ceiling_stop(opt, facts)
-    card = U.next_card(opt, facts)
-    assert card.word == wording.CARD_CEILING and card.lines == []
-    # The "?" says what a further Round can and cannot show.
-    tip = U.ceiling_tip(opt, facts)
-    assert wording.CEILING_MEASURE in tip and _words(wording.brief(tip)) <= wording.TOOLTIP_WORDS
-    # Round 2: what one new result can and cannot show, said exactly.
-    # Sceptic review (2026-10-14), re-pinned: no advice to move a target to
-    # chase a measurement; On target says which are beyond their noise.
-    assert wording.CEILING_MEASURE == (
-        "A single new result can't be told apart from this best in the Overall score; a "
-        "single measurement still can (On target says which are beyond their noise).")
-    # Below the threshold, Rising keeps Make Round 7.
-    facts.best = NS(score=95.0, formulation=10)
-    assert not U.ceiling_stop(opt, facts)
-    assert U.next_card(opt, facts).word == wording.card_make(7)
-    # The misses row: the stop, its Repeat request kept under it.
-    facts.best = NS(score=99.2, formulation=21)
-    facts.next = insights.NextStep("misses")
-    card = U.next_card(opt, facts)
-    assert card.word == wording.CARD_CEILING
-    assert card.lines == [(wording.card_noise_repeat(21), False)]
-    # A disagreeing Repeat (check the panel first), or a Round still open,
-    # is never replaced.
-    facts.next = insights.NextStep("repeat")
-    assert not U.ceiling_stop(opt, facts)
-    facts.next = insights.NextStep("rising")
-    monkeypatch.setattr(U, "open_rows", lambda o: [{"formulation": 22}])
-    opt.pending_batch = [{"formulation": 22}]
-    assert not U.ceiling_stop(opt, facts)
-    for text in (wording.CEILING_MEASURE, wording.CEILING_SETUP_HELP):
-        assert not any(p.search(text) for p in _BANNED), text

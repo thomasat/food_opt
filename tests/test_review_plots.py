@@ -39,16 +39,13 @@ def _specs(opt, computed):
     """{name: spec} for every chart the Review and Make a round tabs draw."""
     fitted, checks = computed["fitted"], computed["checks"]
     out = {}
-    facts = types.SimpleNamespace(checks=checks)
-    out["spark_predictions"] = U.spark_chart(opt, facts, "predictions")
-    out["spark_progress"] = U.spark_chart(opt, facts, "progress")
-    # Review four: the hero, the gain bars, Try one's path, Compare all,
-    # the pair chart and the triangle are gone. One-glance Review (owner,
-    # 2026-10-14): the search path and the profiler are gone too; the
-    # Forecast check's details draw the forecast against measured chart.
-    out["progress"] = U.progress_chart(opt)
-    out["mvp"] = U.measured_vs_predicted_chart(opt, checks)
-    out["forecast"] = U.forecast_chart(opt, [c for c in checks if c.name == insights.SCORE])
+    # Review v3: Best so far, Best so far vs targets and Amounts in the top
+    # formulations (the sparklines, the forecast and measured-vs-predicted
+    # charts are gone); Make a round's map.
+    view = U.round_view(opt)
+    out["improving"] = U.improving_chart(opt)
+    out["targets"] = U.targets_chart(opt, view)
+    out["amounts"] = U.amounts_chart(opt, view)
     values = bo_views.map_values(opt, bo_views.next_model(opt))
     picks = [{"mean": m, "sd": s, "no": str(n)} for n, m, s in values.picks]
     tested = [{"mean": float(m), "sd": float(s), "no": n}
@@ -86,7 +83,10 @@ def _words(text):
     return len([w for w in re.sub(r"[^\w%' ]", " ", text).split() if w])
 
 
-TITLED = ["spark_predictions", "spark_progress", "progress", "mvp", "map"]
+# The Review's charts are titled by the heading drawn above each (the panel's
+# **title** lines); Make a round's map carries its own.
+TITLED = ["map"]
+REVIEW = ["improving", "targets", "amounts"]
 
 
 @pytest.mark.parametrize("name", TITLED)
@@ -99,11 +99,13 @@ def test_each_chart_has_a_short_title(specs, name):
 # Charts whose axes are drawn by design without titles: the sparklines
 # (Round labels only), the parallel coordinates (each axis named on top),
 # the triangle (corner labels), the change bars' names.
-_NO_Y_TITLE = {"spark_predictions", "spark_progress"}
-_NO_X_TITLE = {"spark_predictions", "spark_progress"}
+# The strip and the amounts tracks name each row on the y axis and their
+# ends in the plot; the amounts tracks have no x axis at all.
+_NO_Y_TITLE = {"targets", "amounts"}
+_NO_X_TITLE = {"amounts"}
 
 
-@pytest.mark.parametrize("name", sorted(TITLED + ["forecast"]))
+@pytest.mark.parametrize("name", sorted(TITLED + REVIEW))
 def test_axes_are_titled(specs, name):
     """Each drawn x and y axis has a title in at least one layer (a rule or
     label layer sharing the axis takes the title Vega-Lite merges in)."""
@@ -118,7 +120,7 @@ def test_axes_are_titled(specs, name):
         assert any(e.get("title") for e in encs), (name, ch)
 
 
-@pytest.mark.parametrize("name", sorted(TITLED + ["forecast"]))
+@pytest.mark.parametrize("name", sorted(TITLED + REVIEW))
 def test_every_encoded_colour_has_a_legend(specs, name):
     """A field on a colour channel is explained by a legend somewhere in the
     chart (a layer may repeat it with legend None, as the Best so far line's
@@ -137,7 +139,7 @@ def test_every_encoded_colour_has_a_legend(specs, name):
     assert used <= shown, (name, used - shown)
 
 
-@pytest.mark.parametrize("name", sorted(TITLED + ["forecast"]))
+@pytest.mark.parametrize("name", sorted(TITLED + REVIEW))
 def test_marks_have_tooltips_with_a_bo_term(specs, name):
     tips = []
     for unit in _units(specs[name]):
@@ -145,7 +147,10 @@ def test_marks_have_tooltips_with_a_bo_term(specs, name):
         if t:
             tips += t if isinstance(t, list) else [t]
     assert tips, name
-    assert any(t.get("title") == wording.PLOT_BO for t in tips), name
+    # Review v3: the score chart keeps the expert row; the strip and the
+    # amounts are measurements and limits only, their numbers in the tooltip.
+    if name in ("map", "improving"):
+        assert any(t.get("title") == wording.PLOT_BO for t in tips), name
 
 
 def _colours(spec):
@@ -173,16 +178,14 @@ def test_one_colour_per_meaning_across_charts(specs):
     ink = U.mark("bar_latest")[0].lower()
     orange = U.outline_colour().lower()
     blue = U.model_blue().lower()
-    # Best so far: ink, wherever it is drawn.
-    # (Review four: the hero, pair, gain, path and triangle charts are gone.)
-    for name in ("progress", "map", "forecast"):
-        assert ink in _colours(specs[name]), name
-    # This Round's suggestions: orange.
-    for name in ("map",):
+    # Best so far: the ink line; its own dots and labels blue (v3).
+    assert ink in _colours(specs["improving"]) and blue in _colours(specs["improving"])
+    # This Round's suggestions orange on the map; off target orange on the strip.
+    for name in ("map", "targets"):
         assert orange in _colours(specs[name]), name
-    # The model: blue (the forecast's 95 % range).
-    for name in ("forecast",):
-        assert blue in _colours(specs[name]), name
+    # The strip: blue on target; the amounts: no orange at all.
+    assert blue in _colours(specs["targets"])
+    assert orange not in _colours(specs["amounts"])
     # No default palette: every colour channel with a field has its range.
     for name, spec in specs.items():
         for unit in _units(spec):
@@ -190,22 +193,6 @@ def test_one_colour_per_meaning_across_charts(specs):
                 e = unit.get("encoding", {}).get(ch)
                 if isinstance(e, dict) and e.get("type") == "nominal" and "field" in e:
                     assert "range" in e.get("scale", {}), (name, ch, e)
-
-
-def test_the_band_says_what_it_is(specs):
-    assert "95 %" in wording.PLOT_BAND
-    # Round 2: "95 %" carries a non-breaking space, which str() escapes.
-    assert "95 %" in json.dumps(specs["forecast"], ensure_ascii=False)
-
-
-def test_a_zoomed_score_axis_says_so(specs):
-    """Line A's scores span under a quarter of 100: Q2's axis says zoomed
-    (review four: the hero this pinned is gone)."""
-    titles = [u["encoding"]["y"].get("title") for u in _units(specs["progress"])
-              if "y" in u.get("encoding", {})]
-    assert any(isinstance(t, str) and wording.PLOT_ZOOMED in t for t in titles), titles
-    assert U.zoomed("Score (of 100)", 0, 100, 100) == "Score (of 100)"
-    assert U.zoomed("Score (of 100)", 88, 91, 100) == f"Score (of 100, {wording.PLOT_ZOOMED})"
 
 
 def test_short_captions_and_withheld_reasons():
@@ -220,28 +207,6 @@ def test_short_captions_and_withheld_reasons():
     for text in (wording.PLOT_SPARK_WAIT, wording.PLOT_GAIN_WITHHELD,
                  *wording.HERO_HIDDEN.values()):
         assert _words(text) <= 10, text
-
-
-def test_a_sparkline_under_two_rounds_is_withheld_with_its_reason():
-    opt = D.load(D.SNACK)
-    assert U.spark_chart(opt, None, "progress") is None
-    # Review story 2: the strip draws no sparkline at all (the improving
-    # chart sits right under it); the builder stays, withheld as before.
-    src = open(U.__file__).read()
-    body = src[src.index("def _places"):src.index("def _next_body")]
-    assert "spark_chart" not in body and "_card_body" not in src
-
-
-def test_sparklines_name_their_rounds_and_the_95_aim(specs):
-    s = specs["spark_predictions"]
-    assert wording.PLOT_SPARK_TARGET in json.dumps(s, ensure_ascii=False)   # round 2: nbsp
-    xs = [u["encoding"]["x"] for u in _units(s) if "x" in u.get("encoding", {})
-          and u["encoding"]["x"].get("field") == "round"]
-    assert xs and all(x["axis"]["values"] for x in xs)
-    # The predictions line runs over the whole 0-100 %.
-    ys = [u["encoding"]["y"]["scale"]["domain"] for u in _units(s)
-          if u.get("encoding", {}).get("y", {}).get("field") == "inrange"]
-    assert ys and all(d == [0.0, 1.0] for d in ys)
 
 
 # Review critique (fix 5): the parallel coordinates' end labels went with the chart.

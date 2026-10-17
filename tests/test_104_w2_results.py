@@ -329,20 +329,3 @@ def test_the_callout_lands_above_the_grid_and_clears_on_a_tab_move(burger):
     assert SETUP_CALLOUT_KEY not in at.session_state
 
 
-def test_the_insights_button_goes_to_the_callout(monkeypatch):
-    """_setup_button: the label is kept for the callout and the move lands
-    on its slot, not the top of Set up."""
-    import ui_insights
-    script = """
-import streamlit as st
-import ui_insights
-ui_insights._setup_button("Change Pea protein's Highest on Set up")
-"""
-    at = AppTest.from_string(script)
-    at.run()
-    at.button[0].click()
-    at.run()
-    assert at.session_state[SETUP_CALLOUT_KEY] == "Change Pea protein's Highest on Set up"
-    assert at.session_state["_pending_tab"] == wording.TAB_SETUP
-    assert at.session_state[SCROLL_KEY] == "setup_callout"
-    assert ui_insights._setup_button.__doc__

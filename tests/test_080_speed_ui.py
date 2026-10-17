@@ -152,18 +152,6 @@ def test_with_too_few_scored_nothing_is_sent(stuck):
     assert stuck.sent == []
 
 
-def test_a_reopened_project_reads_its_cache_and_fits_nothing(five_rounds, monkeypatch):
-    monkeypatch.setenv("FOODOPT_INSIGHTS_CACHE", "1")
-    first = _open(_app(five_rounds.project_name), wording.TAB_INSIGHTS)
-    assert not first.exception
-    assert insights_cache.load(five_rounds.project_name).memo
-    monkeypatch.setattr(insights, "_fit_gp", lambda *a: pytest.fail("fitted again"))
-    monkeypatch.setattr(insights, "predicted_best", lambda *a: pytest.fail("searched again"))
-    again = _open(_app(five_rounds.project_name), wording.TAB_INSIGHTS)
-    assert not again.exception
-    assert _texts(again) == _texts(first)
-
-
 @pytest.mark.skip(reason=REVIEW_FOUR)
 def test_a_project_with_everything_cached_starts_no_workers(five_rounds, monkeypatch):
     monkeypatch.setenv("FOODOPT_INSIGHTS_CACHE", "1")
@@ -174,15 +162,6 @@ def test_a_project_with_everything_cached_starts_no_workers(five_rounds, monkeyp
     at = _open(_app(five_rounds.project_name), wording.TAB_INSIGHTS)
     assert not at.exception and started == []
     assert wording.PAIR_FOLD in _texts(at)
-
-
-def test_the_cache_holds_what_this_data_uses_and_no_more(five_rounds, monkeypatch):
-    monkeypatch.setenv("FOODOPT_INSIGHTS_CACHE", "1")
-    _open(_app(five_rounds.project_name), wording.TAB_INSIGHTS)
-    saved = insights_cache.load(five_rounds.project_name)
-    assert set(saved.memo) == {s.key for s in insights_jobs.plan(five_rounds)}
-    assert set(saved.rounds) <= set(insights.round_keys(five_rounds).values())
-    assert saved.best[0] == insights.setup_key(five_rounds)
 
 
 # ------------------------------------------------------------------ #

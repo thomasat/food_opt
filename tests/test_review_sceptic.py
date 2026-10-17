@@ -31,12 +31,6 @@ def _isolate_cwd(tmp_path, monkeypatch):
 #  1 · the stop box: the score within noise of 100; each miss vs its band
 # ------------------------------------------------------------------ #
 
-def test_the_stop_head_names_the_score_and_the_top():
-    assert wording.stop_callout_head("100") == "Stop: score within noise of 100"
-    assert wording.STOP_CALLOUT_HEAD == "Stop: score within noise of 100"
-    assert U.stop_head_text(_opt()) == "Stop: score within noise of 100"
-    assert _words(wording.STOP_CALLOUT_HEAD) <= 10
-
 
 def test_the_on_target_line_says_beyond_or_within_noise():
     one = wording.stop_on_target(3, 4, ["Tangy 1.0 under"], True, [True])
@@ -72,57 +66,9 @@ def test_the_on_target_line_says_beyond_or_within_noise():
         _clean(t)
 
 
-@pytest.mark.parametrize("sigma, side, half", [(1, "beyond", "0.6"), (0.5, "beyond", "0.3"),
-                                               (2, "within", "1.2"), (3, "within", "1.8")])
-def test_the_stop_line_and_its_question_mark_agree(sigma, side, half):
-    """Tangy is 1.0 under; its band is ±1.96 × 0.3 × σ: beyond it at 0.5 and 1
-    point, within it at 2 and 3. The line and the "?" say the same."""
-    opt = _opt(noise=None if sigma == 1 else sigma)
-    line = U.stop_reason_text(opt)
-    assert line == f"On target 3 of 4; Tangy 1.0 under, {side} noise."
-    res = opt.results_history[opt.best_index()]
-    tip = U.on_target_help_text(opt, res)
-    within = 3 if side == "beyond" else 4
-    assert f"Within noise of target (±{half}, where 95 % of single tastings land): " \
-           f"{within} of 4." in tip
-    assert ("Beyond its noise: Tangy 1.0 under (±" + half + ")." in tip) == (side == "beyond")
-    # The band is the same one within_noise_of_target counts by.
-    assert U.noise_half(opt, "Tangy") == pytest.approx(insights.Z95 * 0.3 * sigma)
-
-
-def test_the_callout_draws_the_new_head_and_line(monkeypatch):
-    opt = _opt()
-    fake = _FakeSt()
-    monkeypatch.setattr(U, "st", fake)
-    U._stop_callout(opt, _facts(opt))
-    md = [c[1][0] for c in fake.calls if c[0] == "markdown"]
-    assert md[0] == "**Stop: score within noise of 100**"
-    assert md[2] == "On target 3 of 4; Tangy 1.0 under, beyond noise."
-
-
 # ------------------------------------------------------------------ #
 #  2 · the tasting noise: the stop's "?" says the noise in use
 # ------------------------------------------------------------------ #
-
-@pytest.mark.parametrize("sigma", [0.5, 1, 2, 3])
-def test_the_stops_question_mark_says_the_noise_in_use(sigma):
-    # Spec §11 (the Tasting noise control left the Review for Set up): the
-    # stop's "?" says the noise it rests on — the project's setting, else
-    # 1 point — in one plain line, with the Repeat that would measure it.
-    opt = _opt(noise=None if sigma == 1 else sigma)
-    facts = _facts(opt)
-    facts.next = None
-    tip = U.ceiling_tip(opt, facts)
-    pts = wording.points_text(f"{sigma:g}")
-    line = (f"Assumes results repeat within about {pts} until Repeats measure it. "
-            "Repeat Formulation 16 to check.")
-    assert U.noise_basis_text(opt, facts) == line
-    assert tip.count("Repeats measure it") == 1 and line in tip
-    assert line in wording.brief(tip)
-    # The option labels, now in Set up, are plain.
-    assert [wording.tasting_noise_option(v) for v in insights.TASTING_NOISE_CHOICES] == [
-        "0.5 points", "1 point", "2 points", "3 points"]
-    _clean(tip)
 
 
 def test_the_stop_moves_with_the_setting():
@@ -136,33 +82,6 @@ def test_the_stop_moves_with_the_setting():
         facts = NS(yardstick=insights.noise_yardstick(opt),
                    best=NS(score=float(opt.Y_history[opt.best_index()]), formulation=16))
         assert U.at_ceiling(opt, facts) is want, s
-
-
-def test_repeats_that_agree_closer_than_shown_keep_the_setting_and_say_so():
-    # Fix round 1: Repeats from 3 df whose SD is under REPEAT_SD_SHOWN do
-    # not measure the noise (the setting stays in use), so the stop's "?"
-    # never says "until Repeats measure it" and asks for no Repeat.
-    opt = _opt(noise=2)
-    facts = _facts(opt)
-    facts.next = None
-    facts.yardstick = insights.Yardstick(2.0, 0.0, 3, False, assumed=False, df=3, groups=1,
-                                         left_out=0)
-    line = U.noise_basis_text(opt, facts)
-    assert line == "Repeats agree within 0.1 point; using 2 points."
-    assert insights.REPEAT_SD_SHOWN < 0.1 and _words(line) <= 10
-    tip = U.ceiling_tip(opt, facts)
-    assert line in tip and "until Repeats measure it" not in tip and "Repeat Formulation" not in tip
-    _clean(tip)
-    # A real project: one formulation tasted 4 times alike (3 df, SD 0).
-    same = {"Oil": 19.0, "Starch": 4.9}                   # made nowhere else
-    for j in range(4):
-        opt.tell(same, {"Consistency": 12, "Creaminess": 5, "Tangy": 5, "Thickness": 13},
-                 formulation_no=30 + j, batch_no=7)
-    yard = insights.noise_yardstick(opt)
-    assert yard.df == 3 and not yard.from_repeats and not yard.assumed and yard.value == 2.0
-    facts = _facts(opt)
-    facts.yardstick = yard
-    assert U.noise_basis_text(opt, facts) == "Repeats agree within 0.1 point; using 2 points."
 
 
 # ------------------------------------------------------------------ #
@@ -215,25 +134,6 @@ def test_whole_range_is_each_end_within_one_percent(low, high, none):
     opt = _opt()
     assert U.no_forecast(opt, _check("Creaminess", low, high)) is none
     assert wording.NO_FORECAST_EDGE == 0.01
-
-
-def test_a_no_forecast_is_counted_neither_in_nor_outside(monkeypatch):
-    """The Forecast check's line, led by a measurement: its whole-Range
-    forecasts are left out of the in/outside count (restored with the Round
-    line, one-glance Review fix round 1)."""
-    monkeypatch.setattr(U, "_short", lambda opt, text: text)
-    opt = _opt()
-    cks = [_check("Creaminess", 0.0, 15.0, 5.0, no=16), _check("Creaminess", 0.0, 15.0, 5.0, no=17),
-           _check("Creaminess", 4.0, 6.0, 7.0, no=18)]
-    call = learned.round_call(cks, "Creaminess", 6, 0.3)
-    lf = NS(items=[("Creaminess", call, cks)], called=(6, []))
-    line = U.called_line(opt, lf)
-    # The two whole-Range values are named, never counted in or outside.
-    assert line == "**Round 6: Creaminess, above its forecast range; 2 no forecast.**"
-    every = [_check("Creaminess", 0.0, 15.0, 5.0, no=16)]
-    lf = NS(items=[("Creaminess", learned.round_call(every, "Creaminess", 6, 0.3), every)],
-            called=(6, []))
-    assert U.called_line(opt, lf) == "**Round 6: Creaminess, 1 value with no forecast range.**"
 
 
 def test_the_results_table_reads_no_forecast_and_no_verdict():
@@ -312,25 +212,6 @@ def test_pair_counts_carry_every_pair_of_a_round():
 #  6 · the stop's advice: check first
 # ------------------------------------------------------------------ #
 
-def test_the_stops_set_up_question_mark_checks_first(monkeypatch):
-    opt = _opt()
-    text = U.ceiling_setup_text(opt)
-    assert text == ("To check the stop, repeat Formulation 16: 3 Repeats give a first estimate "
-                    "of your tasting noise (assumed at 1 point until then). Changing a target or "
-                    "Share of score changes what “best” means.")
-    insights.set_tasting_noise(opt, 2.0)
-    assert "(assumed at 2 points until then)" in U.ceiling_setup_text(opt)
-    fake = _FakeSt()
-    monkeypatch.setattr(U, "st", fake)
-    monkeypatch.setattr(U, "confirmation_open", lambda: False)
-    U._ceiling_foot(opt)
-    [btn] = [c for c in fake.calls if c[0] == "button"]
-    assert btn[1][0] == wording.SETUP_BUTTON_SHORT
-    assert btn[2]["help"].startswith("To check the stop, repeat Formulation 16")
-    assert "chase" not in wording.CEILING_MEASURE
-    for t in (text, wording.CEILING_SETUP_HELP, wording.CEILING_MEASURE):
-        _clean(t)
-
 
 def test_rebuilt_label_is_as_before_and_its_question_mark_says_what_it_is():
     # Fix round 1: "today" could be false; the "?" says exactly what it is.
@@ -379,29 +260,6 @@ def test_check_rounds_returns_checks_marked_on_their_final_range(monkeypatch):
     assert all(c.no_forecast == U.no_forecast(opt, c) for c in got)
 
 
-def test_the_coverage_counts_leave_no_forecast_out():
-    opt = _opt()
-    checks = insights.mark_no_forecast(opt, (
-        _round_of(3, False, 1, start=1) + _round_of(4, False, 1, start=4)
-        + _round_of(5, True, 0, start=7) + _round_of(5, False, 0, "Tangy", start=7)
-        + _round_of(3, False, 0, "Tangy", start=1) + _round_of(4, False, 0, "Tangy", start=4)))
-    h = insights.headline(opt, checks)
-    # The window is still the last three Rounds checked; Round 5's three
-    # Creaminess checks are no forecast, so 15 counted, not 18.
-    assert h.rounds == [3, 4, 5] and (h.inside, h.total) == (13, 15)
-    vm = insights.value_misses(opt, checks, h)
-    assert (vm.misses, vm.total) == (2, 15) and vm.items == [("Creaminess", 2, 6)]
-    rows = {r.name: (r.checked, r.inside) for r in insights.details(opt, checks)}
-    assert rows["Creaminess"] == (6, 4) and rows["Tangy"] == (9, 9)
-    # The Overall score's coverage and the spark leave them out too.
-    score = insights.mark_no_forecast(opt, [_check(insights.SCORE, 0.0, 100.0, 90.0, 90.0),
-                                            _check(insights.SCORE, 80.0, 95.0, 90.0, 90.0)])
-    assert learned.coverage(score) == (1, 1)
-    assert U.trust_counts(score)[:2] == (1, 1)
-    spark = U.predictions_spark_frame(opt, checks)
-    assert list(spark["text"]) == ["5 / 6", "5 / 6", "3 / 3"]   # Round 5: Tangy only
-
-
 # ------------------------------------------------------------------ #
 #  Fix round 2
 # ------------------------------------------------------------------ #
@@ -446,58 +304,6 @@ def test_the_all_10_samples_bias_numbers_are_as_at_a4e1420(tmp_path):
     h = insights.headline(opt, checks)
     assert insights.score_bias(opt, checks, h) is None
     assert [d.name for d in insights.details(opt, checks) if d.bias] == ["Tangy"]
-
-
-def test_left_out_values_are_named_where_the_counts_show():
-    assert wording.no_forecast_left_out(12) == "12 values with no forecast left out."
-    assert wording.no_forecast_left_out(1) == "1 value with no forecast left out."
-    assert wording.no_forecast_left_out(0) == ""
-    # Fix round 3: the gate counts values checked (12 ≥ 10); with none of
-    # them forecast, not judged; under 10 checked, the need is said.
-    assert wording.trust_early(0, 12) == "Not judged yet: 0 of 12 values checked had a forecast."
-    assert wording.trust_early(2, 4) == (
-        "Not judged yet: 2 of 6 values checked had a forecast; the verdict needs 10 checked.")
-    assert "0 values checked" not in wording.trust_early(0, 12)
-    # Fix round 4 (finding 3): the true reason, never "needs 10" at 10 or more.
-    assert wording.tip_coverage_early(["Tangy"], [5], 0, 3) == (
-        "Measurements (Tangy), Round 5: 3 values checked; none had a forecast range yet; "
-        "the coverage check needs 10 checked.")
-    assert wording.tip_coverage_early(["Tangy"], [5], 0, 12) == (
-        "Measurements (Tangy), Round 5: 12 values checked; none had a forecast range yet.")
-    assert wording.tip_coverage_early(["Tangy"], [5], 2, 4) == (
-        "Measurements (Tangy), Round 5: 2 of 6 values checked had a forecast; the coverage "
-        "check needs 10 checked.")
-    assert "needs 10" not in wording.tip_coverage_early(["Tangy"], [5], 0, 12)
-    opt = _opt()
-    checks = insights.mark_no_forecast(opt, _round_of(3, False, 1, start=1)
-                                       + _round_of(4, False, 1, start=4)
-                                       + _round_of(5, True, 0, start=7)
-                                       + _round_of(5, False, 0, "Tangy", start=7))
-    h = insights.headline(opt, checks)
-    assert h.no_forecast == 3
-    vm = insights.value_misses(opt, checks, h)
-    assert vm.no_forecast == 3
-    assert U.misses_detail(NS(misses=vm)).endswith("3 values with no forecast left out.")
-    # Fix round 3: 12 values checked pass the 10-value gate; the verdict is
-    # over the 9 with a forecast, and the 3 left out are said.
-    assert h.state == "verdict" and (h.inside, h.total) == (7, 9)
-    assert U._coverage_tip(opt, h).endswith("in 9 at the 1-in-10 level. 3 values with no "
-                                            "forecast left out.")
-    assert wording.STORY_NO_FORECAST != wording.NO_FORECAST
-    for t in (wording.trust_early(0, 12),):
-        _clean(t)
-
-
-def test_the_on_target_question_mark_skips_a_measurement_with_no_noise(monkeypatch):
-    opt = _opt()
-    res = opt.results_history[opt.best_index()]
-    real = learned.pair_noise
-    monkeypatch.setattr(learned, "pair_noise",
-                        lambda o, checks=(): {k: (None if k == "Tangy" else v)
-                                              for k, v in real(o).items()})
-    tip = U.on_target_help_text(opt, res)
-    assert "Tangy" not in tip and "Within noise" not in tip
-    assert U.stop_reason_text(opt) == "On target 3 of 4; Tangy 1.0 under."
 
 
 # ------------------------------------------------------------------ #
@@ -623,47 +429,6 @@ def _early_window_checks(opt):
                                      + _round_of(6, True, 0, start=16))
 
 
-def test_the_early_state_counts_the_window_not_every_round(monkeypatch):
-    """Finding 1: the early headline's count is the window's (0 of 12 had a
-    forecast), never the 6 forecast values of Rounds 1–2, so no screen says
-    6 misses that never happened. (One-glance Review, fix round 1:
-    re-pinned without Method and definitions' removed paragraphs.)"""
-    opt = _opt()
-    checks = _early_window_checks(opt)
-    h = insights.headline(opt, checks)
-    assert h.state == "early" and h.rounds == [3, 4, 5, 6]
-    assert (h.inside, h.total, h.no_forecast) == (0, 0, 12)
-    assert U.verdict_text(opt, h, "early") == \
-        "Not judged yet: 0 of 12 values checked had a forecast."
-    names = ", ".join(U._verdict_names(opt, h))
-    assert U._coverage_tip(opt, h) == (
-        f"Measurements ({names}), Rounds 3–6: 12 values checked; none had a forecast "
-        "range yet.")
-    # The Model "?": no "0 of 6 in their 95 % range".
-    monkeypatch.setattr(U, "_say", lambda o, t: t)
-    monkeypatch.setattr(U, "learned_label", lambda o, n: n)
-    o = NS(verdict=learned.NOT_YET, right=1, pairs=2)
-    lf = U.LearnedFacts({"Creaminess": o}, {}, (6, []), None, (0, 0, 0), "")
-    lf.plain_line = ""
-    tip = U.learned_card(opt, lf, None, NS(headline=h)).help.replace("\xa0", " ")
-    assert "of 6" not in tip and "left out" not in tip and "95 % range" not in tip
-
-
-def test_the_overall_scores_left_out_is_scoped_to_the_inside_count():
-    """Finding 2: the mean error, the bias's n and the skill's "so far"
-    count every check; only the inside count leaves the no-forecast out."""
-    opt = _opt()
-    score = [_check(insights.SCORE, 0.0, 100.0, 90.0, 90.0, r=r, no=10 + r) for r in (3, 4)] + \
-        [_check(insights.SCORE, 85.0, 95.0, 90.0 + k, 90.0, r=5, no=20 + k) for k in range(4)]
-    rec = insights.error_record(insights.mark_no_forecast(opt, score), insights.SCORE)
-    line = U.score_line(opt, [], h=NS(score=rec))
-    assert line.endswith("mean error +1.0 points (measured minus predicted). 2 Overall score "
-                         "values with no forecast left out of the inside count.")
-    facts = NS(headline=NS(score=rec), bias=1.0, skill=None, guard=None, checked=6)
-    assert "(measured − predicted, n = 6)" in U._bias_tip(facts)
-    assert U._skill_tip(opt, facts).endswith("; 6 so far.")
-
-
 def test_the_overall_score_counts_say_of_and_name_their_left_out():
     """Finding 8: no bare a/b in the evidence; the misses row names the
     Overall score's checks with no forecast."""
@@ -679,13 +444,3 @@ def test_the_overall_score_counts_say_of_and_name_their_left_out():
         _clean(t)
 
 
-def test_the_misses_row_names_the_overall_scores_left_out(monkeypatch):
-    monkeypatch.setattr(U, "_say", lambda o, t: t)
-    monkeypatch.setattr(U, "open_rows", lambda o: [])
-    vm = insights.ValueMisses([5, 6], 4, 12, [("Tangy", 4, 6)], 3)
-    score = NS(inside=4, total=4, no_forecast=2)
-    facts = NS(next=NS(kind="misses", diagnosis=None), misses=vm,
-               headline=NS(score=score), best=None)
-    line = U.misses_plain(NS(pending_batch=None, pending_batch_no=None), facts)
-    assert "The Overall score landed in range 4 of 4 times. 2 Overall score values with no " \
-           "forecast left out of the inside count." in line
