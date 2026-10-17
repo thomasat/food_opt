@@ -194,4 +194,3 @@ def test_no_wording_string_says_more_settings():
     for name, value in vars(wording).items():
         if isinstance(value, str) and name.isupper():
             assert "More settings" not in value, name
-    assert wording.MORE_SETTINGS_EXPANDER in wording.SAMPLE_PROVENANCE_HELP

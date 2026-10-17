@@ -232,8 +232,7 @@ SAMPLE_PROVENANCE_HELP = (
     "and tricalcium phosphate (0.31 %) were fixed in every formulation, so "
     "they are not listed. Each result is the median of a trained panel of "
     "five; no Repeats. Each formulation was mixed, cooked at 90 °C for 8 min "
-    "and chilled. The budget was fixed at 10 Rounds of 3. Tasting noise is "
-    f"assumed at 1 point unless you set it in Set up › {MORE_SETTINGS_EXPANDER}.")
+    "and chilled. The budget was fixed at 10 Rounds of 3.")
 
 
 # The project-level Method: one text area in Preparation and records, printed on the

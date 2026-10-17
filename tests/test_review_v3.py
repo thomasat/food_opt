@@ -444,3 +444,14 @@ def test_a_short_top_key_keeps_its_names_inline(r6):
     assert "Top 4 (F16, F17, F10, F13)" in text
     assert "within 5 points of the best (?)" not in text
 
+
+def test_the_advanced_noise_setting_says_no_tasting_noise_or_stop():
+    """The expert Noise setting stays (owner decision); nothing around it,
+    nor the sample's "?", speaks of tasting noise or the removed stop rule,
+    or points to a Tasting noise control Set up no longer has."""
+    said = " ".join([wording.NOISE_LABEL, *wording.NOISE_OPTIONS,
+                     wording.FIXED_TINY_NOISE_CAPTION, wording.STANDARD_VS_EXPERT_CAPTION,
+                     wording.HOW_FORMULATIONS_CHOSEN_LABEL, wording.SAMPLE_PROVENANCE_HELP])
+    assert wording.NOISE_LABEL == "Noise"
+    for word in ("tasting noise", "stop", "when to stop"):
+        assert word not in said.lower(), word
