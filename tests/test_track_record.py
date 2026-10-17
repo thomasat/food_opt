@@ -66,7 +66,7 @@ def test_the_header_and_the_gate_count_the_same_scored_formulations(burger, comp
         f"Formulation {complete + 1} is waiting for Juiciness and is not used yet."), captions
     # Said once (Task 6), by the Predictions status line since ftue W1.
     gates = [m.value for m in at.tabs[3].markdown if "once 5 formulations have results" in m.value]
-    assert gates == [wording.status_line(wording.STATUS_PREDICTIONS, wording.pred_gate(complete), wording.PREDICTIONS_WORDS["not_yet"])], gates
+    assert gates == [], gates
 
 
 # ------------------------------------------------------------------ #
@@ -100,15 +100,6 @@ def test_the_score_record_needs_five_fully_measured_checks_in_the_headline_round
     partial = [_check(insights.SCORE, full=False)] * 5
     assert insights.score_record(partial, [3]) is None
     assert insights.SCORE_RECORD_MIN == 5
-
-
-def test_the_score_record_line_says_which_way():
-    """The Overall score's line, with its sign convention (03 §5.2)."""
-    assert wording.score_gap_line(7, 8, -1.84).endswith(
-        "mean error −1.8 points (measured minus predicted).")
-    assert wording.score_gap_line(7, 8, 0.6).endswith(
-        "mean error +0.6 points (measured minus predicted).")
-    assert wording.score_gap_line(8, 8, 0.02).endswith("mean error 0.0 points.")
 
 
 def test_the_headline_carries_the_record_for_every_round_checked():
@@ -226,32 +217,5 @@ def verdict_project():
     widen the Overall score's range at 2.0 too, and every range wide is a
     verdict of its own."""
     return _burger(rounds=6, noise=1.5)
-
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_the_tab_shows_the_verdict_the_wide_line_and_the_record(verdict_project):
-    """Review I-2: the verdict state on screen — the header's plain range
-    sentence, the past-tense verdict with its wide-range line, and the
-    Overall score's own record."""
-    opt = verdict_project
-    h = insights.headline(opt, insights.check_rounds(opt))
-    assert h.state == "verdict" and h.score is not None
-    assert h.wide == ["Firmness", "Juiciness"]
-    at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
-    assert not at.exception
-    tab = at.tabs[3]
-    captions = [c.value for c in tab.caption]
-    assert "Likely range" not in captions[0], captions[0]
-    text = " ".join(m.value for m in tab.markdown)
-    state = insights.verdict_state(opt, h, insights.check_rounds(opt))
-    verdict = ui_insights.verdict_text(opt, h, state)
-    assert verdict.endswith(" " + wording.wide_line("Firmness and Juiciness")), verdict
-    assert verdict in text, text
-    # 0.8.0 e2e fixes (review I1): the line spans every Round checked and
-    # names them; a steady bias is its own line (steady_bias_text).
-    assert wording.score_gap_line(h.score.inside, h.score.total, h.score.mean_miss, "",
-                                  n=h.score.total, rounds=h.score.rounds) in text
-    bias = ui_insights.steady_bias_text(opt, insights.check_rounds(opt))
-    assert bias == "" or bias in text
 
 

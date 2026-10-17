@@ -35,7 +35,7 @@ from food_bo import FoodOptimizer
 from tests import demo_projects as D
 from tests.test_app_ui import APP_PATH
 from tests.test_food_bo import _BANNED
-from tests.test_review_cards import _leaves, _text
+from tests.review_screens import _leaves, _text
 
 _n = itertools.count(1)
 
@@ -192,15 +192,6 @@ def _changes_opt(rows=CHANGE_ROWS):
 #  2 · The model's verdicts in the Forecast check
 # ------------------------------------------------------------------ #
 
-def _lf(**verdicts):
-    """LearnedFacts with hand-made orderings: name -> (right, pairs, verdict)."""
-    orderings = {}
-    for name, (right, pairs, verdict) in verdicts.items():
-        name = insights.SCORE if name == "score" else name.replace("_", " ")
-        orderings[name] = learned.Ordering(name, right=right, pairs=pairs, verdict=verdict,
-                                           tested=len(verdicts))
-    return U.LearnedFacts(orderings, {}, (None, []), None, (0, 0, 0), "")
-
 
 @pytest.fixture(scope="module")
 def scored(tmp_path_factory):
@@ -256,17 +247,5 @@ def _stub_opt(tight=True):
 # ------------------------------------------------------------------ #
 #  Word limits and banned words
 # ------------------------------------------------------------------ #
-
-def test_word_limits():
-    assert _words(wording.replay_label(10, 10)) <= 5      # a label
-    for label in (wording.REPLAY_PLAY, wording.REPLAY_STOP, wording.REPLAY_BACK,
-                  wording.REPLAY_EARLIER, wording.REPLAY_LATEST):
-        assert _words(label) <= 5
-    assert _words(wording.replay_play_help(1, 10)) <= 8
-    assert _words(wording.changes_title(10)) <= 5
-    assert _words(wording.LEARNED_DETAILS_TITLE) <= 5
-    assert _words(wording.STORY_IMPROVING_CAPTION) <= 8
-    assert _words(wording.REPLAY_HELP) <= wording.TOOLTIP_WORDS
-    assert _words(wording.learned_verdicts_help(5)) <= wording.TOOLTIP_WORDS
 
 

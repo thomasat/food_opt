@@ -121,17 +121,6 @@ def _assert_clean(*strings):
 #  Task 3: the expander and "Can you have both?"
 # ------------------------------------------------------------------ #
 
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_more_charts_is_collapsed_after_the_answers_and_before_how(insights_scored):
-    at = _open_insights(_app())
-    assert not at.exception
-    labels = [e.label for e in at.tabs[3].expander]
-    trade = next(lab for lab in labels if lab == wording.PAIR_FOLD)       # charts proto
-    assert labels.index(trade) == labels.index(wording.FOLD_METHOD) - 1
-    assert _more(at).proto.expanded is False
-    md, _ = _tab_text(at)
-    assert md.index(f"##### {wording.Q_NEXT}") < md.index(f"##### {wording.Q_PAIR}")
-
 
 @pytest.mark.skip(reason=REVIEW_FOUR)
 def test_can_you_have_both_opens_on_the_two_largest_shares(insights_scored):
@@ -589,23 +578,6 @@ def test_triangle_corners_on_the_page():
 
 
 @pytest.mark.skip(reason=REVIEW_FOUR)
-def test_triangle_chart_keeps_its_shape_and_names_its_corners(mixture_scored):
-    opt = mixture_scored
-    mix, preds = _mix_parts(opt)
-    spec = ui_insights.mixture_chart(opt, mix, preds, 7).to_dict()
-    enc = next(l for l in spec["layer"] if l["mark"]["type"] == "circle")["encoding"]
-    xd, yd = enc["x"]["scale"]["domain"], enc["y"]["scale"]["domain"]
-    # One unit is the same length both ways, whatever the region's shape.
-    assert spec["width"] / (xd[1] - xd[0]) == pytest.approx(
-        spec["height"] / (yd[1] - yd[0]), rel=0.02)
-    assert enc["x"]["axis"] is None and enc["y"]["axis"] is None
-    texts = [r["t"] for rows in spec["datasets"].values() for r in rows if "t" in r]
-    for text in _corner_texts(mix):
-        assert text in texts
-    assert wording.start_formulation(7) in texts
-
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
 def test_corner_labels_never_mix_decimal_counts(mixture_scored):
     """One corner's own amount can round to a whole number (10 g) by
     `_num`'s own rule (one decimal from 10) while another needs none (9 g):
@@ -682,33 +654,6 @@ def test_the_corner_and_start_labels_are_grey_not_black(mixture_scored):
     texts = [l for l in spec["layer"] if _mark_type(l) == "text" and not l["mark"].get("stroke")]
     assert len(texts) == 4          # the three corners plus the start's own label
     assert all(l["mark"].get("color") == ui_insights.muted() for l in texts)
-
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_decorative_layers_carry_no_x_y_tooltip_and_the_ring_has_one(mixture_scored):
-    """The outline and the text layers only draw the frame; without an
-    explicit tooltip they would otherwise leak raw X/Y on hover. The start
-    ring gets a real one: the formulation number and its three amounts, the
-    same fields (and titles) as the grid's own tooltip."""
-    opt = mixture_scored
-    mix, preds = _mix_parts(opt)
-    spec = ui_insights.mixture_chart(opt, mix, preds, 7).to_dict()
-    for layer in spec["layer"]:
-        if _mark_type(layer) in ("line", "text"):
-            assert layer["mark"].get("tooltip") is False
-    ring = next(l for l in spec["layer"]
-                if _mark_type(l) == "point" and l["mark"].get("size") == 260)
-    tips = ring["encoding"]["tooltip"]
-    assert [t["field"] for t in tips] == ["no", "a0", "a1", "a2", "sum"]
-    assert tips[0]["title"] == wording.FORMULATION_CAP
-    own = insights.Prediction(71.4, 64.0, 79.2)
-    spec = ui_insights.mixture_chart(opt, mix, preds, 7, own).to_dict()
-    ring = next(l for l in spec["layer"]
-                if _mark_type(l) == "point" and l["mark"].get("size") == 260)
-    tips = ring["encoding"]["tooltip"]
-    assert [t["field"] for t in tips] == ["no", "a0", "a1", "a2", "sum", "pred"]
-    assert tips[-1]["title"] == wording.PREDICTED_SCORE_COLUMN
-    assert spec["datasets"][ring["data"]["name"]][0]["pred"] == ui_insights.score_text(own)
 
 
 @pytest.mark.skip(reason=REVIEW_FOUR)
@@ -953,7 +898,7 @@ def test_the_triangle_lines_go_through_the_projects_own_words(mixture_scored, mo
     for line in (wording.PAIR_FOLD, wording.Q_MIXTURE, wording.MIXTURE_PICK,
                  wording.mixture_caption(best_no), wording.MIXTURE_TESTED,
                  wording.MIXTURE_UNTESTED, wording.MIXTURE_BLOCKED,
-                 wording.start_formulation(best_no), wording.Q_PAIR, wording.PAIR_PICK,
+                 wording.Q_PAIR, wording.PAIR_PICK,
                  wording.pair_caption(["Firmness"]), wording.PAIR_BEST):
         assert line in said, line
 
@@ -1009,17 +954,6 @@ def _assert_offset_not_haloed(spec, label_layer):
     same_data = [l for l in spec["layer"] if _mark_type(l) == "text"
                  and l["data"] == label_layer["data"]]
     assert same_data == [label_layer]
-
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_the_start_label_is_offset_not_haloed(mixture_scored):
-    opt = mixture_scored
-    mix, preds = _mix_parts(opt)
-    spec = ui_insights.mixture_chart(opt, mix, preds, 7).to_dict()
-    [label] = [l for l in spec["layer"] if _mark_type(l) == "text"
-               and _layer_rows(spec, l)[0]["t"] == wording.start_formulation(7)]
-    assert label["mark"]["color"] == ui_insights.muted()
-    _assert_offset_not_haloed(spec, label)
 
 
 @pytest.mark.skip(reason=REVIEW_FOUR)

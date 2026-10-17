@@ -66,23 +66,6 @@ def test_make_a_round_with_no_complete_formulation_offers_no_best(all_waiting):
     assert wording.START_FROM_BEST_SO_FAR not in [b.label for b in at.button]
 
 
-@pytest.mark.skip(reason="review cards prototype: pins the old Review layout (status lines, Explored fold, header); reconcile at the final merge")
-def test_insights_with_no_complete_formulation(six_waiting):
-    """None of the six is scored, so the checks wait (0.8.0 review fixes,
-    Task 5 I-1): the header and the gate both count 0 scored."""
-    at = _app(wording.TAB_INSIGHTS)
-    assert not at.exception
-    captions = [c.value for c in at.tabs[3].caption]
-    assert captions[0] == "6 formulations are waiting for Juiciness.", captions
-    texts = [m.value for m in at.tabs[3].markdown]
-    # The gate, said by the Predictions status line since ftue W1.
-    assert wording.status_line(wording.STATUS_PREDICTIONS, wording.short_gate(0), wording.PREDICTIONS_WORDS["not_yet"]) in texts, texts
-    # "Where do you stand?" is not left empty (final review M-5).
-    texts = [m.value for m in at.tabs[3].markdown]
-    at_q = texts.index(f"##### {wording.Q_STAND}")
-    assert texts[at_q + 1] == wording.NO_COMPLETE_FORMULATION, texts
-
-
 # ---------------------------------------------------------------- Task 6
 
 

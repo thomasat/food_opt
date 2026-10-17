@@ -130,20 +130,6 @@ def _round6(score_meas=(98.33, 98.33, 91.67), cons_meas=(12, 12, 13)):
     return checks
 
 
-def _lf(opt, checks):
-    # Persona fixes 2: no noise here (every pair counts); the noise rule
-    # has its own tests (test_review_persona2).
-    orderings = learned.orderings(opt, checks, {})
-    r, calls = learned.called_it(opt, checks, 6, {})
-    score_call = learned.round_call(checks, insights.SCORE, 6)
-    named = [(insights.SCORE, score_call)] + calls
-    items = [(n, call, learned.round_checks(checks, n, 6)) for n, call in named]
-    mine = learned.round_checks(checks, insights.SCORE, 6)
-    landing = (sum(c.inside for c in mine), sum(c.measured > c.high for c in mine),
-               sum(c.measured < c.low for c in mine))
-    return U.LearnedFacts(orderings, {}, (r, calls), score_call, landing, "", items)
-
-
 def test_called_it_landing_words():
     assert wording.called_order([[16, 17], [18]]) == "F16, F17 above F18"
     assert wording.called_order([[1], [2], [3], [4]]) == "F1 top, F4 bottom"
@@ -152,19 +138,6 @@ def test_called_it_landing_words():
 # ------------------------------------------------------------------ #
 #  3-4. Progress, the score built
 # ------------------------------------------------------------------ #
-
-def test_progress_strip_and_answer_words():
-    assert wording.strip_progress_tail("98.3", "3.3") == "· best 98.3 (+3.3)"
-    # Review critique (owner's decision): the assumed noise said beside it.
-    assert wording.progress_rise_answer("95.0", "98.3", "3.3", "3.0") == \
-        "Best 95.0 → 98.3 (+3.3; needs 3.0 if tasting noise ≈ 1 point)"
-    assert wording.answer_line("Rising", wording.progress_rise_answer("95.0", "98.3", "3.3",
-                                                                       "3.0")) == \
-        "**Rising.** Best 95.0 → 98.3 (+3.3; needs 3.0 if tasting noise ≈ 1 point)."
-    # Round 2 (P1 #6): what 3.0 is, in one line.
-    need = wording.progress_need_plain("3.0", q=3)
-    assert need.startswith("3.0: the best of 3 new results must beat noise by this much.")
-    assert "about 1 point" in need and "no Repeats" in need
 
 
 def test_the_score_sentence_matches_the_apps_formula(tmp_path, monkeypatch):
@@ -183,49 +156,10 @@ def test_the_score_sentence_matches_the_apps_formula(tmp_path, monkeypatch):
 #  5. Results: the Predicted column
 # ------------------------------------------------------------------ #
 
-def test_results_round_view_has_predicted_beside_measured(plain):
-    opt = _Obj()
-    frame = U.round_predicted_frame(opt, _round6(), 6)
-    # Review critique (fix 11): where each landed, and every measurement.
-    assert list(frame.columns) == ["Result", "Formulation", "Measured", "Predicted (95 % range)",
-                                   "In / Above / Below range"]
-    first = frame.iloc[0].to_dict()
-    assert first == {"Result": "Overall score", "Formulation": "F16", "Measured": "98.3",  # round 2: F16
-                     "Predicted (95 % range)": "94.3 (91.8–96.8)",
-                     "In / Above / Below range": "Above"}
-    assert set(frame["Result"]) == {"Overall score", "Consistency"}
-    # Review critique (fix 12): a top below the point never prints.
-    assert frame[frame.Result == "Consistency"].iloc[2]["Predicted (95 % range)"] == \
-        "13.6 (11.1–15.0)"  # round 2: the top with the point's decimals
-    assert U.round_predicted_frame(opt, _round6(), 9) is None
-
-
-def test_results_round_view_on_a_real_project(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    with bo_views.fresh():
-        opt = D.load(D.LINE_A)
-        memo = {}
-        with insights.memo_in_use(memo):
-            checks = insights.check_rounds(opt)
-    last = insights._ordered_rounds(checks)[-1]
-    monkeypatch.setattr(U, "_say", lambda o, t: t)
-    frame = U.round_predicted_frame(opt, checks, last)
-    assert frame is not None and len(frame)
-    assert (frame["Result"] == "Overall score").any()
-    assert frame["Predicted (95 % range)"].str.contains(r"\(.+–.+\)").all()
-
 
 # ------------------------------------------------------------------ #
 #  6. What next?
 # ------------------------------------------------------------------ #
-
-def test_apart_lines():
-    assert wording.apart_line("explores", [("less", "Tapioca starch"),
-                                           ("less", "Nutritional yeast")], beyond=True) == \
-        "Explores: less Tapioca starch and Nutritional yeast than anything tested"
-    assert wording.apart_line("balanced", [("more", "Coconut cream"), ("less", "Salt")]) == \
-        "Balanced: more Coconut cream, less Salt than Best so far"
-    assert wording.apart_line("refines the best", []) == "Refines the best"
 
 
 def _rows(*means, recipes=None):
@@ -239,14 +173,6 @@ def _rows(*means, recipes=None):
 # ------------------------------------------------------------------ #
 
 
-@pytest.mark.parametrize("vs_best,phrase", [(0.32, "more accurate than"),
-                                            (-0.11, "about as accurate as"),
-                                            (-0.5, "less accurate than")])
-def test_skill_in_plain_words(vs_best, phrase):
-    line = wording.skill_plain(10, 12, 0.69, vs_best)
-    assert f"{phrase} assuming each new formulation scores like your best" in line
-
-
 # ------------------------------------------------------------------ #
 #  Wording limits and _BANNED
 # ------------------------------------------------------------------ #
@@ -258,28 +184,10 @@ def _persona_strings():
 
 def test_persona_strings_pass_banned():
     texts = [t for t in _persona_strings() if t.strip()]
-    texts += [wording.LEARNING_ROUND, wording.WIDEN_BEYOND, wording.STOP_HEAD,
-              wording.STOP_WIDEN, wording.misses_scoped(["A"], 1, 2),
-              wording.model_plain(["A"], ["B"], ["C"]), wording.roles_help("15", "30"),
-              wording.results_predicted_help(6), wording.stop_help("1.0 points"),
-              wording.called_score_head(6, "F1 above F2", "scored about 4 above forecast"),
-              wording.called_so_far([("Overall", 1, 2)]), wording.EXPERT_TERMS,
-              wording.progress_need_plain("3.0"), wording.single_record(1, 2)]
+    texts += [wording.LEARNING_ROUND, 
+              wording.model_plain(["A"], ["B"], ["C"]),
+              ]
     hits = [(t, p.pattern) for t in texts for p in _BANNED if p.search(t)]
     assert hits == []
 
 
-def test_persona_wording_limits():
-    assert _words(wording.LEARNING_ROUND) <= 10
-    assert _words(wording.RESULTS_PREDICTED_CAPTION) <= 8
-    for label in (wording.CALLED_HEAD_FORECAST, wording.CALLED_HEAD_MEASURED,
-                  wording.RESULTS_PREDICTED_COLUMN, wording.PREVIEW_APART_COLUMN):
-        assert _words(label) <= 5
-    assert _words("Rising " + wording.strip_progress_tail("98.3", "3.3")) <= 10
-
-
-def test_forecast_panel_never_says_highest_for_a_target():
-    line = wording.forecast_line("Consistency", ["F16 13.5 (11.1–≥ 15)", "F18 13.6 (10.0–≥ 15)"],
-                                 None) + wording.forecast_order_tail([18, 16])
-    assert line.endswith("Order, high to low: F18, F16.")
-    assert "Highest" not in line

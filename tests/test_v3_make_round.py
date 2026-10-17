@@ -225,7 +225,7 @@ def test_round6_screen_has_the_table_captions_and_no_forecast():
     texts = captions + [e.label for e in tab.expander] + [m.value for m in tab.markdown]
     for word in _FORECAST_WORDS:
         assert not any(word in t for t in texts), word
-    assert not any(e.label == wording.WHY_THESE for e in tab.expander)
+    assert not any(e.label == 'Why these suggestions' for e in tab.expander)
     assert not tab.dataframe        # the old formulation-per-row table is gone
     # The key's "?" says how the shading reads.
     key = next(c for c in tab.caption if c.value.startswith("(change from"))

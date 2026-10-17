@@ -79,15 +79,6 @@ def _round6():
     return checks
 
 
-def _lf(opt, checks, r, noise):
-    orderings = learned.orderings(opt, checks, noise)
-    call = learned.round_call(checks, insights.SCORE, r, noise[insights.SCORE])
-    items = [(insights.SCORE, call, learned.round_checks(checks, insights.SCORE, r))]
-    lf = U.LearnedFacts(orderings, {}, (r, []), call, (1, 2, 0), "", items)
-    lf.noise, lf.checks = noise, checks
-    return lf
-
-
 # ------------------------------------------------------------------ #
 #  1. Forecast check: shared axis, misses flagged, ties counted
 # ------------------------------------------------------------------ #
@@ -99,26 +90,6 @@ def _lf(opt, checks, r, noise):
 
 def _yard(value=1.0, assumed=True):
     return insights.Yardstick(value, None, 0, False, assumed=assumed, df=0, groups=0, left_out=0)
-
-
-def test_ceiling_reads_within_the_tie_threshold():
-    opt = NS(utility_ceiling=lambda: 100.0)
-    need = U.tie_need(_yard())
-    assert need == pytest.approx(2.33, abs=0.01)
-    assert U.at_ceiling(opt, NS(best=NS(score=99.2), yardstick=_yard()))
-    assert U.at_ceiling(opt, NS(best=NS(score=98.3), yardstick=_yard()))
-    assert not U.at_ceiling(opt, NS(best=NS(score=95.0), yardstick=_yard()))
-    assert not U.at_ceiling(opt, NS(best=None, yardstick=_yard()))
-
-
-def test_widening_names_every_limit_and_a_moved_pair():
-    line = wording.widen_all(["Tap water's Highest (42 g)", "Tapioca starch's Highest (2.6 g)",
-                              "the Batch total (≤ 98.7 g)"], predicted=True,
-                             moved=[("Tap water", "Coconut cream")])
-    assert line.startswith("The predicted best sits at Tap water's Highest (42 g), Tapioca "
-                           "starch's Highest (2.6 g) and the Batch total (≤ 98.7 g). To go "
-                           "further, widen them together.")
-    assert "Tap water moved together with Coconut cream" in line
 
 
 # ------------------------------------------------------------------ #
@@ -174,13 +145,6 @@ def test_the_chance_range_and_the_verdict_always_agree(seed):
     # Specific wording (2026-10-12), re-pinned: "under 5 pairs", not "too few".
 
 
-def test_the_ordering_chart_has_a_legend_and_the_multiplicity_line(plain):
-    opt = _Obj()
-    lf = NS(orderings={"Consistency": learned.ordering(_perfect(3), "Consistency", 0.0)})
-    # Round 2: Holm across the results checked.
-    assert "binomial" not in wording.LEARNED_RULE
-
-
 # ------------------------------------------------------------------ #
 #  Noise: each measurement's share of the Overall score's 1 point
 # ------------------------------------------------------------------ #
@@ -199,13 +163,6 @@ def test_noise_derivation_gives_0_3(monkeypatch):
     got = learned.pair_noise(opt2)
     assert got["A"] == pytest.approx(10 / (60 * 2 ** 0.5))
     assert got["B"] == pytest.approx(10 / (40 * 2 ** 0.5))
-
-
-def test_the_rise_says_its_assumed_noise():
-    assert wording.progress_rise_answer("95.0", "98.3", "3.3", "3.0") == (
-        "Best 95.0 → 98.3 (+3.3; needs 3.0 if tasting noise ≈ 1 point)")
-    assert wording.progress_rise_answer("95.0", "98.3", "3.3", "3.0", assumed=False) == (
-        "Best 95.0 → 98.3 (+3.3; needs 3.0)")
 
 
 # ------------------------------------------------------------------ #
@@ -238,48 +195,11 @@ def test_range_never_prints_a_top_below_its_point():
         assert "–≥" not in text
 
 
-def test_results_rows_flag_in_above_below(plain):
-    opt = _Obj()
-    checks = _round6()
-    checks += [_check(no, 6, "Consistency", 10.0, m, low=9.0, high=11.0)
-               for no, m in ((16, 12.0), (17, 10.5), (18, 8.0))]
-    frame = U.round_predicted_frame(opt, checks, 6)
-    col = wording.RESULTS_LANDED_COLUMN
-    assert col == "In / Above / Below range"
-    got = {(r[wording.RESULTS_RESULT_COLUMN], r[wording.FORMULATION_CAP]): r[col]
-           for _, r in frame.iterrows()}
-    # Round 2: F16 in the table's Formulation column.
-    assert got[(wording.OVERALL_SCORE_COLUMN, "F16")] == "Above"
-    assert got[(wording.OVERALL_SCORE_COLUMN, "F18")] == "In"
-    assert got[("Consistency", "F16")] == "Above"
-    assert got[("Consistency", "F18")] == "Below"
-    # A row per measurement, not only the Predictable ones.
-    assert sum(1 for k in got if k[0] == "Consistency") == 3
-
-
 # ------------------------------------------------------------------ #
 #  Tooltips, words, _BANNED
 # ------------------------------------------------------------------ #
 
-def test_brief_keeps_about_120_words_plain_first_experts_last():
-    long = "\n\n".join(["Plain words. " * 30, "More plain words here. " * 20,
-                        wording.for_experts("Term one; term two. " * 10)])
-    out = wording.brief(long)
-    assert _words(out) <= wording.TOOLTIP_WORDS
-    assert out.startswith("Plain words.")
-    assert out.split("\n\n")[-1].startswith("For experts:")
 
-
-def test_the_new_rules_fit():
-    for text in (wording.LEARNED_RULE,
-                 wording.story_target_help(3, 21, 1),
-                 wording.ceiling_help("99.2", "100", "2.3", ["a", "b", "c"]),
-                 wording.story_improving_help("84.2", "96.7", 1, 10)):
-        assert _words(text) <= wording.TOOLTIP_WORDS, text
-    for caption in (wording.STORY_TARGET_CAPTION, wording.STORY_IMPROVING_CAPTION):
-        assert _words(caption) <= 10, caption
-    assert _words(wording.answer_line(wording.CEILING_HEAD, wording.CEILING_TAIL)) <= 14
-    assert wording.TRACK_VALUES_MISS == "Measurements: more misses than expected."
     # The tried gaps (owner, 2026-10-05): the count first, then the largest.
 
 
@@ -302,10 +222,9 @@ def test_critique_strings_pass_banned():
     bad = [t for t in texts if any(p.search(t) for p in _BANNED)
            and not t.lstrip().startswith(("Every", "The", "A ", "'", "Review"))]
     assert bad == []
-    for t in (wording.LEARNED_RULE, wording.CEILING_HEAD,
-              wording.CEILING_TAIL, wording.CARD_CEILING, wording.target_moves(2, 1, [], ["0.5"]), wording.MAP_Y_TITLE,
-              wording.MAP_GAIN_LEGEND, wording.widen_all(["a", "b"]), wording.REPEAT_CONFIRMS,
-              wording.implied_line("90", "94"), wording.RESULTS_LANDED_COLUMN):
+    for t in (
+              wording.CARD_CEILING, 
+              wording.implied_line("90", "94"), ):
         assert not any(p.search(t) for p in _BANNED), t
         assert "spread" not in t.lower() and "interval" not in t.lower()
 
@@ -323,7 +242,7 @@ def test_show_as_lines_is_gone():
 @pytest.fixture(scope="module")
 def line_a(tmp_path_factory):
     from tests import demo_projects as D
-    from tests.test_review_cards import _install, _open
+    from tests.review_screens import _install, _open
     here = os.getcwd()
     os.chdir(tmp_path_factory.mktemp("review-critique"))
     try:
@@ -332,19 +251,6 @@ def line_a(tmp_path_factory):
             yield _open(D.LINE_A), D.load(D.LINE_A)
     finally:
         os.chdir(here)
-
-
-def test_review_tooltips_are_about_120_words(line_a):
-    from tests.test_review_cards import _leaves
-    at, _ = line_a
-    long = []
-    for el, folds, _ in _leaves(at.tabs[3]):
-        if folds:       # Method and definitions keeps the whole text
-            continue
-        help_ = getattr(getattr(el, "proto", None), "help", "") or ""
-        if help_ and _words(help_) > wording.TOOLTIP_WORDS:
-            long.append((_words(help_), help_[:80]))
-    assert long == []
 
 
 # ------------------------------------------------------------------ #

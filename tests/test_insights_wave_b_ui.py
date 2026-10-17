@@ -75,9 +75,9 @@ def test_editing_the_round_hides_the_column(warm_round):
     assert not at.exception
     assert any(i.value == wording.EDIT_FORMULATIONS_ACTIVE for i in at.info)
     [grid] = [d for d in at.dataframe if "Pea protein (g)" in d.value.columns]   # the editor
-    assert wording.PREDICTED_SCORE_COLUMN not in grid.value.columns
-    assert wording.PREDICTIONS_ROUND_CAPTION not in [c.value for c in at.caption]
-    assert wording.PREDICTED_MEASUREMENTS not in [e.label for e in at.expander]
+    assert 'Predicted Overall score (95\xa0% range)' not in grid.value.columns
+    assert 'Exploring suggestions can predict below Best so far.' not in [c.value for c in at.caption]
+    assert 'Predicted measurements (95\xa0% range)' not in [e.label for e in at.expander]
 
 
 def test_the_round_tab_closed_fits_nothing(warm_round, monkeypatch):
@@ -89,36 +89,6 @@ def test_the_round_tab_closed_fits_nothing(warm_round, monkeypatch):
     assert not at.exception
     assert calls == []
     assert ui_insights.FITTED_KEY not in at.session_state
-
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_the_models_are_fitted_once_for_both_screens(warm_round, monkeypatch):
-    calls = _counting(monkeypatch, "fit_all")
-    at = _app()
-    at.run()                                          # Make a round
-    assert calls == [1]
-    _rerun_on(at, wording.TAB_INSIGHTS)
-    assert not at.exception
-    assert calls == [1] and ui_insights.CACHE_KEY in at.session_state
-    assert wording.Q_TRUST in " ".join(_tab_text(at)[0])
-    _rerun_on(at, wording.TAB_BATCH)
-    assert calls == [1]
-    assert wording.PREDICTED_SCORE_COLUMN in _batch_table(at).value.columns
-
-
-def test_no_open_rows_no_fit(warm_round, monkeypatch):
-    rows = warm_round.pending_batch
-    for row in rows[:2]:
-        warm_round.tell(row['recipe'], {"Juiciness": 6.0, "Firmness": 5.0},
-                        formulation_no=row['formulation'], batch_no=warm_round.pending_batch_no)
-    warm_round.record_skipped(rows[2]['formulation'], warm_round.pending_batch_no, rows[2]['recipe'])
-    calls = _counting(monkeypatch, "fit_all")
-    at = _app()
-    at.run()
-    assert not at.exception
-    assert calls == []
-    assert ui_insights.FITTED_KEY not in at.session_state
-    assert not any(wording.PREDICTED_SCORE_COLUMN in c for c in _batch_table(at).value.columns)
 
 
 def _cells(book):
@@ -136,12 +106,15 @@ def test_the_workbook_is_unchanged(warm_round):
     after = _cells(openpyxl.load_workbook(io.BytesIO(
         opt.workbook_bytes(opt.pending_batch, opt.open_round_size()))))
     assert after == before
-    assert wording.PREDICTED_SCORE_COLUMN not in opt.batch_frame(opt.pending_batch).columns
+    assert 'Predicted Overall score (95\xa0% range)' not in opt.batch_frame(opt.pending_batch).columns
 
 
 def test_a_project_switch_drops_the_shared_models(warm_round):
     at = _open_insights(_app())
-    assert ui_insights.FITTED_KEY in at.session_state
+    # v3: the Review fits nothing, so the shared models are put in place
+    # here, as Make a round's fit leaves them; the switch must drop them.
+    at.session_state[ui_insights.FITTED_KEY] = {"stale": True}
+    at.session_state[ui_insights.CACHE_KEY] = {"stale": True}
     FoodOptimizer("second").add_ingredient("Flour", 0, 100)
     at.run()
     at.selectbox(key="project_select").set_value("second")
@@ -158,12 +131,6 @@ def test_a_project_switch_drops_the_shared_models(warm_round):
 def test_range_text_uses_to_beside_a_minus_sign(low, high, text):
     fmt = (lambda v: f"{v:.0f}") if text in ("70–85", "-3 to -1") else None
     assert ui_insights.range_text(low, high, fmt) == text
-
-
-def test_score_and_value_text():
-    p = insights.Prediction(78.4, 70.2, 85.49)
-    assert ui_insights.score_text(p) == "78 (70–85)"
-    assert ui_insights.value_text(insights.Prediction(5.81, 5.1, 6.54)) == "5.81 (5.1–6.54)"
 
 
 # ------------------------------------------------------------------ #
@@ -211,33 +178,6 @@ def test_section_4_shows_the_reason_a_round_could_not_be_made(insights_scored, m
     md, caps = _tab_text(at)
     assert wording.EVERYTHING_IS_FIXED in caps
     assert not [m for m in md if m.startswith("Predicted to score highest")]
-
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_section_4_failure_is_one_line_and_not_retried(insights_scored, monkeypatch):
-    calls = []
-    def boom(opt, fitted, checks=()):
-        calls.append(1)
-        raise RuntimeError("no best")
-    monkeypatch.setattr(insights, "predicted_best", boom)
-    at = _open_insights(_app())
-    assert not at.exception
-    md, caps = _tab_text(at)
-    assert caps.count(wording.BEST_FAILED) == 1
-    assert any("Best so far:" in m for m in md)
-    assert wording.Q_TRUST in " ".join(md)
-    _rerun_on(at, wording.TAB_INSIGHTS)
-    assert caps.count(wording.BEST_FAILED) == 1 and calls == [1]
-
-
-@pytest.mark.skip(reason="review cards prototype: pins the old Review layout (status lines, Explored fold, header); reconcile at the final merge")
-def test_section_4_gate(scored):          # 2 formulations with all their results
-    at = _open_insights(_app())
-    md, caps = _tab_text(at)
-    assert f"##### {wording.Q_NEXT}" not in md               # under 5: the gate line instead
-    # Since ftue W1 the gate is the Predictions status line's (R-B1 row 3).
-    assert md.count(wording.status_line(wording.STATUS_PREDICTIONS, wording.short_gate(2), wording.PREDICTIONS_WORDS["not_yet"])) == 1
-    assert wording.insights_gate(2) not in caps
 
 
 @pytest.mark.skip(reason=REVIEW_FOUR)
@@ -294,32 +234,14 @@ def test_every_wave_b_string_passes_the_vocabulary_guard():
     # "the model" is allowed from the BO-views wave on (review I5: the
     # caption says what the suggestions weigh).
     also = re.compile(r"\b(optimum|optimal|maximi[sz]e|confidence|probability)\b", re.I)
-    for s in (wording.PREDICTIONS_WORKING, wording.PREDICTED_SCORE_COLUMN,
-              wording.PREDICTED_SCORE_HELP, wording.PREDICTIONS_ROUND_CAPTION,
-              wording.PREDICTED_MEASUREMENTS,
+    for s in (wording.PREDICTIONS_WORKING,
               wording.compare_all(True), wording.compare_all(False),
               wording.BEST_ROW, wording.BEST_FAILED, wording.HOW_MODELS,
               wording.held_line("Best so far", ["Wheat gluten", "Sunflower oil"]),
               wording.held_all("Formulation 9"), wording.held_all("Best so far", True),
-              wording.compare_all(False, False), wording.predictions_round_caption(True)):
+              wording.compare_all(False, False), ):
         assert not any(p.search(s) for p in _BANNED), s
         assert not also.search(s), s
-
-
-def test_exact_wave_b_strings():
-    assert wording.PREDICTED_SCORE_COLUMN == "Predicted Overall score (95 % range)"
-    # Ledger, statistician cold read I2 (fix round B): no "19 in 20" claim; the
-    # plain reading gives the 95 % aim and the coverage measured on simulated projects.
-    # Ftue fix A's re-run (I9 folds): 90 % of Overall scores (was 89 %).
-    assert wording.PREDICTED_SCORE_HELP == (
-        "Model mean and 95 % prediction interval for one measured Overall score, from a "
-        "Gaussian process fitted to the scored formulations. Aims for 95 %; measured about "
-        "91 % (measurements) / 90 % (Overall score) on simulated projects.")
-    assert wording.PREDICTIONS_ROUND_CAPTION == "Exploring suggestions can predict below Best so far."
-    assert wording.predictions_round_help() == (
-        "Suggestions favour formulations the model is unsure about as well as ones it "
-        "predicts high, so one can be predicted below Best so far.")
-    assert wording.spread_from(False, 9) == "Formulation 9"
 
 
 # ------------------------------------------------------------------ #
@@ -371,12 +293,6 @@ def mixed_scored(burger):
                         {"Juiciness": 3 + 0.2 * pea, "Firmness": 1 + 0.25 * pea + mc},
                         formulation_no=no, batch_no=r)
     return burger
-
-
-def test_process_setting_wording():
-    assert wording.compare_all(True, False) == "Compare all process settings"
-    assert wording.path_head_process("Incubation time") == "Incubation time changes"
-    assert wording.PREDICTIONS_ROUND_CAPTION == wording.predictions_round_caption()
 
 
 # ------------------------------------------------------------------ #

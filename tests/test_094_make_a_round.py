@@ -105,17 +105,6 @@ def _track(no_skill=None, rough=False, gap=None, see=False, record=True):
     return insights.RoundTrack(rough, 11, 12, gap, see, fact, [3, 4, 5], record)
 
 
-def test_the_track_line_says_no_skill_after_the_record():
-    text = ui_insights.track_text(_track(no_skill=-0.47))
-    assert text == (wording.round_track_holding(11, 12, rounds=[3, 4, 5])
-                    + wording.round_track_no_skill("−0.47", 16, [2, 3, 4, 5]))
-    # T47 review I-3: the skill names its own Rounds, not the verdict's.
-    assert text.endswith(" Skill −0.47 (n = 16, Rounds 2–5): no better than the average of "
-                         "earlier results.")
-    alone = ui_insights.track_text(_track(no_skill=-0.47, record=False))
-    assert alone == wording.round_track_no_skill("−0.47", 16, [2, 3, 4, 5]).strip()
-
-
 # ------------------------------------------------------------------ #
 #  Review Focus (plan)
 # ------------------------------------------------------------------ #
@@ -131,14 +120,6 @@ def test_a_regenerated_round_is_recorded_again_and_stays_exact():
     assert new["seed"] != old["seed"] and new["seed"] == min(
         r["formulation"] for r in opt.pending_batch)
     assert bo_views.why(opt).exact
-
-
-def test_the_cold_line_says_values_in_a_process_only_study():
-    """T0 review M-8."""
-    assert wording.why_cold(True) == "Chosen to cover the allowed values; no model yet."
-    assert wording.gain_cold(2, values=True).endswith("the allowed values: no expected "
-                                                      "gain yet.")
-
 
 
 def _ferment():

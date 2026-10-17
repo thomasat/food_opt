@@ -207,79 +207,20 @@ def test_the_app_saves_a_unit_without_moving_any_overall_score(burger):
 #  M-2: the A3 lines name the 0.20 rule
 # ------------------------------------------------------------------ #
 
-def test_the_a3_wait_line_names_the_rule():
-    assert wording.effects_wait_line(4) == (
-        "Ingredient effects are reported once Round-ahead checks show the Overall score's "
-        "predictions clearly better than the average (skill 0.20 over 10 checked "
-        "formulations; 4 so far).")
-    assert wording.effects_wait_line(4, settings_only=True).startswith("Setting effects")
-
-
-def test_the_a3_no_skill_line_names_the_rule():
-    assert wording.guard_skill_line() == (
-        "Ingredient effects are not reported until Round-ahead predictions are clearly "
-        "better than the average of earlier results (skill 0.20 needed).")
-    for line in (wording.effects_wait_line(4), wording.guard_skill_line()):
-        assert "beat the average" not in line
-
 
 # ------------------------------------------------------------------ #
 #  M-3: a measurement's unit reads naturally after its number
 # ------------------------------------------------------------------ #
-
-@pytest.mark.parametrize("unit,said", [
-    ("score", "Crumbliness by about 0.4 points"),
-    ("Score", "Crumbliness by about 0.4 points"),
-    ("points", "Crumbliness by about 0.4 points"),
-    ("/10", "Crumbliness by about 0.4"),
-    ("", "Crumbliness by about 0.4"),
-    ("N", "Crumbliness by about 0.4 N"),
-])
-def test_bias_item_units(unit, said):
-    assert wording.bias_item("Crumbliness", "0.4", unit) == said
 
 
 # ------------------------------------------------------------------ #
 #  M-4: Line B's track line says each thing once
 # ------------------------------------------------------------------ #
 
-def test_the_rough_track_line_says_more_misses_once():
-    line = wording.round_track_rough(13, 16, "5.5", see_insights=True, rounds=[2, 3, 4, 5])
-    # The bias as one fact (polish round 8).
-    assert line == ("Overall score, Rounds 2–5: 13 of 16 inside their 95 % interval; "
-                    "Overall scores have come in about 5.5 points below the predictions. More "
-                    "misses than expected; many more in the measured values.")
-    assert line.lower().count("misses than expected") == 1
-    # Without the measurements' verdict, as before.
-    assert wording.round_track_rough(13, 16, "5.5", rounds=[2, 3, 4, 5]).endswith(
-        "scores have come in about 5.5 points below the predictions. More misses than "
-        "expected.")
-
-
-def test_line_b_track_line(tmp_path, monkeypatch):
-    # Line B's bias line shows under the earlier 2-standard-error rule only
-    # (ftue fix A, cold read I5: t = 2.45 < t_{0.975, 3} = 3.18); the
-    # wording with a bias is checked under that rule.
-    monkeypatch.setattr(insights, "t_critical", lambda df, p=0.975: 2.0)
-    monkeypatch.chdir(tmp_path)
-    opt = D.load(D.LINE_B)
-    line = ui_insights.track_text(insights.round_track(opt, insights.check_rounds(opt)))
-    assert "More misses than expected; many more in the measured values." in line
-    assert line.lower().count("misses than expected") == 1
-
 
 # ------------------------------------------------------------------ #
 #  M-6: the callout's limit form never lands on an empty slot
 # ------------------------------------------------------------------ #
-
-def test_the_limit_callout_falls_back_to_the_limits_fold(burger):
-    import streamlit as st
-
-    import ui_setup
-    st.session_state.pop(ui_insights.BEST_KEY, None)      # no predicted best worked out
-    text = ui_setup.callout_text(burger, wording.CHANGE_LIMITS_ON_SETUP)
-    assert text == wording.SETUP_CALLOUT_LIMITS
-    assert wording.INGREDIENT_LIMITS_EXPANDER in text
 
 
 # ------------------------------------------------------------------ #
@@ -555,39 +496,6 @@ def upgrade():
     return opt, checks, fitted
 
 
-def test_the_upgrade_files_predicted_gain_is_withheld(upgrade):
-    opt, checks, fitted = upgrade
-    yard = insights.noise_yardstick(opt, checks)
-    best = insights.predicted_best(opt, {insights.SCORE: fitted[insights.SCORE]}, checks)
-    standing = ui_insights.standing_for(opt, best, checks, yard)
-    assert standing.higher and not standing.tested_near        # what it claimed before
-    reason = ui_insights.claims_withheld_reason(opt, fitted[insights.SCORE], checks)
-    assert reason == wording.gain_reason_too_few(2)
-    line = ui_insights.standing_text(opt, standing, yard, withheld=reason)
-    assert "Predicted gain" not in line and "+9.3" not in line
-    # 87–100 since ftue fix A's Round-grouped folds (cold read I9); 93–100
-    # before. Review learned: no prediction reads 100 (the ceiling reads
-    # "≥ 99").
-    assert line.startswith("Predicted best: ≥ 99 (95 % interval 87–≥ 99), in untested amounts.")
-    assert line.endswith("Its gain over Best so far is not reported: fewer than 10 "
-                         "Round-ahead checks of the Overall score so far (2).")
-
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_the_upgrade_files_triangle_has_no_outline(upgrade, monkeypatch):
-    opt, checks, fitted = upgrade
-    names = insights.mixture_choices(opt)[:3]
-    best = opt.best_index()
-    start = insights.start_recipe(opt, best)
-    mix = insights.mixture_slice(opt, names, start)
-    preds = insights.mixture_predictions(opt, fitted, mix)
-    gated = ui_insights._mixture_extra(opt, fitted, mix, preds, wording.LAYER_SCORE, checks)
-    assert gated["outline"] and not any(gated["outline"])
-    monkeypatch.setattr(ui_insights, "withheld", lambda *a, **k: None)
-    open_ = ui_insights._mixture_extra(opt, fitted, mix, preds, wording.LAYER_SCORE, checks)
-    assert any(open_["outline"])                       # the gate is what removes it
-
-
 @pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_upgrade_files_progress_shows_no_amounts_fold(tmp_path, monkeypatch):
     import json
@@ -607,34 +515,12 @@ def test_the_upgrade_files_progress_shows_no_amounts_fold(tmp_path, monkeypatch)
     assert not any("Predicted gain over" in m for m in said), said
     assert any("Its gain over Best so far is not reported" in m for m in said), said
     labels = [e.label for e in tab.expander]
-    assert wording.show_its_amounts(False) not in labels, labels
+    assert 'Show its amounts' not in labels, labels
 
 
 # ------------------------------------------------------------------ #
 #  Polish 6: "assumed" says why when the only Repeat disagrees (Line B)
 # ------------------------------------------------------------------ #
-
-def test_beat_by_says_the_only_repeat_disagrees():
-    assert wording.beat_by(assumed=True, pairs=0, left_out=1) == (
-        "the 1-point noise threshold (assumed: the only Repeat disagrees; a Repeat of Best "
-        "so far would measure it)")
-    assert wording.beat_by(assumed=True, pairs=1, left_out=1) == (
-        "the 1-point noise threshold (assumed: 1 pair of Repeats, 3 needed, and 1 left out "
-        "as it disagrees; a Repeat of Best so far would measure it)")
-    assert wording.beat_by(assumed=True) == wording.beat_by(assumed=True, pairs=0, left_out=0)
-
-
-def test_line_b_never_says_no_repeats_yet(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    opt = D.load(D.LINE_B)
-    checks = insights.check_rounds(opt)
-    yard = insights.noise_yardstick(opt, checks)
-    # Ftue fix A (cold read I7): the disagreeing Repeat stays in the Repeat
-    # SD, so Line B counts its one pair (1 df, 3 needed). Re-pinned: fix
-    # round B (statistician I11) says degrees of freedom, not pairs.
-    assert (yard.pairs, yard.left_out, yard.assumed, yard.df) == (1, 0, True, 1)
-    text = ui_insights.threshold_text(yard)
-    assert "1 df of Repeats, 3 needed" in text and "no Repeats yet" not in text
 
 
 # ------------------------------------------------------------------ #
@@ -661,28 +547,6 @@ def _reason(line):
 #  Polish 8: the steady bias is one fact, with no reading clause, on
 #  Insights and Make a round alike (Lines B and C)
 # ------------------------------------------------------------------ #
-
-@pytest.mark.parametrize("name,gap", [(D.LINE_B, "5.5"), (D.LINE_C, "4.3")])
-def test_the_steady_bias_reads_as_one_fact_on_both_screens(tmp_path, monkeypatch, name, gap):
-    monkeypatch.chdir(tmp_path)
-    opt = D.load(name)
-    checks = insights.check_rounds(opt)
-    # Ftue fix A (cold read I5): on t_{0.975, 3} = 3.18 standard errors
-    # neither Line shows an Overall-score bias (t = 2.45 and 2.69; Line C's
-    # Cook loss bias still shows) ...
-    assert insights.score_steady_bias(opt, checks) is None
-    assert "Overall score" not in ui_insights.steady_bias_text(opt, checks)
-    # ... so the one-fact wording is checked under the earlier 2-SE rule.
-    monkeypatch.setattr(insights, "t_critical", lambda df, p=0.975: 2.0)
-    track = ui_insights.track_text(insights.round_track(opt, checks))
-    insights_line = ui_insights.steady_bias_text(opt, checks)
-    fact = wording.bias_fact(gap)
-    assert fact == f"scores have come in about {gap} points below the predictions"
-    assert f"; Overall {fact}" in track, track
-    assert f"Overall score by about {gap} points" in insights_line
-    for line in (track, insights_line):
-        assert "read about" not in line and "so new predictions" not in line, line
-    assert "mean error −" not in track, track
 
 
 # ------------------------------------------------------------------ #
@@ -759,11 +623,5 @@ def test_the_triangles_rings_reach_3_to_1(tmp_path, monkeypatch, which):
 # ------------------------------------------------------------------ #
 #  Polish 11: the Role tooltip and the Method text say what the rule says
 # ------------------------------------------------------------------ #
-
-def test_the_role_tooltip_says_or_a_repeat_of_it():
-    help_text = wording.role_help()
-    assert ("Close to the best: every varying row within 15 % of its span of Best so far "
-            "or a Repeat of it.") in help_text
-    assert "recorded before its Round" in help_text
 
 

@@ -331,6 +331,6 @@ def _flat_layers(spec):
 def test_no_banned_word_in_the_control():
     from tests.test_food_bo import _BANNED
     texts = [wording.REPLAY_PLAY, wording.REPLAY_STOP, wording.REPLAY_BACK,
-             wording.REPLAY_EARLIER, wording.REPLAY_LATEST, wording.REPLAY_HELP,
+             wording.REPLAY_EARLIER, wording.REPLAY_LATEST,
              wording.replay_label(4, 10), wording.replay_to(3), wording.replay_play_help(1, 6)]
     assert [t for t in texts if any(p.search(t) for p in _BANNED)] == []

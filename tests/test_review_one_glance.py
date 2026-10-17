@@ -87,22 +87,3 @@ def test_the_readme_says_the_v3_review_in_25_lines():
         assert gone not in section, gone
 
 
-def test_the_new_strings_pass_the_guards():
-    texts = [*wording.METHOD_DEFINITIONS, wording.METHOD_README, wording.METHOD_LINK_HELP,
-             wording.METHOD_LINK, wording.LEARNED_DETAILS_TITLE,
-             wording.pairs_sentence("Tangy", 5, 9, 2, 1),
-             wording.pairs_sentence("Tangy", 0, 0, 12), wording.pairs_sentence("Tangy", 1, 1),
-             wording.round_landing(6, "Overall score", 1, 2, 0),
-             wording.so_far_pairs("Overall score: 5 of 12 pairs called; 5 right."),
-             wording.check_line(6, 1, 2, 0, "order too close to call")]
-    for text in texts:
-        assert not any(p.search(text) for p in _BANNED), text
-        assert not any(p.search(text) for p in _STYLE), text
-        assert text.count("—") <= 1, text
-    assert _words(wording.LEARNED_DETAILS_TITLE) <= 5
-    assert _words(wording.METHOD_LINK_HELP) <= 14
-    # Labels at most 5 words; the link promises only what the fold holds.
-    assert _words(wording.METHOD_LINK) <= 5 and "How the app knows" != wording.METHOD_LINK
-    assert f"{len(wording.METHOD_DEFINITIONS)} terms" in wording.METHOD_LINK_HELP
-
-

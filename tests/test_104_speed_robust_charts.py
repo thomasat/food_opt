@@ -297,19 +297,6 @@ def jobs(monkeypatch):
     monkeypatch.setattr(insights_jobs, "_INFLIGHT", {})
 
 
-@pytest.fixture
-def skilled(monkeypatch):
-    """A model with skill (integration with W1's A3 gate, review I4): this
-    5-Round project has fewer than 10 Overall-score checks, so the gate
-    would withhold the expected gain these tests persist. Stood in
-    the way W1 stands it in for the effect lines (test_080_try_one). Ftue
-    fix A's Round-grouped folds move this project's record to 15 of 18
-    (More misses than expected), which withholds the figure too, so the
-    record is stood in as well."""
-    monkeypatch.setattr(insights, "skill_gate", lambda opt, checks, fact=None: None)
-    monkeypatch.setattr(ui_insights, "withheld", lambda opt, score, checks: None)
-
-
 def _app(project):
     at = AppTest.from_file(APP_PATH, default_timeout=300)
     at.session_state["_loaded_project"] = project
@@ -327,23 +314,6 @@ def _texts(at):
     tab = at.tabs[3]
     return ([m.value for m in tab.markdown] + [c.value for c in tab.caption]
             + [e.label for e in tab.expander])
-
-
-@pytest.mark.skip(reason="review cards prototype: pins the old Review layout (status lines, Explored fold, header); reconcile at the final merge")
-def test_a_reopened_project_shows_the_figure_without_a_fit_or_a_search(burger, jobs, skilled,
-                                                                         monkeypatch):
-    """04 I-1: the reopen time was the next Round's search (2.8 s at
-    120 x 6), worked out again in every new session and after a restart."""
-    first = _open(_app(burger.project_name))
-    line = first.session_state[ui_insights.GAIN_KEY][1]
-    assert line is not None and line.gain is not None
-    bo_views._CACHE.clear()                         # as after a restart of the app
-    _no_search(monkeypatch)
-    monkeypatch.setattr(insights, "_fit_gp", lambda *a: pytest.fail("fitted again"))
-    again = _open(_app(burger.project_name))
-    assert not again.exception
-    assert again.session_state[ui_insights.GAIN_KEY][1] == line
-    assert _texts(again) == _texts(first)
 
 
 # ------------------------------------------------------------------ #
@@ -628,8 +598,7 @@ def test_the_paths_reference_line_and_untested_edges_take_the_tokens(scored, the
     near = [False] * (len(path.amounts) // 2) + [True] * (len(path.amounts) - len(path.amounts) // 2)
     for chart in (ui_insights.path_chart(opt, path, insights.path_predictions(opt, fitted, path),
                                          near),
-                  ui_insights.path_layer_chart(opt, path, [0.5] * len(path.amounts), near,
-                                               wording.LAYER_SD)):
+                  ):
         layers = _all_layers(chart.to_dict())
         start = [l for l in layers if _mark(l).get("strokeDash") == [2, 2]]
         assert start and all(_mark(l)["color"] == ui_insights._MARKS[theme]["reference"][0]
@@ -661,9 +630,6 @@ def _colour_scale(spec):
 def test_the_triangle_uses_the_themes_scale(scored, theme):
     # Charts proto: the model layers in the theme's blues; the score layer
     # in the theme's score colours (as What you've tried).
-    for layer in (wording.LAYER_SD, wording.LAYER_GAIN):
-        scale = _colour_scale(_triangle(scored, layer=layer))["scale"]
-        assert scale["scheme"]["extent"] == list(ui_insights.blues(theme).extent)
     scale = _colour_scale(_triangle(scored, layer=None))["scale"]
     assert scale["range"] == ui_insights.score_colours(theme)
 
@@ -671,33 +637,6 @@ def test_the_triangle_uses_the_themes_scale(scored, theme):
 # ------------------------------------------------------------------ #
 #  A5 / I13: the layer's new name and the triangle's legend
 # ------------------------------------------------------------------ #
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_the_triangles_score_legend_says_model_mean(scored):
-    """02 M8 / 03 M5: the colour is the model mean, not an interval."""
-    for layer in (None, wording.LAYER_SCORE):
-        title = _colour_scale(_triangle(scored, layer=layer))["title"]
-        assert title == wording.LAYER_SCORE_LEGEND == "Predicted Overall score (model mean)"
-    assert _colour_scale(_triangle(scored, layer=wording.LAYER_GAIN))["title"] == (
-        wording.LAYER_GAIN_LEGEND)
-
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_a_session_holding_the_former_layer_name_reads_as_the_new_one(burger, monkeypatch):
-    """Review I6, then charts proto: "Expected improvement" is now "Expected gain"; a session
-    from before the rename must not break the radio or fall back."""
-    from types import SimpleNamespace
-    state = {}
-    monkeypatch.setattr(ui_insights, "st", SimpleNamespace(
-        session_state=state, radio=lambda label, options, key, horizontal: (
-            state[key] if state.get(key) in options else options[0])))
-    monkeypatch.setattr(ui_insights, "layers_offered", lambda o, f: ui_insights._LAYERS)
-    assert wording.LAYER_GAIN in ui_insights._LAYERS
-    assert wording.LAYER_GAIN_FORMER not in ui_insights._LAYERS
-    for key in (ui_insights.LAYER_KEY, ui_insights.PATH_LAYER_KEY):
-        state[key] = wording.LAYER_GAIN_FORMER
-        assert ui_insights._layer_pick(burger, {}, key) == wording.LAYER_GAIN
-        assert state[key] == wording.LAYER_GAIN
 
 
 def test_a_failed_request_finds_its_pool_already_broken(fresh_pool, monkeypatch):

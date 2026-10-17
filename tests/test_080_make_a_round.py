@@ -124,7 +124,7 @@ def test_one_workbook_line_that_follows_the_box(open_batch):
     captions = [c.value for c in at.tabs[1].caption]
     # v3: the line names the sheets, under the button.
     assert wording.workbook_sheets(False) in captions
-    assert wording.workbook_line(False) not in captions
+    assert 'Upload the filled workbook, or type results below.' not in captions
     # The two old workbook captions, by their text: Task 9 deletes the names.
     assert not any(c.startswith(("Download → Enter measurements", "Three tabs: Round overview"))
                    for c in captions)
@@ -228,6 +228,6 @@ def test_a_new_project_lights_back_to_set_up(tmp_path, monkeypatch):
 
 def test_the_new_lines_pass_the_vocabulary_guard():
     from tests.test_food_bo import _BANNED
-    for text in (wording.TOO_UNCERTAIN, wording.RECORD_RESULTS_LINE, wording.workbook_line(),
+    for text in (wording.RECORD_RESULTS_LINE,
                  wording.HOW_CHOSEN_2, wording.waiting_line(2, "Cook loss")):
         assert not any(p.search(text) for p in _BANNED), text

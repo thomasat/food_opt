@@ -83,40 +83,6 @@ def test_markers_and_tested_dots(monkeypatch):
     assert xs[U.outline_colour()] == pytest.approx(at)
 
 
-@pytest.mark.skip(reason=REVIEW_FOUR)
-@pytest.mark.parametrize("name", [D.LINE_B, D.LINE_C, D.UPGRADE])
-def test_the_gain_panel_is_withheld_under_the_rules(name, monkeypatch):
-    opt, computed = _computed(name, monkeypatch)
-    fitted = computed["fitted"]
-    assert wording.LAYER_GAIN not in U.layers_offered(opt, fitted)
-    data = U.chooses_data(opt, fitted, insights.path_choices(opt)[0])
-    rule = U.explore_withheld(opt, fitted.get(insights.SCORE), computed["checks"])
-    if rule == "hidden":
-        pass
-    else:
-        why = U.withheld(opt, fitted.get(insights.SCORE), computed["checks"])
-        gate = insights.skill_gate(opt, computed["checks"]) if why == "skill" else None
-        assert data.reason == U.gain_reason(why, gate)
-    spec = U.chooses_chart(opt, data).to_dict()
-    assert "vconcat" not in spec                             # the top panel alone
-    assert not [m for m in _all_marks(spec)
-                if m.get("encoding", {}).get("y", {}).get("field") == "gain"]
-
-
-@pytest.mark.skip(reason=REMOVED_CHART)
-def test_the_withheld_reason_is_said_on_screen(monkeypatch):
-    opt, computed = _computed(D.LINE_C, monkeypatch)
-    said = []
-    monkeypatch.setattr(U.st, "caption",
-                        lambda text, help=None, **k: said.append((text, help)))
-    monkeypatch.setattr(U.st, "markdown", lambda *a, **k: None)
-    monkeypatch.setattr(U.st, "selectbox", lambda label, options, key, **k: options[0])
-    monkeypatch.setattr(U, "show_chart", lambda c, **k: said.append(("chart", None)))
-    U._chooses(opt, computed)
-    texts = [t for t, _ in said]
-    assert texts == ["chart", wording.CHOOSES_CAPTION, wording.CHOOSES_WITHHELD]
-
-
 @pytest.mark.skip(reason=REMOVED_CHART)
 def test_cold_says_so(monkeypatch):
     opt = D.load(D.SNACK)
@@ -130,33 +96,6 @@ def test_cold_says_so(monkeypatch):
 # ------------------------------------------------------------------ #
 #  The triangle, the map, Trade-offs, privacy, wording
 # ------------------------------------------------------------------ #
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_the_triangle_reads_in_score_colours_and_orange_is_for_suggestions(monkeypatch):
-    opt, computed = _computed(D.LINE_A, monkeypatch)
-    fitted = computed["fitted"]
-    names = insights.mixture_choices(opt)[:3]
-    start = insights.start_recipe(opt, opt.best_index())
-    mix = insights.mixture_slice(opt, names, start)
-    preds = insights.mixture_predictions(opt, fitted, mix)
-    extra = U._mixture_extra(opt, fitted, mix, preds, wording.LAYER_SCORE)
-    spec = U.mixture_chart(opt, mix, preds, 15, None, None, None, extra.get("outline")).to_dict()
-    marks = _all_marks(spec)
-    grid = next(m for m in marks if m.get("encoding", {}).get("color", {}).get("field") == "score")
-    assert grid["encoding"]["color"]["scale"]["range"] == U.score_colours()
-    blocked = next(m for m in marks if _mark(m)["type"] == "point"
-                   and _mark(m).get("filled") is False and _mark(m).get("color") == U.mark("neutral")[0])
-    assert blocked
-    assert all(_mark(m).get("stroke") != U.outline_colour() for m in marks)
-    # Under a model layer: blues, the model's colour.
-    sd = U.layer_values(opt, fitted, [p.recipe for p in mix.points if p.recipe is not None],
-                        wording.LAYER_SD)
-    it = iter(sd)
-    values = [next(it) if p.recipe is not None else None for p in mix.points]
-    spec = U.mixture_chart(opt, mix, preds, 15, None, wording.LAYER_SD, values).to_dict()
-    grid = next(m for m in _all_marks(spec)
-                if m.get("encoding", {}).get("color", {}).get("field") == "score")
-    assert grid["encoding"]["color"]["scale"]["scheme"]["name"] == "blues"
 
 
 @pytest.mark.skip(reason=REVIEW_FOUR)
@@ -240,57 +179,6 @@ def test_with_no_round_open_the_line_ends_at_the_predicted_best(monkeypatch):
     assert not [m for m in _all_marks(spec) if _mark(m).get("color") == U.outline_colour()]
     line = next(l for l in spec["vconcat"][0]["layer"] if _mark(l)["type"] == "line")
     assert line["encoding"]["x"]["title"] == "From Best so far → Predicted best"
-
-
-@pytest.mark.skip(reason=REMOVED_CHART)
-def test_the_selector_opens_on_the_line_and_keeps_one_ingredient(monkeypatch):
-    opt, computed = _computed(D.LINE_A, monkeypatch)
-    boxes = []
-
-    def box(label, options, key, format_func=str, **k):
-        boxes.append((label, [format_func(o) for o in options]))
-        return options[0]
-    monkeypatch.setattr(U.st, "selectbox", box)
-    monkeypatch.setattr(U.st, "caption", lambda *a, **k: None)
-    monkeypatch.setattr(U.st, "markdown", lambda *a, **k: None)
-    drawn = []
-    monkeypatch.setattr(U, "show_chart", lambda c, **k: drawn.append(c.to_dict()))
-    U._chooses(opt, computed)
-    assert boxes == [(wording.CHOOSES_MODE, ["Best so far → Suggestion 1",
-                                             "Along one ingredient"])]
-    top = drawn[0]["vconcat"][0]
-    line = next(l for l in top["layer"] if _mark(l)["type"] == "line")
-    assert line["encoding"]["x"]["title"] == "From Best so far → Suggestion 1"
-
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_one_name_for_the_gain_on_screen(monkeypatch):
-    from tests.test_food_bo import _prose_constants
-    root = pathlib.Path(U.__file__).parent
-    assert wording.LAYER_GAIN == "Expected gain"
-    assert wording.LAYER_GAIN_LEGEND == wording.CHOOSES_GAIN == "Expected gain (points)"
-    for text in _prose_constants(root / "wording.py"):
-        # LAYER_GAIN_FORMER: an old session's radio value, read, never shown.
-        if "xpected improvement" in text and text != wording.LAYER_GAIN_FORMER:
-            # Only as the BO term, in a tooltip or Method and definitions.
-            assert ("BO term" in text or "qLog" in text or "acquisition value" in text), text
-    opt, computed = _computed(D.LINE_A, monkeypatch)
-    fitted = computed["fitted"]
-    names = insights.mixture_choices(opt)[:3]
-    mix = insights.mixture_slice(opt, names, insights.start_recipe(opt, opt.best_index()))
-    preds = insights.mixture_predictions(opt, fitted, mix)
-    gain = U.layer_values(opt, fitted, [p.recipe for p in mix.points if p.recipe is not None],
-                          wording.LAYER_GAIN)
-    it = iter(gain)
-    values = [next(it) if p.recipe is not None else None for p in mix.points]
-    spec = U.mixture_chart(opt, mix, preds, 15, None, wording.LAYER_GAIN, values).to_dict()
-    grid = next(m for m in _all_marks(spec)
-                if m.get("encoding", {}).get("color", {}).get("field") == "score")
-    assert grid["encoding"]["color"]["title"] == "Expected gain (points)"
-    data = U.chooses_data(opt, fitted, None, mode=U.CHOOSES_LINE)
-    spec = U.chooses_chart(opt, data).to_dict()
-    gain_line = next(l for l in spec["vconcat"][1]["layer"] if _mark(l)["type"] == "line")
-    assert " ".join(gain_line["encoding"]["y"]["title"]).startswith("Expected gain (points")
 
 
 @pytest.mark.skip(reason=REVIEW_FOUR)

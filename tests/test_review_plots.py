@@ -36,23 +36,16 @@ def line_a(tmp_path_factory):
 
 
 def _specs(opt, computed):
-    """{name: spec} for every chart the Review and Make a round tabs draw."""
-    fitted, checks = computed["fitted"], computed["checks"]
+    """{name: spec} for every chart the Review draws (Make a round draws
+    none since v3: its map went with the Why fold)."""
     out = {}
     # Review v3: Best so far, Best so far vs targets and Amounts in the top
     # formulations (the sparklines, the forecast and measured-vs-predicted
-    # charts are gone); Make a round's map.
+    # charts are gone).
     view = U.round_view(opt)
     out["improving"] = U.improving_chart(opt)
     out["targets"] = U.targets_chart(opt, view)
     out["amounts"] = U.amounts_chart(opt, view)
-    values = bo_views.map_values(opt, bo_views.next_model(opt))
-    picks = [{"mean": m, "sd": s, "no": str(n)} for n, m, s in values.picks]
-    tested = [{"mean": float(m), "sd": float(s), "no": n}
-              for m, s, n in zip(values.tested_mean.tolist(), values.tested_sd.tolist(),
-                                 values.tested)]
-    out["map"] = U.explore_map_chart(values.pool_mean, values.pool_sd, tested, picks,
-                                     U.repeat_of_best(opt, fitted), opt)
     missing = [k for k, v in out.items() if v is None]
     assert not missing, missing
     return {k: v.to_dict() for k, v in out.items()}
@@ -74,26 +67,13 @@ def _units(spec):
         yield from _units(spec["spec"])
 
 
-def _title(spec):
-    t = spec.get("title")
-    return t.get("text") if isinstance(t, dict) else t
-
-
 def _words(text):
     return len([w for w in re.sub(r"[^\w%' ]", " ", text).split() if w])
 
 
 # The Review's charts are titled by the heading drawn above each (the panel's
-# **title** lines); Make a round's map carries its own.
-TITLED = ["map"]
+# **title** lines).
 REVIEW = ["improving", "targets", "amounts"]
-
-
-@pytest.mark.parametrize("name", TITLED)
-def test_each_chart_has_a_short_title(specs, name):
-    title = _title(specs[name])
-    assert title, name
-    assert _words(title) <= 6, title
 
 
 # Charts whose axes are drawn by design without titles: the sparklines
@@ -105,7 +85,7 @@ _NO_Y_TITLE = {"targets", "amounts"}
 _NO_X_TITLE = {"amounts"}
 
 
-@pytest.mark.parametrize("name", sorted(TITLED + REVIEW))
+@pytest.mark.parametrize("name", REVIEW)
 def test_axes_are_titled(specs, name):
     """Each drawn x and y axis has a title in at least one layer (a rule or
     label layer sharing the axis takes the title Vega-Lite merges in)."""
@@ -120,7 +100,7 @@ def test_axes_are_titled(specs, name):
         assert any(e.get("title") for e in encs), (name, ch)
 
 
-@pytest.mark.parametrize("name", sorted(TITLED + REVIEW))
+@pytest.mark.parametrize("name", REVIEW)
 def test_every_encoded_colour_has_a_legend(specs, name):
     """A field on a colour channel is explained by a legend somewhere in the
     chart (a layer may repeat it with legend None, as the Best so far line's
@@ -139,7 +119,7 @@ def test_every_encoded_colour_has_a_legend(specs, name):
     assert used <= shown, (name, used - shown)
 
 
-@pytest.mark.parametrize("name", sorted(TITLED + REVIEW))
+@pytest.mark.parametrize("name", REVIEW)
 def test_marks_have_tooltips_with_a_bo_term(specs, name):
     tips = []
     for unit in _units(specs[name]):
@@ -149,7 +129,7 @@ def test_marks_have_tooltips_with_a_bo_term(specs, name):
     assert tips, name
     # Review v3: the score chart keeps the expert row; the strip and the
     # amounts are measurements and limits only, their numbers in the tooltip.
-    if name in ("map", "improving"):
+    if name == "improving":
         assert any(t.get("title") == wording.PLOT_BO for t in tips), name
 
 
@@ -180,9 +160,8 @@ def test_one_colour_per_meaning_across_charts(specs):
     blue = U.model_blue().lower()
     # Best so far: the ink line; its own dots and labels blue (v3).
     assert ink in _colours(specs["improving"]) and blue in _colours(specs["improving"])
-    # This Round's suggestions orange on the map; off target orange on the strip.
-    for name in ("map", "targets"):
-        assert orange in _colours(specs[name]), name
+    # Off target orange on the strip.
+    assert orange in _colours(specs["targets"])
     # The strip: blue on target; the amounts: no orange at all.
     assert blue in _colours(specs["targets"])
     assert orange not in _colours(specs["amounts"])
@@ -200,8 +179,7 @@ def test_short_captions_and_withheld_reasons():
                  wording.PLOT_CAPTION_MVP, wording.PLOT_CAPTION_CHANGE,
                  wording.PLOT_CAPTION_PATH, wording.PLOT_CAPTION_MAP,
                  wording.PLOT_CAPTION_PAIR, wording.PLOT_CAPTION_PAIR_NONE,
-                 wording.plot_caption_triangle(), wording.plot_caption_triangle(wording.LAYER_SD),
-                 wording.plot_caption_triangle(wording.LAYER_GAIN), wording.HERO_CAPTION,
+                 wording.HERO_CAPTION,
                  wording.tried_caption()):
         assert _words(text) <= 8, text
     for text in (wording.PLOT_SPARK_WAIT, wording.PLOT_GAIN_WITHHELD,

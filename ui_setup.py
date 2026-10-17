@@ -36,7 +36,7 @@ from food_bo import (
 from ui_helpers import (
     COPY_KEPT, ING_ERRORS_KEY, ING_GRID_KEY, ING_PENDING_KEY,
     ING_SAVE_KEY, MEAS_ERRORS_KEY, MEAS_GRID_KEY, MEAS_SAVE_KEY,
-    PROP_ERRORS_KEY, PROP_GRID_KEY, SETUP_CALLOUT_KEY, SETUP_CALLOUT_SLOT, TAB_BATCH,
+    PROP_ERRORS_KEY, PROP_GRID_KEY, TAB_BATCH,
     TAB_SETUP, join_unit,
     all_grid_keys, armed_confirmation, armed_deletions_key,
     best_formulation_no,
@@ -572,7 +572,6 @@ def _variables(opt, storage):
     st.subheader(wording.for_project(opt, wording.VARIABLES_HEADER))
     st.caption(wording.INGREDIENT_GRID_CAPTION, help=wording.INGREDIENT_GRID_HELP)
     st.caption(wording.EDITABLE_TABLE_HELP)
-    _callout(opt)
     saved = opt.ingredient_grid_frame()
     opening, from_park = _opening_frame(ING_GRID_KEY, saved)
     hidden = (GRID_ID,) if _baseline_shown(opt, saved) else (GRID_ID, wording.BASELINE_LABEL)
@@ -639,51 +638,6 @@ def _variables(opt, storage):
         st.markdown(wording.BLEND_COMPOSITIONS_HEADING)
     pending = _premixes(opt, storage) or pending
     return pending, captions
-
-
-def _callout(opt):
-    """A7 (review I8): the line "Change X's Highest on Set up" lands on,
-    directly above the grid — the grid's rows are a canvas, so there is no
-    row to scroll to or light up. It names the row and the number to
-    change, and stays until the next Set up save (any flash) or a move to
-    another tab."""
-    change = st.session_state.get(SETUP_CALLOUT_KEY)
-    if change is None:
-        return
-    if st.session_state.get("main_tab") not in (None, TAB_SETUP):
-        st.session_state.pop(SETUP_CALLOUT_KEY, None)
-        return
-    text = callout_text(opt, change)
-    with st.container(key=SETUP_CALLOUT_SLOT):
-        if text:
-            st.info(wording.for_project(opt, text), icon=":material/arrow_downward:")
-
-
-def callout_text(opt, change):
-    """The callout for the Set up button labelled `change`, or "": a row's
-    Highest or Lowest with its value now, or the limit the predicted best
-    sits at (from the predicted best Insights already worked out)."""
-    for var in opt.variables:
-        for highest in (True, False):
-            if change != wording.change_on_setup(var['name'], highest=highest):
-                continue
-            value = float(var['bounds'][1 if highest else 0])
-            return wording.setup_callout(var['name'], join_unit(f"{value:g}",
-                                                                opt.unit_of(var['name'])),
-                                         highest=highest)
-    if change == wording.CHANGE_LIMITS_ON_SETUP:
-        import insights
-        import ui_insights
-        hit = st.session_state.get(ui_insights.BEST_KEY)
-        recipe = getattr(hit[1], "recipe", None) if hit else None
-        limits = [] if recipe is None else [
-            b for b in insights.binding_limits(opt, recipe) if b.kind == "limit"]
-        if limits:
-            return wording.setup_callout_limit(limits[0].text)
-        # Final review M-6: the predicted best for this data is not in hand
-        # (or no longer sits at a limit), so the fold is named instead.
-        return wording.SETUP_CALLOUT_LIMITS
-    return ""
 
 
 def _round_at_risk(opt, edited, force=()):

@@ -36,18 +36,6 @@ def _isolate(tmp_path, monkeypatch):
         yield
 
 
-def _app(name, tab=wording.TAB_BATCH, why_open=True):
-    at = AppTest.from_file(APP_PATH, default_timeout=300)
-    at.session_state["_loaded_project"] = name
-    at.run()
-    at.session_state["main_tab"] = tab
-    if why_open:
-        at.session_state[ui_insights.WHY_FOLD_KEY] = True
-    at.run()
-    assert not at.exception
-    return at
-
-
 def _rerun(at, tab=wording.TAB_BATCH):
     at.session_state["main_tab"] = tab
     at.run()
@@ -92,7 +80,7 @@ def test_the_new_lines_pass_the_guards():
     from tests.test_090_wording import _STYLE
     from tests.test_food_bo import _BANNED
     lines = [wording.best_luck(11, "84", "62", "100", "90.09"),
-             wording.WHY_REFERENCE, wording.why_chart_caption("3,000"), wording.WHY_CHECKING]
+             wording.why_chart_caption("3,000"), ]
     assert [t for t in lines if any(p.search(t) for p in _BANNED)] == []
     assert [t for t in lines if any(p.search(t) for p in _STYLE)] == []
     assert [t for t in lines if t.count("—") > 1] == []
@@ -151,30 +139,6 @@ def _seed(at, opt, stage):
 # ------------------------------------------------------------------ #
 #  4. The next Round's figure never holds up the first answers (item 2)
 # ------------------------------------------------------------------ #
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_the_verdict_is_drawn_before_the_figure_is_worked_out(monkeypatch):
-    """Insights draws the Prediction check and Best so far's lines before
-    the next Round's expected gain is calculated (about 1.5 s at
-    60 x 4), so the first answers never wait for it."""
-    opt = _burger(rounds=5, noise=0.6)
-    # A model with skill, so the figure is worked out at all (A3 gate, 0.8.0
-    # e2e fixes, review I4), and a record that does not withhold it (ftue
-    # fix A's folds read this project as More misses than expected).
-    monkeypatch.setattr(insights, "skill_gate", lambda opt, checks, fact=None: None)
-    monkeypatch.setattr(ui_insights, "withheld", lambda opt, score, checks: None)
-    order = []
-    real_trust, real_gain = ui_insights._trust, ui_insights.latest_gain
-    monkeypatch.setattr(ui_insights, "_trust",
-                        lambda *a, **k: order.append("verdict") or real_trust(*a, **k))
-    monkeypatch.setattr(ui_insights, "latest_gain",
-                        lambda *a, **k: order.append("gain") or real_gain(*a, **k))
-    at = AppTest.from_file(APP_PATH, default_timeout=300)
-    at.session_state["_loaded_project"] = opt.project_name
-    at.run()
-    _rerun(at, wording.TAB_INSIGHTS)
-    assert "verdict" in order and "gain" in order
-    assert order.index("verdict") < order.index("gain")
 
 
 def test_while_the_workers_fit_the_figure_is_worked_out_after_the_page(monkeypatch):

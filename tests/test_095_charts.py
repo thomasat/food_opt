@@ -84,19 +84,6 @@ def _all_layers(spec):
 #  The layers (review I6, I8)
 # ------------------------------------------------------------------ #
 
-@pytest.mark.skip(reason="review profiler prototype: pins Try one's path and Compare all, which the profiler replaces; reconcile at the final merge")
-def test_one_radio_offers_the_three_layers():
-    opt = _open_round()
-    assert ui_insights.layers_offered(opt, insights.fit_all(opt)) == (
-        wording.LAYER_SCORE, wording.LAYER_SD, wording.LAYER_GAIN)
-    # Charts proto: the triangle's radio is in Explored and unexplored.
-    at = _insights(opt, insights_try_one=True, **{ui_insights.EXPLORED_KEY: True})
-    radios = [r for r in at.tabs[3].radio if r.key in (ui_insights.LAYER_KEY,
-                                                       ui_insights.PATH_LAYER_KEY)]
-    assert {r.key for r in radios} == {ui_insights.LAYER_KEY, ui_insights.PATH_LAYER_KEY}
-    assert all(list(r.options) == [wording.LAYER_SCORE, wording.LAYER_SD, wording.LAYER_GAIN]
-               and r.value == wording.LAYER_SCORE for r in radios)
-
 
 # ------------------------------------------------------------------ #
 #  The Predicted score layer: the outline and the colour span (I6, M7, M14)
@@ -112,66 +99,6 @@ def test_one_radio_offers_the_three_layers():
 def test_the_outline_rule_is_best_standings(low, mean, ref, top, yard, outlined):
     """T56 I1: the outline marks only what Progress would call higher."""
     assert insights.above_best(low, mean, ref, top, yard) is outlined
-
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_the_outline_is_drawn_where_the_rule_holds(monkeypatch):
-    opt = _open_round()
-    fitted = insights.fit_all(opt)
-    mix = insights.mixture_slice(opt, ["Pea", "Oil", "Water"],
-                                 insights.start_recipe(opt, opt.best_index()))
-    preds = insights.mixture_predictions(opt, fitted, mix)
-    seen = []
-    monkeypatch.setattr(insights, "above_best", lambda *a: seen.append(a) or True)
-    extra = ui_insights._mixture_extra(opt, fitted, mix, preds, wording.LAYER_SCORE)
-    allowed = [p.recipe is not None for p in mix.points]
-    assert extra["outline"] == allowed
-    # Called with the display model's own predicted score at each point.
-    assert [a[1] for a in seen] == [p.mean for p in preds if p is not None]
-    spec = ui_insights.mixture_chart(opt, mix, preds, 3, None, None, None,
-                                     extra["outline"]).to_dict()
-    # Charts proto: an ink ring; orange is for suggestions alone.
-    assert any(l.get("mark", {}).get("stroke") == ui_insights.mark("bar_latest")[0]
-               and l["mark"].get("filled") is False for l in _all_layers(spec))
-    monkeypatch.setattr(insights, "above_best", lambda *a: False)
-    extra = ui_insights._mixture_extra(opt, fitted, mix, preds, wording.LAYER_SCORE)
-    assert not any(extra["outline"])
-
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_the_timing_check_outlines_nothing_while_progress_says_none():
-    """T56 I1's scenario: Coconut oil / Textured soy protein / Water from
-    Best so far; Progress says no predicted gain beyond the noise
-    threshold, so nothing is outlined."""
-    from tests import demo_projects as demo
-    opt = demo.load(demo.TIMING)
-    fitted = insights.fit_all(opt)
-    checks = insights.check_rounds(opt)
-    best = insights.predicted_best(opt, fitted, checks)
-    yard = insights.noise_yardstick(opt, checks).value
-    assert not insights.best_standing(opt, best, yard).higher
-    start = insights.start_recipe(opt, opt.best_index())
-    mix = insights.mixture_slice(opt, ["Coconut oil", "Textured soy protein", "Water"], start)
-    preds = insights.mixture_predictions(opt, fitted, mix)
-    extra = ui_insights._mixture_extra(opt, fitted, mix, preds, wording.LAYER_SCORE)
-    assert extra["outline"] and not any(extra["outline"])
-
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-@pytest.mark.parametrize("line,said", [("B", True), ("A", False)])
-def test_the_within_noise_caption_on_the_demo_lines(line, said):
-    """T56 I6: said on Line B (span about 4.1 < 6.8), not on Line A (10.7 >
-    4.0), on each one's default three from Best so far."""
-    from tests import demo_projects as demo
-    opt = demo.load(getattr(demo, f"LINE_{line}"))
-    fitted = insights.fit_all(opt)
-    start = insights.start_recipe(opt, opt.best_index())
-    names = ui_insights._three_default(opt, fitted, insights.mixture_choices(opt), start)
-    mix = insights.mixture_slice(opt, names, start)
-    preds = insights.mixture_predictions(opt, fitted, mix)
-    extra = ui_insights._mixture_extra(opt, fitted, mix, preds, wording.LAYER_SCORE)
-    assert (extra["span"] < extra["half"]) is said
-    assert bool(ui_insights.within_noise_line(extra)) is said
 
 
 # ------------------------------------------------------------------ #

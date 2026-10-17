@@ -44,17 +44,17 @@ def test_no_native_streamlit_chart_remains_in_app_code():
 
 
 def test_every_altair_chart_call_goes_through_the_privacy_helper():
-    """The only bare `st.altair_chart(` call left in the app is the one
-    inside the helper itself; every chart the app draws is routed through
-    it so none can slip through with its action menu on."""
-    pattern = re.compile(r"st\.altair_chart\(")
+    """No bare `st.altair_chart(` call is left in the app (v3: the Review
+    draws kept specs); the one chart call is show_spec's
+    `st.vega_lite_chart(`, which sets the action menu off, so no chart can
+    slip through with it on."""
     calls = {}
-    for path in _APP_FILES:
-        text = open(path, encoding="utf-8").read()
-        n = len(pattern.findall(text))
-        if n:
-            calls[os.path.basename(path)] = n
-    assert calls == {"ui_insights.py": 1}, calls
+    for name, pattern in (("altair", r"st\.altair_chart\("), ("vega", r"st\.vega_lite_chart\(")):
+        for path in _APP_FILES:
+            n = len(re.findall(pattern, open(path, encoding="utf-8").read()))
+            if n:
+                calls[(name, os.path.basename(path))] = n
+    assert calls == {("vega", "ui_insights.py"): 1}, calls
 
 
 # ------------------------------------------------------------------ #
@@ -172,19 +172,6 @@ def test_progress_chart_keeps_the_axis_titles_and_a_gap(tmp_path, monkeypatch):
     bests = [row[wording.BEST_SO_FAR_COLUMN] for row in rows]
     assert None in scores
     assert None not in bests
-
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_progress_chart_body_draws_through_show_chart(insights_scored, monkeypatch):
-    """_progress_chart_body must call the privacy helper, not st.altair_chart
-    or st.line_chart directly: this is what actually keeps Minor 14 true for
-    the one chart that used to have no actions hook at all."""
-    drawn = []
-    monkeypatch.setattr(ui_insights, "show_chart", lambda c, **k: drawn.append(c))
-    ui_insights._progress_chart_body(insights_scored)
-    assert len(drawn) == 1
-    spec = drawn[0].to_dict()
-    assert spec.get("mark") or spec.get("layer")
 
 
 def _app():

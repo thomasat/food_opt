@@ -20,11 +20,10 @@ import wording
 from food_bo import FoodOptimizer
 from tests import demo_projects as D
 from tests.test_app_ui import APP_PATH, _tab_primaries
-from tests.test_review_cards import cards
 from ui_helpers import REVIEW_DOT_STYLE, REVIEW_DUE_KEY, open_rows
 
 # The cards' (Predictions, Progress) words and the Next card's word when it
-# is red, per demo project (tests/test_review_cards.py EXPECTED).
+# is red, per demo project (the v3 Review: no cards).
 STATUS = {
     D.SNACK: ("Not yet", "Too early", None),
     # Review learned: past the gate the word is the Model item's (the
@@ -91,8 +90,8 @@ def walked(tmp_path_factory):
                 at = _app(name, wording.TAB_INSIGHTS)
                 # Review story: the screen shows Progress, Predictions, Next;
                 # read in the (Predictions, Progress, Next) order pinned below.
-                # Review story 2: the words are the status strip's.
-                words = [c["word"] for c in cards(at)]
+                # v3: the Review has no cards or status words.
+                words = []
                 review_lit = _tab_primaries(at, REVIEW)
                 _go(at, wording.TAB_BATCH)
                 links = [b for b in at.tabs[BATCH].button if b.key == "link_review_status"]

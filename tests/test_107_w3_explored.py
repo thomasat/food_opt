@@ -354,25 +354,6 @@ def test_the_latest_round_is_the_strongest_and_tallest():
         assert contrast == sorted(contrast)
 
 
-@pytest.mark.skip(reason="review cards prototype: pins the old Review layout (status lines, Explored fold, header); reconcile at the final merge")
-def test_every_chart_in_the_fold_goes_through_the_privacy_wrapper(monkeypatch):
-    drawn = []
-    monkeypatch.setattr(ui_insights, "show_chart", lambda chart, **k: drawn.append(chart))
-    monkeypatch.setattr(ui_insights.st, "altair_chart",
-                        lambda *a, **k: pytest.fail("a bare st.altair_chart"))
-    opt = D.load(D.LINE_A)
-    computed = ui_insights._computed(opt, quiet=True)
-    _three_picked(monkeypatch)
-    ui_insights._explored_body(opt, computed)
-    # Charts proto: What you've tried, How the app chooses, the triangle,
-    # the map.
-    assert len(drawn) == 4
-    for chart in drawn:
-        assert "usermeta" not in chart.to_dict()             # show_chart adds it
-        assert ui_insights._private(chart).to_dict()["usermeta"] == \
-            ui_insights._NO_CHART_ACTIONS
-
-
 # ------------------------------------------------------------------ #
 #  Process settings alone, and a choice row
 # ------------------------------------------------------------------ #
@@ -384,7 +365,7 @@ def test_a_study_of_process_settings_alone():
     assert [s.name for s in strips] == ["Bake temperature", "Bake time", "Proof time"]
     assert all(s.setting and not s.fill and s.unit for s in strips)
     said = [wording.for_project(opt, t) for t in (
-        wording.strips_caption(True), wording.basis_explored(True, False))]
+        wording.strips_caption(True), )]
     for text in said:
         assert "ingredient" not in text.lower() and "amount" not in text.lower(), text
         assert "formulation" not in text.lower(), text
@@ -451,74 +432,9 @@ def _three_picked(monkeypatch):
                         lambda label, options, **k: list(options[:3]))
 
 
-def _fold_text(monkeypatch, opt, computed):
-    said = []
-    for kind in ("caption", "markdown"):
-        monkeypatch.setattr(ui_insights.st, kind,
-                            lambda text, help=None, _k=kind, **k: said.append((_k, text)))
-    monkeypatch.setattr(ui_insights, "show_chart", lambda c, **k: said.append(("chart", c)))
-    monkeypatch.setattr(ui_insights.st, "button", lambda label, **k: said.append(("button", label)))
-    _three_picked(monkeypatch)
-    ui_insights._explored_body(opt, computed)
-    return said
-
-
-@pytest.mark.skip(reason="review cards prototype: pins the old Review layout (status lines, Explored fold, header); reconcile at the final merge")
-def test_hidden_under_the_noise_guard_no_pointer(monkeypatch):
-    opt, computed, _ = _rule(D.LINE_C)
-    monkeypatch.setattr(ui_insights, "checks_for", lambda o, stage: computed["checks"])
-    said = _fold_text(monkeypatch, opt, computed)
-    texts = [t for k, t in said if k != "chart"]
-    assert wording.MAP_HIDDEN in texts
-    assert wording.MAP_TITLE not in [t.strip("*") for t in texts]
-    # Charts proto: the lines, the figure's top panel, the triangle; no map.
-    assert len([1 for k, _ in said if k == "chart"]) == 3
-    assert wording.CHOOSES_WITHHELD in texts                        # its gain withheld
-    assert not [t for k, t in said if k == "button"]
-
-
-@pytest.mark.skip(reason="review cards prototype: pins the old Review layout (status lines, Explored fold, header); reconcile at the final merge")
-def test_captioned_under_the_verdict(monkeypatch):
-    opt, computed, _ = _rule(D.LINE_B)
-    monkeypatch.setattr(ui_insights, "checks_for", lambda o, stage: computed["checks"])
-    said = _fold_text(monkeypatch, opt, computed)
-    texts = [t for k, t in said if k != "chart"]
-    assert f"**{wording.MAP_TITLE}**" in texts and wording.MAP_READING in texts
-    assert wording.MAP_NOT_YET in texts
-    # Charts proto: the lines, the figure (gain withheld), triangle, map.
-    assert len([1 for k, _ in said if k == "chart"]) == 4
-    assert wording.CHOOSES_WITHHELD in texts
-    # The pointer: the Uncertainty layer is offered here (R-I16).
-    assert [t for k, t in said if k == "button"]
-
-
 # ------------------------------------------------------------------ #
 #  The pointer preselects Uncertainty once, only where offered
 # ------------------------------------------------------------------ #
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_the_pointer_preselects_uncertainty_once(monkeypatch):
-    opt, computed, _ = _rule(D.LINE_A)
-    state = {}
-    monkeypatch.setattr(ui_insights.st, "session_state", state)
-    monkeypatch.setattr(ui_insights, "checks_for", lambda o, stage: computed["checks"])
-    monkeypatch.setattr(ui_insights, "ask_tab", lambda *a, **k: state.update(asked=(a, k)))
-    ui_insights._point_to_uncertainty()
-    assert state["asked"] == ((wording.TAB_INSIGHTS,),
-                              {"section": ui_insights.TRY_ONE_KEY, "fold": ui_insights.TRY_ONE_KEY})
-    radios = []
-    monkeypatch.setattr(ui_insights.st, "radio",
-                        lambda label, options, key, **k: radios.append(state.get(key)) or
-                        state.get(key, options[0]))
-    monkeypatch.setattr(ui_insights.st, "caption", lambda *a, **k: None)
-    assert ui_insights._layer_pick(opt, computed["fitted"],
-                                   ui_insights.PATH_LAYER_KEY) == wording.LAYER_SD
-    state[ui_insights.PATH_LAYER_KEY] = wording.LAYER_SCORE          # the reader moves on
-    assert ui_insights._layer_pick(opt, computed["fitted"],
-                                   ui_insights.PATH_LAYER_KEY) == wording.LAYER_SCORE
-    assert ui_insights._layer_pick(opt, computed["fitted"],
-                                   ui_insights.LAYER_KEY) == wording.LAYER_SD
-    assert state[ui_insights.LAYER_PRESELECT_KEY] == ()
 
 
 # ------------------------------------------------------------------ #
@@ -559,31 +475,3 @@ def _walk(node, out):
     return out
 
 
-def _no_repeat_link(monkeypatch):
-    """The Timing check's Next asks for a Repeat, and the Repeat link
-    outranks this one (R-I4 priority 2 over 3; ftue fix C): left out here,
-    so the Explored link is the one drawn."""
-    monkeypatch.setattr(ui_insights, "_repeat_link", lambda opt, facts: False)
-
-
-@pytest.mark.skip(reason="review cards prototype: pins the old Review layout (status lines, Explored fold, header); reconcile at the final merge")
-def test_the_fold_sits_under_the_button_and_above_the_folds_below(monkeypatch):
-    _no_repeat_link(monkeypatch)
-    at = _insights(D.TIMING)
-    order = _walk(at.tabs[3], [])
-    labels = [x for _, x in order]
-    fold = labels.index(wording.FOLD_EXPLORED)
-    assert labels.index("insights_foot") < labels.index("insights_explored_link") < fold
-    assert fold < labels.index(ui_insights._try_one_label(D.load(D.TIMING)))
-    assert fold < labels.index(wording.PAIR_FOLD) < labels.index(wording.FOLD_METHOD)
-    explored = next(e for e in at.tabs[3].expander if e.label == wording.FOLD_EXPLORED)
-    assert not explored.proto.expanded
-    assert not list(explored.children.values())      # nothing worked out until opened
-
-
-def test_no_link_while_the_why_link_has_the_place():
-    """R-I4: one tertiary link; with a warm Round open, Why outranks it."""
-    opt = D.load(D.PROCESS_ONLY)
-    assert ui_insights._why_link_offered(opt)
-    timing = D.load(D.TIMING)
-    assert not ui_insights._why_link_offered(timing)

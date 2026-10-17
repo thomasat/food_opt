@@ -347,20 +347,6 @@ def _lf(right, pairs, close, ties, p=0.03, p_holm=0.15, tested=5):
     return lf
 
 
-def test_the_pairs_line_says_called_of_all():
-    assert wording.score_pairs_called("Overall score", 5, 5, 12) == \
-        "Overall score (5 of 12 pairs called, 5 right)"   # fix round 2: one form
-    assert wording.learned_count("Overall score", 7, 9, total=24) == \
-        "Overall score 9 of 24 pairs called, 7 right"
-    assert wording.learned_count_needed("Overall score", 4, 4, 5, total=12) == \
-        "Overall score 4 of 12 pairs called, 4 right (needs 5)"
-    line = wording.learned_line(wording.learned_count("Overall score", 7, 9, total=24),
-                                [("Predicts", ["Consistency (11/11)"])])
-    assert line == ("So far: Overall score 9 of 24 pairs called, 7 right. "
-                    "Predicts: Consistency (11/11).")
-    assert _words(line) <= wording.LEARNED_LINE_WORDS == 14
-
-
 # ------------------------------------------------------------------ #
 #  A4 · the stop's "?" — one tasting, regression to the mean
 # ------------------------------------------------------------------ #
@@ -371,49 +357,3 @@ def test_the_pairs_line_says_called_of_all():
 # ------------------------------------------------------------------ #
 
 
-def test_every_final_demo_string_keeps_the_rules():
-    statuses = [wording.stop_strip_line("1.7", "2.3"),
-                wording.tasting_noise_measured("1.4", 4)]
-    # Spec §11: the noise basis, one plain line each ("?" text, short).
-    bases = [wording.noise_basis("1", repeat_no=16), wording.noise_basis("3"),
-             wording.noise_basis("1.4", measured=True, repeats=4)]
-    assert bases[0] == ("Assumes results repeat within about 1 point until Repeats measure it. "
-                        "Repeat Formulation 16 to check.")
-    assert bases[2] == "Results repeat within about 1.4 points, measured from 4 Repeats."
-    for t in bases:
-        assert _words(t) <= 16, t
-    headlines = [wording.STOP_CALLOUT_HEAD, wording.stop_callout_line("1.7", "2.3"),
-                 wording.stop_on_target(3, 4, ["Tangy 1.0 under"]),
-                 wording.stop_on_target(3, 4, ["Tangy 1.0 under"], True, [True]),
-                 wording.score_pairs_called("Overall score", 5, 5, 12)]
-    captions = [wording.SCORE_IS_MATCH, wording.stop_marker(6), wording.after_stop("0.8")]
-    labels = [wording.TASTING_NOISE_LABEL, wording.STOP_WORD,
-              wording.tasting_noise_option(1.0), wording.tasting_noise_option(0.5)]
-    assert wording.tasting_noise_option(1.0) == "1 point"          # no "(assumed)"
-    for t in statuses:
-        assert _words(t) <= 10, t
-    for t in headlines:
-        assert _words(t) <= 14, t
-    for t in captions:
-        assert _words(t) <= 10, t
-    for t in labels:
-        assert _words(t) <= 5, t
-    for t in statuses + headlines + captions + labels + [
-            wording.SETUP_NOISE_HELP, wording.TASTING_NOISE_MEASURED_HELP,
-            wording.tasting_noise_measured_help(4), *bases,
-            wording.stop_marker_help(4, "95.0", "98.3", "3.3", "7.0"),
-            wording.on_target_help(3, 4, 4, "0.6"),
-            wording.pairs_called_help("Overall score", 5, 5, 12, 6, 1, "3 in 100", "15 in 100", 5),
-            wording.ceiling_help("98.3", "100", "1.7", "2.3", "98.4", True, sd_text="2"),
-            wording.story_improving_help("84.2", "96.1", 1, 6, "2.3"),
-            wording.tip_threshold_assumed("2")]:
-        _clean(t)
-    # Every status names what, how many and against what.
-    assert re.fullmatch(r"[\d.]+ below top; [\d.]+ needed", wording.stop_strip_line("1.7", "2.3"))
-    # The final demo strings sit under their own heading in wording.py.
-    src = open(wording.__file__).read()
-    tail = src[src.index("# --- final demo ---"):]
-    for name in ("STOP_CALLOUT_HEAD", "TASTING_NOISE_LABEL", "SETUP_NOISE_HELP", "def noise_basis",
-                 "SCORE_IS_MATCH", "def best_after",
-                 "def pairs_called_help", "def stop_marker"):
-        assert name in tail, name

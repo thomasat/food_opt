@@ -157,7 +157,7 @@ def test_results_says_no_forecast(round6):
     assert "Round 6 results" in said
     assert wording.SCORE_WORKED_OUT_FOLD in said
     for word in ("redict", "orecast", "95 %", "Above", " range", "measured against",
-                 wording.REVIEW_SAYS_STOP, "noise", "Stop"):
+                 'Review says stop.', "noise", "Stop"):
         assert word not in said, word
     tables = [t.value for t in tab.table]
     assert any("F16 · new best (tied)" in str(t.index.tolist()) for t in tables)

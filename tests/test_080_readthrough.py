@@ -52,17 +52,6 @@ def test_higher_needs_a_shown_lead_beyond_the_yardstick_too():
     assert not insights.best_standing(opt, _best(opt, 93.4, 89.99), 1.0).higher  # 93 vs 92.50
 
 
-def test_untested_without_an_open_round_says_the_next_round():
-    opt = _patty(rows=6)
-    step = SimpleNamespace(kind="untested", gap=None, disagreement=None, binding=None)
-    text, _ = ui_insights.next_step_text(opt, step)
-    assert "add it to the next Round as your own formulation" in text
-    opt.set_pending_batch([dict(opt.recipe_history[0])])
-    text, _ = ui_insights.next_step_text(opt, step)
-    assert f"add it to Round {opt.pending_batch_no} as your own formulation" in text
-    _clean(text, wording.next_untested(False, open_round=False))
-
-
 # ------------------------------------------------------------------ #
 #  2, 6. One bias rule for Insights and Make a round: beyond the
 #        yardstick AND clear of noise (|gap| > 2 sd / sqrt(n))
@@ -83,23 +72,6 @@ def test_the_bias_rule_needs_the_yardstick_and_a_gap_clear_of_noise():
     assert insights.bias_gap(insights.ScoreRecord(11, 11, -1.1, 3.0), 1.0) is None   # 1.81
     assert insights.bias_gap(insights.ScoreRecord(11, 11, -0.9, 0.1), 1.0) is None   # yardstick
     assert insights.bias_gap(None, 1.0) is None
-
-
-def test_rough_only_when_too_few_land_inside():
-    opt = _patty(rows=6)
-    checks = _values(2) + _scores(2, 6, 3.0, no=500) + _scores(2, 6, -3.0, no=600)
-    t = insights.round_track(opt, checks)
-    assert t.rough
-    assert "95 % intervals allow up to 2 misses in 12" in ui_insights.track_text(t)
-
-
-def test_make_a_rounds_column_help_reads_as_insights_score_line():
-    """6: one wording for one fact (spec §0.3)."""
-    opt = _patty(rows=6)
-    checks = _values(2) + _scores(2, 11, -0.4)
-    assert ui_insights.score_line(opt, checks) == (
-        "Overall score, Round 2: 11 of 11 inside their 95 % interval; mean error −0.4 "
-        "points (measured minus predicted).")
 
 
 def test_a_custom_fields_own_name_is_kept_as_typed():
@@ -133,40 +105,6 @@ def test_a_pair_left_out_is_said_as_left_out():
 #  5. "Scores are still rising" carries the width caution when some
 #     outputs' likely range is wide (Line C)
 # ------------------------------------------------------------------ #
-
-def test_rising_names_the_outputs_whose_range_is_still_wide(monkeypatch):
-    opt = _patty(rows=6)
-    checks = _values(2) + _scores(2, 11, 0.1)
-    wide_firmness = [_check("Firmness", 2, 900 + k, 5.0, 5.0, 3.0) for k in range(10)]
-    checks = [c for c in checks if c.name != "Firmness"] + wide_firmness
-    h = insights.headline(opt, checks)
-    assert h.wide == ["Firmness"]
-    monkeypatch.setattr(insights, "improvement",
-                        lambda *a, **k: SimpleNamespace(state="yes", rise=3.0, sd=None, rounds=0))
-    step = insights.next_step(opt, checks, None)
-    assert step.kind == "rising" and step.wide == ["Firmness"]
-    text, _ = ui_insights.next_step_text(opt, step)
-    # 0.8.0 e2e fixes (review B2): no Repeats, so the 1 point is assumed and
-    # the row asks for a Repeat of Best so far.
-    assert text == ("Best so far is rising; 95 % intervals for Firmness are still wide. "
-                    "Make the next Round. " + wording.NEXT_REPEAT_TO_MEASURE)
-    opt.set_pending_batch([dict(opt.recipe_history[0])])
-    text, _ = ui_insights.next_step_text(opt, step)
-    assert text == ("Best so far is rising; 95 % intervals for Firmness are still wide. "
-                    f"Record the formulation still open in Round {opt.pending_batch_no}, "
-                    "then make the next Round. " + wording.NEXT_REPEAT_TO_MEASURE)
-    three = SimpleNamespace(kind="rising", gap=None, disagreement=None, binding=None,
-                            wide=["Firmness", "Juiciness", insights.SCORE])
-    text, _ = ui_insights.next_step_text(opt, three)
-    assert "95 % intervals for Firmness, Juiciness and the Overall score are still wide" in text
-    assert "ranges" not in text
-    _clean(text)
-
-
-def test_rising_without_a_wide_output_is_unchanged():
-    opt = _patty(rows=6)
-    step = SimpleNamespace(kind="rising", gap=None, disagreement=None, binding=None, wide=[])
-    assert ui_insights.next_step_text(opt, step)[0] == wording.NEXT_RISING
 
 
 # ------------------------------------------------------------------ #

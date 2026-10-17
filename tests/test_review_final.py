@@ -111,11 +111,6 @@ def test_measure_widen_reads_the_models_own_sd_not_the_nested_widening():
                                                                                     "Firmness")
 
 
-def test_a_too_wide_cell_reads_a_dash_with_its_reason_in_the_tip():
-    assert wording.TOO_UNCERTAIN == "—"
-    assert wording.too_uncertain_tip("6.0 (0.0–15.0)").startswith(f"95{NBSP}% range over")
-
-
 # ------------------------------------------------------------------ #
 #  P1 #2 — Holm
 # ------------------------------------------------------------------ #
@@ -161,10 +156,6 @@ def test_one_result_alone_is_not_adjusted():
     assert ords["a"].p_holm == pytest.approx(0.03) and ords["a"].verdict == learned.PREDICTABLE
 
 
-def test_the_learned_caption_and_rule_say_the_adjustment():
-    assert "Holm" in wording.LEARNED_RULE
-
-
 # ------------------------------------------------------------------ #
 #  P1 #3 — both at the cap: too close to call
 # ------------------------------------------------------------------ #
@@ -185,41 +176,10 @@ def test_two_forecasts_at_the_top_are_too_close_to_call():
 #  P1 #4 — Implied (expected)
 # ------------------------------------------------------------------ #
 
-def test_implied_is_the_expected_score_over_each_forecast(tmp_path, monkeypatch):
-    opt = _project(tmp_path, monkeypatch)
-    on = {o['name']: o['target'] for o in opt.objectives}
-    sure = {n: insights.Prediction(v, v, v, v, 0.0) for n, v in on.items()}
-    assert insights.expected_score(opt, sure) == pytest.approx(100.0)
-    # At the target with sd σ, each measurement loses 25/15 × σ × √(2/π).
-    sigma = 0.3
-    unsure = {n: insights.Prediction(v, v, v, v, sigma) for n, v in on.items()}
-    want = 100 - 4 * 25 / 15 * sigma * math.sqrt(2 / math.pi)
-    assert insights.expected_score(opt, unsure) == pytest.approx(want, abs=0.02)
-    # Below the score of the means whenever a forecast is unsure.
-    assert insights.expected_score(opt, unsure) < opt._compute_utility(on)
-    assert insights.expected_score(opt, {"Consistency": sure["Consistency"]}) is None
-    assert wording.IMPLIED_COLUMN == "Implied (expected)"
-    assert "two models" in wording.PREDICTED_MEASUREMENTS_HELP.lower()
-
 
 # ------------------------------------------------------------------ #
 #  P1 #5 — the stop's concrete line and its "?" numbers
 # ------------------------------------------------------------------ #
-
-
-def test_repeat_wording_is_one_form_everywhere():
-    assert wording.YARDSTICK_REPEATS == insights.YARDSTICK_DF == 3
-    assert wording.REPEAT_CONFIRMS == "3 Repeats would measure the noise."
-    assert wording.card_repeat_ask(16, 7) == "Repeat Formulation 16 to check noise"
-    # The link is a button (at most 5 words); every line says the full form.
-    assert wording.repeat_link(21) == "Repeat Formulation 21"
-    assert "A Repeat would confirm" not in wording.story_improving_help("84.2", "96.1", 1, 6)
-
-
-def test_progress_help_says_what_the_rise_needed_is():
-    assert wording.progress_need_plain("3.0", "1", True, 3).startswith(
-        "3.0: the best of 3 new results must beat noise by this much.")
-    assert not hasattr(wording, "NOISE_BAND")      # fix round: no noise band
 
 
 # ------------------------------------------------------------------ #
@@ -276,15 +236,6 @@ def _round6():
     return out
 
 
-def _lf(opt, checks):
-    orderings = learned.orderings(opt, checks, {insights.SCORE: 1.0})
-    call = learned.round_call(checks, insights.SCORE, 6, 1.0)
-    items = [(insights.SCORE, call, learned.round_checks(checks, insights.SCORE, 6))]
-    lf = U.LearnedFacts(orderings, {}, (6, []), call, (1, 2, 0), "", items)
-    lf.noise, lf.checks = {insights.SCORE: 1.0}, checks
-    return lf
-
-
 class _Obj:
     def __init__(self):
         self.objectives = [{"name": "Consistency", "goal": "target", "target": 12,
@@ -316,67 +267,15 @@ def _rows():
 # ------------------------------------------------------------------ #
 
 
-def test_start_the_next_round_is_secondary_with_its_reason_under_stop(monkeypatch):
-    fake = _FakeSt()
-    monkeypatch.setattr(ui_results, "st", fake)
-    monkeypatch.setattr(ui_results, "readiness", lambda o: (True, None))
-    monkeypatch.setattr(ui_results, "confirmation_open", lambda: False)
-    monkeypatch.setattr(U, "review_says_stop", lambda o: True)
-    ui_results._foot(NS(pending_batch=None))
-    [btn] = [c for c in fake.calls if c[0] == "button"]
-    assert btn[2]["type"] == "secondary"
-    assert ("caption", (wording.REVIEW_SAYS_STOP,)) in [(c[0], c[1]) for c in fake.calls]
-    assert wording.REVIEW_SAYS_STOP == "Review says stop."
-    src = pathlib.Path(ui_batch.__file__).read_text()
-    assert "review_says_stop(opt)" in src and "wording.REVIEW_SAYS_STOP" in src
-
-
 # ------------------------------------------------------------------ #
 #  P3 #17–19 — one form per idea
 # ------------------------------------------------------------------ #
-
-def test_one_form_per_idea():
-    assert wording.learned_strip(["Consistency"], ["Tangy"]) == ("Predicts:", "Consistency")
-    assert wording.learned_strip([], ["Overall score", "Tangy"]) == ("Partly:",
-                                                                     "Overall score, Tangy")
-    assert wording.learned_strip([], [], ["Overall score"]) == ("Not yet:", "Overall score")
-    assert wording.learned_answer(["Consistency"], ["Tangy"], ["Creaminess"]) == (
-        "**Predicts: Consistency.** Partly: Tangy. Not yet: Creaminess.")
-    assert list(wording.LEARNED_WORDS.values()) == ["Predicts", "Partly", "Not yet"]
-    assert wording.CARD_CEILING == "Stop, or change the target"
-    assert wording.CEILING_TAIL == "Stop, or change the target."
-    assert wording.review_status_strip("Rising", "Predicts: Overall score", wording.CARD_CEILING) == (
-        "Review: **Rising** · Predicts: Overall score · Stop, or change the target")
-    # Specific wording (2026-10-12), re-pinned: the rise needed, beside the lead.
-    assert wording.tie_line(21, "99.2", "0.83", 19, "2.3") == (
-        "Formulation 19 is within noise: 0.83 lower; 2.3 needed.")
-    assert "tied" not in wording._tied_with(18)
-    assert wording.single_record(36, 36, 3) == (
-        f"Single measurements, last 3 Rounds: 36 of 36 in their 95{NBSP}% range.")
-    assert wording.DOWNLOAD_BATCH_SHEETS == "Download the Round workbook (Excel)"
-    assert wording.back_to_batch_label(6, 3) == "Back to Round 6"
-    assert wording.called_so_far([("Overall", 8, 10)]) == "So far: Overall score 8 of 10."
-    assert wording.ENTERED_ROUND_CAPTION.endswith(
-        "For suggestions too: Discard this round and generate again.")
-    assert wording.plateau_rule(7) == "Plateau: no rise since Round 7, after rising before it."
-    assert wording.rule_line("Many more misses than expected.") == (
-        "Rule: many more misses than expected.")
-    assert wording.method_rising("3.0").endswith("by at least the rise needed (3.0 here), "
-                                                 "to the hundredth.")
-    assert wording.NO_GAIN_HEAD == "No gain beyond noise within these limits."
-    assert insights.TOGETHER == insights.MOVED_R == 0.7
-    assert "95 %" not in wording.PREDICTED_MEASUREMENTS        # a non-breaking space
 
 
 def test_captions_and_labels_keep_to_their_word_budgets():
     def words(t):
         return len(re.sub(r"\*\*", "", t).split())
-    for text, limit in ((wording.ceiling_reason(3, 4, ["Tangy 1.0 under target"]), 12),
-                        (wording.REVIEW_SAYS_STOP, 10), (wording.MAP_DIAMONDS_CAPTION, 8),
-                        (wording.PREDICTED_MEASUREMENTS_CAPTION, 8),
-                        (wording.STORY_IMPROVING_CAPTION, 8),
-                        (wording.TOP_ZONE, 5),
-                        (wording.CARD_CEILING, 5), (wording.back_to_batch_label(6, 3), 5),
+    for text, limit in ((wording.CARD_CEILING, 5), (wording.back_to_batch_label(6, 3), 5),
                         (wording.OFF_BY_TITLE, 5)):
         assert words(text) <= limit, text
 
@@ -405,9 +304,6 @@ def test_no_round_two_string_says_a_banned_word():
              and isinstance(n.value, str) and id(n) not in skip]
     bad = [t for t in shown if any(p.search(t) for p in _BANNED)]
     assert not bad, bad
-    rendered = [wording.ceiling_help("98.3", "100", "1.7", "2.3", "98.4", True, ["x"]),
-                wording.PREDICTED_MEASUREMENTS_HELP, wording.LEARNED_RULE,
-                wording.story_improving_help("84.2", "96.1", 1, 6, "2.3"),
-                wording.why_chart_caption_full("3,000", True, True, True),
+    rendered = [
                 wording.METHOD_STOP]
     assert not [t for t in rendered if any(p.search(t) for p in _BANNED)]

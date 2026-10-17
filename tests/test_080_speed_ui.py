@@ -178,39 +178,10 @@ def test_while_nothing_is_in_one_progress_line_line_1_and_the_foot(stuck, five_r
     assert bar.proto.text == wording.insights_progress(0, total)
     texts = " ".join(_texts(at))
     assert f"##### {wording.Q_STAND}" in texts and "Best so far" in texts
-    for later in (wording.Q_TRUST, wording.Q_NEXT, wording.PAIR_FOLD):
+    for later in (wording.PAIR_FOLD):
         assert later not in texts
     assert "insights_foot" in [b.key for b in at.tabs[3].button]
     assert spins == []
-
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_answer_1_once_its_checks_are_in(stuck, five_rounds):
-    at = _app(five_rounds.project_name)
-    at.run()
-    _seed(at, five_rounds, "trust")
-    at.session_state["main_tab"] = wording.TAB_INSIGHTS
-    at.run()
-    texts = " ".join(_texts(at))
-    assert f"##### {wording.Q_TRUST}" in texts
-    # Since ftue W1 the measured-against-predicted chart is answer 1's own
-    # (inside Prediction figures); answers 2 and 3 still wait.
-    assert wording.Q_NEXT not in texts
-    assert len(at.tabs[3].get("progress")) == 1
-
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_answers_2_and_3_once_the_overall_score_model_is_in(stuck, five_rounds, monkeypatch):
-    at = _app(five_rounds.project_name)
-    at.run()
-    _seed(at, five_rounds, "stand")
-    spins = _spinners(monkeypatch)
-    at.session_state["main_tab"] = wording.TAB_INSIGHTS
-    at.run()
-    texts = " ".join(_texts(at))
-    assert f"##### {wording.Q_TRUST}" in texts and f"##### {wording.Q_NEXT}" in texts
-    assert wording.PAIR_FOLD not in texts
-    assert spins == []                  # the predicted best's search has no spinner of its own
 
 
 @pytest.mark.skip(reason=REVIEW_FOUR)
@@ -409,7 +380,7 @@ def test_answer_1_waits_when_a_verdict_rounds_fit_failed(stuck, five_rounds):
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
     at.run()
     assert not at.exception
-    assert f"##### {wording.Q_TRUST}" not in _texts(at)
+    assert '##### Forecast check' not in _texts(at)
 
 
 # ------------------------------------------------------------------ #
@@ -460,33 +431,12 @@ def test_a_cold_tab_draws_the_header_line_1_and_the_foot_before_fitting(five_rou
     assert "foot" not in after
     # Then filled in, in screen order, each once.
     md = [m.value for m in at.tabs[3].markdown]
-    heads = [md.index(f"##### {q}") for q in (wording.Q_TRUST, wording.Q_STAND, wording.Q_NEXT)]
+    heads = [md.index(f"##### {q}") for q in (wording.Q_STAND, )]
     assert heads == sorted(heads)
     [line_1] = [i for i, m in enumerate(md) if "Best so far: Overall score " in m]
     assert line_1 == md.index(f"##### {wording.Q_STAND}") + 1
     [foot] = [b for b in at.tabs[3].button if b.key == "insights_foot"]
     assert wording.PAIR_FOLD in _texts(at)
-
-
-@pytest.mark.skip(reason="review cards prototype: pins the old Review layout (status lines, Explored fold, header); reconcile at the final merge")
-def test_a_filling_tab_draws_line_1_and_the_foot_before_working_anything_out(
-        stuck, five_rounds, monkeypatch):
-    """Workers still fitting, answers 2-3's models in: the partial checks
-    and the predicted best are worked out here only after the foot."""
-    at = _app(five_rounds.project_name)
-    at.run()
-    _seed(at, five_rounds, "stand")
-    for key in (ui_insights.PARTIAL_KEY, ui_insights.BEST_KEY):
-        if key in at.session_state:
-            del at.session_state[key]
-    log = _draw_log(monkeypatch)
-    at.session_state["main_tab"] = wording.TAB_INSIGHTS
-    at.run()
-    assert not at.exception
-    before, _ = _drawn_first(log)
-    assert before == ["render", "header", "foot", "line 1"]       # ftue R-I8
-    texts = " ".join(_texts(at))
-    assert f"##### {wording.Q_TRUST}" in texts and f"##### {wording.Q_NEXT}" in texts
 
 
 @pytest.mark.skip(reason=REVIEW_FOUR)

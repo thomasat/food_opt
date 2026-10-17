@@ -42,7 +42,7 @@ from insights import Check, Prediction
 from tests import demo_projects as D
 from tests.test_app_ui import APP_PATH
 from tests.test_food_bo import _BANNED
-from tests.test_review_cards import _install, _leaves, _text
+from tests.review_screens import _install, _leaves, _text
 
 
 def _check(no, r, name, pred, meas, raw=None, low=None, high=None, full=True):
@@ -336,34 +336,6 @@ def test_capped_never_reads_100():
     assert U.score_text(Prediction(98.0, 92.0, 104.0)) == "98 (92–100)"
 
 
-def test_forecast_panel_shows_predictable_measurements_only(line_a, monkeypatch):
-    opt, checks, memo = line_a
-    monkeypatch.setattr(U.st, "session_state", {U.MEMO_KEY: (opt.project_name, memo)})
-    # Persona fixes 2: one line per Predictable result, the Overall score
-    # first when it is (as the Model item names it); with the noise rule
-    # and without it.
-    assert [ln.split(":")[0] for ln in U.round_forecast_lines(opt, checks)[0]] == [
-        U.learned_label(opt, n) for n, o in learned.orderings(opt, checks).items()
-        if o.verdict == learned.PREDICTABLE]
-    monkeypatch.setattr(learned, "pair_noise", lambda o, c=(): {})
-    ords = learned.orderings(opt, checks)
-    predictable = [U.learned_label(opt, n) for n, o in ords.items()
-                   if o.verdict == learned.PREDICTABLE]
-    lines, help_ = U.round_forecast_lines(opt, checks)
-    assert [ln.split(":")[0] for ln in lines] == predictable
-    # Review critique: under the exact permutation test Line A's Firmness
-    # leans right (Partly) rather than clearly; any line drawn still reads.
-    assert all(not re.search(r"\b1\d\d(\.\d)?\b", ln) for ln in lines)   # no 100+
-    if lines:
-        open_nos = [r["formulation"] for r in U.open_rows(opt)]
-        assert all(f"F{no} " in lines[0] for no in open_nos)
-        assert "Predictable" in help_
-    # Nothing Predictable: no lines.
-    monkeypatch.setattr(learned, "orderings", lambda o, c, n=None: {
-        k: learned.Ordering(k) for k in learned.names(o)})
-    assert U.round_forecast_lines(opt, checks) == ([], None)
-
-
 def test_forecast_is_the_round_ahead_check(line_a):
     """The forecast before the Round's results is the one its check reads
     after: the same rows, the same model."""
@@ -486,40 +458,3 @@ def test_no_prediction_reads_100_on_the_review(screen):
             assert not re.search(r"\(\d+–100\)|\b100 \(", _text(el)), _text(el)
 
 
-def test_wording_passes_banned_and_limits():
-    texts = [wording.LEARNED_TITLE, wording.LEARNED_STRIP_LABEL, *wording.LEARNED_WORDS.values(),
-             *wording.LEARNED_REASONS.values(), wording.LEARNED_COL_PAIRS, wording.LEARNED_COL_TOP,
-             wording.LEARNED_CHANCE,
-             wording.LEARNED_NONE_YET,
-             *wording.CALLED_WORDS.values(),
-             wording.CALLED_TIP_FORECAST, wording.called_answer(6, "called", "Thickness uniformity", (16, 18), 18),
-             wording.called_answer(10, "partly", right=["Consistency"],
-                                   off=["Overall score", "Thickness uniformity"]),
-             wording.called_answer(10, "missed", off=["Firmness"]),
-             wording.learned_counts([("Overall score", 10, 11, 5.5)]),
-             wording.learned_tops([("Overall score", 3, 4, 1.7)]),
-             wording.LEARNED_FORECAST_TITLE, wording.LEARNED_FORECAST_NONE,
-             wording.LEARNED_PREVIEW_TITLE, wording.LEARNED_PREVIEW_CAPTION,
-             wording.LEARNED_RULE, wording.called_ranges(["F16 13.5 (11.1–≥ 15)"]),
-             wording.learned_answer(["Firmness"], ["Juiciness"], ["Cook loss"]),
-             wording.learned_skill_line(22, 24, 0.61, -0.11, 24),
-             wording.forecast_help(15, 6), wording.preview_help(3, 10),
-             wording.preview_line(1, "explores", "98 (85–≥ 99)", "Salt +0.10 g"),
-             wording.learned_effect_tip("Salt", "Tangy", "0.2", "1.2", 0.8, 0.1, 1.5),
-             wording.review_status_learned("Predicts", "Flat")]
-    for t in texts:
-        assert not any(p.search(t) for p in _BANNED), t
-        assert not re.search(r"\bgain\b", t, re.I), t
-    # Captions at most 8 words, labels at most 5, the strip at most 6.
-    for c in (wording.LEARNED_PREVIEW_CAPTION, wording.LEARNED_FORECAST_NONE):
-        assert _words(c) <= 8, c
-    for label in (wording.LEARNED_STRIP_LABEL, wording.LEARNED_COL_PAIRS, wording.LEARNED_COL_TOP,
-                  wording.LEARNED_FORECAST_TITLE):
-        assert _words(label) <= 5, label
-    for line in (wording.called_answer(6, "called", "Thickness uniformity", (16, 18), 18),
-                 wording.called_answer(10, "partly", right=["Consistency"],
-                                       off=["Overall score", "Tangy"])):
-        assert _words(line) <= 12, line
-    for names in (["Firmness"], ["Consistency", "Tangy", "Creaminess"], []):
-        word, line = wording.learned_strip(names, [])
-        assert _words(f"{word} {line}") <= 6

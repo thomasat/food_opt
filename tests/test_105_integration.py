@@ -145,17 +145,6 @@ def test_after_the_user_moves_on_the_poller_does_not_bring_it_back(poll_lands):
 # ------------------------------------------------------------------ #
 
 
-
-def test_the_why_fold_and_progress_give_one_reason(monkeypatch):
-    """The fold's words are Progress's reason (gain_reason), not a second
-    paraphrase of it."""
-    for gate in (insights.SkillGate("wait", 6),
-                 insights.SkillGate("unclear", 24, insights.SkillFact(0.09, 24, [3, 4], "unclear"))):
-        reason = ui_insights.gain_reason("skill", gate)
-        assert reason in wording.why_guard_line(gate_reason=reason)
-        assert reason in wording.gain_unreliable(reason)
-
-
 # ------------------------------------------------------------------ #
 #  D5: Share of score as stored, one decimal (03 M1, review M11)
 # ------------------------------------------------------------------ #

@@ -132,7 +132,7 @@ def test_the_score_chart_names_the_tie_the_top_and_counts_the_dots(r6):
     assert "100 = every attribute on target" in text
     assert "Each formulation (18)" in text
     assert "Round average" in text and wording.BEST_SO_FAR_COLUMN in text
-    for gone in ("Stop", "Within noise", "within noise", wording.TOP_ZONE, "Start:"):
+    for gone in ("Stop", "Within noise", "within noise", 'Within noise of top', "Start:"):
         assert gone not in text, gone
 
 
@@ -284,7 +284,7 @@ def test_the_five_definitions(r6):
         "Suggestions: best bets to improve on the best so far, weighing how good they look "
         "and how unsure the model is.",
     ]
-    assert len(wording.METHOD_DEFINITIONS) == 5
+    assert len(wording.method_definitions()) == 5
 
 
 def test_mixed_scales_say_the_rule_generically():
@@ -349,7 +349,7 @@ def test_the_review_after_uploading_round6(review):
 
 def test_no_forecast_check_stop_or_verdict_on_the_review(review):
     text = "\n".join(_texts(review.tabs[3]))
-    for gone in ("Forecast check", wording.FORECAST_CHECK_TITLE, "forecast", "Predicts",
+    for gone in ("Forecast check", "forecast", "Predicts",
                  "Partly", "Not yet", "Rising", "Plateau", "Stop:", "stop signal",
                  "Within noise of top", "too close", "called", "Repeat F", "theta"):
         assert gone not in text, gone

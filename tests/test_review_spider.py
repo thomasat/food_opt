@@ -151,12 +151,8 @@ def test_one_scored_round_draws_no_control():
 def _all_texts():
     opt = _opt()
     data = U.spider_data(opt)
-    texts = [wording.SPIDER_TITLE, wording.SPIDER_CAPTION, wording.SPIDER_KEY_TARGET,
-             wording.SPIDER_KEY_EARLIER, wording.spider_key_best(6, 16),
-             wording.spider_key_start(3), wording.spider_help(3, 1),
-             wording.spider_help(3, 1, repeats=True), wording.spider_same_help(1, 3),
-             wording.spider_moves_help(3, 16, ["Tangy moved 1 away"]),
-             wording.spider_off("Tangy", "1.0", "under")]
+    texts = [
+             ]
     for r in data.rounds:
         texts += [U.spider_round_answer(opt, data, r), U.spider_round_help(opt, data, r)]
     return texts

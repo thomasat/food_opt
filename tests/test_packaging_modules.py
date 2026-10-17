@@ -47,7 +47,8 @@ def test_every_imported_module_is_packaged():
 
 
 def test_scanner_sees_the_insights_chain():
-    assert {"ui_insights", "learned", "insights"} <= _app_modules()
+    # v3: nothing on screen reads learned.py's verdicts any more.
+    assert {"ui_insights", "insights"} <= _app_modules()
 
 
 def test_build_script_ships_the_sample_data():

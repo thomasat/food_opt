@@ -55,30 +55,6 @@ def _blocks(node, out=None):
 #  The mechanism (04 §5)
 # ------------------------------------------------------------------ #
 
-_PROBE = """
-import streamlit as st
-import ui_helpers
-ui_helpers.link("Prediction check", "Insights", section="insights_stand",
-                fold="insights_each", key="link_probe")
-st.text_input("typed", key="typed")
-"""
-
-
-def test_a_link_is_tertiary_and_its_click_parks_the_move(tmp_path):
-    script = tmp_path / "probe.py"
-    script.write_text(_PROBE)
-    at = AppTest.from_file(str(script))
-    at.run()
-    [button] = at.button
-    assert button.proto.type == "tertiary"
-    at.text_input(key="typed").set_value("6.30")
-    button.click()
-    at.run()
-    assert at.session_state["_pending_tab"] == "Insights"
-    assert at.session_state[ui_helpers.SCROLL_KEY] == "insights_stand"
-    assert at.session_state["insights_each"] is True
-    assert at.text_input(key="typed").value == "6.30"        # nothing typed is lost
-
 
 def test_go_to_tab_lands_at_the_top(monkeypatch):
     """04 §1: after Save results the move landed ~1,400 px down."""
@@ -124,31 +100,6 @@ def test_insights_sections_carry_the_keys_links_land_on():
 # ------------------------------------------------------------------ #
 #  E1: Results after Save results (04 §3, review I7)
 # ------------------------------------------------------------------ #
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_e1_asks_whether_the_last_round_came_out_as_predicted():
-    opt = _burger(rounds=4)
-    at = _app(opt, wording.TAB_RESULTS)
-    [e1] = _links(at)
-    assert e1.key == "link_round_checked"
-    assert e1.label == "Round 4: measured against predicted"
-    assert e1.proto.type == "tertiary"
-    assert not [b for b in at.tabs[2].button if b.proto.type == "primary"
-                and str(b.key or "").startswith("link_")]
-    e1.click()
-    at.run()
-    assert not at.exception
-    assert at.session_state["main_tab"] == wording.TAB_INSIGHTS
-    assert at.session_state[ui_insights.EACH_KEY] is True
-    # Ftue M2: it lands on Prediction check, and its figures fold opens
-    # with the chart fold inside it.
-    assert any(f".st-key-{ui_insights.TRUST_SECTION}" in s for s in _scripts(at))
-    assert at.session_state[ui_insights.PREDICTION_FIGURES_KEY] is True
-    # T47 review I-2: the fold is drawn open — its content is there (it is
-    # worked out only while open).
-    fold = next(e for e in at.tabs[3].expander if e.label == wording.FOLD_MEASURED_CHART)
-    assert [(c.value, c.proto.help) for c in fold.caption] == [
-        (wording.PLOT_CAPTION_MVP, wording.MVP_CAPTION)]
 
 
 def test_e1_is_gone_while_a_round_is_open():

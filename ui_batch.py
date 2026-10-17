@@ -36,8 +36,7 @@ import insights
 import ui_insights
 from ui_helpers import REVIEW_DUE_KEY, ask_tab, review_due
 # Ftue fix C: the Add fold's place and the Repeat link's request; v3: the
-# Why link's landing is the Round table (WHY_PLACE).
-from ui_helpers import ADD_OWN_KEY, ADD_OWN_PLACE, REPEAT_REQUEST_KEY, WHY_PLACE
+from ui_helpers import ADD_OWN_KEY, ADD_OWN_PLACE
 
 # The batch table's own formatter, under the name tests and older code import.
 _amount_format = amount_format
@@ -386,22 +385,13 @@ def _no_batch(opt, tab_open=False):
     # While a confirmation is armed its "Yes" is the one coloured button, and
     # answering it is the one thing to do; generating can wait a click.
     lit = not confirmation_open()
-    # Round-2 fixes (P2 #16): when the Review says stop, Generate still
-    # works but is not the lit button, and one line says why.
-    stop = ui_insights.review_says_stop(opt)
+    # v3: no stop rule, so Generate is always the lit button here.
     if st.button(wording.for_project(opt, wording.generate_button_label(n)),
-                 type="primary" if lit and not stop else "secondary",
+                 type="primary" if lit else "secondary",
                  disabled=not lit, key="generate") and lit:
         _generate(opt, n)
-    if stop:
-        st.caption(wording.REVIEW_SAYS_STOP)
     # v3: no Next step line here (it read the forecasts); Review's What
     # next? says what to do.
-    # The Repeat link's request waits for Generate (ftue fix C): one line.
-    request = _repeat_request(opt)
-    if request is not None:
-        st.caption(wording.for_project(opt, wording.repeat_after_generate(request["no"])),
-                   help=wording.for_project(opt, wording.repeat_after_generate_help(request["no"])))
     # Only while it is news: before five formulations have results (spec
     # 2026-09-30 §3, audit V16). Set up › Advanced › How it works keeps it.
     if opt.complete_count() < COLD_START_RUNS:
@@ -489,12 +479,6 @@ def _start_from_best(opt, best_no):
         st.rerun()
 
 
-def _put(key, value):
-    """Assign a box before it is drawn on this run (the Repeat request is
-    read before the Add fold's boxes exist, so nothing is parked)."""
-    st.session_state[key] = value
-
-
 def _fill_from(opt, best_no, put):
     """Start from Best so far's filling, shared by its button (`put`:
     park_clear, then a rerun) and the Repeat link's request (`put`: _put,
@@ -523,42 +507,6 @@ def _fill_from(opt, best_no, put):
     st.session_state[_PREFILLED_FROM] = int(best_no)
     st.session_state[_PREFILLED_AMOUNTS] = prefilled
     return True
-
-
-def _repeat_request(opt):
-    """The Repeat link's request for this project (ui_insights._repeat_link),
-    or None. A request for another project, or for a Round that is no
-    longer the one open (or that has closed), is dropped: it was about a
-    screen the reader has left."""
-    request = st.session_state.get(REPEAT_REQUEST_KEY)
-    if not isinstance(request, dict):
-        return None
-    open_no = opt.pending_batch_no if opt.pending_batch else None
-    wanted = request.get("round")
-    if (request.get("project") != opt.project_name
-            or (wanted is not None and wanted != open_no)):
-        st.session_state.pop(REPEAT_REQUEST_KEY, None)
-        return None
-    return request
-
-
-def _take_repeat_request(opt):
-    """With a Round open, the Repeat link's request opens "Add a formulation
-    to this round" with Start from Best so far applied (the link's own
-    Formulation; the note says "Repeat of Formulation N") and lands on it,
-    once: nothing is added until the reader clicks Add. Called before the
-    fold and its boxes are drawn. With no Round open it waits (the line
-    under Generate says so); Generate then opens the Round and this fills
-    the fold on that run (ftue fix C)."""
-    request = _repeat_request(opt)
-    if request is None or not opt.pending_batch:
-        return
-    st.session_state.pop(REPEAT_REQUEST_KEY, None)
-    if _fill_from(opt, request.get("no"), _put):
-        st.session_state[ADD_OWN_KEY] = True
-        # app.py scrolls there once, after the tabs (also after a Generate,
-        # where no link set a landing).
-        st.session_state[SCROLL_KEY] = ADD_OWN_PLACE
 
 
 def _add_own(opt):
@@ -595,9 +543,8 @@ def _own_formulation(opt):
     Both buttons are secondary. One button per tab is the coloured one:
     Generate before a batch is open, Save results once it is.
     """
-    _take_repeat_request(opt)
-    # Keyed, in a keyed place: the Repeat link opens it and lands on it
-    # (ftue fix C). Its boxes are drawn whether it is open or not, as before.
+    # Keyed, in a keyed place (ui_helpers.ADD_OWN_PLACE). Its boxes are
+    # drawn whether it is open or not, as before.
     with st.container(key=ADD_OWN_PLACE), \
             st.expander(wording.for_project(opt, wording.ADD_OWN_EXPANDER), key=ADD_OWN_KEY,
                         on_change="rerun"):
@@ -1118,7 +1065,6 @@ def _near_copy_prefixes(opt, batch):
     return prefixes
 
 
-
 def _batch_table(opt, scale_to, tab_open=False, table=None):
     """The make-these table and the lines it owes the reader.
 
@@ -1144,9 +1090,7 @@ def _batch_table(opt, scale_to, tab_open=False, table=None):
             st.session_state[edit_key] = True
             preserve_tab_forms()
             st.rerun()
-        # In the Why link's keyed place (Review's link still lands here).
-        with st.container(key=WHY_PLACE):
-            _draw_compare(opt, table if table is not None else round_compare(opt, scale_to))
+        _draw_compare(opt, table if table is not None else round_compare(opt, scale_to))
     else:
         st.info(wording.for_project(opt, wording.EDIT_FORMULATIONS_ACTIVE), icon=":material/edit:")
         st.caption(wording.EDIT_FORMULATIONS_CAPTION)

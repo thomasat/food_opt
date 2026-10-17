@@ -55,44 +55,6 @@ def _open(opt, n):
     return opt
 
 
-@pytest.mark.parametrize("kind, start, end", [
-    ("early", "", " The predictions cannot be judged yet."),
-    ("rising", "Best so far is rising. ", ""), ("see", "", "")])
-def test_with_a_round_open_the_next_step_is_to_record_it(kind, start, end):
-    opt = _burger(rounds=3, noise=0.3)
-    text, _ = ui_insights.next_step_text(opt, _step(kind))
-    assert "Make the next Round" in text or "to see whether" in text
-    _open(opt, 4)
-    text, _ = ui_insights.next_step_text(opt, _step(kind))
-    no = opt.pending_batch_no
-    tail = (f"Record the 4 formulations still open in Round {no}, then make the next Round."
-            if kind != "see" else
-            f"Record the 4 formulations still open in Round {no} to see whether Best so far "
-            "rises.")
-    assert text == start + tail + end
-    assert not any(p.search(text) for p in _BANNED), text
-
-
-def test_one_open_formulation_is_said_in_the_singular():
-    opt = _open(_burger(rounds=3, noise=0.3), 1)
-    text, _ = ui_insights.next_step_text(opt, _step("rising"))
-    assert text == ("Best so far is rising. Record the formulation still open in "
-                    f"Round {opt.pending_batch_no}, then make the next Round.")
-
-
-def test_a_process_only_project_says_trials(ferment_scored):
-    """The Trial form (for_project), plural and singular."""
-    opt = ferment_scored
-    opt.set_pending_batch([{n: v for n, v in r.items()} for r in opt.recipe_history[:2]])
-    text = ui_insights._say(opt, ui_insights.next_step_text(opt, _step("rising"))[0])
-    assert f"Record the 2 trials still open in Round {opt.pending_batch_no}" in text
-    assert "ormulation" not in text
-    opt.set_pending_batch([dict(opt.recipe_history[0])])
-    text = ui_insights._say(opt, ui_insights.next_step_text(opt, _step("see"))[0])
-    assert text == (f"Record the trial still open in Round {opt.pending_batch_no} "
-                    "to see whether Best so far rises.")
-
-
 # ------------------------------------------------------------------ #
 #  Final review M-3, M-7, M-8, M-9: words
 # ------------------------------------------------------------------ #
@@ -102,27 +64,12 @@ def test_best_failed_says_predicted_best():
     assert wording.BEST_FAILED == "The predicted best could not be found."
 
 
-def test_one_point_is_said_in_the_singular():
-    """M-7."""
-    assert wording.stand_yes("1.0") == (
-        "Rising: up 1 point in the last Round, above the 1-point noise threshold.")
-    assert wording.stand_yes("3.1").startswith("Rising: up 3.1 points in the last Round")
-    assert "up to 1 miss in 12" in wording.round_track_rough(11, 12, allowed=1)
-
-
 def test_move_to_not_scored_help_counts_the_results():
     """M-7: two measurements missing are "these results"."""
     assert wording.move_to_not_scored_help(1) == wording.MOVE_TO_NOT_SCORED_HELP
     two = wording.move_to_not_scored_help(2)
     assert two.startswith("Use when these results will never come.")
     assert "this result" not in two
-
-
-def test_the_holding_line_after_an_unreliable_verdict_is_not_good_news():
-    """M-8."""
-    assert wording.round_track_holding(11, 11, True, rounds=[3, 4, 5]) == (
-        "Overall score, Rounds 3–5: 11 of 11 inside their 95 % interval; measured values: "
-        "many more misses than expected.")
 
 
 def test_the_results_setup_button_names_process_settings_on_a_process_only_project(
@@ -143,12 +90,10 @@ def test_the_results_setup_button_names_process_settings_on_a_process_only_proje
 
 
 def test_the_new_words_pass_the_guard():
-    for text in (wording.BEST_FAILED, wording.stand_yes("1.0"),
-                 wording.round_track_rough(11, 12, allowed=1), wording.move_to_not_scored_help(2),
-                 wording.round_track_holding(11, 11, True),
+    for text in (wording.BEST_FAILED,
+                 wording.move_to_not_scored_help(2),
                  wording.change_setup_from_results(settings_only=True),
-                 wording.next_rising_open(6, 4), wording.next_see_open(6, 1),
-                 wording.next_too_early_open(6, 2)):
+                 ):
         assert not any(p.search(text) for p in _BANNED), text
 
 

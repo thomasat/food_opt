@@ -32,7 +32,7 @@ import wording
 from food_bo import FoodOptimizer
 from tests import demo_projects as D
 from tests.test_app_ui import APP_PATH
-from tests.test_review_cards import _install, _leaves, _next_rows, _open, _text, _words, cards
+from tests.review_screens import _install, _leaves, _open, _text, _words
 
 BENCH = re.compile(r"panel|supplier|equipment", re.I)
 CONTRADICTION = ("too narrow", "Wide 95 %", "fall inside easily")
@@ -123,31 +123,6 @@ def _facts(opt, checks):
     return facts
 
 
-def test_synthetic_cards_never_say_panel(line_a):
-    checks = _synthetic(line_a)
-    facts = _facts(line_a, checks)
-    # Review four, ruling 1: every Overall score held (12 of 12), so the
-    # word is the score's; the measurements' misses are one plain line and
-    # where they fell is in the "?" (was: Off, the diagnosis on the card).
-    assert facts.prediction_row != "off_coverage" and facts.disagreement is None
-    assert facts.measure_verdict == "unreliable" and facts.measures_miss
-    p = ui_insights.predictions_card(line_a, facts)
-    n = ui_insights.next_card(line_a, facts)
-    texts = [p.word, n.word] + [t for t, _ in p.lines + n.lines]
-    assert not any(BENCH.search(t) for t in texts), texts
-    # Specific wording (2026-10-12), re-pinned: how many missed, against the
-    # verdict's own allowance, then the worst.
-    assert (ui_insights.misses_line(facts), False) in p.lines
-    assert re.match(r"Measurements: \d+ of \d+ outside \((up to \d+|none) normal\); most ",
-                    ui_insights.misses_line(facts))
-    assert not any(warn for _, warn in p.lines)
-    assert (wording.card_noise_repeat(facts.best.formulation), False) in n.lines
-    for t, _ in p.lines + n.lines:
-        # Specific wording (2026-10-12): the miss line counts and names, at
-        # most 14 words; every other line keeps its 6.
-        assert _words(t) <= (14 if t == ui_insights.misses_line(facts) else 6), t
-
-
 # ------------------------------------------------------------------ #
 #  Demo projects: Line B keeps its check; the others unchanged
 # ------------------------------------------------------------------ #
@@ -174,27 +149,6 @@ def test_one_way_says_which_way():
     assert wording.card_diag("one_way", "mixed") == "Each measurement misses one way"
     for side in ("above", "below", "mixed"):
         assert _words(wording.card_diag("one_way", side)) <= 6
-
-
-def test_repeats_that_vary_a_lot_back_the_panel_advice(line_a):
-    """Ruling 2: Repeats measuring the noise (3+ df) at half the spread of
-    scores or more: "Repeats vary a lot", the advice kept in the tooltip."""
-    import types
-    big = types.SimpleNamespace(from_repeats=True, value=50.0, df=3, pairs=3)
-    small = types.SimpleNamespace(from_repeats=True, value=0.1, df=3, pairs=3)
-    assumed = types.SimpleNamespace(from_repeats=False, value=50.0, df=1, pairs=1)
-    assert insights.repeats_vary(line_a, big).sd == 50.0
-    assert insights.repeats_vary(line_a, small) is None
-    assert insights.repeats_vary(line_a, assumed) is None
-    assert _words(wording.CARD_REPEATS_VARY) <= 6
-    assert "results vary a lot" in wording.repeats_vary_line("50.0", 3, "4.6")
-
-
-@pytest.mark.parametrize("name", [D.SNACK, D.LINE_A, D.LINE_C, D.PROCESS_ONLY])
-def test_no_diagnosis_where_nothing_is_off(demos, name):
-    for c in cards(demos[name]):
-        assert not any(line in c["lines"] for line in wording.CARD_DIAG.values())
-        assert "Misses by measurement" not in (c["help"] or "")
 
 
 # ------------------------------------------------------------------ #
@@ -238,49 +192,5 @@ def _score_round_6():
     at.run()
     assert FoodOptimizer(R6).pending_batch in (None, [])
     return _open_review(R6)
-
-
-def _check_without_repeat(at, name, word):
-    """Review four, ruling 1: the word is the Overall score's (`word`); the
-    measurements' misses one plain line; no panel advice; a neutral Repeat
-    asked once; the diagnosis's evidence in the "?"."""
-    texts = _all_text(at)
-    assert not [t for t in texts if BENCH.search(t)], name
-    p, _, n = cards(at)
-    assert p["word"] == word
-    # Review learned 2: the line contradicted the per-measurement verdicts;
-    # gone from the section.
-    assert wording.CARD_MEASURES_MISS not in p["lines"]
-    assert not any(line.startswith(":red[") for line in p["lines"])
-    assert all(line != wording.CARD_DIAG["unexplained"] for line in p["lines"])
-    # Final demo (B1), re-pinned: at the stop the Repeat request is a quiet
-    # caption under the callout (no longer a card line).
-    quiet = [t for el, t in _next_rows(at) if el.type == "caption"]
-    asks = [line for line in p["lines"] + n["lines"] + quiet
-            if line.startswith("Repeat Formulation ") and line.endswith("to check noise")]
-    assert len(asks) == 1, (p["lines"], n["lines"], quiet)
-    # Final demo (B1), re-pinned: the stop is a callout — its headline, the
-    # gap and the need (at most 12 words), the on-target line (at most 12).
-    stop = next((line for line in n["lines"] if line == f"**{wording.STOP_CALLOUT_HEAD}**"),
-                None)
-    callout = [line for line in n["lines"]
-               if line.startswith("On target") or "needed to tell two results apart" in line]
-    for line in p["lines"] + n["lines"]:
-        # Fix round 2 (coordinator): the Model line carries its counts with how
-        # many were right, within the owner's 10-word status (word + line).
-        model = line in p["lines"][:1] and "called" in line
-        assert _words(line) <= (14 if line == stop else 12 if line in callout
-                                else 10 - _words(p["word"]) if model else 6), line
-    if name == R6:
-        assert stop in n["lines"]
-    opt = FoodOptimizer(name)
-    checks = insights.check_rounds(opt)
-    d = insights.miss_diagnosis(opt, checks)
-    # Review critique (fix 13): the strip's "?" keeps to about 120 words,
-    # plain first; the diagnosis's counts and rule are in Method and
-    # definitions.
-    assert d is not None and len(p["help"].split()) <= wording.TOOLTIP_WORDS
-    for bad in CONTRADICTION:
-        assert not any(bad in t for t in texts)
 
 

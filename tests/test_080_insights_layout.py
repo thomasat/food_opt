@@ -57,7 +57,7 @@ def test_three_answers_then_the_foot_then_three_folds(insights_scored, monkeypat
     at = _open_insights(_app())
     assert not at.exception
     md = _md(at)
-    heads = [f"##### {q}" for q in (wording.Q_TRUST, wording.Q_STAND, wording.Q_NEXT)]
+    heads = [f"##### {q}" for q in (wording.Q_STAND, )]
     assert [md.index(h) for h in heads] == sorted(md.index(h) for h in heads)
     for gone in ("Did the predictions come true?", "Is it still improving?",
                  "Which formulation is predicted to score highest?"):
@@ -97,26 +97,6 @@ def test_the_header_is_counts_only(insights_scored):
     assert "Likely range" not in header
 
 
-@pytest.mark.skip(reason="review cards prototype: pins the old Review layout (status lines, Explored fold, header); reconcile at the final merge")
-def test_the_gate_is_header_best_so_far_the_gate_line_and_the_foot(tmp_path):
-    """Review M8; since ftue W1 (R-B1 row 3, T0 §5) the gate line is the
-    Predictions status line's, and Best so far sits in Progress figures."""
-    opt = _patty(rows=3)
-    at = _tab(opt.project_name)
-    assert not at.exception
-    md = _md(at)
-    # Re-pinned to the concision round's short line; pred_gate's full
-    # sentence opens its tooltip.
-    assert md[0] == wording.status_line(wording.STATUS_PREDICTIONS, wording.short_gate(3),
-                                        wording.PREDICTIONS_WORDS["not_yet"])
-    assert md[1].startswith("Progress: **") and md[2].startswith("Next: ")
-    assert md[3] == f"##### {wording.Q_STAND}" and md[4].startswith("Best so far: ")
-    captions = [c.value for c in at.tabs[3].caption]
-    assert captions[0] == ui_insights.header_text(opt)
-    assert wording.insights_gate(3) not in captions
-    assert "insights_foot" in [b.key for b in at.tabs[3].button]
-
-
 def test_nothing_scored_still_offers_the_foot(tmp_path):
     opt = _patty(rows=0)
     _tell(opt, 1, 1, drop=("Cook loss",))
@@ -127,38 +107,12 @@ def test_nothing_scored_still_offers_the_foot(tmp_path):
     assert "insights_foot" in [b.key for b in at.tabs[3].button]
 
 
-@pytest.mark.skip(reason="review cards prototype: pins the old Review layout (status lines, Explored fold, header); reconcile at the final merge")
-def test_a_failed_fit_says_so_once_and_keeps_best_so_far_and_the_foot(
-        insights_scored, monkeypatch):
-    monkeypatch.setattr(insights, "fit_all", lambda opt: (_ for _ in ()).throw(RuntimeError()))
-    at = _open_insights(_app())
-    assert not at.exception
-    md = " ".join(_md(at))
-    assert wording.Q_TRUST not in md and wording.Q_NEXT not in md
-    assert wording.Q_STAND in md
-    assert [c.value for c in at.tabs[3].caption].count(wording.INSIGHTS_FAILED) == 1
-    assert "insights_foot" in [b.key for b in at.tabs[3].button]
-
-
 # ------------------------------------------------------------------ #
 #  "Can you trust the predictions?" (review I6, M9)
 # ------------------------------------------------------------------ #
 
 def _h(state="verdict", inside=32, total=33, rounds=(4, 5, 6), wide=()):
     return insights.Headline(state, list(rounds), inside, total, "holding", None, list(wide))
-
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_a_disagreeing_repeat_is_said_once(insights_scored, monkeypatch):
-    d = insights.Disagreement(9, 3, -10.6, 8)
-    monkeypatch.setattr(insights, "disagreeing_repeat", lambda opt, checks, m=None: d)
-    at = _open_insights(_app())
-    assert not at.exception
-    line = ui_insights.disagreement_text(d)
-    assert line == ("Formulation 9, a Repeat of Formulation 3, scored 10.6 points lower. "
-                    "If something changed (panel, supplier, equipment), check it before "
-                    "relying on the next suggestions.")
-    assert _md(at).count(line) == 1
 
 
 # ------------------------------------------------------------------ #
@@ -185,44 +139,12 @@ def _standing(higher, close_no=None, close=None):
 #  "What to do next" (review I2, I3, M17)
 # ------------------------------------------------------------------ #
 
-@pytest.mark.parametrize("step,text,button", [
-    # 0.8.0 e2e fixes (review I2): the steady bias rides on the misses row.
-    (insights.NextStep("misses", gap=-5.0),
-     wording.next_misses(bias_text=wording.next_bias("5.0", True)), None),
-    (insights.NextStep("misses"), wording.NEXT_MISSES, None),
-    (insights.NextStep("early"), wording.NEXT_TOO_EARLY, None),
-    (insights.NextStep("untested"), wording.next_untested(open_round=False), None),
-    (insights.NextStep("close"), wording.next_close_to_top(), None),
-    (insights.NextStep("close", binding=insights.Binding("highest", "Oil", "Oil")),
-     wording.next_close_to_top(wording.raise_highest("Oil")), "Change Oil's Highest on Set up"),
-    (insights.NextStep("close", binding=insights.Binding("lowest", "Salt", "Salt")),
-     wording.next_close_to_top(wording.lower_lowest("Salt")), "Change Salt's Lowest on Set up"),
-    (insights.NextStep("close", binding=insights.Binding("limit", "Fat", "Fat: at most 20 g")),
-     wording.next_close_to_top(wording.widen_limit("Fat: at most 20 g")),
-     wording.CHANGE_LIMITS_ON_SETUP),
-    (insights.NextStep("rising"), wording.NEXT_RISING, None),
-    (insights.NextStep("see"), wording.NEXT_SEE, None),
-])
-def test_each_next_step_has_its_sentence(step, text, button):
-    opt = _patty(rows=6)
-    assert ui_insights.next_step_text(opt, step) == (text, button)
-
 
 def test_no_sentence_says_what_the_next_round_will_do():
     """Review I3: nothing may promise what ask() does."""
-    for text in (wording.next_untested(), wording.next_untested(True), wording.NEXT_RISING,
-                 wording.NEXT_SEE, wording.stand_higher("94", "89", "99")):
+    for text in (wording.NEXT_RISING,
+                 ):
         assert "will try" not in text and "worth adding" not in text
-
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_a_process_only_project_names_settings(tmp_path):
-    opt = FoodOptimizer("ferment_x")
-    opt.add_process_parameter("Mixing time", 1, 10)
-    opt.add_objective("Acidity", 1.0, goal="max", min_val=0, max_val=10, unit="pH")
-    assert ui_insights._try_one_label(opt) == "Try one process setting"
-    text, _ = ui_insights.next_step_text(opt, insights.NextStep("untested"))
-    assert "values" in text and "amounts" not in text
 
 
 # ------------------------------------------------------------------ #
@@ -248,31 +170,3 @@ def _fake_best(monkeypatch, close, gap):
     monkeypatch.setattr(insights, "predicted_best", fake)
 
 
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_the_amounts_fold_only_when_clearly_higher_and_untested(insights_scored, monkeypatch):
-    label = wording.show_its_amounts()
-    # The fold's own rule, with the model's gains not withheld: this small
-    # fixture is below the A3 gate, which holds the fold back too (polish
-    # round; tests/test_106_last_fixes.py).
-    monkeypatch.setattr(ui_insights, "claims_withheld_reason", lambda *a, **k: None)
-    _fake_best(monkeypatch, None, 5.0)
-    at = _open_insights(_app())
-    assert not at.exception
-    fold = next(e for e in at.tabs[3].expander if e.label == label)
-    assert list(fold.dataframe[0].value[wording.FORMULATION_CAP])[0] == wording.BEST_ROW
-    for close, gap in ((2, 5.0), (None, 0.5)):
-        _fake_best(monkeypatch, close, gap)
-        at = _open_insights(_app())
-        assert label not in [e.label for e in at.tabs[3].expander]
-
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_a_failed_amounts_table_is_one_line(insights_scored, monkeypatch):
-    monkeypatch.setattr(ui_insights, "claims_withheld_reason", lambda *a, **k: None)
-    _fake_best(monkeypatch, None, 5.0)
-    monkeypatch.setattr(ui_insights, "best_frame",
-                        lambda opt, best, fitted: (_ for _ in ()).throw(RuntimeError()))
-    at = _open_insights(_app())
-    assert not at.exception
-    fold = next(e for e in at.tabs[3].expander if e.label == wording.show_its_amounts())
-    assert [c.value for c in fold.caption] == [wording.BEST_FAILED]

@@ -36,7 +36,7 @@ from food_bo import FoodOptimizer
 from tests import demo_projects as D
 from tests.test_app_ui import APP_PATH
 from tests.test_food_bo import _BANNED
-from tests.test_review_cards import _install, _leaves, _text, cards, section, strip
+from tests.review_screens import _install, _leaves, _text, strip
 from tests.test_review_diag import ALL10, R6
 
 # Review critique (fix 5, re-pinned): Are we improving?, What next?, What has
@@ -45,7 +45,7 @@ from tests.test_review_diag import ALL10, R6
 # Slim Review (owner, 2026-10-08, re-pinned): the Forecast check is the
 # model's section (its verdict line in it); What have we tried? is a closed
 # fold too, so the headings are three.
-STORY = [wording.Q2_TITLE, wording.Q5_TITLE, wording.FORECAST_CHECK_TITLE]
+STORY = [wording.Q2_TITLE, wording.Q5_TITLE, 'Forecast check']
 CHART = ("arrow_vega_lite_chart", "vega_lite_chart")
 
 
@@ -62,25 +62,6 @@ def _open(name):
     at.run()
     assert not at.exception, [e.message for e in at.exception]
     return at
-
-
-def sections(at):
-    """{question: [(type, text)]} in screen order."""
-    out, cur = {}, None
-    for el, folds, _ in _leaves(at.tabs[3]):
-        text = _text(el)
-        if el.type == "markdown" and text.startswith("#### "):
-            cur = text[5:]
-            out[cur] = []
-            continue
-        if el.type == "expander":
-            # The Forecast check's details fold stays in its section.
-            if el.label != wording.LEARNED_DETAILS_TITLE:
-                cur = None
-            continue
-        if cur is not None and (text or el.type in CHART or el.type == "toggle"):
-            out[cur].append((el.type, text or getattr(el, "label", "")))
-    return out
 
 
 @pytest.fixture(scope="module")
@@ -107,18 +88,6 @@ def screens(tmp_path_factory):
 #  Are we improving?
 # ------------------------------------------------------------------ #
 
-def test_the_start_is_the_first_rounds_best():
-    opt = D.load(D.LINE_A)
-    i, r = U.story_start(opt)
-    first = [k for k, b in enumerate(opt.batch_history) if b == r]
-    assert r == min(b for b in opt.batch_history if b is not None)
-    assert opt.Y_history[i] == max(opt.Y_history[k] for k in first if k in
-                                   set(opt.best_candidates()))
-    s, r0, b, rb, bno = U.story_numbers(opt)
-    assert (s, r0) == (float(opt.Y_history[i]), r)
-    assert b == float(opt.Y_history[opt.best_index()]) and bno == int(
-        opt.formulation_ids[opt.best_index()])
-
 
 def test_round_averages_are_the_rounds_means():
     opt = D.load(D.LINE_A)
@@ -127,17 +96,6 @@ def test_round_averages_are_the_rounds_means():
         mine = [float(opt.Y_history[i]) for i, x in enumerate(opt.batch_history)
                 if x == r and i in pool]
         assert n == len(mine) and mean == pytest.approx(sum(mine) / len(mine))
-
-
-def test_the_progress_card_goes_from_start_to_best():
-    assert wording.card_progress("87.8", "90.5", "same for 2 Rounds") == \
-        "87.8 → 90.5 · same for 2 Rounds"
-    assert wording.card_progress(None, "96.0", "Formulation 1") == "Best 96.0 · Formulation 1"
-    # Review story 2: "of 100" on a 0–100 score only.
-    assert wording.score_of("96.4", 100.0) == "96.4 of 100"
-    assert wording.score_of("9.2", 10.0) == "9.2"
-    assert wording.card_progress("88.4", wording.score_of("96.4", 100), "same for 3 Rounds") == \
-        "88.4 → 96.4 of 100 · same for 3 Rounds"
 
 
 # ------------------------------------------------------------------ #
@@ -158,19 +116,7 @@ def _checks():
 # ------------------------------------------------------------------ #
 
 def _story_strings():
-    return [wording.card_progress("87.8", "90.5", "same for 2 Rounds"),
-            wording.card_checked_so_far(7, 7, 10), wording.STORY_START, wording.STORY_BEST,
-            wording.story_point("Start", "87.8", 1), wording.STORY_ROUND_AVERAGE,
-            wording.STORY_EACH, wording.STORY_IMPROVING_CAPTION,
-            wording.story_improving_help("83.8", "89.5", 1, 5),
-            wording.story_target_start(1), wording.STORY_TARGET_BEST, wording.STORY_TARGET,
-            wording.STORY_TARGET_TITLE, wording.STORY_TARGET_CAPTION,
-            wording.story_target_row("Juiciness", "target", 7), wording.story_target_help(3, 21, 1),
-            wording.STORY_FORECAST, wording.STORY_LANDED_IN, wording.STORY_LANDED_OUT,
-            wording.STORY_NO_FORECAST, wording.STORY_TRUST_CAPTION,
-            wording.story_trust_answer(13, 15), wording.story_trust_so_far(7, 7, 10),
-            wording.story_misses(2, 0), wording.story_trust_help(13, 15, "x"),
-            wording.STORY_VALUE]
+    return [wording.STORY_ROUND_AVERAGE, wording.STORY_TARGET]
 
 
 def test_story_strings_pass_the_vocabulary_guard():
@@ -180,24 +126,8 @@ def test_story_strings_pass_the_vocabulary_guard():
         # No claim of Rounds or time saved, nor any comparison with another method.
         assert not re.search(r"\bsaved?\b|faster|fewer rounds|than (DoE|random|manual)",
                              text, re.I), text
-    # Labels at most 5 words, captions at most 8, status lines at most 10.
-    for label in (wording.STORY_ROUND_AVERAGE, wording.story_target_start(1),
-                  wording.STORY_TARGET_TITLE, wording.STORY_FORECAST, wording.STORY_LANDED_IN,
-                  wording.STORY_LANDED_OUT, wording.STORY_NO_FORECAST,
-                  wording.story_target_row("Textured pea protein",
-                                                                      "target", 13)):
-        assert _words(label) <= 5, label
-    for caption in (wording.STORY_IMPROVING_CAPTION, wording.STORY_TARGET_CAPTION,
-                    wording.STORY_TRUST_CAPTION):
-        assert _words(caption) <= 8, caption
-    for status in (wording.card_progress("87.8", "90.5", "+2.5 (beat 2.0)"),
-                   wording.card_checked_so_far(7, 7, 10), wording.story_trust_answer(13, 15),
-                   wording.story_trust_so_far(7, 7, 10)):
-        assert _words(status) <= 10, status
-    # The section sits under its own heading in wording.py.
-    src = open(wording.__file__).read()
-    assert "# --- review story ---" in src
-    assert src.index("# --- review story ---") < src.index("def card_progress(")
+    # Labels at most 5 words.
+    assert _words(wording.STORY_ROUND_AVERAGE) <= 5
 
 
 # ------------------------------------------------------------------ #
@@ -221,18 +151,5 @@ def pilot(tmp_path_factory, pilot_dir):
 # ------------------------------------------------------------------ #
 #  Review story 2: the strip above the charts, What next? at the end
 # ------------------------------------------------------------------ #
-
-
-@pytest.mark.parametrize("name", [D.LINE_A, D.SNACK, D.PROCESS_ONLY])
-def test_strip_word_limits(screens, name):
-    items, _ = strip(screens[name])
-    for i in items:
-        assert _words(i["label"]) <= 5, i
-        assert _words(f"{i['word']} {i['line']}") <= 10, i
-    for el, text in section(screens[name], wording.Q5_TITLE):
-        if el.type in ("markdown", "subheader"):
-            assert _words(text) <= 10, text
-        if el.type == "button":
-            assert _words(text) <= 5, text
 
 

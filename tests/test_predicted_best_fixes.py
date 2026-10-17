@@ -105,30 +105,14 @@ def test_the_luck_line_shows_only_below_best_so_far(insights_scored, monkeypatch
 #  §9 I6 (v3: Make a round shows no record; the help's own words stay)
 # ------------------------------------------------------------------ #
 
-def test_the_help_says_fall_inside():
-    # Ledger, statistician cold read I2 (fix round B): no "19 in 20" claim; the
-    # plain reading gives the 95 % aim and the coverage measured on simulated projects.
-    # Ftue fix A's re-run (I9 folds): 90 % of Overall scores (was 89 %).
-    assert "About 19 in 20" not in wording.PREDICTED_SCORE_HELP
-    assert ("Aims for 95 %; measured about 91 % (measurements) / 90 % (Overall score) on "
-            "simulated projects.") in wording.PREDICTED_SCORE_HELP
-
 
 # ------------------------------------------------------------------ #
 #  §9 I12 decimals, §9 I13 the two lines
 # ------------------------------------------------------------------ #
 
-def test_a_measurement_prediction_shares_one_decimal_count():
-    p = insights.Prediction(5.38, 3.5, 7.27)
-    assert ui_insights.value_text(p, 1) == "5.4 (3.5–7.3)"
-    assert ui_insights.value_text(insights.Prediction(12.66, 8.71, 18.4), 1) == "12.7 (8.7–18.4)"
-    assert ui_insights.value_text(p) == "5.38 (3.5–7.27)"          # no rule given: as before
-
-
-
 
 def test_the_new_strings_pass_the_vocabulary_guard():
     from tests.test_food_bo import _BANNED
-    for text in (wording.best_luck(30, "84", "79", "89"), wording.PREDICTED_SCORE_HELP,
-                 wording.PREDICTED_MEASUREMENTS_CAPTION):
+    for text in (wording.best_luck(30, "84", "79", "89"),
+                 ):
         assert not any(p.search(text) for p in _BANNED), text

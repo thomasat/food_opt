@@ -259,16 +259,6 @@ LINE_A_TIP = (
     "Round is predicted by models refitted today on earlier Rounds only.")
 
 
-def test_line_a_reads_the_reviews_exact_rule(project):
-    opt, checks = project(D.LINE_A)
-    facts = _status(opt, checks)
-    assert facts.prediction_row == "reliable"
-    tip = ui_insights.tooltip_for(opt, "predictions", facts)
-    assert tip.startswith(LINE_A_TIP)
-    assert W.TIP_RELIABLE_LIMITS in tip
-    assert _rule(opt, ("predictions", "reliable")) in tip
-
-
 @pytest.mark.skip(reason=REVIEW_FOUR)
 def test_line_b_names_the_repeat_and_the_bias(project):
     """Line B: Off (coverage) with the Repeat in Next; its bias clause."""
@@ -302,17 +292,6 @@ def test_the_process_only_tooltips_say_trial(project):
 # ------------------------------------------------------------------ #
 #  The term tooltips (§3, R-I6)
 # ------------------------------------------------------------------ #
-
-
-def test_the_figures_lines_carry_their_numbers(project):
-    opt, checks = project(D.LINE_A)
-    facts = _status(opt, checks)
-    verdict = ui_insights.tooltip_for(opt, "verdict", facts)
-    assert verdict.startswith(W.TIP_INTERVAL) and W.TIP_VERDICT in verdict
-    assert W.TIP_NOT_JUDGED not in verdict and "33 of 35 Round-ahead values" in verdict
-    assert "= 0.36 over 15" in ui_insights.tooltip_for(opt, "skill", facts)
-    early = ui_insights.tooltip_for(opt, "verdict")
-    assert W.TIP_NOT_JUDGED in early
 
 
 # ------------------------------------------------------------------ #

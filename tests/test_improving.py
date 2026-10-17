@@ -50,13 +50,6 @@ def test_the_rise_is_measured_against_formulations_best_so_far_compares():
     assert a.state == "yes" and a.rise == pytest.approx(4.0)
 
 
-def test_the_repeats_line_names_its_pairs():
-    assert wording.stand_repeats("0.3", 1) == (
-        "Repeat SD of the Overall score: 0.3 points from 1 pair. The noise threshold stays at "
-        "1 point until 3 pairs.")
-    assert "from 4 pairs; this is the noise threshold" in wording.stand_repeats("0.3", 4)
-
-
 @pytest.mark.skip(reason=REVIEW_FOUR)
 def test_the_answer_comes_first_and_best_so_far_drops_what_it_repeats(insights_scored):
     at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
@@ -71,26 +64,10 @@ def test_the_answer_comes_first_and_best_so_far_drops_what_it_repeats(insights_s
         assert "No higher score" not in md[i + 1]      # the fixture reads Not lately
 
 
-@pytest.mark.skip(reason="review cards prototype: pins the old Review layout (status lines, Explored fold, header); reconcile at the final merge")
-def test_the_gate_line_is_said_once_after_is_it_still_improving(scored):
-    at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
-    tab = at.tabs[3]
-    # Since ftue W1 (R-B1 row 3) the gate is said once, by the Predictions
-    # status line; the old gate line is gone from the tab.
-    # Re-pinned to the concision round's short line (pred_gate's full
-    # sentence is in its tooltip).
-    said = [m.value for m in tab.markdown if wording.short_gate(2) in m.value]
-    assert said == [wording.status_line(wording.STATUS_PREDICTIONS, wording.short_gate(2),
-                                        wording.PREDICTIONS_WORDS["not_yet"])]
-    assert wording.insights_gate(2) not in [c.value for c in tab.caption]
-
-
 def test_the_new_strings_pass_the_vocabulary_guard():
     from tests.test_food_bo import _BANNED
-    for text in (wording.insights_progress(0, 3), wording.insights_gate(3),
-                 wording.stand_repeats("0.3", 2), wording.stand_yes("3.1"),
-                 wording.stand_barely("0.2", "0.3"), wording.stand_barely("0.2"),
-                 wording.stand_not_lately(3)):
+    for text in (wording.insights_progress(0, 3),
+                 ):
         assert not any(p.search(text) for p in _BANNED), text
     assert "first visit" not in wording.insights_progress(0, 3)
 
