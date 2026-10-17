@@ -3920,8 +3920,7 @@ PATH_NO_ROOM_UP = "the other ingredients are all at their Highest"
 
 
 TAB_INSIGHTS = "4 · Review"
-SEE_WHAT_HAPPENED_NEXT = "See what happened next"
-SEE_WHAT_HAPPENED_NEXT_CAPTION = "The pilot's Rounds 7–10."
+SEE_WHAT_HAPPENED_NEXT = "See the pilot's Rounds 7–10"
 INSIGHTS_NONE = "The review appears once formulations are scored."
 INSIGHTS_WORKING = "Preparing the insights…"
 INSIGHTS_FAILED = "The review could not be prepared for this project."
@@ -10491,36 +10490,215 @@ def check_line(round_no, inside, above, below, subject=None, none=0):
     return f"**{ROUND_CAP} {round_no}: {who}{landing_counts(inside, above, below)}{tail}.**"
 
 
-# Definitions, one line each (owner, 2026-10-14): the rest of the
-# method is in the README, "How the Review works". Fix round 1: each line
-# true to the rule the app applies (learned.judge and holm; the coverage
-# ruling above, SIMULATED_COVERAGE; learned.round_call and pair_noise).
-METHOD_DEFINITIONS = (
-    f"**{OVERALL_SCORE_COLUMN}**: 0 to 100, how close the measurements come to your targets, "
-    "each counted by its Share of score.",
-    "**95 % range**: the range for one new result, aimed at 95 in 100; on simulated "
-    f"projects it caught about {SIMULATED_COVERAGE['measurements']} in 100 "
-    f"({SIMULATED_COVERAGE['score']} for {OVERALL_SCORE_COLUMN}s).",
-    f"**Tasting noise**: how far one {FORMULATION}'s {OVERALL_SCORE_COLUMN} moves when tasted "
-    f"again, in points; from Repeats, else assumed 1 point.",
-    # learned.round_call / too_close: measured apart, forecasts at least the
-    # result's noise apart and not both at the top of the Range (at_cap).
-    "**Called · too close**: called when forecasts are at least the result's noise apart, not "
-    "both at the Range's top; else too close. Measured-equal pairs: neither.",
-    "**No forecast**: a 95 % range covering the whole possible Range; counted neither in nor "
-    "out.",
-    # learned.judge; the exact thresholds (Holm, p < 0.05, p < 0.20, 5+
-    # pairs, over half measured equal) are in the README's "How the Review
-    # works", linked just below.
-    "**Predicts · Partly · Not yet**: Predicts: ordered right well beyond chance. Partly: "
-    "mostly right, weaker evidence. Not yet: neither, too few pairs, or most pairs measured "
-    "equal.",
-)
+# ------------------------------------------------------------------ #
+#  Review v3 (owner-approved 2026-10-16, final-v3/wording.md §4): Are we
+#  improving? as measurements only — a factual headline, Best so far, Best
+#  so far vs targets, Amounts in the top formulations — then What next?
+#  (buttons only) and Definitions. No verdict, no forecast, no stop.
+# ------------------------------------------------------------------ #
+
+def tied_names(names):
+    """'F16, F17 tied'; one name alone: 'F16'."""
+    names = list(names)
+    return ", ".join(names) + (" tied" if len(names) > 1 else "")
+
+
+def rounds_text(rounds):
+    """'Round 6'; several: 'Rounds 4, 5'."""
+    rounds = [str(r) for r in rounds]
+    if not rounds:
+        return ""
+    return (f"{ROUND_CAP} {rounds[0]}" if len(rounds) == 1
+            else f"{ROUND_CAP}s {', '.join(rounds)}")
+
+
+def review_headline(best, names, rounds, new=True, was=None, was_names=(), was_rounds=()):
+    """The headline under Are we improving?, measured facts only: 'Best
+    98.3: F16, F17 tied (Round 6). Was 95.0 (F10, Round 4).'; no new best
+    in the Round on view: 'Best 99.2: F21 (Round 7). No new best since.';
+    the first Round: 'Best 91.7: F3 (Round 1).'."""
+    where = rounds_text(rounds)
+    head = f"Best {best}: {tied_names(names)}" + (f" ({where})." if where else ".")
+    if not new:
+        return f"{head} No new best since."
+    if was is None:
+        return head
+    before = ", ".join(list(was_names) + ([rounds_text(was_rounds)] if was_rounds else []))
+    return f"{head} Was {was}" + (f" ({before})." if before else ".")
+
+
+REVIEW_HEADLINE_HELP = (f"The highest {OVERALL_SCORE_COLUMN} measured by the {ROUND_CAP} "
+                        "on view, and the best before it.")
+REVIEW_EACH_FORMULATION = f"Each {FORMULATION}"
+
+
+def review_each(n):
+    """The score chart's legend: 'Each formulation (18)'."""
+    return f"{REVIEW_EACH_FORMULATION} ({n})"
+
+
+def review_best_label(best, names):
+    """The score chart's Best label: 'Best: 98.3 (F16, F17 tied)'."""
+    return f"Best: {best} ({tied_names(names)})"
+
+
+def review_top_line(top):
+    """The dotted line at the top score: '100 = every attribute on target'."""
+    return f"{top} = every attribute on target"
+
+
+def review_score_caption(n=None, once=True):
+    """Under the score chart: 'Each formulation made once, rated once by the
+    panel (n = 5).' — the panel's size only when the project records it;
+    with Repeats on file, 'Each dot: one formulation, rated once.'."""
+    size = f" (n = {n})" if n else ""
+    if not once:
+        return f"Each dot: one {FORMULATION}, rated once{size}."
+    return f"Each {FORMULATION} made once, rated once by the panel{size}."
+
+
+def review_score_help(example=None):
+    """The caption's "?": why small differences may not be real, and what
+    one point off costs, from the project's own best ('Example: Tangy 4
+    instead of 5 costs 1.7 points.'); no example when every attribute is on
+    target."""
+    text = (f"Tasting the same {FORMULATION} again could give a slightly different score, "
+            "so small differences may not be real.")
+    return f"{text} {example}" if example else text
+
+
+def review_cost_example(name, value, ideal, cost):
+    """'Example: Tangy 4 instead of 5 costs 1.7 points.'"""
+    unit = "point" if cost == "1.0" else "points"
+    return f"Example: {name} {value} instead of {ideal} costs {cost} {unit}."
+
+
+def review_targets_title(names):
+    """'Best so far vs targets (F16, F17 tied)'."""
+    return f"Best so far vs targets ({tied_names(names)})"
+
+
+REVIEW_PANEL_MEDIAN = "Panel median"
+REVIEW_MEASURED = "Measured value"
+
+
+def review_targets_axis(label, low, high):
+    """The strip's axis: 'Panel median (0–15)'."""
+    return f"{label} ({low}–{high})"
+
+
+REVIEW_KEY_TARGET = "Target"
+REVIEW_KEY_ON = "Best, on target"
+REVIEW_KEY_OFF = "Best, off target"
+REVIEW_KEY_NO_TARGET = "Best, no target"
+REVIEW_HIGHER = "higher is better"
+REVIEW_LOWER = "lower is better"
+
+
+def review_target_value(value, target=None, gap=None, goal="target"):
+    """A strip row's value: '4 (target 5, −1)', '12 (target 12)', '8
+    (higher is better)'. `value` may name tied bests that differ: 'F16 4,
+    F17 5'."""
+    if goal == "max":
+        return f"{value} ({REVIEW_HIGHER})"
+    if goal == "min":
+        return f"{value} ({REVIEW_LOWER})"
+    return f"{value} (target {target}, {gap})" if gap else f"{value} (target {target})"
+
+
+REVIEW_TARGETS_HELP = ("Each attribute on its own scale: the tick is its target, the dot "
+                       "the best so far. Orange: off target, the gap drawn.")
+
+
+def review_amounts_title(n):
+    """'Amounts in the top 4 formulations'; one: 'Amounts in the best
+    formulation'."""
+    if n == 1:
+        return f"Amounts in the best {FORMULATION}"
+    return f"Amounts in the top {n} {FORMULATION}s"
+
+
+def review_amounts_help(within):
+    """The amounts title's "?": what Top means and how to read a row."""
+    return (f"Top: {FORMULATION}s within {within} points of the best so far. Each row is one "
+            "ingredient or setting between its limits: outlined, allowed but not tried; grey, "
+            "the range tried; blue, the range in the top ones; the marks, the best so far.")
+
+
+def review_amounts_linked(n, total):
+    """'The 7 add to 97.7–98.7 g (the allowed total), so amounts are linked.'"""
+    return f"The {n} add to {total} (the allowed total), so amounts are linked."
+
+
+REVIEW_ALLOWED = "Allowed, not tried"
+
+
+def review_tried(n):
+    """'Tried (18)'."""
+    return f"Tried ({n})"
+
+
+def review_top_key(names, n=None):
+    """'Top 4 (F16, F17, F10, F13)'; one: 'Top 1 (F16)'. `n`: the count
+    when `names` is cut short ('…')."""
+    names = list(names)
+    return f"Top {len(names) if n is None else n} ({', '.join(names)})"
+
+
+def review_best_key(name, tied=False):
+    """A best's marker in the key: 'F16'; a tied one after the first: 'F17
+    (tied)'."""
+    return f"{name} (tied)" if tied else name
+
+
+REVIEW_AT_UPPER = "at upper limit"
+REVIEW_AT_LOWER = "at lower limit"
+
+
+def review_limit_help(names, upper=True):
+    """An 'at upper limit' tag's "?": 'F16, F17 use the most this limit
+    allows. You can raise it in Set up.'"""
+    names = list(names)
+    verb = "uses" if len(names) == 1 else "use"
+    most, change = ("most", "raise") if upper else ("least", "lower")
+    return (f"{', '.join(names)} {verb} the {most} this limit allows. "
+            f"You can {change} it in Set up.")
+
+
+def start_round_label(n):
+    """What next?'s primary: 'Start Round 7'."""
+    return f"Start {ROUND_CAP} {n}"
+
+
+REVIEW_REPLAY_HELP = (f"◀ ▶ step one {ROUND_CAP}; Play shows each in turn. The headline and "
+                      f"charts show that {ROUND_CAP}.")
+
+
+def method_definitions(top="100", span="15", within="5", once=True):
+    """Definitions (final-v3/wording.md §4), one line per term, from the
+    project: its top score, its scales' span (each point off costs 1/span
+    of an attribute's share — _compute_utility's rule; None when the scales
+    differ) and the top formulations' margin. `once`: no Repeats on file."""
+    cost = f"1/{span}" if span else "1/(its Range)"
+    best = f"the highest {OVERALL_SCORE_COLUMN} so far."
+    if once:
+        best += f" Each {FORMULATION} is made once and rated once."
+    return (
+        f"{OVERALL_SCORE_COLUMN}: {top} = every attribute on target. Each attribute earns its "
+        f"share; each point off costs {cost} of it.",
+        f"{ROUND_CAP}: the {FORMULATION}s made and tasted together.",
+        f"{BEST_SO_FAR_COLUMN}: {best}",
+        f"Top {FORMULATION}s: within {within} points of the best so far.",
+        "Suggestions: best bets to improve on the best so far, weighing how good they look "
+        "and how unsure the model is.",
+    )
+
+
+METHOD_DEFINITIONS = method_definitions()
 REVIEW_README_URL = "https://github.com/thomasat/food_opt#how-the-review-works"
 # Fix round 1: a link (the README is not in the app bundle).
 METHOD_README = f"Full method: [README, “How the Review works”]({REVIEW_README_URL})."
-METHOD_LINK_HELP = (f"Opens {FOLD_METHOD}: {len(METHOD_DEFINITIONS)} terms, one line "
-                    "each, and the README link.")
+METHOD_LINK_HELP = f"Opens {FOLD_METHOD}: {len(METHOD_DEFINITIONS)} terms, one line each."
 # The evidence lines' pointer to the method: Definitions is one
 # line per term now, so the full method's place (it read "Kernel, priors and
 # every check: How the app knows, top right.").

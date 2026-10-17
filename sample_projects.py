@@ -71,6 +71,17 @@ def is_yogurt(name):
     return name in YOGURT_NAMES
 
 
+# The pilot's panel as its provenance records it (wording.SAMPLE_PROVENANCE_HELP:
+# "Each result is the median of a trained panel of five"). A project of the
+# user's own records no panel, so nothing is said of one there.
+PILOT_PANEL_SIZE = 5
+
+
+def panel_size(opt):
+    """The tasting panel's size for a yogurt pilot sample, else None."""
+    return PILOT_PANEL_SIZE if is_yogurt(getattr(opt, "project_name", None)) else None
+
+
 def untouched_example(opt):
     """The example setup as it ships: no formulation recorded or set aside
     and no Round open. Only then may the screen say it has no results."""
