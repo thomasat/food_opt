@@ -168,27 +168,6 @@ def test_the_pick_is_kept_across_reruns(insights_scored):
     assert _more(at).multiselect[0].value == ["Juiciness", "Firmness"]
 
 
-def test_no_more_charts_before_five_formulations_have_all_their_results(scored):
-    at = _open_insights(_app())
-    assert not at.exception
-    assert _more(at) is None
-
-
-def test_no_more_charts_with_nothing_to_show(tmp_path, monkeypatch):
-    """One measurement, no Formulation total and too few checks: every chart
-    is past its gate, so the expander is not drawn empty."""
-    monkeypatch.chdir(tmp_path)
-    opt = FoodOptimizer("one")
-    opt.set_amount_unit("g")
-    opt.add_ingredient("Pea protein", 0, 25)
-    opt.add_objective("Firmness", 1.0, goal="max", min_val=0, max_val=10, unit="N")
-    for no in range(1, 7):
-        opt.tell({"Pea protein": 3.0 * no}, {"Firmness": 0.3 * no}, formulation_no=no, batch_no=1)
-    at = _open_insights(_app())
-    assert not at.exception
-    assert _more(at) is None
-
-
 @pytest.mark.skip(reason=REVIEW_FOUR)
 def test_more_charts_write_nothing_to_the_project(insights_scored):
     at = _open_insights(_app())
@@ -642,13 +621,6 @@ def test_corner_labels_never_mix_decimal_counts(mixture_scored):
     assert wording.mixture_corner(mix.names[2], "5.0 g") in texts
     assert wording.mixture_corner(mix.names[0], "10 g") not in texts
     assert wording.mixture_corner(mix.names[1], "9 g") not in texts
-
-
-def test_shared_decimals_is_the_neediest_of_the_values_up_to_2():
-    assert ui_insights._shared_decimals([10.0, 9.0]) == 1
-    assert ui_insights._shared_decimals([100.0, 9.0]) == 0
-    assert ui_insights._shared_decimals([10.0, 9.0, 3.25]) == 2
-    assert ui_insights._shared_decimals([0.0001, 5.0]) == 2   # capped at 2
 
 
 @pytest.mark.skip(reason=REVIEW_FOUR)

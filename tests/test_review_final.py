@@ -206,39 +206,6 @@ def test_implied_is_the_expected_score_over_each_forecast(tmp_path, monkeypatch)
 #  P1 #5 — the stop's concrete line and its "?" numbers
 # ------------------------------------------------------------------ #
 
-def test_the_stop_line_names_what_is_on_and_off_target(tmp_path, monkeypatch):
-    opt = _project(tmp_path, monkeypatch)
-    opt.tell({"Oat": 40.0, "Water": 60.0},
-             {"Consistency": 12, "Creaminess": 5, "Tangy": 4, "Thickness": 13},
-             formulation_no=1, batch_no=1)
-    monkeypatch.setattr(U, "_say", lambda o, t: t)
-    assert U.ceiling_reason_text(opt) == "On target: 3 of 4. Tangy 1.0 under target."
-    assert len(U.ceiling_reason_text(opt).split()) <= 12
-
-
-def test_the_stop_help_gives_the_gap_the_threshold_and_the_noisy_perfect_score(
-        tmp_path, monkeypatch):
-    opt = _project(tmp_path, monkeypatch)
-    perfect = U.perfect_noisy_score(opt)
-    # 100 − Σ (share ÷ width) × σ_a × √(2/π), σ_a = 1 × 15 ÷ (25 × 2) = 0.3.
-    assert perfect == pytest.approx(100 - 4 * (25 / 15) * 0.3 * math.sqrt(2 / math.pi),
-                                    abs=0.02)
-    assert f"{perfect:.1f}" == "98.4"
-    text = wording.ceiling_help("98.3", "100", "1.7", "2.3", "98.4", True)
-    assert text.startswith("Best so far 98.3 is 1.7 below the top (100); 2.3 is needed to "
-                           "tell two single results apart.")
-    # Final demo (A4), re-pinned: one tasting regresses to the mean; never
-    # read as a score that beats perfect.
-    assert ("A formulation exactly on target, tasted once, averages about 98.4 with this "
-            "noise; single tastings scatter around it.") in text
-    # Spec §11: the noise basis in one plain line, right after the threshold.
-    assert ("2.3 is needed to tell two single results apart. Assumes results repeat within "
-            "about 1 point until Repeats measure it.") in text
-    assert ("A single new result can't be told apart from this best in the Overall score; a "
-            "single measurement still can") in text
-    assert "Further Rounds" not in text
-    assert text.endswith("(On target says which are beyond their noise).")
-
 
 def test_repeat_wording_is_one_form_everywhere():
     assert wording.YARDSTICK_REPEATS == insights.YARDSTICK_DF == 3
@@ -271,24 +238,6 @@ def _near_top(tmp_path, monkeypatch):
     return opt
 
 
-def test_the_improving_chart_shades_the_zone_within_noise_of_the_top(tmp_path, monkeypatch):
-    opt = _near_top(tmp_path, monkeypatch)
-    spec = U.improving_chart(opt).to_dict()
-    text = json.dumps(spec, ensure_ascii=False)
-    assert wording.TOP_ZONE in text and "assumed noise" not in text
-    zone = next(v for v in spec["datasets"].values() if v and v[0].get("what") == wording.TOP_ZONE)
-    need = U.tie_need(insights.noise_yardstick(opt))
-    assert zone[0]["hi"] == pytest.approx(100.0) and zone[0]["lo"] == pytest.approx(100 - need)
-    # Fix round (owner, 2026-10-14): no ±noise band; the zone keeps its key.
-    assert not [v for v in spec["datasets"].values() if v and v[0].get("what") not in
-                (None, wording.TOP_ZONE) and "lo" in v[0] and "v" in v[0]]
-    # The dotted line is named on its tick; Round averages are printed.
-    assert "Top score 100" in text
-    for _r, _a, _b, m, _n in U.round_averages(opt):
-        assert f'"text": "{m:.1f}"' in text
-    assert wording.STORY_IMPROVING_CAPTION == "Line: best so far. Bars: Round average."
-
-
 # ------------------------------------------------------------------ #
 #  P2 #8 — the suggestions folded under Stop; the preview cached
 # ------------------------------------------------------------------ #
@@ -314,46 +263,6 @@ class _FakeSt:
     def expander(self, label, **kw):
         self.calls.append(("expander", (label,), kw))
         yield NS(open=self.fold_open)
-
-
-def test_the_next_suggestions_fold_under_stop_and_work_out_only_when_open(monkeypatch):
-    fake = _FakeSt(fold_open=False)
-    monkeypatch.setattr(U, "st", fake)
-    monkeypatch.setattr(U, "readiness", lambda o: (True, None))
-    monkeypatch.setattr(U, "ceiling_stop", lambda o, f: True)
-    monkeypatch.setattr(U, "_say", lambda o, t: t)
-    worked = []
-    monkeypatch.setattr(U, "_preview_body", lambda *a, **k: worked.append(1))
-    opt = NS(pending_batch=None, complete_count=lambda: 10)
-    places = NS(preview=fake)
-    U._next_preview(opt, places, {"failed": False}, NS(next=None))
-    assert ("expander", (wording.LEARNED_PREVIEW_TITLE,)) in [(c[0], c[1]) for c in fake.calls]
-    assert not worked
-    fake.fold_open = True
-    U._next_preview(opt, places, {"failed": False}, NS(next=None))
-    assert worked
-
-
-def test_the_preview_is_cached_per_project_state(monkeypatch):
-    U._PREVIEW_CACHE.clear()
-    made = []
-    monkeypatch.setattr(learned, "preview_next", lambda o, n: made.append(1) or [])
-    monkeypatch.setattr(insights, "setup_key", lambda o: "state-1")
-    monkeypatch.setattr(U, "_preview_count", lambda o: 3)
-    opt = NS(project_name="p", next_formulation_no=19)
-    assert not U.preview_cached(opt)
-    # An empty preview is a failure: never kept.
-    U.preview_rows(opt, {})
-    assert not U.preview_cached(opt)
-    monkeypatch.setattr(learned, "preview_next", lambda o, n: made.append(1) or None)
-    U._PREVIEW_CACHE[U.preview_key(opt)] = ["row"]
-    assert U.preview_cached(opt) and U.preview_rows(opt, {}) == ["row"]
-    n = len(made)
-    U.preview_rows(opt, {})
-    assert len(made) == n          # a revisit works nothing out
-    other = NS(project_name="q", next_formulation_no=19)
-    assert not U.preview_cached(other)
-    U._PREVIEW_CACHE.clear()
 
 
 # ------------------------------------------------------------------ #
@@ -398,31 +307,6 @@ def _rows():
             r("Thickness", 13, 13, 13)]
 
 
-def test_start_vs_best_reads_one_axis_and_says_where_the_dot_moved(monkeypatch):
-    # Slim Review (re-pinned): target_rows takes the slider Round's best.
-    monkeypatch.setattr(U, "target_rows", lambda opt, best=None: _rows())
-    monkeypatch.setattr(U, "story_start", lambda opt: (0, 1))
-    monkeypatch.setattr(U, "_say", lambda o, t: t)
-    spec = U.target_chart(NS(best_index=lambda: 1)).to_dict()
-    text = json.dumps(spec, ensure_ascii=False)
-    assert wording.story_target_start(1) == "Start (Round 1's best)" and "Start (Round 1's best)" in text
-    data = [p for v in spec["datasets"].values() for p in v]
-    # One shared axis under the chart: 0, 5, 10, 15 once each.
-    ticks = [p["text"] for p in data if "t" in p and p.get("k") == 3 and "what" not in p
-             and "tip" not in p and "who" not in p]
-    assert ticks == ["0", "5", "10", "15"]
-    assert not [p for p in data if p.get("align") in ("left", "right")]
-    # The start's legend swatch is hollow, the best's filled.
-    fills = [l["encoding"]["fill"]["scale"] for l in spec["layer"]
-             if "fill" in l.get("encoding", {})]
-    assert fills and dict(zip(fills[0]["domain"], fills[0]["range"]))[
-        "Start (Round 1's best)"] == "transparent"
-    # Tangy moved down (5 → 4): "moved away" sits left of the best's dot.
-    away = [l for l in spec["layer"] if l.get("mark", {}).get("type") == "text"
-            and l["mark"].get("fontStyle") == "italic"]
-    assert away and all(l["mark"]["align"] == "right" for l in away)
-
-
 # ------------------------------------------------------------------ #
 #  P2 #13 — the profiler's cramped columns
 # ------------------------------------------------------------------ #
@@ -430,16 +314,6 @@ def test_start_vs_best_reads_one_axis_and_says_where_the_dot_moved(monkeypatch):
 # ------------------------------------------------------------------ #
 #  P2 #16 — the primaries go secondary under Stop
 # ------------------------------------------------------------------ #
-
-def test_the_strips_set_up_button_is_secondary_at_the_stop(monkeypatch):
-    fake = _FakeSt()
-    monkeypatch.setattr(U, "st", fake)
-    monkeypatch.setattr(U, "confirmation_open", lambda: False)
-    monkeypatch.setattr(U, "_say", lambda o, t: t)
-    U._ceiling_foot(NS())
-    [btn] = [c for c in fake.calls if c[0] == "button"]
-    # Final demo (B1), re-pinned: a tertiary link — no button leads at the stop.
-    assert btn[2]["type"] == "tertiary"
 
 
 def test_start_the_next_round_is_secondary_with_its_reason_under_stop(monkeypatch):

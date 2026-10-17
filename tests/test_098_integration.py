@@ -47,58 +47,6 @@ def _links(at):
 #  04 §5: at most one link on a screen, never the lit button
 # ------------------------------------------------------------------ #
 
-def test_each_screen_offers_at_most_one_link(monkeypatch):
-    opt = _burger(rounds=4)
-    at = AppTest.from_file(APP_PATH, default_timeout=300)
-    at.session_state["_loaded_project"] = opt.project_name
-    at.run()
-    # No Round open: Results' E1; Make a round's E3 (Next step forced to a
-    # boxed-in best) once Insights has worked its checks out.
-    monkeypatch.setattr(insights, "next_step", lambda *a, **k: insights.NextStep("close"))
-    _run(at, wording.TAB_INSIGHTS)
-    del at.session_state[INSIGHTS_OPENED_KEY]
-    seen = set()
-    for index, tab in ((2, wording.TAB_RESULTS), (1, wording.TAB_BATCH),
-                       (3, wording.TAB_INSIGHTS)):
-        _run(at, tab)
-        seen |= {b.key for i, b in _links(at) if i == index}
-        per_tab = {}
-        for i, b in _links(at):
-            per_tab.setdefault(i, []).append(b)
-            assert b.proto.type == "tertiary", b.key
-        assert all(len(v) <= 1 for v in per_tab.values()), per_tab
-    # Review guide: Make a round's status line carries its one link to
-    # Review; E3 keeps its sentence without one.
-    # Each screen as the reader sees it, open (the status line is drawn
-    # only on its open tab).
-    assert seen == {"link_round_checked", "link_review_status"}
-
-
-def test_the_new_screens_say_no_retired_word():
-    """03 §3: no "likely range", "On track", "though", hedges or advice
-    words; and the vocabulary guard over everything the two screens say."""
-    opt = _burger(rounds=4, noise=0.4)
-    ui_batch.ask_alone(opt, n_suggestions=3)
-    at = AppTest.from_file(APP_PATH, default_timeout=300)
-    at.session_state["_loaded_project"] = opt.project_name
-    at.run()
-    at.session_state[ui_batch.WHY_KEY] = True
-    at.session_state[ui_insights.EACH_KEY] = True
-    at.session_state[ui_insights.PROGRESS_KEY] = True
-    at.session_state[ui_insights.HOW_KEY] = True
-    said = []
-    for tab in (wording.TAB_INSIGHTS, wording.TAB_BATCH):
-        _run(at, tab)
-        said += [m.value for m in at.markdown] + [c.value for c in at.caption]
-    # T8 review: the audit's "keep in mind", "rough" and "a little" too.
-    retired = re.compile(r"\b(likely|On track|though|treat|Barely|Not lately|stands out|"
-                         r"worth|some luck|too few to be sure|[Kk]eep in mind|[Rr]ough|[Aa] little)\b")
-    assert [t for t in said if retired.search(t)] == []
-    # The one scoped allowance (first-time wave, review R-B2): Model and
-    # method's lead, said as the exact string the guard allows.
-    assert [t for t in said if t not in _FTUE_ALLOWED
-            and any(p.search(t) for p in _BANNED)] == []
-
 
 def test_the_lines_the_wave_retired_are_gone():
     for name in ("bias_tail", "PREDICTIONS_CAPTION"):

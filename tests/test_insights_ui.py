@@ -321,13 +321,15 @@ def test_how_section_fixed_tiny_wording(insights_fixed_tiny):
     at = _open_how(_open_insights(_app()))
     assert not at.exception
     body = " ".join(m.value for m in at.tabs[3].markdown)
-    assert all(line in body for line in wording.METHOD_DEFINITIONS)
-    assert wording.METHOD_README in [c.value for c in at.tabs[3].caption]
+    # Review v3: the five terms, one bullet each; no README line.
+    assert all(f"- {term}:" in body for term in wording.METHOD_TERMS)
 
 
 def test_insights_cache_does_not_follow_a_project_switch(insights_scored):
     at = _open_insights(_app())
-    assert ui_insights.CACHE_KEY in at.session_state
+    # Review v3 draws from the measurements alone: the key is set here, as
+    # another screen's work would leave it, to pin app.py's switch cleanup.
+    at.session_state[ui_insights.CACHE_KEY] = {"stale": True}
     FoodOptimizer("second").add_ingredient("Flour", 0, 100)
     at.run()
     at.selectbox(key="project_select").set_value("second")
@@ -388,12 +390,6 @@ def test_path_skipped_names_the_property():
     opt.add_constraint("Fat", max_val=5.0)
     p = insights.build_path(opt, "Oil", insights.start_recipe(opt, opt.best_index()))
     assert p.skipped == [(opt.property_limit_text(opt.constraints[0]), "Fat")]
-
-
-def test_band_and_amount_text_use_num():
-    opt = _burger(rounds=2)
-    assert ui_insights._amount(0.00012, "g") == "0.00012 g"
-    assert ui_insights._amount(123.4, "g") == "123 g"
 
 
 # The tab in the app ------------------------------------------------ #

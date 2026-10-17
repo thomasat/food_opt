@@ -115,7 +115,8 @@ def test_insights_sections_carry_the_keys_links_land_on():
     opt = _burger(rounds=4)
     at = _app(opt, wording.TAB_INSIGHTS)
     ids = _blocks(at.tabs[3])
-    for key in (ui_insights.TRUST_SECTION, ui_insights.STAND_SECTION):
+    # Review v3: Are we improving? and What next? (the Forecast check is gone).
+    for key in (ui_insights.STAND_SECTION, ui_insights.NEXT_SECTION):
         assert any(i.endswith(f"-{key}") for i in ids), key
     assert at.session_state[ui_helpers.INSIGHTS_OPENED_KEY] == insights.data_key(opt)
 

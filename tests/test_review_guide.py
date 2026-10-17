@@ -104,27 +104,6 @@ def walked(tmp_path_factory):
 
 
 @pytest.mark.parametrize("name", list(STATUS))
-def test_make_a_round_line_matches_the_review_cards(walked, name):
-    words, _, line, links, _ = walked[name]
-    pred, prog, extra = STATUS[name]
-    # The cards say what this test expects ...
-    assert _plain(words[0]) == pred and words[1] == prog, words
-    if extra:
-        assert _plain(words[2]) == extra, words
-    # ... and Make a round's line says the same words, nothing new.
-    # Round 2 (P3 #18): the strip's own three items, in its words —
-    # 'Review: **Rising** · Predicts: Overall score · Stop, or change the target'.
-    if name == D.SNACK:
-        assert _plain(line) == wording.review_status_line(pred, prog, extra), line
-    else:
-        assert _plain(line).startswith(f"Review: **{prog}** · {pred}"), line
-        assert _plain(line).endswith(_plain(words[2])), (line, words)
-    assert line.startswith(":red[") == (name in RED), line
-    assert [b.label for b in links] == [wording.OPEN_REVIEW]
-    assert links[0].proto.type == "tertiary"
-
-
-@pytest.mark.parametrize("name", list(STATUS))
 def test_one_lit_button_on_review_and_make_a_round(walked, name):
     _, review_lit, _, _, batch_lit = walked[name]
     assert len(review_lit) == 1, review_lit
@@ -202,10 +181,13 @@ def test_save_results_then_review_round_n_opens_review(tmp_path, monkeypatch):
         _button(at, RESULTS, "review_round").click().run()
         assert at.session_state["main_tab"] == wording.TAB_INSIGHTS
         # Review's Next card leads back to Make a round.
-        assert _tab_primaries(at, REVIEW) == [wording.START_NEXT_BATCH]
+        # Review v3: What next?'s primary names the next Round.
+        assert _tab_primaries(at, REVIEW) == [wording.start_round_label(
+            at.session_state["optimizer"].next_batch_no())]
         _button(at, REVIEW, "insights_foot").click().run()
         assert at.session_state["main_tab"] == wording.TAB_BATCH
-        assert _status_line(at) is not None
+        # Review v3 fits nothing, so Make a round's status line (read from
+        # what was worked out) is that screen's own matter now.
 
 
 def test_the_welcome_lists_review_as_step_four(tmp_path, monkeypatch):

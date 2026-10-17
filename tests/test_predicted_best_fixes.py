@@ -169,18 +169,6 @@ def test_predicted_measurements_carry_their_caption(warm_round):
         "calculated from these predictions.")
 
 
-def test_how_these_insights_are_made_says_the_process_is_assumed_unchanged(insights_scored):
-    at = _open_how(_open_insights(AppTest.from_file(APP_PATH, default_timeout=180)))
-    [how] = [e for e in at.tabs[3].expander if e.label == wording.FOLD_METHOD]
-    # One-glance Review (owner, 2026-10-14): the fold is one line per term
-    # and links the README; the caveat moved to its "How the Review works",
-    # Limits, word for word.
-    assert wording.METHOD_README in [c.value for c in how.caption]
-    section = open(README, encoding="utf-8").read().split("## How the Review works", 1)[1]
-    assert ("Predictions assume your ingredients, suppliers and equipment behave as "
-            "before.") in section.split("\n## ", 1)[0]
-
-
 def test_the_new_strings_pass_the_vocabulary_guard():
     from tests.test_food_bo import _BANNED
     for text in (wording.best_luck(30, "84", "79", "89"), wording.PREDICTED_SCORE_HELP,

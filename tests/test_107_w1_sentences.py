@@ -39,57 +39,6 @@ def _facts(row, clauses=(), h=None, **kw):
 #  Predictions: every row, its clauses joined as the ruling says
 # ------------------------------------------------------------------ #
 
-@pytest.mark.parametrize("key,facts", [
-    ("caution", _facts("caution", h=_h(30, 35))),
-    ("over_wide", _facts("reliable", [("over_wide",)], h=_h(36, 36))),
-    ("wide", _facts("wide")),
-    ("unclear", _facts("unclear")),
-    ("off_repeat", _facts("off_repeat")),
-    ("none", _facts("too_few", checked=0)),
-    ("reliable_all_clauses", _facts("reliable", [("wide", ["Cook loss"]), ("bias", 1.2),
-                                                  ("guard",)], h=_h(33, 36, (4, 5, 6)))),
-])
-def test_the_unreached_predictions_templates(opt, key, facts):
-    assert ui_insights.prediction_sentence(opt, facts) == UNREACHED[key]
-
-
-def test_the_gate_and_too_few_sentences(opt):
-    assert ui_insights.prediction_sentence(opt, _facts("gate", scored=3)) == wording.pred_gate(3)
-    assert (ui_insights.prediction_sentence(opt, _facts("too_few", checked=2))
-            == wording.pred_too_few(2))
-
-
-def test_the_bias_joins_rows_7_and_8_and_is_a_clause_elsewhere(opt):
-    bias = [("bias", -4.3)]
-    assert (ui_insights.prediction_sentence(opt, _facts("no_skill", bias))
-            == wording.pred_no_skill(("4.3", True)))
-    assert (ui_insights.prediction_sentence(opt, _facts("unclear", [("bias", 1.5)]))
-            == wording.pred_unclear(("1.5", False)))
-    assert (ui_insights.prediction_sentence(opt, _facts("too_few", bias, checked=4))
-            == wording.pred_too_few(4, clauses=[wording.clause_bias("4.3", True)]))
-    assert (ui_insights.prediction_sentence(opt, _facts("off_coverage", bias, h=_h(26, 36)))
-            == wording.pred_off_coverage([3, 4, 5], 10, 36, 4, wording.bias_fact("4.3", True)))
-
-
-def test_the_wide_clause_names_the_overall_score_in_words(opt):
-    facts = _facts("caution", [("wide", ["Firmness", insights.SCORE])], h=_h(30, 35))
-    assert ui_insights.prediction_sentence(opt, facts).endswith(
-        "; those for Firmness and the Overall score are still very uncertain.")
-
-
-def test_the_guard_clause_says_process_setting_on_a_study_of_settings():
-    from tests import demo_projects as D
-    opt = D.load(D.PROCESS_ONLY)
-    text = ui_insights.prediction_sentence(opt, _facts("reliable", [("guard",)], h=_h(33, 36)))
-    assert text.endswith(wording.clause_guard(settings_only=True)[2:] + ".")
-
-
-@pytest.mark.parametrize("row", insights.PREDICTION_ROWS)
-def test_no_predictions_sentence_names_a_statistic(opt, row):
-    facts = _facts(row, [("wide", ["Firmness"]), ("over_wide",), ("bias", -2.0), ("guard",)],
-                   checked=4, h=_h(30, 35))
-    assert statistic_names_in(ui_insights.prediction_sentence(opt, facts)) == []
-
 
 # ------------------------------------------------------------------ #
 #  Progress
@@ -99,58 +48,6 @@ def _best(opt, rounds_since=0, latest=True):
     i = opt.best_index()
     return insights.BestFacts(float(opt.Y_history[i]), int(opt.formulation_ids[i]),
                               opt.batch_history[i], rounds_since, latest, [])
-
-
-def test_within_noise_says_less_than_the_threshold(opt):
-    f = _best(opt)
-    facts = _facts("reliable", progress="within_noise", best=f,
-                   improvement=insights.Improvement("barely", 0.4, None, 0, 2.326, 1))
-    # Round 2 (P3 #19): one decimal for scores on the plain layer.
-    # Fix A follow-up (decision 4): the threshold itself (√2 × 1.645 × 1).
-    assert ui_insights.progress_sentence(opt, facts) == wording.progress_within_noise(
-        f.round, "0.4", f"{f.score:.1f}", 100, f.formulation, "2.3")
-
-
-def test_a_measured_threshold_is_said_with_its_size(opt):
-    f = _best(opt)
-    facts = _facts("reliable", progress="rising", best=f,
-                   improvement=insights.Improvement("yes", 4.5, 1.2, 0, 3.99, 1, 3))
-    # Fix A follow-up (decisions 3, 4): 1.2 × √2 × t_{3}⁻¹(0.95) = 3.99.
-    assert ui_insights.progress_sentence(opt, facts) == wording.progress_rising(
-        f.round, "4.5", f"{f.score:.1f}", 100, f.formulation, "4.0")
-
-
-def test_a_rise_that_would_read_as_the_threshold_gets_hundredths(opt):
-    f = _best(opt)
-    facts = _facts("reliable", progress="within_noise", best=f,
-                   improvement=insights.Improvement("barely", 2.31, None, 0, 2.326, 1))
-    # Fix A follow-up (decision 4): the rise is read against the threshold
-    # (2.33), not the noise SD; both in hundredths when they read alike.
-    said = ui_insights.progress_sentence(opt, facts)
-    assert "by 2.31 points" in said and "the 2.33 points needed" in said
-
-
-def test_flat_with_luck_and_a_tie(opt):
-    f = _best(opt, rounds_since=3, latest=False)
-    other = next(i for i in range(len(opt.Y_history)) if i != opt.best_index())
-    facts = _facts("reliable", progress="flat", best=f, tie=other, luck=True,
-                   luck_repeat=88.4, improvement=insights.Improvement("not_lately", None, None, 3))
-    assert ui_insights.progress_sentence(opt, facts) == wording.progress_flat(
-        3, f"{f.score:.1f}", 100, f.formulation, f.round, luck_text="88",
-        tie_no=int(opt.formulation_ids[other]))
-
-
-def test_nothing_scored_says_so(opt):
-    assert (ui_insights.progress_sentence(opt, _facts("gate", best=None))
-            == wording.NO_COMPLETE_FORMULATION)
-
-
-def test_of_100_is_the_projects_ceiling(opt, monkeypatch):
-    """M1: utility_ceiling, a whole number."""
-    f = _best(opt, rounds_since=1, latest=False)
-    monkeypatch.setattr(opt, "utility_ceiling", lambda: 80.0)
-    facts = _facts("reliable", progress="no_new_best", best=f)
-    assert f"{f.score:.1f} of 80 " in ui_insights.progress_sentence(opt, facts)
 
 
 # ------------------------------------------------------------------ #

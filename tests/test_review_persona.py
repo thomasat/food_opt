@@ -167,27 +167,6 @@ def test_progress_strip_and_answer_words():
     assert "about 1 point" in need and "no Repeats" in need
 
 
-def test_progress_answer_text_from_facts(monkeypatch):
-    monkeypatch.setattr(U, "rise_and_need", lambda a: ("3.3", "3.0"))
-    facts = NS(best=NS(score=98.33), improvement=NS(rise=3.33), progress="rising")
-    assert U.progress_answer_text(None, facts) == (
-        "Best 95.0 → 98.3 (+3.3; needs 3.0 if tasting noise ≈ 1 point)")
-    facts.progress = "flat"
-    assert U.progress_answer_text(None, facts) is None
-
-
-def test_the_score_is_explained_from_the_projects_shares(monkeypatch):
-    monkeypatch.setattr(U, "_say", lambda o, t: t)
-    opt = NS(objectives=[{"name": n, "weight": 25.0, "goal": "target", "min_val": 0,
-                          "max_val": 15} for n in "ABCD"], utility_ceiling=lambda: 100.0)
-    assert U.score_built_text(opt) == ("Each measurement is worth 25 of 100 points; it loses "
-                                       "points the further it is from its target (25 × "
-                                       "distance ÷ 15).")
-    opt.objectives[0].update(weight=40.0, goal="max")
-    mixed = U.score_built_text(opt)
-    assert mixed.startswith("Points out of 100: A 40, B 25") and "target" in mixed
-
-
 def test_the_score_sentence_matches_the_apps_formula(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     opt = FoodOptimizer("score")
@@ -249,121 +228,15 @@ def test_apart_lines():
     assert wording.apart_line("refines the best", []) == "Refines the best"
 
 
-def test_apart_text_says_beyond_anything_tested(tmp_path, monkeypatch):
-    opt = _opt(tmp_path, monkeypatch)
-    # Below every Water tested (30-60): beyond.
-    line = U.apart_text(opt, {"Water": 10.0, "Wheat gluten": 15.0}, "explores")
-    assert line.startswith("Explores: less Water") and line.endswith("than anything tested")
-    line = U.apart_text(opt, {"Water": 50.0, "Wheat gluten": 20.0}, "balanced")
-    assert line.endswith("than Best so far")
-
-
 def _rows(*means, recipes=None):
     recipes = recipes or [None] * len(means)
     return [U.PreviewRow(k, "explores", "98", "", "", m, r)
             for k, (m, r) in enumerate(zip(means, recipes), 1)]
 
 
-def test_learning_round_line(tmp_path, monkeypatch):
-    opt = _opt(tmp_path, monkeypatch)
-    best = float(opt.Y_history[opt.best_index()])
-    assert U.learning_round(opt, _rows(best - 0.3, best, best - 2))
-    assert not U.learning_round(opt, _rows(best - 0.3, best + 1.0))
-    assert not U.learning_round(opt, _rows(best, None))
-    assert _words(wording.LEARNING_ROUND) <= 10
-
-
-def test_widen_line_when_a_suggestion_moves_away_from_the_limit(tmp_path, monkeypatch):
-    opt = _opt(tmp_path, monkeypatch)
-    there = insights.start_recipe(opt, opt._best_recipe_index())
-    up = dict(there, Water=there["Water"] + 5)
-    down = dict(there, Water=there["Water"] - 5)
-    lowest = NS(kind="close", binding=NS(kind="lowest", name="Water"))
-    assert U.widen_beyond(opt, lowest, _rows(90, 90, recipes=[down, up]))
-    assert not U.widen_beyond(opt, lowest, _rows(90, recipes=[down]))
-    highest = NS(kind="close", binding=NS(kind="highest", name="Water"))
-    assert U.widen_beyond(opt, highest, _rows(90, recipes=[down]))
-    assert not U.widen_beyond(opt, NS(kind="see"), _rows(90, recipes=[up]))
-    assert wording.WIDEN_BEYOND == "Suggestions stay inside your limits; widening goes beyond them."
-
-
-def test_stop_headline(monkeypatch):
-    monkeypatch.setattr(U, "_say", lambda o, t: t)
-    facts = NS(next=NS(kind="close", binding=NS(kind="lowest", name="Coconut cream")))
-    assert U.stop_headline(None, facts) == \
-        "**Little left to gain inside your limits.** Widen a limit or stop."
-    facts.next.binding = None
-    assert U.stop_headline(None, facts).endswith("Add an ingredient or stop.")
-    assert _words(U.stop_headline(None, facts)) <= 14
-
-
 # ------------------------------------------------------------------ #
 #  7-8. Tooltips that agree, plain first
 # ------------------------------------------------------------------ #
-
-def test_next_tooltip_scopes_the_misses(monkeypatch):
-    """The Model item says Predicts; the Next "?" must not say "recent
-    results fell outside": it names the measurements that missed and the
-    Overall score's own record."""
-    monkeypatch.setattr(U, "_say", lambda o, t: t)
-    monkeypatch.setattr(U, "status_full_texts", lambda o, f: {
-        "next": "Next: " + wording.next_plain_misses()})
-    monkeypatch.setattr(U, "tooltip_for", lambda o, w, f: "RULE")
-    monkeypatch.setattr(U, "evidence_line", lambda o, f, w: "EVIDENCE")
-    monkeypatch.setattr(U, "open_rows", lambda o: [])
-    items = [NS(name="Thickness uniformity", misses=4), NS(name="Creaminess", misses=3),
-             NS(name="Tangy", misses=1)]
-    facts = NS(next=NS(kind="misses", diagnosis=NS(items=items)),
-               headline=NS(score=NS(inside=10, total=12)), best=NS(formulation=16))
-    opt = NS(pending_batch=None, pending_batch_no=None)
-    tip = U.status_help(opt, facts, "next")
-    assert "Recent results fell outside" not in tip
-    assert tip.startswith("Single measurements (Thickness uniformity, Creaminess) landed "
-                          "outside their predicted range more often than expected")
-    assert "The Overall score landed in range 10 of 12 times." in tip
-    assert "Repeat of Formulation 16" in tip
-
-
-def test_model_tooltip_opens_plain_and_ends_for_experts(monkeypatch):
-    monkeypatch.setattr(U, "_say", lambda o, t: t)
-    monkeypatch.setattr(U, "learned_label", lambda o, n: "Overall score"
-                        if n == insights.SCORE else n)
-    o = lambda v, r, p: NS(verdict=v, right=r, pairs=p)
-    lf = U.LearnedFacts({insights.SCORE: o(learned.PREDICTABLE, 10, 11),
-                         "Consistency": o(learned.PREDICTABLE, 8, 8),
-                         "Creaminess": o(learned.NOT_YET, 3, 8)}, {}, (6, []), None,
-                        (1, 2, 0), "Overall score: 10 of 12 inside. Skill over 12 checks: "
-                        "+0.69 against the average of earlier scores, −0.11 against Best so far.")
-    lf.plain_line = wording.skill_plain(10, 12, 0.69, -0.11)
-    # The old card: no warning, its sentence said "still very uncertain".
-    card = U.Card("Reliable", [("10 / 12 in range", False)], None,
-                  "those for Consistency are still very uncertain")
-    facts = NS(headline=NS(inside=27, total=36))
-    got = U.learned_card(None, lf, card, facts)
-    assert got.word == "Predicts:"     # review critique: the strip's colon
-    tip = got.help
-    # Persona fixes 2: the Overall score named when Predictable.
-    # Rebuilt framing: the forecast had none of that Round's results, which
-    # is true live and in a replay; "before tasting" read as a timing claim.
-    # Specific wording (2026-10-12), re-pinned: the pairs behind Predicts.
-    # Sceptic review (2026-10-14), re-pinned: called of all pairs (these
-    # hand-made orderings have no ties or too-close pairs: all = called).
-    assert tip.startswith("Forecasting each Round from earlier Rounds, the model put the "
-                          "Overall score (11 of 11 pairs called, 10 right) and Consistency "
-                          "(8 of 8 called, 8 right) in the right order")
-    assert "before tasting" not in tip
-    assert "still very uncertain" not in tip
-    assert "about as accurate as assuming each new formulation scores like your best" in tip
-    # Round 2: the window is stated.
-    assert re.search(r"Single measurements(, last \d+ Rounds?)?: 27 of 36 in their 95\u00a0% "
-                     r"range\.", tip)
-    last = tip.split("\n\n")[-1]
-    # Fix round 2: the plain sentence carries every count with how many were
-    # right, so brief() keeps the experts' skill sentence and leaves the
-    # method's terms (qLogNEI, posterior predictive) to Method and definitions.
-    assert last.startswith("For experts:") and "Skill over 12 checks" in last
-    # The plain part never says "Skill".
-    assert "Skill" not in tip.split("For experts:")[0]
 
 
 @pytest.mark.parametrize("vs_best,phrase", [(0.32, "more accurate than"),

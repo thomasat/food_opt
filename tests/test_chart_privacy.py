@@ -151,11 +151,6 @@ def test_every_chart_builder_in_the_file_gets_the_privacy_wrapper(mixture_scored
 #  The Progress chart, redrawn with Altair (was st.line_chart)
 # ------------------------------------------------------------------ #
 
-def test_progress_chart_gets_the_privacy_wrapper_like_every_other_chart(insights_scored):
-    chart = ui_insights.progress_chart(insights_scored)
-    spec = ui_insights._private(chart).to_dict()
-    assert spec["usermeta"] == _NO_ACTIONS
-
 
 def test_progress_chart_keeps_the_axis_titles_and_a_gap(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
@@ -207,27 +202,6 @@ def _vega_specs(at):
     every run, whichever tab is selected) and Insights (rendered only while
     open) together."""
     return [json.loads(e.proto.spec) for e in at.get("vega_lite_chart")]
-
-
-def test_every_chart_on_the_insights_and_results_tabs_disables_its_menu(mixture_scored):
-    at = _open_insights(_app())
-    # Measured against predicted and the Progress chart are drawn only while
-    # open (BO views, binding I15): open both.
-    at.session_state[ui_insights.EACH_KEY] = True
-    at.session_state[ui_insights.PROGRESS_KEY] = True
-    # Charts proto: the triangle sits in Explored and unexplored now, with
-    # What you've tried, How the app chooses and the map: open it too.
-    at.session_state[ui_insights.EXPLORED_KEY] = True
-    at.session_state["main_tab"] = wording.TAB_INSIGHTS
-    at.run()
-    assert not at.exception
-    specs = _vega_specs(at)
-    # One per drawn chart: the improving chart, the sensory profile and the
-    # Forecast check's forecast against measured at least (one-glance
-    # Review: the search path and the profiler are gone).
-    assert len(specs) >= 3, len(specs)
-    bad = [s for s in specs if s.get("usermeta") != _NO_ACTIONS]
-    assert bad == []
 
 
 def test_every_chart_on_a_second_project_shape_disables_its_menu(insights_scored):

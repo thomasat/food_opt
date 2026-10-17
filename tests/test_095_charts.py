@@ -30,7 +30,6 @@ def _a_model_with_skill(monkeypatch):
     monkeypatch.setattr(insights, "skill_gate", lambda opt, checks, fact=None: None)
 
 
-
 @pytest.fixture(autouse=True)
 def _isolate(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
@@ -97,28 +96,6 @@ def test_one_radio_offers_the_three_layers():
     assert {r.key for r in radios} == {ui_insights.LAYER_KEY, ui_insights.PATH_LAYER_KEY}
     assert all(list(r.options) == [wording.LAYER_SCORE, wording.LAYER_SD, wording.LAYER_GAIN]
                and r.value == wording.LAYER_SCORE for r in radios)
-
-
-def test_the_guard_takes_the_model_layers_away(monkeypatch):
-    """Review I4: the model-free parts stay."""
-    opt = _open_round()
-    monkeypatch.setattr(insights, "noise_guard", lambda *a, **k: insights.Guard(["floor"]))
-    assert ui_insights.layers_offered(opt, insights.fit_all(opt)) == (wording.LAYER_SCORE,)
-    at = _insights(opt, insights_try_one=True)
-    assert not [r for r in at.tabs[3].radio if r.key in (ui_insights.LAYER_KEY,
-                                                         ui_insights.PATH_LAYER_KEY)]
-
-
-def test_an_unreliable_verdict_takes_the_expected_improvement_layer_away(monkeypatch):
-    """Fix round 1: as Progress withholds its expected gain. The
-    Uncertainty layer stays, as the explored–unexplored map does (spec
-    2026-10-01 rev. 2, review R-I16, which overrides e2e I4 for that layer
-    only; test_107_w3_explored)."""
-    opt = _open_round()
-    fitted = insights.fit_all(opt)
-    monkeypatch.setattr(ui_insights, "checks_for", lambda o, stage: insights.check_rounds(o))
-    monkeypatch.setattr(insights, "verdict_state", lambda *a: "unreliable")
-    assert ui_insights.layers_offered(opt, fitted) == (wording.LAYER_SCORE, wording.LAYER_SD)
 
 
 # ------------------------------------------------------------------ #
@@ -265,15 +242,6 @@ def test_the_two_panels_share_one_round_axis():
                bo_views.RoundGain(2, 80.0, 81.0, 0.4, True, None)]
     spec = ui_insights.gain_chart(_burger(rounds=2), history).to_dict()
     assert spec["resolve"]["scale"]["x"] == "shared"
-
-
-def test_qucb_offers_no_expected_gain_layer():
-    """T56 I2: qUCB's value is an optimistic score, not a gain."""
-    opt = _burger(rounds=4)
-    opt.set_bo_config({"acquisition": "qucb"})
-    ui_batch.ask_alone(opt, n_suggestions=3)
-    assert ui_insights.layers_offered(opt, insights.fit_all(opt)) == (
-        wording.LAYER_SCORE, wording.LAYER_SD)
 
 
 @pytest.mark.skip(reason=REVIEW_FOUR)

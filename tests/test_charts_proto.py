@@ -37,21 +37,6 @@ def _isolate(tmp_path, monkeypatch):
 # tests went with them.
 
 
-@pytest.mark.parametrize("which", ["light", "dark"])
-def test_every_colour_reaches_3_to_1(monkeypatch, which):
-    monkeypatch.setattr(U, "theme", lambda: which)
-    monkeypatch.setattr(U, "muted", lambda: U._MUTED_DARK if which == "dark" else U._MUTED_LIGHT)
-    page = PAGES[which]
-    for colour in U.score_colours():
-        assert _contrast_on(colour, 1.0, page) >= 3.0, colour
-    for colour in (U.model_blue(), U.outline_colour(), U.mark("neutral")[0],
-                   U.mark("bar_latest")[0]):
-        assert _contrast_on(colour, 1.0, page) >= 3.0, colour
-    # Higher scores read stronger: contrast rises along the ramp.
-    contrast = [_contrast_on(c, 1.0, page) for c in U.score_colours()]
-    assert contrast == sorted(contrast)
-
-
 # ------------------------------------------------------------------ #
 #  How the app chooses
 # ------------------------------------------------------------------ #

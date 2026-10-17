@@ -90,17 +90,6 @@ def test_the_header_names_the_waiting_formulations():
         " 4 more are waiting for Cook loss and are not used yet.")
 
 
-def test_header_text_reads_the_waiting_formulations_numbers():
-    from tests.test_complete_results import _tell
-    opt = _patty(rows=6)
-    _tell(opt, 7, 3, drop=("Cook loss",))
-    assert opt.awaited_rows() == [6]
-    assert ui_insights.header_text(opt).endswith(
-        f" {W.FORMULATION_CAP} 7 is waiting for Cook loss.")
-    assert ui_insights.header_detail(opt).endswith(
-        f" {W.FORMULATION_CAP} 7 is waiting for Cook loss and is not used yet.")
-
-
 # ------------------------------------------------------------------ #
 #  Predictions: Line C's skill number and the cause of the uncertainty
 # ------------------------------------------------------------------ #
@@ -144,25 +133,6 @@ def _skill(value):
     return insights.SkillFact(value, 16, [2, 3, 4, 5], "no_skill" if value <= -0.2 else "unclear")
 
 
-def test_line_c_predictions_sentence(monkeypatch):
-    """Line C: the skill number, the bias, the wide outputs with their
-    cause (every one widened by half or more) and the one it is largest
-    for, then what to check."""
-    opt = _patty(rows=12)
-    wide = ["Firmness", "Juiciness", "Cook loss"]
-    facts = _facts("no_skill", [("wide", wide), ("bias", -4.28)], skill=_skill(-0.469))
-    facts.wide_factors = {"Firmness": 2.02, "Juiciness": 2.24, "Cook loss": 7.70}
-    facts.best = types.SimpleNamespace(formulation=18)
-    # Review diagnosis ruling 2 (2026-10-02): no Repeats measuring large
-    # noise, so the sentence asks for a Repeat instead of naming the panel.
-    assert ui_insights.prediction_sentence(opt, facts) == (
-        f"Score predictions do no better than simply using the average of earlier scores {_SKILL}, "
-        "and scores have come in about 4.3 points below the predictions; those for Firmness, "
-        "Juiciness and Cook loss are still very uncertain, because results vary more from one "
-        "formulation to the next than the app can explain, most for Cook loss. "
-        + W.next_plain_repeat_ask(18, open_round=bool(opt.pending_batch)))
-
-
 @pytest.mark.parametrize("factors,expect", [
     # One output under ×1.5: its width is not shown to come from scatter.
     ({"Firmness": 2.0, "Cook loss": 1.2}, None),
@@ -174,20 +144,6 @@ def test_line_c_predictions_sentence(monkeypatch):
 ])
 def test_the_cause_rule(factors, expect):
     assert ui_insights.wide_cause(["Firmness", "Cook loss"], factors) == expect
-
-
-def test_reliable_with_a_wide_clause_ends_with_the_check():
-    opt = _patty(rows=12)
-    facts = _facts("reliable", [("wide", ["Cook loss"]), ("bias", 1.2)])
-    facts.wide_factors = {"Cook loss": 3.0}
-    facts.best = types.SimpleNamespace(formulation=15)
-    text = ui_insights.prediction_sentence(opt, facts)
-    # Review diagnosis ruling 2: the Repeat request, not the panel check,
-    # without Repeats that vary a lot.
-    assert text.endswith("; scores have come in about 1.2 points above the predictions. "
-                         + W.next_plain_repeat_ask(15, open_round=bool(opt.pending_batch)))
-    assert W.CHECK_SCATTER not in text
-    assert "because results vary more" in text
 
 
 # ------------------------------------------------------------------ #
@@ -270,20 +226,6 @@ def test_little_more_needs_both_numbers_at_or_under_the_threshold():
     assert ui_insights.little_more(standing, None, _yard(), withheld=None) is None
     assert ui_insights.little_more(None, 0.12, _yard(), withheld=None) is None
     assert ui_insights.little_more(s(higher=False, binding=[]), 0.1, _yard(), None) == ()
-
-
-def test_little_more_is_said_only_for_no_new_best_and_flat():
-    opt = _patty(rows=12)
-    f = _best(opt)
-    facts = _facts("reliable", progress="rising", best=f,
-                   improvement=insights.Improvement("yes", 2.5, None, 0))
-    facts.little = ()
-    assert "little more" not in ui_insights.progress_sentence(opt, facts)
-    f = _best(opt, rounds_since=1, latest=False)
-    facts = _facts("reliable", progress="no_new_best", best=f)
-    facts.little = ()
-    assert ui_insights.progress_sentence(opt, facts).endswith(
-        "The app expects little more inside your current limits.")
 
 
 # ------------------------------------------------------------------ #

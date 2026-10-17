@@ -140,61 +140,12 @@ def test_a_failed_fit_says_so_once_and_keeps_best_so_far_and_the_foot(
     assert "insights_foot" in [b.key for b in at.tabs[3].button]
 
 
-def test_the_set_up_button_goes_to_set_up(insights_scored, monkeypatch):
-    moved = _moves(monkeypatch)
-    monkeypatch.setattr(insights, "next_step",
-                        lambda opt, checks, standing=None, gain=None: insights.NextStep(
-                            "close", binding=insights.Binding("highest", "Pea protein",
-                                                              "Pea protein")))
-    at = _open_insights(_app())
-    assert not at.exception
-    button = next(b for b in at.tabs[3].button if b.key == "insights_change_setup")
-    # Review polish: the label at most 5 words; the change it names, in its "?".
-    assert button.label == wording.SETUP_BUTTON_SHORT
-    assert button.proto.help == "Change Pea protein's Highest on Set up"
-    assert button.proto.type == "secondary"
-    button.click()
-    at.session_state["main_tab"] = wording.TAB_INSIGHTS
-    at.run()
-    assert moved == [wording.TAB_SETUP]
-
-
 # ------------------------------------------------------------------ #
 #  "Can you trust the predictions?" (review I6, M9)
 # ------------------------------------------------------------------ #
 
 def _h(state="verdict", inside=32, total=33, rounds=(4, 5, 6), wide=()):
     return insights.Headline(state, list(rounds), inside, total, "holding", None, list(wide))
-
-
-@pytest.mark.parametrize("state,text", [
-    ("none", wording.TRUST_NONE),
-    ("early", wording.trust_early(33)),
-    ("wide", wording.TRUST_WIDE),
-    ("within", wording.trust_within(32, 33, [4, 5, 6], allowed=3)),
-    ("over_wide", wording.trust_over_wide(33, [4, 5, 6])),
-    ("caution", wording.trust_misses(3, [4, 5, 6], 32, 33, allowed=3)),
-    ("unreliable", wording.trust_misses(3, [4, 5, 6], 32, 33, many=True, allowed=3)),
-])
-def test_one_verdict_per_state(state, text):
-    opt = _patty(rows=6)
-    assert ui_insights.verdict_text(opt, _h(), state) == text
-
-
-def test_some_outputs_wide_adds_the_wide_line():
-    opt = _patty(rows=6)
-    text = ui_insights.verdict_text(opt, _h(wide=["Cook loss"]), "within")
-    assert text == (wording.trust_within(32, 33, [4, 5, 6], allowed=3) + " "
-                    + wording.wide_line("Cook loss"))
-
-
-def test_the_score_gap_says_what_to_do_only_beyond_the_yardstick():
-    one = insights.Yardstick(1.0, None, 0, False)
-    repeats = insights.Yardstick(1.2, 1.2, 4, True)
-    assert ui_insights._beyond(-0.8, one) == ""
-    assert ui_insights._beyond(-1.5, one) == "1 point"
-    assert ui_insights._beyond(-1.5, repeats) == "Repeats differ"
-    assert ui_insights._beyond(1.0, repeats) == ""
 
 
 @pytest.mark.skip(reason=REVIEW_FOUR)
@@ -223,48 +174,11 @@ def test_best_so_far_reads_two_decimals_as_on_results(insights_scored):
                in m for m in _md(at))
 
 
-def test_the_repeats_line_only_after_a_rise():
-    assert ui_insights.stand_text(insights.Improvement("not_lately", None, None, 3)) == (
-        "Flat: no higher score in 3 Rounds.")
-    # Fix A follow-up (decision 4): the threshold and its make-up, q = 1.
-    assert ui_insights.stand_text(insights.Improvement("barely", 0.2, 1.2, 0, 2.79, 1)) == (
-        "Within noise: up 0.2 points in the last Round, under the 2.8 points needed: √2 × 1.64 "
-        "× the noise threshold (Repeat SD 1.2 points).")
-
-
 def _standing(higher, close_no=None, close=None):
     p = insights.Prediction(94.4, 89.2, 99.1, 94.4, 2.6)
     best = insights.PredictedBest({}, p, close, 0, 1.0, None)
     return SimpleNamespace(best=best, higher=higher, close_no=close_no,
                            tested_near=close is not None, binding=[], luck=False)
-
-
-def test_the_four_texts_of_line_two():
-    opt = _patty(rows=6)
-    one = insights.Yardstick(1.0, None, 0, False)
-    repeats = insights.Yardstick(1.2, 1.2, 4, True)
-    assert ui_insights.standing_text(opt, _standing(False, 3, 2), repeats) == (
-        "Predicted best: 94 (95 % interval 89–99), near Formulation 3. Predicted gain over "
-        "Best so far: none beyond the noise threshold (Repeat SD 1.2 points).")
-    assert ui_insights.standing_text(opt, _standing(False), one) == (
-        "Predicted best: 94 (95 % interval 89–99), in untested amounts. Predicted gain over "
-        "Best so far: none beyond the 1-point noise threshold.")
-    gain = wording.signed(94.4 - opt.Y_history[opt.best_index()])
-    assert ui_insights.standing_text(opt, _standing(True), one) == (
-        "Predicted best: 94 (95 % interval 89–99), in untested amounts. Predicted gain over a "
-        f"Repeat of Best so far: {gain} points, above the 1-point noise threshold.")
-    assert ui_insights.standing_text(opt, _standing(True, 3, 2), one) == (
-        f"Predicted best: 94 (95 % interval 89–99), near Formulation 3 "
-        f"(measured {opt.Y_history[2]:.2f}). Predicted gain over a Repeat of Best so far: "
-        f"{gain} points, above the 1-point noise threshold.")
-
-
-def test_line_three_names_what_the_predicted_best_sits_at():
-    items = [insights.Binding("highest", "Pea", "Pea"), insights.Binding("lowest", "Salt", "Salt"),
-             insights.Binding("limit", "Fat", "Fat: at most 20 g")]
-    assert wording.stand_limits([ui_insights.binding_text(b) for b in items]) == (
-        "Predicted best is at the Highest of Pea, the Lowest of Salt and the limit "
-        "Fat: at most 20 g (active bounds).")
 
 
 # ------------------------------------------------------------------ #

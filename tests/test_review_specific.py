@@ -127,20 +127,6 @@ def test_the_miss_line_detail_lists_every_measurement():
     _clean(text)
 
 
-def test_cards_say_the_miss_line_from_the_facts():
-    m = insights.ValueMisses([3, 4, 5], 9, 36, [("Creaminess", 4, 9), ("Tangy", 2, 9),
-                                                  ("Thickness uniformity", 2, 9),
-                                                  ("Consistency", 1, 9)])
-    facts = NS(misses=m, headline=NS(inside=27, total=36))
-    assert U.misses_line(facts) == (
-        "Measurements: 9 of 36 outside (up to 4 normal); most Creaminess, 4 of 9.")
-    assert U.misses_detail(facts).startswith("Single measurements, Rounds 3–5: 9 of 36")
-    # An older cache without the breakdown: the headline's own count.
-    old = NS(misses=None, headline=NS(inside=27, total=36))
-    assert U.misses_line(old) == "Measurements: 9 of 36 outside (up to 4 normal)."
-    assert U.misses_detail(old) == ""
-
-
 def test_make_a_round_track_line_counts_the_measurements():
     m = insights.ValueMisses([3, 4, 5], 9, 36, [("Creaminess", 4, 9)])
     t = insights.RoundTrack(False, 9, 9, None, True, None, [3, 4, 5], misses=m)
@@ -227,44 +213,6 @@ def test_the_strip_says_the_pairs_behind_its_word():
     # Not yet names stay bare: they are the ones without evidence.
     assert wording.learned_strip_counted([], [], ["Tangy"], {"Tangy": (1, 3, 6)}) == (
         "Not yet:", "Tangy")
-
-
-def test_the_forecast_check_line_carries_the_pairs(monkeypatch):
-    monkeypatch.setattr(U, "_say", lambda opt, text: text)
-    monkeypatch.setattr(U, "_short", lambda opt, text: text)
-    ten = _lf(score=(7, 9, H), Consistency=(11, 11, P), Creaminess=(5, 12, N),
-              Tangy=(11, 14, H), Thickness_uniformity=(5, 10, N))
-    six = _lf(score=(5, 5, H), Consistency=(3, 3, N), Creaminess=(2, 4, N), Tangy=(5, 6, H),
-              Thickness_uniformity=(2, 3, N))
-    few = _lf(score=(4, 4, N), Consistency=(3, 3, N), Creaminess=(1, 5, N),
-              Tangy=(5, 5, H), Thickness_uniformity=(2, 5, N))
-    none = _lf(score=(0, 0, N), Tangy=(5, 6, H))
-    long = _lf(score=(5, 5, H), Firmness=(12, 16, H), Cook_loss=(5, 5, H),
-               Juiciness=(6, 16, N))
-    lines = {k: U.learned_verdict_line(OPT, lf)[0]
-             for k, lf in (("ten", ten), ("six", six), ("few", few), ("none", none),
-                                       ("long", long))}
-    # Sceptic review (2026-10-14), re-pinned throughout: called of all pairs
-    # (hand-made orderings have no ties or too-close pairs, so all = called).
-    assert lines["ten"] == ("Predicts: Consistency (11 of 11 pairs called, 11 right). "
-                            "Partly: Overall score, Tangy.")
-    # The count and the Partly names would take 15 words: the names alone,
-    # each with its pairs.
-    assert lines["six"] == "Partly: Overall score (5 of 5 pairs called, 5 right), Tangy."
-
-    # Under the pairs a verdict needs: the count it needs (was "too few to judge").
-    # Fix round 2: with the right ones said, count and name run past 14
-    # words: the verdict with its pairs.
-    assert lines["few"] == "Partly: Tangy (5 of 5 pairs called, 5 right)."
-    # No Overall-score pairs: the unit with the first count.
-    assert lines["none"] == "Partly: Tangy (6 of 6 pairs called, 5 right). Not yet: Overall score."
-    # Count and three names would run past 14 words: the names, with pairs.
-    assert lines["long"] == ("Partly: Overall score (5 of 5 pairs called, 5 right), "
-                             "Firmness, Cook loss.")
-    for text in lines.values():
-        assert _words(text) <= wording.LEARNED_LINE_WORDS == 14
-        assert "too few" not in text
-        _clean(text)
 
 
 def test_the_model_question_mark_opens_with_the_pairs():

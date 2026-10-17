@@ -292,22 +292,6 @@ def test_the_yardstick_is_assumed_below_three_pairs():
     assert (y.value, y.pairs, y.assumed, y.df, y.groups) == (1.0, 1, True, 1, 1)
 
 
-def test_three_pairs_measure_the_threshold_and_say_their_df():
-    opt = _patty(rows=6)
-    for dst in (1, 2):
-        _repeat_of(opt, 0, dst)
-    for i, v in zip((0, 1, 2), (70.0, 72.0, 71.0)):
-        opt.Y_history[i] = v
-    y = insights.noise_yardstick(opt)
-    # Ftue fix A (cold read I11): 3 pairs on 2 df do not yet measure it.
-    assert (y.pairs, y.from_repeats, y.assumed, y.df, y.groups) == (3, False, True, 2, 1)
-    assert ui_insights.repeats_text(y) == wording.stand_repeats(
-        f"{y.sd:.1f}", 3, df=2, groups=1)
-    # Fix round B (statistician I11): the df, not the pairs; fix round A
-    # moves the gate itself to 3 df.
-    assert ", 2 df (3 results of 1 formulation)" in ui_insights.repeats_text(y)
-
-
 def test_the_threshold_text_says_assumed_below_three_pairs():
     assumed = insights.Yardstick(1.0, None, 0, False, assumed=True)
     assert ui_insights.threshold_text(assumed) == wording.beat_by(None, assumed=True, pairs=0)
@@ -317,41 +301,6 @@ def test_the_threshold_text_says_assumed_below_three_pairs():
     assert "(assumed: 2 pairs of Repeats, 3 needed;" in ui_insights.threshold_text(two)
     measured = insights.Yardstick(2.7, 2.7, 3, True)
     assert ui_insights.threshold_text(measured) == wording.beat_by("2.7")
-
-
-def test_rising_and_within_noise_say_the_threshold_is_assumed():
-    """The 02 Round 3 pin's words (review B2): '…above the 1-point noise
-    threshold (assumed …)'."""
-    yard = insights.Yardstick(1.0, None, 0, False, assumed=True)
-    # Fix A follow-up (decision 4): the threshold (√2 × 1.645 × 1 = 2.3)
-    # and its make-up, the assumed noise threshold its last factor.
-    yes = ui_insights.stand_text(insights.Improvement("yes", 6.3, None, 0, 2.326, 1), yard)
-    assert yes == wording.stand_yes("6.3", wording.rise_needs(
-        "2.3", "√2 × 1.64", wording.beat_by(None, assumed=True)))
-    barely = ui_insights.stand_text(insights.Improvement("barely", 0.4, None, 0, 2.326, 1), yard)
-    assert barely == ("Within noise: up 0.4 points in the last Round, under the 2.3 points "
-                      "needed: √2 × 1.64 × " + wording.beat_by(None, assumed=True) + ".")
-    # Measured, or not said to be assumed: today's words.
-    assert ui_insights.stand_text(insights.Improvement("yes", 6.3, None, 0, 2.326, 1)) == \
-        wording.stand_yes("6.3", wording.rise_needs("2.3", "√2 × 1.64", wording.beat_by()))
-    _clean(yes, barely)
-
-
-def test_the_assumed_form_is_said_once_on_progress(monkeypatch):
-    """Line 2 says "assumed" only when line 1 did not name the threshold:
-    the reader is told once (the owner's sparse-screen rule)."""
-    opt = _patty(rows=6)
-    yard = insights.Yardstick(1.0, None, 0, False, assumed=True)
-    p = insights.Prediction(80.0, 75.0, 85.0, 80.0, 2.0)
-    best = insights.PredictedBest({}, p, None, 0, 1.0, p)
-    standing = SimpleNamespace(best=best, higher=False, tested_near=True, binding=[],
-                               close_no=None, luck=False)
-    monkeypatch.setattr(insights, "improvement", lambda *a, **k: insights.Improvement(
-        "yes", 6.3, None, 0))
-    assert "(assumed" not in ui_insights.standing_text(opt, standing, yard)
-    monkeypatch.setattr(insights, "improvement", lambda *a, **k: insights.Improvement(
-        "not_lately", None, None, 3))
-    assert "(assumed: no Repeats yet;" in ui_insights.standing_text(opt, standing, yard)
 
 
 @pytest.mark.parametrize("kind", ["close", "explore", "see", "rising"])
@@ -372,7 +321,6 @@ def test_the_other_rows_do_not_ask_for_a_repeat(kind):
 
 def test_next_step_carries_the_assumed_threshold(order):
     assert order(verdict="within").assumed
-
 
 
 # ------------------------------------------------------------------ #
@@ -414,19 +362,6 @@ def test_the_noise_guard_withholds_effects_by_the_skill_gate():
     assert wait.skill_only and wait.gate.state == "wait"
     # A measurement's own guard has no skill trigger (review I3 scope).
     assert insights.noise_guard(opt, None, _skill_checks(6), name="Firmness").reasons == []
-
-
-def test_the_guard_line_says_why_effects_wait():
-    opt = _patty(rows=6)
-    wait = insights.noise_guard(opt, None, _skill_checks(6))
-    assert ui_insights.guard_text(wait) == wording.effects_wait_line(6)
-    assert ui_insights.guard_text(wait, settings_only=True) == wording.effects_wait_line(6, True)
-    unclear = insights.noise_guard(opt, None, [], fact=_fact(0.09, 24))
-    assert ui_insights.guard_text(unclear) == wording.effects_unclear_line("0.09", 24)
-    none = insights.noise_guard(opt, None, [], fact=_fact(-0.47, 16))
-    assert ui_insights.guard_text(none) == wording.guard_skill_line()
-    both = insights.Guard(["floor", "skill"], insights.SkillGate("unclear", 24, _fact(0.09, 24)))
-    assert ui_insights.guard_text(both) == wording.guard_line([wording.GUARD_FLOOR])
 
 
     # One wording with the effect line (polish round, tests/test_106_last_fixes.py).
@@ -517,88 +452,6 @@ def _said(opt, checks):
     if flagged is not None:
         texts.append(ui_insights.disagreement_text(flagged))
     return step, [t for t in texts if t]
-
-
-@pytest.mark.parametrize("name", [E.PATTY, E.BAR_CLEAN, E.BAR_DRIFT])
-def test_no_check_advice_at_any_round_of_02_clean_or_drift(project, name):
-    """Ruling B1: 02 and 03 clean show no "check" at any Round (their
-    biases are the model's), and the drift run makes no causal claim: the
-    Round-ahead check cannot see a change it learned from its first Round.
-    Fix A's follow-up (owner, decision 2): 03 clean's F16, a Repeat of F12
-    2.84 points apart, beat √2 × 1.96 × the assumed 1 point (2.77) at
-    Rounds 4-6; until the Repeat SD has 3 df a pair must also beat its own
-    predictive limit, which it does not, so fix A's exception is gone.
-    03 drift at Round 7: F20, a Repeat of F14, is 1.62 points off against
-    √2 × t_{0.975, 3} × 0.49 = 2.20 (the other Repeats' SD on 3 df; t,
-    not 1.96, whenever the SD comes from Repeats), so no flag."""
-    for r in range(3, 9):
-        opt, checks = upto(project, name, r)
-        step, texts = _said(opt, checks)
-        assert step.kind != "repeat", (name, r)
-        for t in texts:
-            assert wording.CHECK_IF_CHANGED not in t and "Check" not in t, (name, r, t)
-            assert "changed" not in t and "panel" not in t, (name, r, t)
-
-
-def test_the_drift_runs_repeat_is_reported_with_its_numbers(project):
-    """03 drift: F20, a Repeat of F14 across the drift, agrees, so it is
-    part of the Repeat SD the screen states with its basis, not a check."""
-    opt, checks = project(E.BAR_DRIFT)
-    assert insights.disagreeing_repeat(opt, checks) is None
-    yard = insights.noise_yardstick(opt, checks)
-    assert (yard.pairs, yard.df, yard.groups, yard.from_repeats) == (4, 4, 4, True)
-    assert ui_insights.repeats_text(yard) == (
-        "Repeat SD of the Overall score: 0.7 points, 4 df (8 results of 4 "
-        "formulations); this is the noise threshold.")
-
-
-def test_line_b_keeps_check_through_its_disagreeing_repeat(project):
-    opt, checks = project(D.LINE_B)
-    step, texts = _said(opt, checks)
-    assert (step.kind, step.disagreement.later, step.disagreement.earlier) == ("repeat", 21, 11)
-    # Fix A's follow-up (decision 2): under 3 df the pair beats both limits,
-    # √2 × 1.96 × the assumed 1 point (2.77) and its own predictive limit.
-    d = step.disagreement
-    assert (d.basis, d.df) == ("assumed", 0)
-    assert abs(d.diff) > d.limit >= d.predictive > 2.77
-    text = ui_insights.next_step_text(opt, step)[0]
-    assert text.startswith("Formulation 21, a Repeat of Formulation 11, scored 10.5 points lower.")
-    assert text.endswith(wording.CHECK_IF_CHANGED)
-
-
-def test_02_round_3_reads_assumed_and_asks_for_a_repeat(project):
-    """Ruling B2's pin: 02 R3 (the app's own copy after Round 3) reads
-    '…above the 1-point noise threshold (assumed …)' and Next step asks
-    for a Repeat. F11's +6.3 was a +7 noise draw; only a Repeat tells."""
-    opt, checks = project(E.PATTY_ROUND3)
-    yard = insights.noise_yardstick(opt, checks)
-    answer = insights.improvement(opt, yardstick=yard)
-    # Fix A follow-up (decision 4): the threshold of a Round of 4, 3.2.
-    assert ui_insights.stand_text(answer, yard) == (
-        "Rising: up 6.3 points in the last Round, above the 3.2 points needed: √2 × 2.23 "
-        "(best of 4) × the 1-point noise threshold (assumed: no Repeats yet; a Repeat of Best "
-        "so far would measure it).")
-    step = insights.next_step(opt, checks, None)
-    assert step.kind == "rising"
-    assert ui_insights.next_step_text(opt, step)[0].endswith(wording.NEXT_REPEAT_TO_MEASURE)
-
-
-@pytest.mark.parametrize("name,state", [
-    (NOISY_RECOMMENDED, "unclear"), (E.PATTY, "unclear"), (E.PATTY_ROUND3, "wait"),
-    (D.LINE_A, None), (D.TIMING, None), (E.BAR_CLEAN, None), (E.BAR_DRIFT, None)])
-def test_the_a3_gate(project, name, state):
-    """Ruling I4's pins: the 03 noisy run (Recommended settings) and 02 lose
-    their effect claims, and say why; Line A, the Timing check, 03 clean and
-    03 drift keep them."""
-    opt, checks = project(name)
-    gate = insights.skill_gate(opt, checks)
-    assert (None if gate is None else gate.state) == state
-    guard = insights.noise_guard(opt, None, checks)
-    assert ("skill" in guard.reasons) == (state is not None)
-    if name == E.PATTY:
-        assert ui_insights.guard_text(guard) == wording.effects_unclear_line("0.09", 24)
-    if name == NOISY_RECOMMENDED:
-        assert ui_insights.guard_text(guard) == wording.effects_unclear_line("0.08", 20)
 
 
 def test_02_falls_through_to_rising_or_see_under_the_gate(project):

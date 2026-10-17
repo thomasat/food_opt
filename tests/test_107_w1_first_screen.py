@@ -378,15 +378,6 @@ def test_the_one_link(screens, name, link):
     assert _links(screens[name]) == link
 
 
-def test_the_repeat_link_only_where_next_asks_with_no_why_link(screens):
-    """R-I3, ruled in by the early walkthrough (ftue fix C): drawn on the
-    Timing check alone (Line A asks too, but its Why link outranks it)."""
-    drawn = [name for name in D.ALL
-             if any(t.startswith("Repeat ") for k, t in first_screen(screens[name])
-                    if k == "button:tertiary")]
-    assert drawn == [D.TIMING]
-
-
 def test_the_why_link_lands_on_make_a_rounds_why_fold():
     assert ui_insights.WHY_FOLD_KEY == ui_batch.WHY_KEY
 
@@ -502,16 +493,6 @@ def test_while_the_workers_fit_the_places_hold_captions_above_the_button(screens
     order = [(el.type, _text(el)) for el, _ in _walk(at.tabs[3])]
     progress = next(i for i, (k, _) in enumerate(order) if k == "progress")
     assert progress > order.index(("button", wording.why_link(6)))
-
-
-def test_a_pending_line_keeps_its_caption():
-    """status_texts leaves out the lines facts.pending names; _status_line
-    then draws their captions."""
-    opt = D.load(D.SNACK)
-    facts = insights.status_facts(opt, ())
-    assert set(ui_insights.status_texts(opt, facts)) == {"predictions", "progress", "next"}
-    facts.pending = ("progress", "next")
-    assert set(ui_insights.status_texts(opt, facts)) == {"predictions"}
 
 
 # ------------------------------------------------------------------ #

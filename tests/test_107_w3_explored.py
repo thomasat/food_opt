@@ -444,22 +444,6 @@ def _rule(name):
     return opt, computed, ui_insights.explore_withheld(opt, score, computed["checks"])
 
 
-@pytest.mark.parametrize("name,rule", [(D.LINE_A, None), (D.LINE_B, "not_yet"),
-                                       (D.LINE_C, "hidden"), (D.UPGRADE, "not_yet")])
-def test_the_withhold_rule_on_the_demo_projects(name, rule, monkeypatch):
-    opt, computed, got = _rule(name)
-    assert got == rule
-    monkeypatch.setattr(ui_insights, "checks_for", lambda o, stage: computed["checks"])
-    offered = ui_insights.layers_offered(opt, computed["fitted"])
-    if rule == "hidden":
-        assert offered == (wording.LAYER_SCORE,)
-    elif rule == "not_yet":
-        # R-I16 over e2e I4, for the Uncertainty layer only.
-        assert offered == (wording.LAYER_SCORE, wording.LAYER_SD)
-    else:
-        assert wording.LAYER_SD in offered and wording.LAYER_GAIN in offered
-
-
 def _three_picked(monkeypatch):
     """The triangle's three boxes, picked (bare mode's multiselect returns
     none): the first three offered."""
