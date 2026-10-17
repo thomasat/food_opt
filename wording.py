@@ -1138,8 +1138,10 @@ HOW_IT_WORKS = [
     HOW_CHOSEN_2,
     "Generated formulations satisfy the limits you set. A "
     "formulation of your own is recorded as you typed it.",
-    "Each suggestion says whether it is close to the best, explores, or is "
-    "balanced between the two, and where it differs most from the best.",
+    # v3: Make a round shows each change from Best so far; the one role
+    # word left on screen is Less-tried area.
+    f"Each suggestion shows its change from the best so far. One far from "
+    f"every {FORMULATION} made is marked {LESS_TRIED}.",
 ]
 
 # The fold directly under it, for the reader who wants the arithmetic. The
@@ -7655,7 +7657,7 @@ def repeats_vary_line(sd_text, df, spread_text):
 # Results -> Review -> Make a round. Results' one lit button after Save
 # results, Make a round's one-line status from the cards, the welcome's
 # fourth step.
-WELCOME_REVIEW_STEP = "4. **Review each Round**: are predictions reliable? What next?"
+WELCOME_REVIEW_STEP = "4. **Review each Round**: best so far, what next?"
 
 
 def review_round_label(no):
@@ -7663,8 +7665,8 @@ def review_round_label(no):
     return f"Review {ROUND_CAP} {no}" if no is not None else "Review"
 
 
-REVIEW_ROUND_HELP = (f"Opens {TAB_INSIGHTS}: can you trust the predictions, is Best so far "
-                     f"still rising, and what to make in the next {ROUND_CAP}.")
+REVIEW_ROUND_HELP = (f"Opens {TAB_INSIGHTS}: the best so far, how it compares with the "
+                     f"targets, and where the top {FORMULATION}s' amounts sit.")
 OPEN_REVIEW = "Open Review"
 
 

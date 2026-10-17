@@ -152,7 +152,7 @@ def test_one_vocabulary_for_role_and_compared_with():
     same three words."""
     assert (W.ROLE_REFINES, W.ROLE_BALANCED, W.ROLE_EXPLORES) == (
         W.SUGGESTION_CLOSE, W.SUGGESTION_BALANCED, W.SUGGESTION_DIFFERENT) == (
-        "refines the best", "balanced", "explores")
+        "close to the best", "balanced", "explores")
     assert W.compared_with_cell(W.SUGGESTION_BALANCED, "Salt +0.56 g") == (
         "Balanced · Salt +0.56 g")
 

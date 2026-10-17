@@ -6320,7 +6320,7 @@ def test_how_it_works_says_what_the_model_does_in_five_lines(burger):
     assert len(HOW_IT_WORKS) == 5
     assert "the app varies" in text and "aims for" in text
     assert "Generated formulations satisfy the limits you set" in text
-    assert "refines the best, explores, or is balanced between the two" in text
+    assert "change from the best so far" in text and wording.LESS_TRIED in text
     # Nothing here is arithmetic. Share of score IS said — it is the column
     # the reader types into now, so the fold that explains the screen has to
     # name it — but a bare "Share" is still nobody's word.
@@ -8198,8 +8198,8 @@ def test_how_it_works_is_five_lines(burger):
         "amounts. After that, each Round aims closer to your targets.",
         "Generated formulations satisfy the limits you set. "
         "A formulation of your own is recorded as you typed it.",
-        "Each suggestion says whether it refines the best, explores, or is "
-        "balanced between the two, and what it changes.",
+        "Each suggestion shows its change from the best so far. One far from "
+        "every formulation made is marked Less-tried area.",
     ], wording.HOW_IT_WORKS
     assert not _advanced(at).proto.expanded
     text = _advanced_block(at, wording.HOW_IT_WORKS_HEADING)
