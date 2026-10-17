@@ -382,7 +382,7 @@ def round_results(opt, round_no=None):
                     off.add((pos, column))
         rows.append(row)
     caption = wording.round_results_caption(
-        common, sample_projects.panel(opt),
+        common, sample_projects.panel_size(opt),
         targets_only=all(o.get('goal') == 'target' for o in objs))
     return {"round": round_no, "columns": columns,
             "frame": pd.DataFrame(rows, columns=columns), "off": off,

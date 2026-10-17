@@ -123,7 +123,7 @@ def test_a_project_without_a_recorded_panel_claims_none(tmp_path, monkeypatch):
     assert table["caption"] == "Orange: points lost."
     assert table["columns"][2:] == ["Taste (0–10, higher is better)",
                                     "Cook loss (0–100, %, target 20)"]
-    assert sp.panel(opt) is None
+    assert sp.panel_size(opt) is None
 
 
 def test_waiting_and_not_scored_rows_say_so(store):

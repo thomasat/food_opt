@@ -1829,18 +1829,17 @@ def _scale_text(low, high):
     return f"{float(low):g}–{float(high):g}"
 
 
-def round_results_caption(scale=None, panel=None, targets_only=True):
+def round_results_caption(scale=None, panel_size=None, targets_only=True):
     """'Panel median (n = 5), 0–15; each made once, rated once. Orange: off
     target.' `scale`: (low, high) when every measurement shares one, else
-    None (each header then names its own). `panel`: (summary, n), e.g.
-    ("median", 5), only when the project's provenance records how a rating
-    was made (sample_projects.panel); without it nothing is claimed about
-    how a value was arrived at. `targets_only`: every goal is a target; a
-    higher-or-lower goal loses points too, without a target to be off."""
+    None (each header then names its own). `panel_size`: the panel's n, only
+    when the project's provenance records how a rating was made (the median
+    of a panel, sample_projects.panel_size); without it nothing is claimed
+    about how a value was arrived at. `targets_only`: every goal is a target;
+    a higher-or-lower goal loses points too, without a target to be off."""
     orange = "Orange: off target." if targets_only else "Orange: points lost."
-    if panel is not None:
-        summary, n = panel
-        head = f"Panel {summary} (n = {n})"
+    if panel_size:
+        head = f"Panel median (n = {panel_size})"
         head += f", {_scale_text(*scale)}" if scale else ""
         return f"{head}; each made once, rated once. {orange}"
     if scale:

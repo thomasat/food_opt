@@ -71,26 +71,18 @@ def is_yogurt(name):
     return name in YOGURT_NAMES
 
 
-# The pilot's panel as its provenance records it (wording.SAMPLE_PROVENANCE_HELP:
-# "Each result is the median of a trained panel of five"). A project of the
-# user's own records no panel, so nothing is said of one there.
+# The pilot's panel as its provenance records it (data/samples/yogurt_pilot/
+# README.md, build.py, wording.SAMPLE_PROVENANCE_HELP): each rating is the
+# median of a trained panel of five, one per attribute per batch, no batch
+# repeated. A project file records no panel, so only the pilot's two projects
+# say so (Review's "(n = 5)", Results' "Panel median (n = 5)").
 PILOT_PANEL_SIZE = 5
 
 
 def panel_size(opt):
-    """The tasting panel's size for a yogurt pilot sample, else None."""
+    """The tasting panel's size (its ratings are the panel's median) for a
+    yogurt pilot sample, else None."""
     return PILOT_PANEL_SIZE if is_yogurt(getattr(opt, "project_name", None)) else None
-# How the yogurt pilot's ratings were made, from its provenance
-# (data/samples/yogurt_pilot/README.md, build.py): each the median of a
-# trained panel of five, one per attribute per batch, no batch repeated.
-# A project file records no panel, so only the pilot's two projects say so.
-PILOT_PANEL = ("median", 5)
-
-
-def panel(opt):
-    """(summary, panel size) when this project's provenance records how a
-    rating was made — the yogurt pilot's, ("median", 5) — else None."""
-    return PILOT_PANEL if is_yogurt(getattr(opt, "project_name", None)) else None
 
 
 def untouched_example(opt):
