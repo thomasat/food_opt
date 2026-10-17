@@ -756,9 +756,9 @@ def improve_on_help(nos):
 # so); a Round the app generates there is not.
 CHOSEN_BY_EGBO = "Chosen by EGBO in the pilot"
 # During the cold start there is no best to compare with (the old
-# COMPARED_WITH_ALLOWED column); the caption says what the table is instead,
-# and HOW_CHOSEN_2 is its "?".
-SPREAD_CAPTION = "Spread across your allowed ranges."
+# COMPARED_WITH_ALLOWED column); the caption says what the table is instead
+# ("cover", never "spread": review M2), and HOW_CHOSEN_2 is its "?".
+COVER_CAPTION = "These cover your allowed amounts."
 
 
 def best_column(no, score_text):
@@ -801,9 +801,12 @@ TOTAL_ROW = "Total"
 
 
 def total_row(lo_text=None, hi_text=None, unit=""):
-    """'Total (allowed 97.69–98.69 g)' with a limit on the total; else
+    """'Total (allowed 97.69–98.69 g)' with a limit on the total; 'Total
+    (set to 100.00 g)' with Set up's Total of each formulation; else
     'Total (g)'."""
     u = f" {unit}" if unit else ""
+    if lo_text is not None and lo_text == hi_text:
+        return f"{TOTAL_ROW} (set to {lo_text}{u})"
     if lo_text is not None and hi_text is not None:
         return f"{TOTAL_ROW} (allowed {lo_text}–{hi_text}{u})"
     if hi_text is not None:
@@ -819,11 +822,11 @@ def compare_row_header(unit=None):
     return f"Ingredient ({unit})" if unit else "Ingredient or process setting"
 
 
-def change_key(no, unit=None):
+def change_key(no, unit=None, row="ingredient"):
     """Under the table: '(change from F10, g) · shading: change vs that
-    ingredient's allowed range'."""
+    ingredient's allowed range' ('setting' in a study of settings alone)."""
     u = f", {unit}" if unit else ""
-    return f"(change from {short_no(no)}{u}) · shading: change vs that ingredient's allowed range"
+    return f"(change from {short_no(no)}{u}) · shading: change vs that {row}'s allowed range"
 
 
 def change_key_help(no, hide_pct, full_pct):

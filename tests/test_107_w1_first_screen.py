@@ -23,7 +23,6 @@ from streamlit.testing.v1 import AppTest
 
 import bo_views
 import insights
-import ui_batch
 import ui_insights
 import wording
 from food_bo import FoodOptimizer
@@ -385,10 +384,6 @@ def test_the_repeat_link_only_where_next_asks_with_no_why_link(screens):
              if any(t.startswith("Repeat ") for k, t in first_screen(screens[name])
                     if k == "button:tertiary")]
     assert drawn == [D.TIMING]
-
-
-def test_the_why_link_lands_on_make_a_rounds_why_fold():
-    assert ui_insights.WHY_FOLD_KEY == ui_batch.WHY_KEY
 
 
 # ------------------------------------------------------------------ #

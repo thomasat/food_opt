@@ -775,6 +775,7 @@ class RoundCompare:
     row_header: str
     unit: str | None     # the one unit every row shares, else None
     numbers: list        # [(suggestion k, formulation number)] relabelled columns
+    formulations: list   # the formulation number of each column after Best so far
     total_row: bool
 
 
@@ -806,6 +807,10 @@ def _compare_index(opt):
 def _total_limit(opt):
     """(lowest, highest) of the limit over every ingredient (the total), or
     None. Either end may be None."""
+    if opt.has_formulation_total():
+        # The total typed in Set up, as its own number (limit_text writes it
+        # so), not the band it is enforced as.
+        return float(opt.formulation_total), float(opt.formulation_total)
     names = {v['name'] for v in opt._ingredients()}
     for qc in getattr(opt, 'quantity_constraints', None) or []:
         if names and set(qc.get('ingredients') or []) == names:
@@ -963,7 +968,7 @@ def round_compare(opt, scale_to=None):
         rows=labels, columns=columns, cells=cells,
         best_no=None if best is None else int(opt.formulation_ids[best]), tied=tied,
         row_header=wording.compare_row_header(unit), unit=unit, numbers=numbers,
-        total_row=with_total)
+        formulations=[int(r['formulation']) for r in rows], total_row=with_total)
 
 
 def _blend(plain, full, t):
@@ -1023,7 +1028,7 @@ def _improve_caption(opt, table):
             and any("EGBO" in str(r.get('note') or "") for r in rows))
     if table.best_no is None:
         if suggested:
-            st.caption(say(wording.SPREAD_CAPTION), help=say(wording.HOW_CHOSEN_2))
+            st.caption(say(wording.COVER_CAPTION), help=say(wording.HOW_CHOSEN_2))
     elif suggested or egbo:
         nos = sorted([table.best_no] + list(table.tied))
         st.caption(say(wording.improve_on_caption(nos)),
@@ -1058,7 +1063,45 @@ def _draw_compare(opt, table):
         tips.append(wording.less_tried_help(round(FAR_FROM_TESTED * 100)))
     if table.numbers:
         tips.append(wording.suggestion_numbers_help(table.numbers))
-    st.caption(say(wording.change_key(table.best_no, unit)), help=say(" ".join(tips)))
+    # Minor 15 (2026-09-29 review): a suggestion that nearly repeats a
+    # formulation still waiting for results, named by its column.
+    prefixes = _near_copy_prefixes(opt, opt.pending_batch)
+    for label, no in zip(table.columns[len(table.columns) - len(table.formulations):],
+                         table.formulations):
+        if no in prefixes:
+            tips.append(f"{label.split(' · ')[0]}: {prefixes[no].strip()}")
+    row = "ingredient" if opt.has_ingredients() else "setting"
+    st.caption(say(wording.change_key(table.best_no, unit, row)), help=say(" ".join(tips)))
+
+
+def _near_copy_prefixes(opt, batch):
+    """{Formulation number: prefix text} for every suggestion in `batch`
+    that nearly repeats a formulation still waiting for results (Minor 15,
+    2026-09-29 review) — never for the user's own formulations, which carry
+    a note. Screen only: v3 says it in the Round table key's "?"; the
+    workbook never carries it.
+
+    Routed through `wording.for_project`: a process-only study's table calls
+    every row a Trial, and the prefix has to use the same word for the row
+    it names, or a cell reads 'Nearly the same as Formulation 7' beside a
+    table that has never once said Formulation.
+
+    During the cold start there is no Compared with column to prefix at all
+    (batch_frame drops it, COMPARED_WITH_ALLOWED), so nothing here would
+    ever be read; skipped rather than computed and thrown away."""
+    if opt.compared_with_column() == wording.COMPARED_WITH_ALLOWED:
+        return {}
+    prefixes = {}
+    for row in opt._batch_rows(batch):
+        if row.get('note'):
+            continue
+        match = insights.near_copy(opt, row['recipe'])
+        if match is not None:
+            prefixes[row['formulation']] = wording.for_project(
+                opt, wording.near_copy_prefix(
+                    match.formulation, number_list(match.waiting_on)))
+    return prefixes
+
 
 
 def _batch_table(opt, scale_to, tab_open=False, table=None):

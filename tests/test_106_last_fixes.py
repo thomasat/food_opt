@@ -500,47 +500,6 @@ def test_a_new_setting_without_a_baseline_brings_the_column_back(burger):
 
 
 # ------------------------------------------------------------------ #
-#  01 O9: a withheld expected gain has no "Recomputed" line
-# ------------------------------------------------------------------ #
-
-def _why_fold_captions(monkeypatch, gate, reasons=("skill",), folder=None):
-    import dataclasses
-    # Its own folder: _burger names projects insights_test_N in the working
-    # folder, and a file left there by another run would be resumed.
-    if folder is not None:
-        monkeypatch.chdir(folder)
-
-    import bo_views
-    from tests.test_105_integration import _why_caption
-    real = bo_views.why
-    monkeypatch.setattr(bo_views, "why",
-                        lambda *a, **k: dataclasses.replace(real(*a, **k), exact=False))
-    return _why_caption(monkeypatch, gate, reasons)
-
-
-def test_a_withheld_expected_improvement_still_says_what_is_recomputed(monkeypatch, tmp_path):
-    """O9, then last-fix review R-1: the expected gain is withheld,
-    but Model sd and the map still come from the recomputed model, and
-    one line says so."""
-    gate = insights.SkillGate("wait", 6)
-    captions = _why_fold_captions(monkeypatch, gate, folder=tmp_path)
-    # Review four, ruling 2: greyed, never hidden; its "?" says so.
-    assert wording.why_gain_greyed_said(wording.why_gain_said(
-        wording.why_guard_line(gate_reason=wording.gain_reason_too_few(6)))) in captions
-    # Ftue fix C: one plain line, the reason in its tooltip.
-    assert captions.count(wording.WHY_RECALCULATED) == 1
-    assert wording.WHY_RECOMPUTED_WITHHELD not in captions
-
-
-def test_a_shown_expected_improvement_still_says_it_was_recomputed(monkeypatch, tmp_path):
-    captions = _why_fold_captions(monkeypatch, None, reasons=(), folder=tmp_path)
-    if any(c.startswith(("Expected gain is not shown", "Expected gain greyed")) for c in captions):
-        pytest.skip("the fixture's own checks withhold it")
-    assert wording.WHY_RECALCULATED in captions
-    assert wording.WHY_RECOMPUTED not in captions
-
-
-# ------------------------------------------------------------------ #
 #  01 O16: the "not tested near here" band shows in dark mode
 # ------------------------------------------------------------------ #
 
@@ -813,22 +772,6 @@ def _seen(mark):
     return colour, mark.get("strokeOpacity", mark.get("opacity", 0.7))
 
 
-@pytest.mark.parametrize("which", ["light", "dark"])
-def test_the_why_maps_tested_rings_reach_3_to_1(tmp_path, monkeypatch, which):
-    import bo_views
-    import ui_batch
-    from tests.test_104_speed_robust_charts import PAGES, _contrast_on
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(ui_insights, "theme", lambda: which)
-    opt = D.load(D.LINE_A)
-    spec = ui_batch.why_chart(opt, bo_views.why(opt, None), 89.6).to_dict()
-    rings = [m for m in _point_layers(spec) if not m.get("filled", True)]
-    assert rings
-    for mark in rings:
-        colour, opacity = _seen(mark)
-        assert _contrast_on(colour, opacity, PAGES[which]) >= 3.0, (which, mark)
-
-
 @pytest.mark.skip(reason=REVIEW_FOUR)
 @pytest.mark.parametrize("which", ["light", "dark"])
 def test_the_triangles_rings_reach_3_to_1(tmp_path, monkeypatch, which):
@@ -857,7 +800,7 @@ def test_the_triangles_rings_reach_3_to_1(tmp_path, monkeypatch, which):
 
 def test_the_role_tooltip_says_or_a_repeat_of_it():
     help_text = wording.role_help()
-    assert ("Refines the best: every varying row within 15 % of its span of Best so far "
+    assert ("Close to the best: every varying row within 15 % of its span of Best so far "
             "or a Repeat of it.") in help_text
     assert "recorded before its Round" in help_text
 

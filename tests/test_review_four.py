@@ -346,14 +346,6 @@ def test_the_greyed_lines_say_why_and_that_suggestions_are_the_same():
         assert wording.why_gain_greyed(reason) == wording.GAIN_GREYED[reason]
 
 
-def test_make_a_round_greys_the_gain_column():
-    import inspect
-    import ui_batch
-    src = inspect.getsource(ui_batch._why_fold)
-    assert "hide=hide" not in src and "GREYED_GAIN" in src
-    assert "why_gain_greyed" in src
-
-
 # ------------------------------------------------------------------ #
 #  The yogurt pilot (shipped samples)
 # ------------------------------------------------------------------ #

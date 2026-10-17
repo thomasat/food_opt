@@ -7,7 +7,7 @@ import pytest
 import bo_views
 import sample_projects as sp
 import storage as storage_backend
-import ui_batch
+import ui_insights
 import wording
 from food_bo import FoodOptimizer
 from tests import demo_projects as D
@@ -38,7 +38,14 @@ def _whats(chart, domain=False):
 
 
 def _chart(opt, why):
-    return ui_batch.why_chart(opt, why, None)
+    """The explore map as Make a round drew it before v3 (ui_batch.why_chart,
+    gone with the map): ui_insights.explore_map_chart, which Review keeps."""
+    tested = [{"mean": m, "sd": s}
+              for m, s in zip(why.tested_mean.tolist(), why.tested_sd.tolist())]
+    picks = [{"mean": r.mean, "sd": r.sd, "no": str(r.formulation), "own": bool(r.own)}
+             for r in why.rows]
+    return ui_insights.explore_map_chart(why.pool_mean, why.pool_sd, tested, picks, None, opt,
+                                         gain=getattr(why, "pool_value", None))
 
 
 def test_entered_round_has_no_suggestion_mark(tmp_path, monkeypatch):

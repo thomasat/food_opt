@@ -15,7 +15,6 @@ rulings; 05-walkthrough-retest-early.md §3, §5 items 2, 3, 5, 9;
 4. "See the amounts you have not tried" lands on the Explored fold, opened.
 
 Suggestions are untouched: only screens, links and landings change."""
-import contextlib
 import re
 import types
 
@@ -169,7 +168,8 @@ def test_the_why_link_lands_on_its_place_with_the_fold_open(links, monkeypatch):
     [got] = links
     assert got["target"] == wording.TAB_BATCH
     assert got["section"] == ui_helpers.WHY_PLACE
-    assert got["fold"] == ui_insights.WHY_FOLD_KEY == ui_batch.WHY_KEY
+    # v3: the place is the Round table on Make a round (no Why fold there).
+    assert got["fold"] == ui_insights.WHY_FOLD_KEY
 
 
 @pytest.mark.parametrize("kind", ["close", "explore", "see", "rising"])
@@ -281,103 +281,28 @@ def _block(node, key):
     return None
 
 
-def _why_fold(at):
-    return next(e for e in at.tabs[1].expander if e.label == wording.WHY_THESE)
-
-
 def _scripts(at):
     return [h.proto.body for h in at.get("html")]
 
 
 @pytest.fixture
 def why_open(monkeypatch):
-    # A model with skill: the A3 gate would withhold the gain on this small
-    # project (as tests/test_094_make_a_round.py).
-    monkeypatch.setattr(insights, "skill_gate", lambda opt, checks, fact=None: None)
     opt = _open_round()
-    at = _app(opt, state={ui_batch.WHY_KEY: True,
+    at = _app(opt, state={ui_insights.WHY_FOLD_KEY: True,
                           ui_helpers.SCROLL_KEY: ui_helpers.WHY_PLACE})
     return opt, at
 
 
-def test_the_why_fold_lands_in_its_place_open_with_the_role_key_first(why_open):
+def test_the_why_link_lands_on_the_round_table(why_open):
+    """v3: Make a round has no Why fold; the link's place holds the Round
+    table (ingredients down, the Round across)."""
     opt, at = why_open
     place = _block(at.tabs[1], ui_helpers.WHY_PLACE)
     assert place is not None
-    [fold] = [c for c in place.children.values() if getattr(c, "type", "") == "expander"]
-    assert fold.label == wording.WHY_THESE
-    first = list(fold.children.values())[0]
-    assert first.type == "caption" and first.value == wording.WHY_ROLE_KEY_SHORT   # review polish
+    assert [c for c in place.children.values() if getattr(c, "type", "") == "table"]
+    assert not [e for e in at.tabs[1].expander if e.label == wording.WHY_THESE]
     # The landing: app.py scrolls to the place once, after the tabs.
     assert any(f".st-key-{ui_helpers.WHY_PLACE}" in body for body in _scripts(at))
-
-
-def test_the_why_fold_says_its_columns_plainly(why_open):
-    opt, at = why_open
-    fold = _why_fold(at)
-    [frame] = [d.value for d in fold.dataframe]
-    assert list(frame.columns) == [
-        wording.FORMULATION_CAP, wording.ROLE, wording.PREDICTED_SCORE_COLUMN,
-        wording.MODEL_SD, wording.EXPECTED_GAIN, wording.CLOSEST_MADE,
-        wording.LARGEST_DIFFERENCES]
-    gain = list(frame[wording.EXPECTED_GAIN])
-    assert not gain[0].endswith(wording.PENDING_MARK)
-    assert all(v.endswith(wording.PENDING_MARK) for v in gain[1:])
-    numbers = [r["formulation"] for r in opt.pending_batch]
-    captions = [c.value for c in fold.caption]
-    assert wording.why_picked_after(numbers[1:]) in captions
-    assert wording.WHY_PENDING not in captions
-    assert wording.why_compared_with(opt.best_formulation_no()) in captions
-    assert wording.WHY_RECALCULATED not in captions          # exact: generated here
-
-
-def test_the_why_columns_carry_the_bo_terms_in_their_tooltips():
-    opt = _patty(rows=12)
-    cols = ui_batch.why_columns(opt, wording.EXPECTED_GAIN,
-                                wording.tip_expected_gain("qlognei"))
-    helps = {k: v["help"] for k, v in cols.items()}
-    labels = {k: v["label"] for k, v in cols.items()}
-    assert helps[wording.EXPECTED_GAIN] == wording.tip_expected_gain("qlognei")
-    assert helps[wording.CLOSEST_MADE] == wording.TIP_CLOSEST_MADE
-    assert helps[wording.LARGEST_DIFFERENCES] == wording.LARGEST_DIFFERENCES_FROM_CLOSEST
-    assert labels[wording.CLOSEST_MADE] == wording.CLOSEST_MADE
-
-
-def test_a_study_of_settings_reads_trial_in_the_closest_column():
-    cols = ui_batch.why_columns(_Settings(), wording.EXPECTED_GAIN,
-                                wording.tip_expected_gain("qlognei"))
-    assert cols[wording.CLOSEST_MADE]["label"] == "Closest trial already made"
-
-
-def test_a_recalculated_round_says_so_plainly_with_the_reason_in_the_tooltip(monkeypatch):
-    monkeypatch.setattr(insights, "skill_gate", lambda opt, checks, fact=None: None)
-    opt = _open_round()
-    opt.round_generation = {}                 # no record: the Round is recomputed
-    opt.save()
-    at = _app(opt, state={ui_batch.WHY_KEY: True})
-    fold = _why_fold(at)
-    lines = [c for c in fold.caption if c.value == wording.WHY_RECALCULATED]
-    assert len(lines) == 1
-    assert lines[0].proto.help == wording.TIP_RECALCULATED
-    captions = [c.value for c in fold.caption]
-    assert wording.WHY_RECOMPUTED not in captions
-    assert wording.WHY_RECOMPUTED_WITHHELD not in captions
-
-
-def test_a_withheld_gain_is_said_in_the_folds_own_words(monkeypatch):
-    opt = _open_round()
-    monkeypatch.setattr(insights, "noise_guard", lambda *a, **k: insights.Guard(["floor"]))
-    at = _app(opt, state={ui_batch.WHY_KEY: True})
-    fold = _why_fold(at)
-    [frame] = [d.value for d in fold.dataframe]
-    # Review four, ruling 2: the column stays, greyed; the line says greyed.
-    assert wording.EXPECTED_GAIN in frame.columns
-    captions = [c.value for c in fold.caption]
-    # Concision round: the short line on screen, the full one in its help.
-    [line] = [c for c in fold.caption if c.value == wording.why_gain_greyed("guard")]
-    assert line.proto.help == wording.why_gain_greyed_said(
-        wording.why_gain_said(wording.why_guard_line([wording.GUARD_FLOOR])))
-    assert not any(c.startswith("Expected improvement") for c in captions)
 
 
 # ------------------------------------------------------------------ #

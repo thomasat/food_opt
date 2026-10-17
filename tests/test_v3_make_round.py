@@ -85,6 +85,12 @@ def test_round6_table_values_signs_tags_and_total():
     assert totals == ["98.69", "98.69", "97.69", "98.69"]
 
 
+def test_a_set_total_reads_as_its_one_number():
+    opt = _burger(rounds=1)
+    ui_batch.ask_alone(opt, n_suggestions=2)
+    assert ui_batch.round_compare(opt).rows[-1] == "Total (set to 100.00 g)"
+
+
 def test_no_total_limit_reads_total_in_its_unit():
     opt = _burger(rounds=3, fill=False)
     opt.quantity_constraints = []
@@ -240,3 +246,77 @@ def test_app_generated_round_reads_suggestions_on_screen():
     assert "Best bets to improve on F16, F17 (tied)." in captions
     assert wording.CHOSEN_BY_EGBO not in captions
     assert not any(c.startswith("F19") for c in shown.columns)
+
+
+def test_make_a_round_fits_nothing(monkeypatch):
+    """No forecast on Make a round, so nothing on it fits a model (another
+    tab's own fits are that tab's)."""
+    import os
+    import traceback
+
+    import insights
+    from_here = []
+    real = insights.fit_xy
+
+    def spy(*a, **k):
+        if any(os.path.basename(f.filename) == "ui_batch.py" for f in traceback.extract_stack()):
+            from_here.append(1)
+        return real(*a, **k)
+    monkeypatch.setattr(insights, "fit_xy", spy)
+    _app()
+    assert from_here == []
+
+
+def test_a_process_only_round_reads_trial(tmp_path, monkeypatch):
+    """Five scored trials and one open: the table in the project's own words."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("ferment_v3")
+    opt.add_process_parameter("Incubation temperature", 30, 42, unit="°C")
+    opt.add_process_parameter("Incubation time", 4, 16, unit="h")
+    opt.add_objective("Acidity", 1.0, goal="target", target=4.5, min_val=3.0, max_val=7.0,
+                      unit="pH")
+    for no, (temp, hours) in enumerate(
+            ((32.0, 5.0), (34.0, 7.0), (36.0, 9.0), (38.0, 11.0), (40.0, 13.0)), start=1):
+        opt.tell({"Incubation temperature": temp, "Incubation time": hours},
+                 {"Acidity": 3.0 + 0.1 * temp}, formulation_no=no, batch_no=1)
+    opt.set_pending_batch([{"Incubation temperature": 37.0, "Incubation time": 16.0}])
+    opt.save()
+    at = _app(opt.project_name)
+    tab = at.tabs[1]
+    shown = tab.table[0].value
+    assert shown.index.name == "Process setting"
+    assert list(shown.index) == ["Incubation temperature (°C)", "Incubation time (h)"]
+    assert shown.columns[0].startswith("Best so far (T") and shown.columns[1].startswith(
+        "Suggestion 1")
+    assert shown.iloc[1, 1].endswith("at upper limit")
+    key = next(c for c in tab.caption if c.value.startswith("(change from T"))
+    assert key.value.endswith("that setting's allowed range")
+    texts = [c.value for c in tab.caption] + [str(c.help or "") for c in tab.caption]
+    assert not any("ormulation" in t for t in texts)
+
+
+def test_the_v3_lines_pass_the_vocabulary_guard_and_the_length_rules():
+    from tests.test_food_bo import _BANNED
+    captions = [wording.improve_on_caption([10]), wording.improve_on_caption([16, 17]),
+                wording.CHOSEN_BY_EGBO, wording.COVER_CAPTION, wording.workbook_sheets(),
+                wording.workbook_sheets(True)]
+    labels = [wording.best_column(10, "95.0"), wording.suggestion_column(1), wording.LESS_TRIED,
+              wording.AT_UPPER_LIMIT, wording.AT_LOWER_LIMIT, wording.compare_row_header("g")]
+    helps = [wording.improve_on_help([10]), wording.best_tied_help(16, [17]),
+             wording.suggestion_numbers_help([(1, 19)]), wording.less_tried_help(30),
+             wording.change_key(10, "g"), wording.change_key_help(10, 1, 20),
+             wording.workbook_sheets_help(), wording.workbook_sheets_help(True),
+             wording.total_row("97.69", "98.69", "g")]
+    for text in captions + labels + helps:
+        assert not any(p.search(text) for p in _BANNED), text
+    words = lambda text: [w for w in text.split() if w != "·"]
+    for text in captions:
+        assert len(words(text)) <= 8, text
+    for text in labels:
+        assert len(words(text)) <= 5, text
+    assert wording.improve_on_caption([10]) == "Best bets to improve on F10."
+    assert wording.improve_on_help([10]) == (
+        "Chosen for how much they could improve on F10, weighing how good they look and how "
+        "unsure the model is.")
+    assert wording.workbook_sheets() == "Sheets: Round overview · Results"
+    assert "Preparation" in wording.workbook_sheets_help()
