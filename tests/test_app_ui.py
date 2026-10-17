@@ -1940,9 +1940,10 @@ def test_result_inputs_carry_the_goal_and_unit_and_are_ordered_by_importance(ope
     assert (labels.index("Firmness (N) · Target 6 N")
             < labels.index("Juiciness (/10) · Target 7"))
     assert any(c.value == "Leave a result blank until it is in."
-               and c.proto.help == ("One number per measurement; the panel mean where "
-                                    "a panel rated it. Leave blank if the result isn't "
-                                    "in yet; you can add it later on Results.")
+               and c.proto.help == ("One number per measurement; where a panel rated "
+                                    "it, the panel's score (e.g. a median or mean). "
+                                    "Leave blank if the result isn't in yet; you can "
+                                    "add it later on Results.")
                for c in at.caption), \
         [c.value for c in at.caption]
 

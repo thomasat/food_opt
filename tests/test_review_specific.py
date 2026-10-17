@@ -102,9 +102,11 @@ OPT = NS(objectives=[], study_kind=None)
 # ------------------------------------------------------------------ #
 
 
-def test_the_tie_line_says_what_a_rise_needs():
-    line = wording.tie_line_needed(13, "1.67", "2.3")
-    assert line == "Formulation 13 is within noise: 1.67 lower; 2.3 needed."
+def test_the_runner_up_line_is_short_and_says_no_noise():
+    """Replaced the tie line that said what a rise needs (owner, v3 final
+    cleanup: no tasting noise on screen)."""
+    line = wording.runner_up_line(13, "93.3", "1.7")
+    assert line == "Formulation 13: 93.3 (1.7 lower than the best so far)."
     assert _words(line) <= 10
 
 

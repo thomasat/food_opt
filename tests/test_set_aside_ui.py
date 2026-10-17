@@ -47,10 +47,9 @@ def test_saving_the_missing_value_scores_it_and_the_box_follows_the_new_best(one
     at.run()
     assert not at.exception
     flashes = [s.value for s in at.success]
-    # Fix A follow-up (ruling on ties): a lead of 1.20 is under what one new
-    # result needs to differ (√2 × 1.645 × 1 = 2.3), so it is a tie, not a move.
-    assert ("Formulation 4 scored. "
-            + wording.tie_line(4, "", "1.2", 2, "2.3")) in flashes, flashes
+    # v3 final cleanup: ties are equal scores only (no tasting noise), so a
+    # lead of 1.20 is a move.
+    assert ("Formulation 4 scored. " + wording.best_moved(2, 4)) in flashes, flashes
     reopened = FoodOptimizer("burger")
     assert reopened.fully_measured(reopened.index_of_formulation(4))
     assert reopened.best_formulation_no() == 4

@@ -528,9 +528,9 @@ def _progress_line(opt):
     pool = opt.best_candidates()
     if last is None or not pool:
         return ""
-    # Results' own before/after rule, whatever the Round (review M18): Best
-    # so far against the next highest, by the I5 yardstick. A tie made by a
-    # late Cook loss or a correction is said here, not only in the flash.
+    # An exact tie at the top is said here, whatever the Round (review M18):
+    # a tie made by a late Cook loss or a correction is said here, not only
+    # in the flash.
     ranked = sorted(pool, key=lambda i: float(opt.Y_history[i]), reverse=True)
     partner = _tie_partner(opt, ranked[0])
     tie = _tie(opt, partner, ranked[0]) if partner is not None else ""
@@ -550,11 +550,27 @@ def _progress_line(opt):
     return wording.batch_recorded_no_improvement(last)
 
 
-def _yardstick(opt):
-    """How much Repeats differ, for Results' own before/after rule (spec
-    2026-09-30 review I5, M18): the checks Insights has already worked out
-    leave a disagreeing Repeat out; Results never checks Rounds itself."""
-    return insights.noise_yardstick(opt, ui_insights.cached_checks(opt))
+def _runner_up_line(opt):
+    """The next best different formulation under Best so far, as measured:
+    'Formulation 13: 93.3 (1.7 lower than the best so far).' (owner, v3
+    final cleanup: it replaced the tie line that used tasting noise). ''
+    without one, or on an exact tie (the progress line says that). The
+    lead reads at one decimal as scores are shown; at two when one would
+    read 0.0."""
+    pool = opt.best_candidates()
+    if not pool:
+        return ""
+    best = max(pool, key=lambda i: float(opt.Y_history[i]))
+    partner = _tie_partner(opt, best)
+    if partner is None:
+        return ""
+    lead = float(opt.Y_history[best]) - float(opt.Y_history[partner])
+    if lead <= _TIE:
+        return ""
+    digits = 1 if round(lead, 1) > 0 else 2
+    return wording.runner_up_line(int(opt.formulation_ids[partner]),
+                                  wording.score_shown(opt.Y_history[partner]),
+                                  f"{lead:.{digits}f}")
 
 
 def _tie_partner(opt, best):
@@ -573,38 +589,24 @@ def _same_formulation(opt, i, j):
 
 
 def _tie(opt, old, new):
-    """The tie sentence when Best so far moved from row `old` to row `new`
-    by less than one new result needs to differ (rise_threshold(yard, 1):
-    2.33 × the noise SD, t on the Repeats' df), else ''. A lead
-    of 0.00 is an exact tie, said as one; a Repeat of the same make-up is
-    never a tie (Plan B parked items)."""
+    """The tie sentence when Best so far (row `new`) and row `old` have the
+    same Overall score up to _TIE, else ''. Ties are equal scores only:
+    a close lead is a lead, said as a measurement (_runner_up_line), never
+    weighed against tasting noise (owner, v3 final cleanup). A Repeat of the same make-up
+    is never a tie (Plan B parked items)."""
     if _same_formulation(opt, old, new):
         return ""
     lead = float(opt.Y_history[new]) - float(opt.Y_history[old])
-    # Fix A follow-up (ruling on ties): a lead is a tie under what one new
-    # result needs to read Rising, rise_threshold(yard, 1), so Results'
-    # tie and Insights' Rising never disagree.
-    need = insights.rise_threshold(_yardstick(opt), 1)
-    if lead < 0 or lead >= need:
+    # Full precision with a tolerance, never the shown text (owner rule).
+    if abs(lead) > _TIE:
         return ""
-    # An exact tie on the stored scores, up to float error (owner rule:
-    # full precision with a tolerance, never the shown text).
-    if lead <= _TIE:
-        return wording.tie_equal(int(opt.formulation_ids[new]), int(opt.formulation_ids[old]),
-                                 wording.score_shown(opt.Y_history[new]))
-    # Specific wording: the lead against the rise one new result needs, to
-    # one decimal as scores are shown; both to two when one would read the
-    # lead no smaller than the need ("2.30 lower; 2.33 needed", never "2.3
-    # lower; 2.3 needed").
-    digits = 1 if round(lead, 1) < round(need, 1) and round(lead, 1) > 0 else 2
-    return wording.tie_line(int(opt.formulation_ids[new]), wording.score_shown(opt.Y_history[new]),
-                            f"{lead:.{digits}f}", int(opt.formulation_ids[old]),
-                            f"{need:.{digits}f}")
+    return wording.tie_equal(int(opt.formulation_ids[new]), int(opt.formulation_ids[old]),
+                             wording.score_shown(opt.Y_history[new]))
 
 
 def _move_sentence(opt, before, after):
     """best_move_sentence, or the tie sentence when the new Best so far
-    leads by less than Repeats differ (§4 ties): the flash says what the
+    ties another formulation exactly (§4 ties): the flash says the tie the
     line under Best so far says."""
     move = best_move_sentence(before, after)
     if not move:
@@ -670,6 +672,9 @@ def _best(opt):
         line = _progress_line(opt)
         if line:
             st.caption(wording.for_project(opt, line))
+        runner_up = _runner_up_line(opt)
+        if runner_up:
+            st.caption(wording.for_project(opt, runner_up))
         for text in _waiting_lines(opt):
             st.caption(wording.for_project(opt, text))
 
@@ -907,8 +912,8 @@ def _amount_format(opt, frame):
         except (TypeError, ValueError):
             return value
 
-    # Every number in the table reads to two decimals: the amounts, the
-    # measurements and the score alike. Left to pandas, a panel score typed
+    # Every number in the table reads to two decimals: the amounts and the
+    # measurements; the score keeps its one decimal. Left to pandas, a panel score typed
     # as 5 came out as 5.000000 beside an amount written 11.88. A process
     # setting keeps fmt_setting (180, not 180.00), and a text column — a
     # score reading "waiting for Juiciness", Note, Best — is left alone.
@@ -916,9 +921,13 @@ def _amount_format(opt, frame):
     # a column that holds one blank went to `object` and slipped the net
     # entirely: the amounts of a row recorded before a pre-mix moved printed
     # as 31.13258332014084 beside their neighbours' 31.13.
+    # The Overall score arrives as its on-screen text, one decimal
+    # (wording.score_shown, owner v3 final fixes): read as a number here it
+    # came back as 88.30. The exports keep full precision.
     numeric = {c for c in frame.columns
                if c not in amounts
-               and c not in (wording.FORMULATION_CAP, wording.ROUND_CAP)}
+               and c not in (wording.FORMULATION_CAP, wording.ROUND_CAP,
+                             wording.OVERALL_SCORE_COLUMN)}
     formats = {c: (fmt_setting if c in settings else weighed)
                for c in frame.columns if c in amounts}
     formats.update({c: weighed for c in numeric})

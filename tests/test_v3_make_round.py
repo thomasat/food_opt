@@ -343,7 +343,7 @@ def test_the_v3_lines_pass_the_vocabulary_guard_and_the_length_rules():
     labels = [wording.best_column(10, "95.0"), wording.suggestion_column(1), wording.LESS_TRIED,
               wording.AT_UPPER_LIMIT, wording.AT_LOWER_LIMIT, wording.compare_row_header("g")]
     helps = [wording.improve_on_help([10]), wording.best_tied_help(16, [17]),
-             wording.suggestion_numbers_help([(1, 19)]), wording.less_tried_help(30),
+             wording.SUGGESTION_NUMBERS_HELP, wording.less_tried_help(30),
              wording.change_key(10, "g"), wording.change_key_help(10, 1, 20),
              wording.workbook_sheets_help(), wording.workbook_sheets_help(True),
              wording.total_row("97.69", "98.69", "g")]
@@ -360,3 +360,12 @@ def test_the_v3_lines_pass_the_vocabulary_guard_and_the_length_rules():
         "unsure the model is.")
     assert wording.workbook_sheets() == "Sheets: Round overview · Results"
     assert "Preparation" in wording.workbook_sheets_help()
+
+
+def test_the_suggestion_numbers_help_lists_no_numbers():
+    """v3 final cleanup: a live Round 7 on the pilot would have mapped its
+    suggestions to F19–F21, the pilot's own numbers; the "?" says when
+    they get numbers instead of listing them."""
+    text = wording.SUGGESTION_NUMBERS_HELP
+    assert text == "Suggestions get formulation numbers when their results are recorded."
+    assert not any(ch.isdigit() for ch in text)

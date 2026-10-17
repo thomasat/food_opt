@@ -772,10 +772,11 @@ def suggestion_column(k):
     return f"Suggestion {k}"
 
 
-def suggestion_numbers_help(pairs):
-    """'Suggestion 1 is F19 in the workbook, …' for the key's "?"."""
-    return ("In the workbook: "
-            + ", ".join(f"{suggestion_column(k)} is {short_no(no)}" for k, no in pairs) + ".")
+# The key's "?" while the Round's suggestions are unmade. It lists no
+# numbers (owner, v3 final cleanup): on the pilot a live Round 7 mapped its
+# suggestions to F19–F21, the pilot's own numbers.
+SUGGESTION_NUMBERS_HELP = (f"Suggestions get {FORMULATION} numbers when their results are "
+                           "recorded.")
 
 
 # A suggestion's column label when the distance rule says it explores
@@ -4598,8 +4599,11 @@ def workbook_sheets_help(print_pack=False):
     return (f"A {PREPARATION_SHEET} sheet is added when the {ROUND} has pre-mixes. Tick "
             f"“{PRINT_PACK_CHECKBOX}” for one printable page each.")
 RECORD_RESULTS_LINE = "Leave a result blank until it is in."
-RECORD_RESULTS_HELP = ("One number per measurement; the panel mean where a panel rated it. "
-                       "Leave blank if the result isn't in yet; you can add it later on Results.")
+# Generic about how a panel's number is made (owner, v3 final cleanup): the
+# pilot recorded medians, so "the panel mean" was not true of it.
+RECORD_RESULTS_HELP = ("One number per measurement; where a panel rated it, the panel's score "
+                       "(e.g. a median or mean). Leave blank if the result isn't in yet; you "
+                       "can add it later on Results.")
 NOT_SCORED_TICK_HELP = f"Tick only if this {FORMULATION} failed and will never be scored."
 MORE = "More"
 
@@ -4638,12 +4642,11 @@ OVERALL_SCORE_HELP = (f"{OVERALL_SCORE_COLUMN}, 0–100: the sum over measuremen
                       "only; changing a share, a goal or a Range recalculates every score.")
 
 
-def tie_line(new_no, score_text, lead_text, old_no, need_text):
-    """A new Best so far that leads by less than a single new result needs
-    to differ (§4 ties; 03 §5.9; fix A follow-up: rise_threshold(noise SD,
-    1), the rule Rising uses, so a tie never reads as Rising)."""
-    return (f"Tied with {FORMULATION_CAP} {old_no}: {lead_text} apart, under the "
-            f"{points_text(need_text)} needed to differ.")
+def runner_up_line(no, score_text, lead_text):
+    """Under Best so far: the next best different formulation, as measured
+    — 'Formulation 13: 93.3 (1.7 lower than the best so far).' (owner, v3
+    final cleanup: no tasting noise, no "within noise", no rise "needed")."""
+    return f"{FORMULATION_CAP} {no}: {score_text} ({lead_text} lower than the best so far)."
 
 
 def tie_equal(best_no, other_no, score_text):
@@ -6081,14 +6084,6 @@ ONLY_OWN_FORMULATIONS_CAPTION = (
     f"{GENERATE_DIFFERENT_BATCH}.")
 
 
-# "Tied" only for equal values; "within noise" for close ones (P3 #18).
-def tie_line(new_no, score_text, lead_text, old_no, need_text):
-    """'Formulation 19 is within noise: 0.83 lower; 2.3 needed.' (specific
-    wording, 2026-10-12: the rise one new result needs, said beside the
-    lead, not left to the "?")."""
-    return tie_line_needed(old_no, lead_text, need_text)
-
-
 # The Repeat link stays "Repeat Formulation 21" (a button label: at most 5
 # words); every line that asks says "Repeat Formulation 21 to check noise".
 
@@ -6189,12 +6184,6 @@ def _worst(items):
 # A verdict word's evidence: named_pairs, named_pairs_short and
 # learned_strip_counted (sceptic review section, below).
 # learned_count_needed: see the sceptic review section, below.
-
-
-def tie_line_needed(old_no, lead_text, need_text):
-    """Results' tie under Best so far: 'Formulation 13 is within noise: 1.67
-    lower; 2.3 needed.' (the rise one new result needs, in its "?" before)."""
-    return f"{FORMULATION_CAP} {old_no} is within noise: {lead_text} lower; {need_text} needed."
 
 
 # --- final demo ---

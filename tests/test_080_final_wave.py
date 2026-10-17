@@ -131,16 +131,18 @@ def test_a_repeat_of_best_so_far_is_never_its_tie_partner():
 def test_the_tie_partner_is_the_next_highest_different_formulation():
     import ui_results
     opt = _repeat_of(_three([60.0, 70.0, 69.8]), 2, 70.3)
-    assert ui_results._progress_line(opt) == wording.tie_line(4, "70.3", "0.5", 3, "2.3")
+    # v3 final cleanup: the next best as measured, never "within noise".
+    assert ui_results._runner_up_line(opt) == wording.runner_up_line(3, "69.8", "0.5")
 
 
 def test_best_so_far_moving_to_its_own_repeat_flashes_what_the_line_says():
-    """Re-review R-2: the flash uses the line's partner, the next highest
-    different formulation — never the Repeat's own original."""
+    """Re-review R-2: the flash and the line use the same partner, the next
+    highest different formulation — never the Repeat's own original. v3
+    final cleanup: a 0.5 lead is a move, not a tie."""
     import ui_results
     opt = _repeat_of(_three([60.0, 70.0, 69.8]), 2, 70.3)
-    line = ui_results._progress_line(opt)
-    assert ui_results._move_sentence(opt, 2, 4) == line == wording.tie_line(4, "70.3", "0.5", 3, "2.3")
+    assert ui_results._move_sentence(opt, 2, 4) == wording.best_moved(2, 4)
+    assert ui_results._runner_up_line(opt).startswith("Formulation 3: 69.8")
 
 
 def test_an_exact_tie_is_said_as_a_tie():

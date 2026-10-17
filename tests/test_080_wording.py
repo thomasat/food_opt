@@ -46,7 +46,7 @@ def _new_lines():
         w.more_label(False, True),
         w.BEST_RULE, w.BEST_RULE_WITHOUT, w.overall_score_line(90.45, 100),
         w.overall_score_line(88.0, 100, "Aroma"), w.OVERALL_SCORE_HELP,
-        w.tie_line(22, "90.65", "0.20", 15, "4.0"), w.tie_line(22, "90.65", "0.20", 15, "2.3"),
+        w.runner_up_line(15, "90.5", "0.2"),
         w.MEASURED_WAITING, w.waiting_list("Cook loss", [22], 6),
         w.waiting_list("Cook loss", [21, 22]), w.MOVE_TO_NOT_SCORED_HELP,
         w.never_coming_warning(19, "Cook loss"), w.EDIT_PAST_FOLD,

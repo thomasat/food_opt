@@ -85,16 +85,19 @@ def test_the_dash_caption_only_with_a_dash_on_screen(one_waiting):
 #  Ties (§4, review M18)
 # ------------------------------------------------------------------ #
 
-def test_a_lead_within_one_point_is_a_tie(tmp_path, monkeypatch):
+def test_a_small_lead_is_a_move_and_the_next_best_is_measured(tmp_path, monkeypatch):
+    """v3 final cleanup: ties are equal scores only, with no tasting noise
+    on screen; a 0.2 lead is a move, and the next best reads as measured."""
     monkeypatch.chdir(tmp_path)
     opt = _patty(rows=3)
     _tell(opt, 4, 2)
     old = max(range(3), key=lambda i: opt.Y_history[i])
     opt.Y_history[3] = opt.Y_history[old] + 0.2
-    line = ui_results._progress_line(opt)
-    assert line == wording.tie_line(4, f"{opt.Y_history[3]:.1f}", "0.2",
-                                    int(opt.formulation_ids[old]), "2.3")
-    assert ui_results._move_sentence(opt, int(opt.formulation_ids[old]), 4) == line
+    old_no = int(opt.formulation_ids[old])
+    assert ui_results._progress_line(opt).startswith("Round 2 recorded · Best")
+    assert ui_results._move_sentence(opt, old_no, 4) == wording.best_moved(old_no, 4)
+    assert ui_results._runner_up_line(opt) == wording.runner_up_line(
+        old_no, wording.score_shown(opt.Y_history[old]), "0.2")
 
 
 def test_a_lead_beyond_the_yardstick_is_a_move(tmp_path, monkeypatch):
@@ -108,27 +111,12 @@ def test_a_lead_beyond_the_yardstick_is_a_move(tmp_path, monkeypatch):
         wording.best_moved(int(opt.formulation_ids[old]), 4))
 
 
-# Fix A follow-up (ruling on ties): the line is rise_threshold(1 point, 1)
-# = √2 × 1.645 = 2.33, where one new result would read Rising, not 1 point.
-@pytest.mark.parametrize("lead, tie", [(2.30, True), (2.36, False)])
-def test_the_q1_rise_threshold_is_the_line_without_repeats(tmp_path, monkeypatch, lead, tie):
-    monkeypatch.chdir(tmp_path)
-    opt = _patty(rows=3)
-    _tell(opt, 4, 2)
-    old = max(range(3), key=lambda i: opt.Y_history[i])
-    opt.Y_history[3] = opt.Y_history[old] + lead
-    said = ui_results._progress_line(opt)
-    # Specific wording (2026-10-12), re-pinned (this pin predates the P3 #18
-    # line and failed on b70b8a5): the need is said again, beside the lead,
-    # to two decimals where one would read no larger than it.
-    assert said.endswith("lower; 2.33 needed.") is tie, said
-
-
-def test_a_late_value_that_makes_a_tie_is_said_under_best_so_far(tmp_path, monkeypatch):
+def test_a_late_value_that_moves_best_so_far_is_said_under_it(tmp_path, monkeypatch):
     """Review M18 (Task 8 I-3): Formulation 1 scores 70.00 in Round 1,
     Formulation 2 in Round 1 waits for Juiciness, Formulation 3 in Round 2
     scores lower. Juiciness for 2 makes it Best so far at 70.50: the flash
-    and the lasting line both say it is a tie, not "Best unchanged"."""
+    says Best so far moved, and the lasting line names Formulation 1 half a
+    point lower (v3 final cleanup: no "within noise" tie)."""
     monkeypatch.chdir(tmp_path)
     opt = FoodOptimizer("late")
     opt.add_ingredient("Pea", 0, 10)
@@ -143,19 +131,17 @@ def test_a_late_value_that_makes_a_tie_is_said_under_best_so_far(tmp_path, monke
     _submit_button(at, "Save Juiciness").click()
     at.run()
     assert not at.exception
-    tie = wording.tie_line(2, "70.5", "0.5", 1, "2.3")
     flashes = [f.value for f in at.success]
-    # Re-pinned (concision round): the short tie line no longer says
-    # Formulation 2 scored, so the flash says it once, first.
-    assert "Formulation 2 scored. " + tie in flashes, flashes
+    assert "Formulation 2 scored. " + wording.best_moved(1, 2) in flashes, flashes
     assert sum(f.count("Formulation 2 scored") for f in flashes) == 1, flashes
-    # The box is back on Best so far, and the line under it says the tie.
+    # The box is back on Best so far, and the line under it names the next.
     assert FoodOptimizer("late").best_formulation_no() == 2
+    line = wording.runner_up_line(1, "70.0", "0.5")
     said = _captions(at)
-    assert tie in said, said
-    assert wording.batch_recorded_no_improvement(2) not in said
+    assert line in said, said
+    assert not any("noise" in c or "needed" in c for c in said), said
     # ...and still says it on the next visit, with the flash long gone.
-    assert tie in _captions(_results(project="late"))
+    assert line in _captions(_results(project="late"))
 
 
 @pytest.fixture
@@ -179,10 +165,8 @@ def test_a_process_only_tie_says_trial(trial_tie):
     """Task 8 review I-1: the line under Best so far goes through
     for_project."""
     said = _captions(_results(project="ferment"))
-    # Concision round and fix A follow-up (ruling on ties): the short line.
-    # Specific wording (2026-10-12), re-pinned (failed on b70b8a5): the
-    # tie line with the rise one new result needs.
-    assert "Trial 1 is within noise: 0.5 lower; 2.3 needed." in said, said
+    # v3 final cleanup: the next best as measured, no tasting noise.
+    assert "Trial 1: 60.0 (0.5 lower than the best so far)." in said, said
     assert not any("Formulation" in c for c in said), said
 
 
@@ -198,26 +182,10 @@ def test_scoring_a_not_scored_trial_flashes_trial(trial_tie):
     at.run()
     assert not at.exception
     flashes = [f.value for f in at.success]
-    # Concision round and fix A follow-up (ruling on ties): the short line.
-    # Specific wording (2026-10-12), re-pinned (failed on b70b8a5).
-    assert ("Trial 3 scored. Trial 2 is within noise: 0.5 lower; 2.3 needed. "
-            + wording.COPY_KEPT) in flashes, flashes
+    # v3 final cleanup: a 0.5 lead is a move (ties are equal scores only).
+    moved = wording.for_project(trial_tie, wording.best_moved(2, 3))
+    assert ("Trial 3 scored. " + moved + " " + wording.COPY_KEPT) in flashes, flashes
     assert not any("Formulation" in f for f in flashes), flashes
-
-
-def test_the_tie_uses_the_repeats_from_three_pairs(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    opt = _patty(rows=4)
-    monkeypatch.setattr(insights, "noise_yardstick",
-                        lambda o, checks=(), name=insights.SCORE:
-                        insights.Yardstick(2.0, 2.0, 4, True, df=4))
-    old = max(range(3), key=lambda i: opt.Y_history[i])
-    opt.Y_history[3] = opt.Y_history[old] + 1.5
-    opt.batch_history[3] = 2
-    # Fix A follow-up (ruling on ties): rise_threshold(yard, 1), t on 4 df:
-    # 2.0 × √2 × 2.13 = 6.0.
-    # Specific wording (2026-10-12), re-pinned (failed on b70b8a5).
-    assert ui_results._tie(opt, old, 3).endswith("1.5 lower; 6.0 needed.")
 
 
 # ------------------------------------------------------------------ #

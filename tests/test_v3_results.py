@@ -366,17 +366,83 @@ def test_a_tie_is_found_at_full_precision_with_a_tolerance(round6):
     assert "tied at" not in ui_results._tie(round6, f16, f17)
 
 
-def test_the_tie_line_reads_its_lead_at_one_decimal(round6, monkeypatch):
-    """A lead under what one new result needs: one decimal, as the scores
-    are shown; two only where one decimal would make lead and need equal."""
+# ------------------------------------------------------------------ #
+#  No tasting noise on Results (owner, v3 final cleanup): the line under
+#  Best so far says the next best as a measurement, never "within noise"
+#  or what a rise "needs"
+# ------------------------------------------------------------------ #
+
+_NOISE_WORDS = ("noise", "needed", "need ", "within", "apart", "tell", "stop", "Stop")
+
+
+@pytest.fixture
+def round5(store):
+    """The Round 6 sample as shipped: Rounds 1–5 scored, Best so far F10
+    (95.0), the next best different formulation F13 (93.33)."""
+    sp.ensure(store)
+    return FoodOptimizer(sp.ROUND6, storage=store)
+
+
+def test_the_runner_up_line_is_a_plain_measurement():
+    assert wording.runner_up_line(13, "93.3", "1.7") == (
+        "Formulation 13: 93.3 (1.7 lower than the best so far).")
+
+
+def test_view_formulation_on_round5_names_the_next_best_without_noise(round5):
+    line = ui_results._runner_up_line(round5)
+    assert line == "Formulation 13: 93.3 (1.7 lower than the best so far)."
+    said = " ".join([ui_results._progress_line(round5), line])
+    for word in _NOISE_WORDS:
+        assert word not in said, word
+
+
+def test_a_close_lead_is_no_tie_and_no_noise(round6):
+    """F17 0.5 above F16: not tied (that is equal scores only); the flash
+    says Best so far moved and the line names F16 0.5 lower."""
     f16, f17 = round6.index_of_formulation(16), round6.index_of_formulation(17)
-    monkeypatch.setattr(ui_results.insights, "rise_threshold", lambda *a, **k: 2.33)
-    round6.Y_history[f17] = float(round6.Y_history[f16]) + 1.6666
-    assert ui_results._tie(round6, f16, f17) == (
-        "Formulation 16 is within noise: 1.7 lower; 2.3 needed.")
-    round6.Y_history[f17] = float(round6.Y_history[f16]) + 2.30
-    assert ui_results._tie(round6, f16, f17) == (
-        "Formulation 16 is within noise: 2.30 lower; 2.33 needed.")
+    round6.Y_history[f17] = float(round6.Y_history[f16]) + 0.5
+    assert ui_results._tie(round6, f16, f17) == ""
+    assert ui_results._move_sentence(round6, 16, 17) == wording.best_moved(16, 17)
+    assert ui_results._runner_up_line(round6) == (
+        "Formulation 16: 98.3 (0.5 lower than the best so far).")
+
+
+def test_a_lead_under_a_tenth_reads_at_two_decimals(round6):
+    """0.03 lower never reads '0.0 lower'."""
+    f16, f17 = round6.index_of_formulation(16), round6.index_of_formulation(17)
+    round6.Y_history[f17] = float(round6.Y_history[f16]) + 0.03
+    assert ui_results._runner_up_line(round6) == (
+        "Formulation 16: 98.3 (0.03 lower than the best so far).")
+
+
+def test_no_runner_up_line_on_an_exact_tie(round6):
+    assert ui_results._runner_up_line(round6) == ""
+
+
+def test_results_on_round5_says_no_noise(round5):
+    at = AppTest.from_file(APP_PATH, default_timeout=300)
+    at.session_state["_loaded_project"] = sp.ROUND6
+    at.run()
+    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.run()
+    assert not at.exception
+    tab = at.tabs[2]
+    said = " ".join([m.value for m in tab.markdown] + [c.value for c in tab.caption]
+                    + [str(c.help or "") for c in tab.caption])
+    assert "Formulation 13: 93.3 (1.7 lower than the best so far)." in said
+    for word in ("noise", "needed", "within noise", "tell apart"):
+        assert word not in said, word
+
+
+def test_all_formulations_draws_the_score_at_one_decimal(round6):
+    """The grid's own formatter left the score's text alone: 98.3, never
+    88.30 (it read every column as a two-decimal number)."""
+    frame = round6.history_frame()
+    cells = ui_results._table_style(round6, frame)._translate(False, False)["body"]
+    col = list(frame.columns).index(wording.OVERALL_SCORE_COLUMN) + 1
+    shown = [row[col]["display_value"] for row in cells]
+    assert "98.3" in shown and "91.7" in shown and "95.0" in shown
+    assert not any(v.count(".") == 1 and len(v.split(".")[1]) == 2 for v in shown), shown
 
 
 def test_all_formulations_shows_one_decimal_and_the_export_keeps_two(round6):

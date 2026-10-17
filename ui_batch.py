@@ -1024,7 +1024,7 @@ def _draw_compare(opt, table):
         from food_bo import FAR_FROM_TESTED
         tips.append(wording.less_tried_help(round(FAR_FROM_TESTED * 100)))
     if table.numbers:
-        tips.append(wording.suggestion_numbers_help(table.numbers))
+        tips.append(wording.SUGGESTION_NUMBERS_HELP)
     # Minor 15 (2026-09-29 review): a suggestion that nearly repeats a
     # formulation still waiting for results, named by its column.
     prefixes = _near_copy_prefixes(opt, opt.pending_batch)

@@ -31,8 +31,8 @@ def _changed_lines():
         W.CHANGE_WHOLE, W.CHANGE_AXIS, W.path_key(15, grey=True, targets=True), W.Q_PAIR,
         W.PAIR_CAPTION, W.pair_caption(["Firmness"]), W.pair_caption([]), W.Q_MIXTURE,
         W.mixture_caption(15), W.FOLD_METHOD, W.HOW_MODELS, W.how_checks(), W.how_checks(values=True), 
-        W.waiting_line(1, "Cook loss"), W.tie_line(22, "90.65", "0.20", 15, "2.3"),
-        W.tie_line(22, "90.65", "0.20", 15, "4.0"), W.tie_equal(22, 15, "90.45"),
+        W.waiting_line(1, "Cook loss"), W.runner_up_line(15, "90.5", "0.2"),
+        W.tie_equal(22, 15, "90.45"),
         W.OVERALL_SCORE_HELP,
     ]
 
