@@ -26,8 +26,9 @@ TRY THE SAMPLE
 4. Review the imported values and click “Save uploaded results.”
 5. Open 3 · Results for Round 6's ratings against their targets, then
    4 · Review for the best so far.
-6. Click “See what happened next.” It opens “Yogurt pilot - all 10
-   Rounds”: the pilot went on to Rounds 7–10.
+6. Under What next?, “Start Round 7” has the app suggest Round 7.
+   “See the pilot's Rounds 7–10” opens “Yogurt pilot - all 10 Rounds”:
+   what the pilot made next.
 To try it again, open Manage project and click “Start this sample over.”
 Your version is kept in Saved copies.
 
