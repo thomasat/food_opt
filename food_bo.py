@@ -3953,7 +3953,7 @@ class FoodOptimizer:
             # A formulation still waiting shows what it waits for, never the
             # lowered number: a missing measurement counts as zero in it.
             row[wording.OVERALL_SCORE_COLUMN] = (
-                f"{float(self.Y_history[i]):.2f}" if complete
+                wording.score_shown(self.Y_history[i]) if complete
                 else wording.not_scored_missing(number_list(self.waiting_on(i)))
                 if self.is_set_aside(i)
                 else wording.waiting_for(number_list(self.waiting_on(i))))
@@ -5602,9 +5602,9 @@ class FoodOptimizer:
                 "Formulation": int(self.formulation_ids[i]),
                 wording.ROUND_CAP: "" if batch is None else int(batch),
                 wording.DATE_RECORDED_COLUMN: local_date(ts),
-                # Two decimals, as the screen shows it: a file that says
-                # 2.625 where the table says 2.62 reads as a third number.
-                # Blank while it waits for results, as a Not scored row's is.
+                # Two decimals: the screen shows one (score_shown), the
+                # file keeps the precision. Blank while it waits for
+                # results, as a Not scored row's is.
                 wording.OVERALL_SCORE_COLUMN: (round(float(self.Y_history[i]), 2)
                                                if self.fully_measured(i) else ""),
             }

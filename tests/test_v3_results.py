@@ -337,3 +337,66 @@ def test_the_shipped_round6_file_records_the_pilots_values(store):
                      18: ((13, 7, 4, 12), "Pilot batch 6.3 · EGBO")}
     scores = {int(n): round(float(y), 1) for n, y in zip(opt.formulation_ids, opt.Y_history)}
     assert (scores[16], scores[17], scores[18], scores[10]) == (98.3, 98.3, 91.7, 95.0)
+
+
+# ------------------------------------------------------------------ #
+#  The Overall score on screen: one decimal everywhere (owner, v3 final
+#  fixes); full precision kept in the data and the exports
+# ------------------------------------------------------------------ #
+
+def test_the_score_lines_show_one_decimal():
+    assert wording.score_shown(98.33333333) == "98.3"
+    assert wording.score_shown(95.0) == "95.0"
+    assert wording.overall_score_line(98.33333333, 100.0) == "Overall score 98.3 of 100."
+    assert wording.batch_recorded_progress(2, 86.6049, 88.1) == (
+        "Round 2 recorded · Best overall score 86.6 → 88.1")
+
+
+def test_view_formulation_names_the_tie_at_one_decimal(round6):
+    assert ui_results._progress_line(round6) == "Formulations 16 and 17 are tied at 98.3."
+
+
+def test_a_tie_is_found_at_full_precision_with_a_tolerance(round6):
+    """98.33 and 98.33 + 1e-9 tie; 98.33 and 98.34 (both 98.3 on screen)
+    do not read as tied at one value."""
+    f16, f17 = round6.index_of_formulation(16), round6.index_of_formulation(17)
+    round6.Y_history[f17] = float(round6.Y_history[f16]) + 1e-9
+    assert "tied at 98.3" in ui_results._tie(round6, f16, f17)
+    round6.Y_history[f17] = float(round6.Y_history[f16]) + 0.01
+    assert "tied at" not in ui_results._tie(round6, f16, f17)
+
+
+def test_the_tie_line_reads_its_lead_at_one_decimal(round6, monkeypatch):
+    """A lead under what one new result needs: one decimal, as the scores
+    are shown; two only where one decimal would make lead and need equal."""
+    f16, f17 = round6.index_of_formulation(16), round6.index_of_formulation(17)
+    monkeypatch.setattr(ui_results.insights, "rise_threshold", lambda *a, **k: 2.33)
+    round6.Y_history[f17] = float(round6.Y_history[f16]) + 1.6666
+    assert ui_results._tie(round6, f16, f17) == (
+        "Formulation 16 is within noise: 1.7 lower; 2.3 needed.")
+    round6.Y_history[f17] = float(round6.Y_history[f16]) + 2.30
+    assert ui_results._tie(round6, f16, f17) == (
+        "Formulation 16 is within noise: 2.30 lower; 2.33 needed.")
+
+
+def test_all_formulations_shows_one_decimal_and_the_export_keeps_two(round6):
+    frame = round6.history_frame()
+    shown = dict(zip(frame["Formulation"].astype(int), frame[wording.OVERALL_SCORE_COLUMN]))
+    assert shown[16] == "98.3" and shown[18] == "91.7" and shown[10] == "95.0"
+    out = round6.history_export_frame()
+    kept = dict(zip(out["Formulation"].astype(int), out[wording.OVERALL_SCORE_COLUMN]))
+    assert kept[16] == 98.33
+
+
+def test_results_tab_says_the_score_at_one_decimal(round6):
+    at = AppTest.from_file(APP_PATH, default_timeout=300)
+    at.session_state["_loaded_project"] = sp.ROUND6
+    at.run()
+    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.run()
+    assert not at.exception
+    tab = at.tabs[2]
+    said = " ".join([m.value for m in tab.markdown] + [c.value for c in tab.caption])
+    assert "Overall score 98.3 of 100." in said
+    assert "Formulations 16 and 17 are tied at 98.3." in said
+    assert "98.33" not in said

@@ -370,7 +370,7 @@ def round_results(opt, round_no=None):
         elif not opt.fully_measured(index):
             row[score] = wording.MEASURED_WAITING
         else:
-            row[score] = f"{float(opt.Y_history[index]):.1f}"
+            row[score] = wording.score_shown(opt.Y_history[index])
         if index is not None:
             for part in opt.score_breakdown(index):
                 column = headers[part['name']]
@@ -587,15 +587,19 @@ def _tie(opt, old, new):
     need = insights.rise_threshold(_yardstick(opt), 1)
     if lead < 0 or lead >= need:
         return ""
-    if f"{lead:.2f}" == "0.00":
+    # An exact tie on the stored scores, up to float error (owner rule:
+    # full precision with a tolerance, never the shown text).
+    if lead <= _TIE:
         return wording.tie_equal(int(opt.formulation_ids[new]), int(opt.formulation_ids[old]),
-                                 f"{opt.Y_history[new]:.2f}")
+                                 wording.score_shown(opt.Y_history[new]))
     # Specific wording: the lead against the rise one new result needs, to
-    # two decimals when one would read no larger than the lead ("2.30
-    # lower; 2.33 needed", never "2.30 lower; 2.3 needed").
-    need_text = f"{need:.1f}" if round(need, 1) > round(lead, 2) else f"{need:.2f}"
-    return wording.tie_line(int(opt.formulation_ids[new]), f"{opt.Y_history[new]:.2f}",
-                            f"{lead:.2f}", int(opt.formulation_ids[old]), need_text)
+    # one decimal as scores are shown; both to two when one would read the
+    # lead no smaller than the need ("2.30 lower; 2.33 needed", never "2.3
+    # lower; 2.3 needed").
+    digits = 1 if round(lead, 1) < round(need, 1) and round(lead, 1) > 0 else 2
+    return wording.tie_line(int(opt.formulation_ids[new]), wording.score_shown(opt.Y_history[new]),
+                            f"{lead:.{digits}f}", int(opt.formulation_ids[old]),
+                            f"{need:.{digits}f}")
 
 
 def _move_sentence(opt, before, after):
@@ -727,8 +731,8 @@ def _best(opt):
 
 def best_repeats_text(opt, checks=None):
     """A6 (review I7): Best so far's Repeats under it, "Repeats of
-    Formulation 14: 67.30, 66.34, 75.61 (mean with Formulation 14: 75.17).",
-    or "". Two decimals, as Results shows scores; the mean is taken from
+    Formulation 14: 67.3, 66.3, 75.6. Mean of all: 75.2.", or "". One
+    decimal, as every screen shows scores; the mean is taken from
     the stored scores. A Repeat disagreeing_repeat leaves out of the noise
     is still listed, marked. Display only: Best so far is still the single
     highest score (ranking by the mean is an owner decision). `checks`:
@@ -744,11 +748,12 @@ def best_repeats_text(opt, checks=None):
     checks = ui_insights.cached_checks(opt) if checks is None else checks
     flagged = insights.disagreeing_repeat(opt, checks) if checks else None
     others = sorted((i for i in group if i != best), key=lambda i: int(opt.formulation_ids[i]))
-    scores = [wording.repeat_score(f"{float(opt.Y_history[i]):.2f}",
+    scores = [wording.repeat_score(wording.score_shown(opt.Y_history[i]),
                                    disagrees=flagged is not None and flagged.row == i)
               for i in others]
     mean = sum(float(opt.Y_history[i]) for i in group) / len(group)
-    return wording.best_repeats_line(int(opt.formulation_ids[best]), scores, f"{mean:.2f}")
+    return wording.best_repeats_line(int(opt.formulation_ids[best]), scores,
+                                     wording.score_shown(mean))
 
 
 def _waiting_lines(opt):

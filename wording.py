@@ -1935,12 +1935,12 @@ OVERALL_SCORE_LOWER = "overall score"
 
 
 def batch_recorded_progress(no, before, now):
-    """'Round 2 recorded · best overall score 86.60 → 88.10 of 100'.
+    """'Round 2 recorded · Best overall score 86.6 → 88.1'.
 
     The number had no name and no scale, beside a sibling line that did
     carry the noun. Both say the same thing now, in the same words."""
     return (f"{ROUND_CAP} {no} recorded · Best {OVERALL_SCORE_LOWER} "
-            f"{before:.2f} → {now:.2f}")
+            f"{score_shown(before)} → {score_shown(now)}")
 
 
 def batch_recorded_no_improvement(no):
@@ -4436,8 +4436,8 @@ def stand_since(k):
 
 
 def stand_best(score_text, n, rnd, without_text=""):
-    """'Best so far: Overall score 90.65, Formulation 15 (Round 4).' — two
-    decimals, as Results shows it."""
+    """'Best so far: Overall score 90.7, Formulation 15 (Round 4).' — one
+    decimal, as Results shows it (score_shown)."""
     where = (f"{FORMULATION_CAP} {n} ({ROUND_CAP} {rnd})" if rnd is not None
              else f"{FORMULATION_CAP} {n} (made earlier)")
     return (f"Best so far: {OVERALL_SCORE_COLUMN} {score_text}, {where}"
@@ -4622,8 +4622,16 @@ BEST_RULE_WITHOUT_HELP = ("Best so far: the highest Overall score among formulat
                           "their results; none has every measurement yet.")
 
 
+def score_shown(score):
+    """An Overall score as every screen shows it: one decimal, '98.3'
+    (owner, v3 final fixes). The data and the exports keep full precision;
+    ties are found on that, never on this text."""
+    return f"{float(score):.1f}"
+
+
 def overall_score_line(score, ceiling, without_text=""):
-    return f"{OVERALL_SCORE_COLUMN} {score:.2f} of {ceiling:g}{scored_without_tail(without_text)}."
+    return (f"{OVERALL_SCORE_COLUMN} {score_shown(score)} of {ceiling:g}"
+            f"{scored_without_tail(without_text)}.")
 
 
 OVERALL_SCORE_HELP = (f"{OVERALL_SCORE_COLUMN}, 0–100: the sum over measurements of closeness "
@@ -4865,14 +4873,14 @@ def start_suggested(no, edited=False):
 # A6 (review I7): Results' Best so far block lists its Repeats, display
 # only; Best so far is still the single highest score.
 def repeat_score(score_text, disagrees=False):
-    """'67.30', or '67.30 (disagrees)' for a Repeat disagreeing_repeat
+    """'67.3', or '67.3 (disagrees)' for a Repeat disagreeing_repeat
     left out of the noise."""
     return f"{score_text} (disagrees)" if disagrees else score_text
 
 
 def best_repeats_line(best_no, score_texts, mean_text):
-    """'Repeats of Formulation 14: 67.30, 66.34, 75.61 (mean with
-    Formulation 14: 75.18).' Two decimals, as Results shows scores."""
+    """'Repeats of Formulation 14: 67.3, 66.3, 75.6. Mean of all: 75.2.'
+    One decimal, as every screen shows scores (score_shown)."""
     head = "Repeat" if len(score_texts) == 1 else "Repeats"
     line = f"{head} of {FORMULATION_CAP} {best_no}: {', '.join(score_texts)}"
     # Concision round: no bracket; the mean is its own short sentence.

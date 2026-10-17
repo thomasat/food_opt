@@ -131,7 +131,7 @@ def test_a_repeat_of_best_so_far_is_never_its_tie_partner():
 def test_the_tie_partner_is_the_next_highest_different_formulation():
     import ui_results
     opt = _repeat_of(_three([60.0, 70.0, 69.8]), 2, 70.3)
-    assert ui_results._progress_line(opt) == wording.tie_line(4, "70.30", "0.50", 3, "2.3")
+    assert ui_results._progress_line(opt) == wording.tie_line(4, "70.3", "0.5", 3, "2.3")
 
 
 def test_best_so_far_moving_to_its_own_repeat_flashes_what_the_line_says():
@@ -140,7 +140,7 @@ def test_best_so_far_moving_to_its_own_repeat_flashes_what_the_line_says():
     import ui_results
     opt = _repeat_of(_three([60.0, 70.0, 69.8]), 2, 70.3)
     line = ui_results._progress_line(opt)
-    assert ui_results._move_sentence(opt, 2, 4) == line == wording.tie_line(4, "70.30", "0.50", 3, "2.3")
+    assert ui_results._move_sentence(opt, 2, 4) == line == wording.tie_line(4, "70.3", "0.5", 3, "2.3")
 
 
 def test_an_exact_tie_is_said_as_a_tie():
@@ -150,14 +150,14 @@ def test_an_exact_tie_is_said_as_a_tie():
     _tell(opt, 4, 2)                                     # a different make-up
     opt.Y_history[3] = 70.0
     line = ui_results._progress_line(opt)
-    assert line == wording.tie_equal(2, 4, "70.00")
-    assert line == "Formulations 2 and 4 are tied at 70.00."
+    assert line == wording.tie_equal(2, 4, "70.0")
+    assert line == "Formulations 2 and 4 are tied at 70.0."
     assert not any(p.search(line) for p in _BANNED)
 
 
 def test_an_exact_trial_tie_says_trials():
-    assert wording.for_project(_Trials(), wording.tie_equal(2, 4, "70.00")) == (
-        "Trials 2 and 4 are tied at 70.00.")
+    assert wording.for_project(_Trials(), wording.tie_equal(2, 4, "70.0")) == (
+        "Trials 2 and 4 are tied at 70.0.")
 
 
 class _Trials:
