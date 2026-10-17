@@ -803,7 +803,7 @@ def render(opt):
         if _example_setup(opt):
             return
         st.caption(_say(opt, wording.INSIGHTS_NONE))
-        _how(opt)
+        _foot(opt)
         return
     if round_view(opt) is None:
         st.caption(_say(opt, wording.INSIGHTS_NONE))
@@ -823,7 +823,7 @@ NEXT_SECTION = "insights_next"
 HEADLINE_KEY = "insights_headline"
 HEADLINE_STYLE = """<style>
 .st-key-insights_headline [data-testid="stMarkdownContainer"] p { font-size: 1.75rem;
-  font-weight: 700; line-height: 1.3; margin: 0; }
+  line-height: 1.3; margin: 0; }
 </style>"""
 
 
@@ -1083,7 +1083,7 @@ def _progress_fragment(opt):
         return
     with st.container(gap="small", key=f"{REPLAY_PANEL}_{'past' if past else 'now'}"):
         with st.container(key=HEADLINE_KEY):
-            st.markdown(headline_text(opt, view))
+            st.markdown(f"**{headline_text(opt, view)}**")
         if control:
             _replay_bar(opt, rounds, r)
         with st.container(horizontal=True, gap="medium", key=PANEL_ROW):
@@ -2912,7 +2912,8 @@ def _how(opt):
         # Keyed and drawn only while open (T56 I5; binding I15).
         if not fold.open:
             return
-        st.markdown("\n".join(f"- {line}" for line in definitions(opt)))
+        for line in definitions(opt):
+            st.markdown(f"- {line}")
 
 
 # ------------------------------------------------------------------ #

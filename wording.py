@@ -10527,8 +10527,6 @@ def review_headline(best, names, rounds, new=True, was=None, was_names=(), was_r
     return f"{head} Was {was}" + (f" ({before})." if before else ".")
 
 
-REVIEW_HEADLINE_HELP = (f"The highest {OVERALL_SCORE_COLUMN} measured by the {ROUND_CAP} "
-                        "on view, and the best before it.")
 REVIEW_EACH_FORMULATION = f"Each {FORMULATION}"
 
 
@@ -10606,10 +10604,6 @@ def review_target_value(value, target=None, gap=None, goal="target"):
     return f"{value} (target {target}, {gap})" if gap else f"{value} (target {target})"
 
 
-REVIEW_TARGETS_HELP = ("Each attribute on its own scale: the tick is its target, the dot "
-                       "the best so far. Orange: off target, the gap drawn.")
-
-
 def review_amounts_title(n):
     """'Amounts in the top 4 formulations'; one: 'Amounts in the best
     formulation'."""
@@ -10676,9 +10670,10 @@ REVIEW_REPLAY_HELP = (f"◀ ▶ step one {ROUND_CAP}; Play shows each in turn. T
 
 def method_definitions(top="100", span="15", within="5", once=True):
     """Definitions (final-v3/wording.md §4), one line per term, from the
-    project: its top score, its scales' span (each point off costs 1/span
-    of an attribute's share — _compute_utility's rule; None when the scales
-    differ) and the top formulations' margin. `once`: no Repeats on file."""
+    project: its top score, the span its measurements' Range shares (each
+    point off costs 1/span of an attribute's share — _compute_utility's
+    rule; None when they differ) and the top formulations' margin.
+    `once`: no Repeats on file."""
     cost = f"1/{span}" if span else "1/(its Range)"
     best = f"the highest {OVERALL_SCORE_COLUMN} so far."
     if once:
@@ -10695,6 +10690,8 @@ def method_definitions(top="100", span="15", within="5", once=True):
 
 
 METHOD_DEFINITIONS = method_definitions()
+# Each definition's term, in order (the lines start '<term>: ').
+METHOD_TERMS = tuple(line.split(":", 1)[0] for line in METHOD_DEFINITIONS)
 REVIEW_README_URL = "https://github.com/thomasat/food_opt#how-the-review-works"
 # Fix round 1: a link (the README is not in the app bundle).
 METHOD_README = f"Full method: [README, “How the Review works”]({REVIEW_README_URL})."
