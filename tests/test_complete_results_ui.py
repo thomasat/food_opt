@@ -120,7 +120,8 @@ def test_a_blank_that_is_waiting_shows_no_dash(one_waiting):
     assert pd.api.types.is_numeric_dtype(table["Juiciness (/10)"])
     shown = _displayed(element)
     assert list(shown.loc[table["Formulation"] == 4, "Juiciness (/10)"]) == [""]
-    assert list(shown.loc[table["Formulation"] == 1, "Juiciness (/10)"]) == ["7.00"]
+    # A rating reads as the Round table writes it: 7, not 7.00.
+    assert list(shown.loc[table["Formulation"] == 1, "Juiciness (/10)"]) == ["7"]
 
 
 def test_correcting_a_waiting_formulation_says_what_it_still_waits_for(one_waiting):
