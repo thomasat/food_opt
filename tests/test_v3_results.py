@@ -485,6 +485,32 @@ def test_all_formulations_ratings_read_as_the_round_table_does(round6):
         "display_value"] == r16[head]
 
 
+@pytest.mark.parametrize("which", ["light", "dark"])
+def test_off_by_text_takes_the_direction_colour(round6, monkeypatch, which):
+    """View formulation's Off by: purple below target, orange above, as in
+    Round results and the Review strip; plain on target."""
+    import ui_insights
+    monkeypatch.setattr(ui_insights, "theme", lambda: which)
+    seen = set()
+    for index in range(len(round6.Y_history)):
+        styler = ui_results._off_by_table(round6, index)
+        styler._compute()
+        cells = styler._translate(False, False)["body"]
+        col = list(styler.data.columns).index(wording.OFF_BY_COLUMN) + 1
+        parts = round6.score_breakdown(index)
+        for row, part in zip(cells, parts):
+            text = row[col]["display_value"]
+            css = dict(styler.ctx.get((cells.index(row), col - 1), []))
+            kind = ui_results._direction(part)
+            if kind:
+                seen.add(kind)
+                assert text.endswith("too high" if kind == "above" else "too low"), text
+                assert css.get("color") == ui_insights.direction_colour(kind, which), (text, css)
+            else:
+                assert "color" not in css, (text, css)
+    assert seen == {"above", "below"}
+
+
 def test_all_formulations_shows_one_decimal_and_the_export_keeps_two(round6):
     frame = round6.history_frame()
     shown = dict(zip(frame["Formulation"].astype(int), frame[wording.OVERALL_SCORE_COLUMN]))

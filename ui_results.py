@@ -330,6 +330,28 @@ def _direction(part):
     return "above" if float(rating) > float(target) else "below"
 
 
+def _off_by_table(opt, index, details=None):
+    """View formulation's 'Measurements against goals' for st.dataframe:
+    Off by in its direction's colour — the Round table's and the Review
+    strip's, theme-keyed (owner, v3 fixes) — plain on target. Off by only
+    when a measurement has a target (a column of dashes said nothing)."""
+    details = opt.closeness_details(index) if details is None else details
+    has_target = any(o['goal'] == 'target' for o in opt.objectives)
+    frame = pd.DataFrame([
+        {wording.MEASUREMENT_COLUMN: d['name'], wording.GOAL_LABEL: d['goal'],
+         wording.MEASURED_COLUMN: d['measured'],
+         **({wording.OFF_BY_COLUMN: d['off_by']} if has_target else {})}
+        for d in details])
+    if not has_target:
+        return frame.style
+    which = ui_insights.theme()
+    # closeness_details and score_breakdown share one order (most important first).
+    kinds = [_direction(part) for part in opt.score_breakdown(index)]
+    colours = [f"color: {ui_insights.direction_colour(k, which)}" if k else ""
+               for k in kinds]
+    return frame.style.apply(lambda col: colours[:len(col)], subset=[wording.OFF_BY_COLUMN])
+
+
 def new_best_rows(opt, round_no):
     """Positions of the Round's formulations that are a new Best so far:
     the Round's highest score among best_candidates, when it is above
@@ -716,13 +738,8 @@ def _best(opt):
         has_target = any(o['goal'] == 'target' for o in opt.objectives)
         # Round-2 fixes (P2 #15): the table named, as every other one here.
         st.markdown(f"**{wording.for_project(opt, wording.OFF_BY_TITLE)}**")
-        st.dataframe(pd.DataFrame([
-            {wording.MEASUREMENT_COLUMN: d['name'], wording.GOAL_LABEL: d['goal'],
-             wording.MEASURED_COLUMN: d['measured'],
-             **({wording.OFF_BY_COLUMN: d['off_by']} if has_target else {})}
-            for d in details
-        ]), hide_index=True, key="best_off_by",
-            height=table_height(len(details)))
+        st.dataframe(_off_by_table(opt, index, details), hide_index=True, key="best_off_by",
+                     height=table_height(len(details)))
 
     recipe = opt.recipe_history[index]
     # The amounts stored are as generated. When the batch this formulation
