@@ -23,7 +23,6 @@ from streamlit.testing.v1 import AppTest
 
 import bo_views
 import insights
-import ui_batch
 import ui_insights
 import wording
 from food_bo import FoodOptimizer
@@ -378,8 +377,6 @@ def test_the_one_link(screens, name, link):
     assert _links(screens[name]) == link
 
 
-def test_the_why_link_lands_on_make_a_rounds_why_fold():
-    assert ui_insights.WHY_FOLD_KEY == ui_batch.WHY_KEY
 
 
 # ------------------------------------------------------------------ #

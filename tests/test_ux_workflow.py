@@ -663,13 +663,13 @@ def test_the_download_caption_describes_the_file_the_box_produces(project):
     app = str(Path(__file__).resolve().parents[1] / 'app.py')
     at = AppTest.from_file(app, default_timeout=180).run()
     said = [c.value for c in at.caption]
-    assert wording.workbook_line(False) in said
-    assert wording.workbook_line(True) not in said
+    assert wording.workbook_sheets(False) in said
+    assert wording.workbook_sheets(True) not in said
     at.checkbox(key='workbook_print_pack').set_value(True).run()
     assert not at.exception
     said = [c.value for c in at.caption]
-    assert wording.workbook_line(True) in said
-    assert wording.workbook_line(False) not in said
+    assert wording.workbook_sheets(True) in said
+    assert wording.workbook_sheets(False) not in said
     # ...and the sheet the standing caption names is in the file it names it
     # for.
     book = load_workbook(io.BytesIO(project.workbook_bytes(

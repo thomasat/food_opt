@@ -4,8 +4,8 @@ Make a round -> Results -> Review -> Make a round.
 
 - After Save results (whole Round or part) Results' one lit button is
   "Review Round N", and it opens 4 · Review.
-- Make a round carries one line in the Review cards' own words, with an
-  "Open Review" link, red when a card is (Off, Check panel first).
+- v3: Make a round carries no line in the Review cards' words (no
+  verdicts there); only "Review Round N" while a Round is due its Review.
 - One lit button per screen.
 - The welcome lists Review as step 4."""
 import json
@@ -186,8 +186,7 @@ def test_save_results_then_review_round_n_opens_review(tmp_path, monkeypatch):
             at.session_state["optimizer"].next_batch_no())]
         _button(at, REVIEW, "insights_foot").click().run()
         assert at.session_state["main_tab"] == wording.TAB_BATCH
-        # Review v3 fits nothing, so Make a round's status line (read from
-        # what was worked out) is that screen's own matter now.
+        assert _status_line(at) is None          # v3: no verdict line here
 
 
 def test_the_welcome_lists_review_as_step_four(tmp_path, monkeypatch):

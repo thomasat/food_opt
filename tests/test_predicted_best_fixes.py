@@ -18,7 +18,6 @@ from food_bo import FoodOptimizer
 from tests.test_app_ui import APP_PATH, burger  # noqa: F401
 from tests.test_insights import _burger
 from tests.test_insights_ui import _open_how, _open_insights, insights_scored  # noqa: F401
-from tests.test_insights_wave_b_ui import _batch_table, warm_round  # noqa: F401
 
 README = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "README.md")
 
@@ -103,38 +102,8 @@ def test_the_luck_line_shows_only_below_best_so_far(insights_scored, monkeypatch
 
 
 # ------------------------------------------------------------------ #
-#  §9 I6 the record on Make a round, only when already worked out
+#  §9 I6 (v3: Make a round shows no record; the help's own words stay)
 # ------------------------------------------------------------------ #
-
-def _five_score_checks():
-    """Ten measured values and five Overall scores checked in Round 3."""
-    return ([insights.Check(k, 3, "Firmness", 5.0, 4.0, 6.0, 5.0, True, True)
-             for k in range(1, 11)]
-            + [insights.Check(k, 3, insights.SCORE, 80.0, 75.0, 85.0, 78.0, True, True)
-               for k in range(1, 6)])
-
-
-def test_make_a_round_shows_the_record_only_from_matching_checks(warm_round):
-    at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.run()
-    help_text = str(_batch_table(at).proto)
-    assert "Overall score: 5 of 5" not in help_text
-    key = insights.data_key(FoodOptimizer("burger"))
-    at.session_state[ui_insights.CACHE_KEY] = (key, {"fitted": {}, "checks": _five_score_checks()})
-    at.run()
-    # Insights' own wording for the Overall score's line (answer-key
-    # read-through: one wording for one fact); five equal gaps are a steady
-    # bias, said as Insights says it (0.8.0 e2e fixes, review B1, I1).
-    # Two ASCII fragments (the help's proto escapes the minus sign).
-    # Round 2: "95 %" carries a non-breaking space, escaped in the proto.
-    line = "Overall score, Round 3: 5 of 5 inside their 95"
-    action = "Results have come in below the predictions: Overall score by about 2.0 points (Round 3)"
-    assert line in str(_batch_table(at).proto)
-    assert action.rstrip(".") in str(_batch_table(at).proto)
-    at.session_state[ui_insights.CACHE_KEY] = ("stale", {"fitted": {}, "checks": _five_score_checks()})
-    at.run()
-    assert line not in str(_batch_table(at).proto)
-
 
 def test_the_help_says_fall_inside():
     # Ledger, statistician cold read I2 (fix round B): no "19 in 20" claim; the
@@ -156,17 +125,6 @@ def test_a_measurement_prediction_shares_one_decimal_count():
     assert ui_insights.value_text(p) == "5.38 (3.5–7.27)"          # no rule given: as before
 
 
-def test_predicted_measurements_carry_their_caption(warm_round):
-    at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.run()
-    [exp] = [e for e in at.expander if e.label == wording.PREDICTED_MEASUREMENTS]
-    assert [c.value for c in exp.caption] == [wording.PREDICTED_MEASUREMENTS_CAPTION]
-    # Re-pinned to the concision round's short text (owner, 2026-10-01: too wordy).
-    # The full sentence moved to the caption's tooltip.
-    assert wording.PREDICTED_MEASUREMENTS_CAPTION == "The Overall score has its own model."
-    assert wording.PREDICTED_MEASUREMENTS_HELP == (
-        "The Overall score has its own model, so it can differ slightly from a score "
-        "calculated from these predictions.")
 
 
 def test_the_new_strings_pass_the_vocabulary_guard():

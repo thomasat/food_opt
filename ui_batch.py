@@ -11,6 +11,7 @@ reruns do not write.
 """
 import hashlib
 import json
+from dataclasses import dataclass
 
 import pandas as pd
 import streamlit as st
@@ -30,13 +31,12 @@ from ui_helpers import (
     table_height, typed_batch_size, unit_after_number,
 )
 from food_bo import COLD_START_RUNS
-import altair as alt
 import bo_views
 import insights
 import ui_insights
-from ui_helpers import INSIGHTS_OPENED_KEY, REVIEW_DUE_KEY, ask_tab, link, review_due
-# Ftue fix C: the Why fold's and the Add fold's places, and the Repeat
-# link's request.
+from ui_helpers import REVIEW_DUE_KEY, ask_tab, review_due
+# Ftue fix C: the Add fold's place and the Repeat link's request; v3: the
+# Why link's landing is the Round table (WHY_PLACE).
 from ui_helpers import ADD_OWN_KEY, ADD_OWN_PLACE, REPEAT_REQUEST_KEY, WHY_PLACE
 
 # The batch table's own formatter, under the name tests and older code import.
@@ -340,26 +340,19 @@ def _review_status(opt, due=None, lit=False):
     `due`: a Round part-saved here and not yet reviewed (Save results kept
     the Round open, so the reader lands back on this screen): the link is
     then the button "Review Round N", lit (`lit`) until a result is typed,
-    when Save results is the lit one again."""
-    got = ui_insights.review_status(opt)
-    if got is None and due is None:
+    when Save results is the lit one again.
+
+    v3 (owner: no verdicts, no forecasts on Make a round): only the
+    "Review Round N" button is left, while a Round is due its Review; the
+    cards' words line and its "Open Review" link are gone."""
+    if due is None:
         return False
-    if got == ui_insights.REVIEW_CHECKING:
-        text, warn = wording.REVIEW_STATUS_CHECKING, False
-    else:
-        text, warn = got if got is not None else (None, False)
     with st.container(horizontal=True, gap="small", vertical_alignment="center",
                       key="review_status"):
-        if text:
-            st.caption(wording.review_status_warn(text) if warn else text, width="content",
-                       help=wording.REVIEW_STATUS_HELP)
-        if due is None:
-            link(wording.OPEN_REVIEW, wording.TAB_INSIGHTS, key="link_review_status")
-        else:
-            st.button(wording.review_round_label(due), key="review_round_batch",
-                      type="primary" if lit else "secondary",
-                      disabled=confirmation_open(), help=wording.REVIEW_ROUND_HELP,
-                      on_click=ask_tab, args=(wording.TAB_INSIGHTS,))
+        st.button(wording.review_round_label(due), key="review_round_batch",
+                  type="primary" if lit else "secondary",
+                  disabled=confirmation_open(), help=wording.REVIEW_ROUND_HELP,
+                  on_click=ask_tab, args=(wording.TAB_INSIGHTS,))
     return True
 
 
@@ -382,7 +375,6 @@ def _no_batch(opt, tab_open=False):
     # not drawn while a Round is open, so Streamlit forgets it, and it came
     # back at 3 after every Round. Seeded once per project and latest
     # Round; a count typed here is the reader's until then.
-    linked = _review_status(opt) if tab_open else False
     records = opt.generation_records()
     seed = (opt.project_name, max(records) if records else None)
     if st.session_state.get(_COUNT_SEED) != seed or "how_many" not in st.session_state:
@@ -403,10 +395,8 @@ def _no_batch(opt, tab_open=False):
         _generate(opt, n)
     if stop:
         st.caption(wording.REVIEW_SAYS_STOP)
-    # Under Generate, never above it (T47 review minor 8): a line that
-    # lands once the checks are in must not move the lit button under
-    # the pointer.
-    _next_step_line(opt, linked)
+    # v3: no Next step line here (it read the forecasts); Review's What
+    # next? says what to do.
     # The Repeat link's request waits for Generate (ftue fix C): one line.
     request = _repeat_request(opt)
     if request is not None:
@@ -419,86 +409,6 @@ def _no_batch(opt, tab_open=False):
     line = _waiting_caption(opt)
     if line:
         st.caption(line)
-
-
-# Next step's kinds that are something other than "make the next Round"
-# (04 §3; review I1, M12): E3 says them above Generate. No "bias": the
-# 0.8.0 e2e fixes' Next step makes no such row (review I2; W1).
-_E3_KINDS = ("close", "untested", "misses", "repeat", "no_skill")
-
-
-def _cached_step(opt):
-    """Insights' Next step from what is already worked out for this data
-    (the checks, and the predicted best when it is in), or None. Never a
-    fit, never a wait (review I10)."""
-    if opt.complete_count() < insights.MIN_ROWS:
-        return None
-    checks = ui_insights.checks_for(opt, "trust")
-    if not checks:
-        return None
-    standing = None
-    hit = st.session_state.get(ui_insights.BEST_KEY)
-    if hit and hit[0] == insights.setup_key(opt) and isinstance(hit[1], insights.PredictedBest):
-        standing = insights.best_standing(opt, hit[1], insights.noise_yardstick(opt, checks).value)
-    step = insights.next_step(opt, checks, standing)
-    if step.kind == "close":
-        # "Close to the top" also needs the expected improvement Insights
-        # shows under the noise threshold (fix round 1, C1): the same
-        # figure, without a display-model fit.
-        score = _memo_score(opt)
-        gain = None if score is None else ui_insights.shown_gain(opt, score, checks, fit=False)
-        if gain is not None:
-            step = insights.next_step(opt, checks, standing, gain=gain)
-    return step
-
-
-def _memo_score(opt):
-    """The Overall score's display model from the memo (conditioned, never
-    optimised), or None when it is not there."""
-    mem = ui_insights.memo(opt)
-    rows = list(range(len(opt.Y_history)))
-    use = [i for i in rows if insights.measured(opt, insights.SCORE, i) is not None]
-    if insights.model_key(opt, insights.SCORE, use) not in mem:
-        return None
-    with insights.memo_in_use(mem):
-        return insights.fit(opt, insights.SCORE, rows)
-
-
-def _next_step_line(opt, linked=False):
-    """E3 (spec 2026-09-30-bo-views §5; 04 §3): above Generate, when
-    Insights' Next step is something other than making the next Round, its
-    own first sentence, then one text-style link — "Next step" to Progress
-    for a predicted best that is higher or boxed in, "Prediction check" to
-    the top otherwise — unless Insights was opened since the data last
-    changed. Generate stays the one lit button."""
-    step = _cached_step(opt)
-    if step is None or step.kind not in _E3_KINDS:
-        return
-    # The same sentence Insights says (its builder is Insights' own), the
-    # skill with its own Rounds (T47 review I-3), and the verdict's Rounds
-    # named as Insights names them ("Rounds 6–8", not "the verdict's
-    # Rounds": integration consistency printout, 02 final).
-    checks = ui_insights.checks_for(opt, "trust")
-    rounds = insights.headline(opt, checks).rounds if checks else None
-    text, _ = ui_insights.next_step_text(opt, step, rounds)
-    short = wording.first_sentence(text)
-    if step.kind == "misses":
-        # Review polish: the misses row's sentence ran past 30 words; on
-        # screen at most 10, the full sentence in its "?".
-        best = opt.best_index()
-        no_best = None if best is None else int(opt.formulation_ids[best])
-        m = insights.value_misses(opt, checks) if checks else None
-        # Specific wording: the measurements' count against the 1 in 20.
-        short = (wording.next_misses_said(m.misses, m.total, m.allowed, no_best)
-                 if m is not None and m.misses else wording.next_misses_short(no_best))
-    st.caption(wording.for_project(opt, short),
-               help=wording.for_project(opt, text) if short != text else None)
-    if linked or st.session_state.get(INSIGHTS_OPENED_KEY) == insights.data_key(opt):
-        return                      # linked: the status line's is the one link
-    higher = step.kind in ("close", "untested")
-    link(wording.LINK_NEXT_STEP if higher else wording.LINK_PREDICTION_CHECK,
-         wording.TAB_INSIGHTS, section=ui_insights.STAND_SECTION if higher else "top",
-         key="link_next")
 
 
 def _waiting_caption(opt):
@@ -824,157 +734,352 @@ def _title(opt):
             len(opt.pending_batch_discarded) > 1)))
 
 
-# The predicted column while its models are still being fitted (review I1).
-_PENDING = "pending"
+# ------------------------------------------------------------------ #
+#  v3 · the Round table (final-v3/2-make-round.png; wording.md §2): the
+#  rows are the ingredients and settings in Set up's order, the columns
+#  Best so far and then each formulation of the open Round. Each cell is
+#  the amount with its change from Best so far in brackets; grey shading
+#  grows with that change as a share of the row's allowed range. No
+#  forecasts on this screen (owner, v3): the model only picks.
+# ------------------------------------------------------------------ #
+
+# A change under this share of a row's allowed range is not written.
+HIDE_CHANGE = 0.01
+# The share of a row's allowed range at which the shading is darkest.
+FULL_SHADE = 0.20
+# Two Overall scores this close are the same score (ties are named).
+SCORE_TIE = 1e-6
+# Theme-keyed table colours: the plain cell, the darkest grey, and Best so
+# far's blue (blue = best so far only; grey = everything else). The text
+# keeps at least 4.5:1 on the darkest grey in each theme.
+_COMPARE_COLOURS = {
+    "light": {"plain": "#ffffff", "full": "#9aa0aa", "best": "#e8f0fe"},
+    "dark": {"plain": "#0e1117", "full": "#5a6170", "best": "#1c2a4a"},
+}
 
 
-def _round_predictions(opt):
-    """{Formulation number: {output: Prediction}} for the open Round's rows
-    not yet recorded, the Overall score's likely range widened by
-    score_widen of every Round's check (review I1); _PENDING while the
-    workers are still fitting what it needs; or None when there is nothing
-    to show: no row left to record (then nothing is fitted), the
-    spread-out start is not over, or there is no Overall-score model."""
-    if opt.complete_count() < insights.MIN_ROWS:
-        return None
-    rows = open_rows(opt)
-    if not rows:
-        return None
-    got = ui_insights.column_models(opt)
-    if got is None:
-        return _PENDING
-    fitted, factor = got
-    score = None if fitted is None else fitted.get(insights.SCORE)
-    if score is None or score.model is None:
-        return None
-    try:
-        preds = insights.round_predictions(opt, fitted, rows)
-    except Exception:   # the table stands without the column
-        return None
-    # Review critique (fix 10): each measurement's range widened by its own
-    # record from earlier Rounds, as the Overall score's is: every Round's
-    # check but the open one's, which the "trust" checks hold. Until they
-    # are worked out the measurements are left out, never drawn unwidened
-    # and redrawn wider once they land (2026-10-07); Make a round never
-    # fits for them (review C I-4).
-    checks = ui_insights.checks_for(opt, "trust")
-    names = [o['name'] for o in opt.objectives]
-    widen = ({} if checks is None else
-             {n: insights.measure_widen(checks, n, opt.pending_batch_no) for n in names})
-    for per in preds.values():
-        per[insights.SCORE] = insights.widened(score, per[insights.SCORE], factor)
-        for name in names:
-            if name not in per:
-                continue
-            if name not in widen:
-                del per[name]
-            elif fitted.get(name) is not None:
-                per[name] = insights.widened(fitted[name], per[name], widen[name])
-    return preds or None
+@dataclass
+class CompareCell:
+    text: str            # what the cell says (lines joined by "\n")
+    share: float = 0.0   # |change| / allowed range; 0 when not written
+    tag: str = ""        # wording.AT_UPPER_LIMIT / AT_LOWER_LIMIT / ""
 
 
-def _a_suggestion_below_best(opt, preds):
-    """Whether a suggested row (not one of the user's own, which carries a
-    note) is predicted below Best so far's measured Overall score: the only
-    case the Round caption explains."""
+@dataclass
+class RoundCompare:
+    rows: list           # the row labels, the Total last when there is one
+    columns: list        # the column headers, Best so far first when there is one
+    cells: list          # [column][row] CompareCell
+    best_no: int | None  # the best shown (first made on a tie), None in the cold start
+    tied: list           # the other formulations tied with it
+    row_header: str
+    unit: str | None     # the one unit every row shares, else None
+    numbers: list        # [(suggestion k, formulation number)] relabelled columns
+    formulations: list   # the formulation number of each column after Best so far
+    total_row: bool
+
+
+def best_shown(opt):
+    """(index, [tied formulation numbers]) of Best so far as this screen
+    names it: on a tie (scores within SCORE_TIE) the first made, the others
+    named. (None, []) with no best."""
     best = opt.best_index()
     if best is None:
-        return False
+        return None, []
     top = float(opt.Y_history[best])
-    own = {r['formulation'] for r in opt.pending_batch or [] if r.get('note')}
-    return any(per[insights.SCORE].mean < top for no, per in preds.items()
-               if no not in own and insights.SCORE in per)
+    tied = sorted((int(opt.formulation_ids[i]), i) for i in opt.best_candidates()
+                  if abs(float(opt.Y_history[i]) - top) <= SCORE_TIE)
+    first = tied[0][1] if tied else best
+    return first, [no for no, i in tied if i != first]
 
 
-def _with_predictions(opt, frame, preds):
-    """The make-these table with the Predicted Overall score column straight
-    after Formulation: at 1440 px it was the twelfth column, off screen
-    (0.8.0 review fixes §6). A row already recorded or Not scored shows
-    nothing."""
-    if preds == _PENDING:
-        waiting = {int(r['formulation']) for r in open_rows(opt)}
-        cells = [wording.PREDICTION_PENDING if no in waiting else ""
-                 for no in frame[wording.FORMULATION_CAP]]
-    else:
-        cells = [ui_insights.score_text(preds[no][insights.SCORE]) if no in preds else ""
-                 for no in frame[wording.FORMULATION_CAP]]
-    out = frame.copy()
-    out.insert(1, wording.PREDICTED_SCORE_COLUMN, cells)
+def _compare_index(opt):
+    """Best so far's index while the Round is compared with it: past the
+    cold start, with its amounts on file. Else None."""
+    if opt._best_to_compare() is None:
+        return None
+    first, _ = best_shown(opt)
+    if first is None or first >= len(opt.recipe_history):
+        return None
+    return first
+
+
+def _total_limit(opt):
+    """(lowest, highest) of the limit over every ingredient (the total), or
+    None. Either end may be None."""
+    if opt.has_formulation_total():
+        # The total typed in Set up, as its own number (limit_text writes it
+        # so), not the band it is enforced as.
+        return float(opt.formulation_total), float(opt.formulation_total)
+    names = {v['name'] for v in opt._ingredients()}
+    for qc in getattr(opt, 'quantity_constraints', None) or []:
+        if names and set(qc.get('ingredients') or []) == names:
+            lo, hi = qc.get('min'), qc.get('max')
+            if qc.get('exactly') is not None and lo is None and hi is None:
+                lo = hi = qc['exactly']
+            if lo is not None or hi is not None:
+                return lo, hi
+    return None
+
+
+def _limit_tag(var, value):
+    """AT_UPPER_LIMIT / AT_LOWER_LIMIT when `value` (at the Formulation
+    total) sits on the row's Highest / Lowest; '' otherwise and for a fixed
+    row."""
+    try:
+        lo, hi = (float(b) for b in var['bounds'])
+        v = float(value)
+    except (KeyError, TypeError, ValueError):
+        return ""
+    span = hi - lo
+    if span <= 0:
+        return ""
+    near = lambda b: abs(v - b) <= max(1e-6 * (1.0 + abs(b)), 1e-4 * span)
+    if near(hi):
+        return wording.AT_UPPER_LIMIT
+    if near(lo):
+        return wording.AT_LOWER_LIMIT
+    return ""
+
+
+def _number(opt, var, value):
+    """An amount to two decimals; a setting as its dial reads (fmt_setting)."""
+    if var.get('category') == 'process':
+        return fmt_setting(value)
+    return f"{float(value):.2f}"
+
+
+def _change(opt, var, delta):
+    if var.get('category') == 'process':
+        return ("+" if delta > 0 else "−") + fmt_setting(abs(delta))
+    return wording.signed(delta, 2)
+
+
+def _as_float(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _column_label(opt, row, k, relabel):
+    """'Suggestion k' for an app suggestion not yet made, else 'F16'; with
+    ' · Less-tried area' when the distance rule says it explores."""
+    label = (wording.suggestion_column(k) if relabel and not row.get('note')
+             else wording.short_no(row['formulation']))
+    try:
+        role = opt.suggestion_role(row['recipe'])
+    except Exception:
+        role = None
+    if role == wording.SUGGESTION_DIFFERENT:
+        label = f"{label} · {wording.LESS_TRIED}"
+    return label
+
+
+def round_compare(opt, scale_to=None):
+    """The open Round's table, worked out (no Streamlit): see RoundCompare.
+    Amounts as the bench weighs them (shown_recipe, at `scale_to`); the
+    change, the shading and the limit tags read at the Formulation total, so
+    they never move with the Batch size box."""
+    variables = list(opt.variables)
+    rows = list(opt.pending_batch or [])
+    # One unit down the whole table: in the header, once. Otherwise each
+    # row carries its own ('Bake time (min)').
+    unit = opt.one_amount_unit() if not opt._process_settings() else None
+    labels = ([wording.worked_out_label(v['name']) if opt.has_formula(v) else v['name']
+               for v in variables] if unit else
+              [opt._amount_column(v['name'], mark=True) for v in variables])
+    best = _compare_index(opt)
+    _, tied = best_shown(opt) if best is not None else (None, [])
+    # Suggestions not yet made are numbered 1, 2, 3 on screen (no row of the
+    # Round recorded yet); a row of the user's own keeps its number.
+    relabel = len(open_rows(opt)) == len(rows)
+    columns, cells, numbers = [], [], []
+    with_total = opt.has_ingredients()
+    limit = _total_limit(opt) if with_total else None
+    total_label = None
+    if with_total:
+        one = opt.one_amount_unit()
+        if limit is not None and one is not None:
+            total_label = wording.total_row(
+                None if limit[0] is None else f"{float(limit[0]):.2f}",
+                None if limit[1] is None else f"{float(limit[1]):.2f}", one)
+        else:
+            total_label = wording.total_row(unit=one or "")
+
+    def total_cell(recipe):
+        value = opt._total_cell(recipe)
+        return CompareCell(f"{value:.2f}" if isinstance(value, (int, float)) else str(value))
+
+    ref = ref_total = None
+    if best is not None:
+        made = opt._recorded_recipe(best)
+        ref = opt.scaled_recipe(made, scale_to) if scale_to is not None else made
+        ref_total = insights.start_recipe(opt, best)
+        score = float(opt.Y_history[best])
+        columns.append(wording.best_column(int(opt.formulation_ids[best]), f"{score:.1f}"))
+        col = []
+        for v in variables:
+            x = _as_float(ref.get(v['name']))
+            col.append(CompareCell("" if x is None else _number(opt, v, x)))
+        if with_total:
+            col.append(total_cell(ref))
+        cells.append(col)
+    k = 0
+    for row in rows:
+        if relabel and not row.get('note'):
+            k += 1
+            numbers.append((k, int(row['formulation'])))
+        columns.append(_column_label(opt, row, k, relabel))
+        shown, _ = opt.shown_recipe(row, scale_to)
+        at_total = insights.at_total(opt, row['recipe'])
+        col = []
+        for v in variables:
+            name = v['name']
+            x = _as_float(shown.get(name))
+            if x is None:
+                col.append(CompareCell(str(shown.get(name, ""))))
+                continue
+            text = _number(opt, v, x)
+            share = 0.0
+            if ref is not None:
+                r = _as_float(ref.get(name))
+                a, b = _as_float(at_total.get(name)), _as_float(ref_total.get(name))
+                try:
+                    lo, hi = (float(e) for e in v['bounds'])
+                except (KeyError, TypeError, ValueError):
+                    lo = hi = 0.0
+                if r is not None and a is not None and b is not None and hi > lo:
+                    s = abs(a - b) / (hi - lo)
+                    delta = round(x, 2) - round(r, 2)
+                    if s >= HIDE_CHANGE - 1e-12 and _change(opt, v, delta) not in ("0.00", "−0"):
+                        text += f" ({_change(opt, v, delta)})"
+                        share = s
+            tag = _limit_tag(v, at_total.get(name))
+            if tag:
+                text += "\n" + tag
+            col.append(CompareCell(text, share, tag))
+        if with_total:
+            col.append(total_cell(shown))
+        cells.append(col)
+    if with_total:
+        labels = labels + [total_label]
+    return RoundCompare(
+        rows=labels, columns=columns, cells=cells,
+        best_no=None if best is None else int(opt.formulation_ids[best]), tied=tied,
+        row_header=wording.compare_row_header(unit), unit=unit, numbers=numbers,
+        formulations=[int(r['formulation']) for r in rows], total_row=with_total)
+
+
+def _blend(plain, full, t):
+    """The colour t (0-1) of the way from `plain` to `full`."""
+    a = [int(plain[i:i + 2], 16) for i in (1, 3, 5)]
+    b = [int(full[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#" + "".join(f"{round(x + (y - x) * t):02x}" for x, y in zip(a, b))
+
+
+def compare_styles(table, which="light"):
+    """[column][row] CSS for the table in theme `which`: Best so far's
+    column blue; each changed cell grey, from the plain cell colour to the
+    darkest at FULL_SHADE of the row's allowed range; the Total bold."""
+    tokens = _COMPARE_COLOURS[which]
+    out = []
+    best = table.best_no is not None
+    for c, col in enumerate(table.cells):
+        css = []
+        for r, cell in enumerate(col):
+            parts = ["text-align: center !important"]
+            total = table.total_row and r == len(col) - 1
+            if best and c == 0:
+                parts.append(f"background-color: {tokens['best']}")
+            elif cell.share > 0 and not total:
+                t = min(1.0, cell.share / FULL_SHADE)
+                parts.append(f"background-color: {_blend(tokens['plain'], tokens['full'], t)}")
+            css.append("; ".join(parts))
+        out.append(css)
     return out
 
 
-# A predicted measurement whose likely range covers more than this share of
-# the measurement's Range says little yet (spec 2026-09-30 §3). Insights'
-# WIDE is a half-width over a quarter of the Range (a width over a half);
-# "How these insights are made" states both (review M10).
-TOO_UNCERTAIN = 0.75
+def compare_frames(opt, table, which="light"):
+    """(cells, css): two frames of one shape, the row labels as the index,
+    in the project's own words (Trial, T10 in a study of trials). st.table
+    draws each cell as Markdown: a limit tag goes on a line of its own (a
+    hard break), and the Total row is bold."""
+    say = lambda text: ui_insights._short(opt, text)
+    last = len(table.rows) - 1 if table.total_row else None
+    bold = lambda text, r: f"**{text}**" if r == last and text else text
+    index = pd.Index([bold(say(r), k) for k, r in enumerate(table.rows)],
+                     name=say(table.row_header))
+    columns = [say(c) for c in table.columns]
+    cells = pd.DataFrame({c: [bold(cell.text.replace("\n", "  \n"), r)
+                              for r, cell in enumerate(col)]
+                          for c, col in zip(columns, table.cells)}, index=index)
+    css = pd.DataFrame({c: col for c, col in zip(columns, compare_styles(table, which))},
+                       index=index)
+    return cells, css
 
 
-def _measurement_cells(opt, preds):
-    """(cells, tips), two frames of one shape: each row's predicted
-    measurements in Results' order, one number of decimals each; a likely
-    range wider than TOO_UNCERTAIN of the Range reads "—", and its numbers
-    and the reason go in `tips` ("" everywhere else)."""
-    rows, tips = [], []
-    formulation = wording.for_project(opt, wording.FORMULATION_CAP)
-    for no, per in preds.items():
-        item, tip = {formulation: no}, {formulation: ""}
-        for obj in opt.measurements_by_importance():
-            column = opt._measurement_column(obj)
-            p = per.get(obj['name'])
-            if p is None:
-                item[column], tip[column] = "—", ""
-                continue
-            text = ui_insights.value_text(p, ui_insights.decimals(opt, obj['name']))
-            span = float(obj['max_val']) - float(obj['min_val'])
-            if span > 0 and p.high - p.low > TOO_UNCERTAIN * span:
-                # Round-2 fixes: a dash, never words, in a numeric cell;
-                # the numbers and the reason in its tip.
-                item[column], tip[column] = wording.TOO_UNCERTAIN, wording.too_uncertain_tip(text)
-            else:
-                item[column], tip[column] = text, ""
-        # Review critique (fix 10), round-2 fixes (P1 #4): the Overall score
-        # these forecasts imply by the score recipe, as an expectation over
-        # each one's (widened) forecast, beside the Overall model's own.
-        implied = insights.expected_score(opt, per)
-        if implied is not None and insights.SCORE in per:
-            item[wording.IMPLIED_COLUMN] = f"{implied:.0f}"
-            item[wording.OVERALL_MODEL_COLUMN] = ui_insights.capped(
-                min(per[insights.SCORE].mean, opt.utility_ceiling()), opt.utility_ceiling(), 0)
-            tip[wording.IMPLIED_COLUMN] = tip[wording.OVERALL_MODEL_COLUMN] = ""
-        rows.append(item)
-        tips.append(tip)
-    return pd.DataFrame(rows), pd.DataFrame(tips)
+def _improve_caption(opt, table):
+    """The caption under the Round title, and the pilot's EGBO line."""
+    say = lambda text: ui_insights._short(opt, text)
+    rows = opt.pending_batch or []
+    suggested = any(not r.get('note') for r in rows)
+    egbo = (sample_projects.is_yogurt(opt.project_name)
+            and any("EGBO" in str(r.get('note') or "") for r in rows))
+    if table.best_no is None:
+        if suggested:
+            st.caption(say(wording.COVER_CAPTION), help=say(wording.HOW_CHOSEN_2))
+    elif suggested or egbo:
+        nos = sorted([table.best_no] + list(table.tied))
+        st.caption(say(wording.improve_on_caption(nos)),
+                   help=say(wording.improve_on_help(nos)))
+    if egbo:
+        st.caption(wording.CHOSEN_BY_EGBO)
 
 
-def _predicted_measurements(opt, preds):
-    """Each row's predicted measurements, under their fold. A static table,
-    so a "too uncertain yet" cell keeps its numbers in its tooltip."""
-    cells, tips = _measurement_cells(opt, preds)
-    with st.expander(wording.PREDICTED_MEASUREMENTS):
-        # Formulation as the index (D3, review M9): st.table ignores the
-        # Styler's hide(axis="index"), and drew a 0-3 column first (01 O4).
-        formulation = cells.columns[0]
-        shown = cells.set_index(formulation)
-        st.table(shown.style.set_tooltips(
-            tips.drop(columns=[formulation]).set_axis(shown.index)))
-        st.caption(wording.for_project(opt, wording.PREDICTED_MEASUREMENTS_CAPTION),
-                   help=wording.for_project(opt, wording.PREDICTED_MEASUREMENTS_HELP))
-
-
-def _models_ready(opt):
-    """Whether the predictions cost no fit in this process (the workers
-    fit them, or they are in already): then the table is drawn with them —
-    or with "…" — on its first pass."""
-    return not ui_insights.fits_here(opt)
+def _draw_compare(opt, table):
+    """The table, then its key with the rest in the key's "?"."""
+    say = lambda text: ui_insights._short(opt, text)
+    cells, css = compare_frames(opt, table, ui_insights.theme())
+    styled = cells.style.apply(lambda _: css, axis=None).set_table_styles(
+        [{"selector": "thead th", "props": "text-align: center !important"}])
+    if table.tied:
+        # The tie in the Best so far column's cells' "?" (st.table draws no
+        # header help); the key's "?" says it too.
+        tip = say(wording.best_tied_help(table.best_no, table.tied))
+        tips = pd.DataFrame("", index=cells.index, columns=cells.columns)
+        tips[cells.columns[0]] = tip
+        styled = styled.set_tooltips(tips)
+    st.table(styled)
+    if table.best_no is None:
+        return
+    unit = table.unit if opt.has_ingredients() else None
+    tips = [wording.change_key_help(table.best_no, round(HIDE_CHANGE * 100),
+                                    round(FULL_SHADE * 100))]
+    if table.tied:
+        tips.append(wording.best_tied_help(table.best_no, table.tied))
+    if any(wording.LESS_TRIED in c for c in table.columns):
+        from food_bo import FAR_FROM_TESTED
+        tips.append(wording.less_tried_help(round(FAR_FROM_TESTED * 100)))
+    if table.numbers:
+        tips.append(wording.suggestion_numbers_help(table.numbers))
+    # Minor 15 (2026-09-29 review): a suggestion that nearly repeats a
+    # formulation still waiting for results, named by its column.
+    prefixes = _near_copy_prefixes(opt, opt.pending_batch)
+    for label, no in zip(table.columns[len(table.columns) - len(table.formulations):],
+                         table.formulations):
+        if no in prefixes:
+            tips.append(f"{label.split(' · ')[0]}: {prefixes[no].strip()}")
+    row = "ingredient" if opt.has_ingredients() else "setting"
+    st.caption(say(wording.change_key(table.best_no, unit, row)), help=say(" ".join(tips)))
 
 
 def _near_copy_prefixes(opt, batch):
     """{Formulation number: prefix text} for every suggestion in `batch`
     that nearly repeats a formulation still waiting for results (Minor 15,
     2026-09-29 review) — never for the user's own formulations, which carry
-    a note. Screen only: passed to batch_frame's own `near_copies` argument,
-    which the workbook path never supplies.
+    a note. Screen only: v3 says it in the Round table key's "?"; the
+    workbook never carries it.
 
     Routed through `wording.for_project`: a process-only study's table calls
     every row a Trial, and the prefix has to use the same word for the row
@@ -998,7 +1103,8 @@ def _near_copy_prefixes(opt, batch):
     return prefixes
 
 
-def _batch_table(opt, scale_to, tab_open=False):
+
+def _batch_table(opt, scale_to, tab_open=False, table=None):
     """The make-these table and the lines it owes the reader.
 
     Nothing is rewritten to make a row add up: a suggestion that could not be
@@ -1012,16 +1118,10 @@ def _batch_table(opt, scale_to, tab_open=False):
     batch come out at 73 to 89 g with nothing on the screen to say the 100 g
     rule had stopped applying.
 
-    Returns (editing, later): `later` is what _show_predictions needs to
-    add the predictions once the rest of the screen is drawn; None while
-    editing, which never shows them. With the models already fitted (and
-    the tab open) the table is drawn with its predictions straight away,
-    so the column does not blink on every rerun.
+    v3: drawn as round_compare's table (ingredients down, Best so far and
+    the Round across), never with a forecast. Returns (editing, None).
     """
-    near_copies = _near_copy_prefixes(opt, opt.pending_batch)
-    frame = _compared_second(opt, opt.batch_frame(opt.pending_batch, scale_to=scale_to,
-                                                  near_copies=near_copies,
-                                                  max_changes=_SCREEN_CHANGES))
+    frame = opt.batch_frame(opt.pending_batch, scale_to=scale_to)
     edit_key = f"edit_round_{opt.project_name}_{opt.pending_batch_no}"
     editing = st.session_state.get(edit_key, False)
     if not editing:
@@ -1029,22 +1129,15 @@ def _batch_table(opt, scale_to, tab_open=False):
             st.session_state[edit_key] = True
             preserve_tab_forms()
             st.rerun()
-        # With the models in (or fitted by the workers), drawn once with the
-        # predictions or with "…". Otherwise drawn now with "…";
-        # _show_predictions fits and draws it again in the same place with
-        # them, once the rest of the screen is up.
-        preds = None
-        if tab_open and opt.complete_count() >= insights.MIN_ROWS and open_rows(opt):
-            # "…" until they are worked out (review I1): the column keeps its
-            # width, so the table never jumps when the numbers land.
-            preds = _round_predictions(opt) if _models_ready(opt) else _PENDING
-        table_slot = st.empty()
-        _draw_table(opt, table_slot,
-                    _with_predictions(opt, frame, preds) if preds else frame)
+        # In the Why link's keyed place (Review's link still lands here).
+        with st.container(key=WHY_PLACE):
+            _draw_compare(opt, table if table is not None else round_compare(opt, scale_to))
     else:
         st.info(wording.for_project(opt, wording.EDIT_FORMULATIONS_ACTIVE), icon=":material/edit:")
         st.caption(wording.EDIT_FORMULATIONS_CAPTION)
         editable_numbers = {row["formulation"] for row in open_rows(opt)}
+        # v3: amounts only; the role words are not on this screen.
+        frame = frame.drop(columns=[opt.compared_with_column()], errors="ignore")
         frame = frame[frame["Formulation"].isin(editable_numbers)].reset_index(drop=True)
         independent = {opt._amount_column(v['name'], mark=True): v['name']
                        for v in opt.variables if not opt.has_formula(v)}
@@ -1091,182 +1184,9 @@ def _batch_table(opt, scale_to, tab_open=False):
     else:
         for line in opt.total_mismatch_lines(opt.pending_batch, scale_to):
             st.caption(line)
-    # The what-is-it-trying column is not drawn during the cold start (every
-    # cell under it repeated its own header); this is the line that says what
-    # those formulations are instead.
-    if opt.compared_with_column() == wording.COMPARED_WITH_ALLOWED:
-        st.caption(wording.for_project(opt, wording.HOW_CHOSEN_2))
-    elif opt.best_formulation_no() is not None:
-        # Preview 0.8.1: the amounts after the role are differences, not fixes.
-        st.caption(wording.for_project(opt, wording.largest_differences_caption(
-            opt.best_formulation_no())))
-    # Last, after the lines about the table's amounts: kept for what the new
-    # column means for a row predicted below Best so far, then the
-    # per-measurement predictions one click away.
-    if editing:
-        return True, None
-    return False, (table_slot, frame, st.container(), preds)
-
-
-# How many changes the screen's Compared with names (spec 2026-09-30 §3): the
-# two largest, amounts first. The sheet keeps its own, longer list.
-_SCREEN_CHANGES = 2
-
-
-def _compared_second(opt, frame):
-    """The Compared with column straight after Formulation, on screen only
-    (spec 2026-09-30 §3, review M14): once the predicted column goes in
-    after Formulation, it is the third. The sheet's order is batch_frame's."""
-    trying = opt.compared_with_column()
-    if trying not in frame.columns:
-        return frame
-    rest = [c for c in frame.columns if c != trying]
-    return frame[rest[:1] + [trying] + rest[1:]]
-
-
-def _score_help(opt):
-    """The Predicted Overall score column's "?" with its basis (03 §5.8):
-    the scored formulations it was fitted to and, once the checks are
-    worked out, the Round-ahead widening it carries; then the standard
-    terms of the two statistics it shows (spec 2026-10-01 §3, R-I6): the
-    posterior mean and the 95 % posterior predictive interval."""
-    checks = ui_insights.checks_for(opt, "column")
-    factor = None if not checks else insights.column_factor(opt, checks)
-    widened = factor is not None and f"{factor:.2f}" != "1.00"
-    basis = wording.predicted_score_help(opt.complete_count(),
-                                         f"{factor:.2f}" if widened else None)
-    values = not opt.has_ingredients()
-    return " ".join([basis, ui_insights.bo_term(wording.tip_predicted_score(values)),
-                     ui_insights.bo_term(wording.TIP_INTERVAL)])
-
-
-def _draw_table(opt, slot, frame):
-    slot.dataframe(frame.style.format(_amount_format(opt, frame)),
-                   column_config={
-                       wording.FORMULATION_CAP: st.column_config.Column(
-                           wording.for_project(opt, wording.FORMULATION_CAP)),
-                       wording.PREDICTED_SCORE_COLUMN: st.column_config.Column(
-                           wording.PREDICTED_SCORE_COLUMN,
-                           help=wording.for_project(opt, " ".join(
-                               t for t in (_score_help(opt),
-                                           ui_insights.score_record_help(opt)) if t)))},
-                   hide_index=True, key="batch_table", height=table_height(len(frame)))
-
-
-def _show_predictions(opt, later, linked=False):
-    """Without workers, fit (once per data_key, shared with Insights) and
-    draw the table again in its place with the Predicted Overall score
-    column; with workers still fitting, leave the "…" for the poller's
-    rerun. Then the track-record line (review I16), the caption and the
-    expander in the place kept for them under the table. Called last, so a
-    fit never holds up the rest of the screen. A table already drawn with
-    its predictions is not drawn again."""
-    table_slot, frame, notes, drawn = later
-    preds = drawn
-    if drawn == _PENDING and _models_ready(opt):
-        return                      # the workers are fitting: the poller reruns the page
-    if drawn is None or drawn == _PENDING:
-        preds = _round_predictions(opt)
-        _draw_table(opt, table_slot,
-                    _with_predictions(opt, frame, preds) if preds else frame)
-    if not preds or preds == _PENDING:
-        return
-    with notes:
-        t = _track(opt)
-        if t is not None:
-            st.caption(wording.for_project(opt, ui_insights.track_short(t)),
-                       help=wording.for_project(opt, ui_insights.track_text(t)) + "\n\n"
-                       + track_help(opt, t))
-            if _warns(t) and not linked:
-                # E2 (04 §3, review I1, I7): the one link on this screen.
-                link(wording.LINK_PREDICTION_CHECK, wording.TAB_INSIGHTS, key="link_trust")
-        if _a_suggestion_below_best(opt, preds):
-            st.caption(wording.for_project(opt, wording.predictions_round_caption(
-                values=not opt.has_ingredients())),
-                help=wording.for_project(opt, wording.predictions_round_help()))
-        if not ui_insights.waiting(opt, "now") and any(
-                o["name"] in per for per in preds.values() for o in opt.objectives):
-            _predicted_measurements(opt, preds)
-        _why_these(opt, preds)
-
-
-def _track(opt):
-    """insights.round_track from checks already worked out, else None
-    (Make a round never fits for its line)."""
-    checks = ui_insights.checks_for(opt, "trust")
-    return None if checks is None else insights.round_track(opt, checks)
-
-
-def track_help(opt, t):
-    """The track line's "?" (spec 2026-10-01 §3, R-I6): every statistic the
-    line names, plain reading first, then the BO term: the Round-ahead
-    check and its 95 % intervals, the mean error when it says a bias, the
-    skill when it says no skill."""
-    tips = [wording.TIP_ROUND_AHEAD]
-    if t.record:
-        tips.append(wording.TIP_INTERVAL)
-        if t.gap is not None:
-            tips.append(wording.TIP_MEAN_ERROR)
-    if t.no_skill is not None:
-        tips.append(wording.TIP_SKILL)
-    return wording.for_project(opt, " ".join(tips))
-
-
-def _warns(t):
-    """Whether the track line is a warning (04 E2; review I1): rough, a
-    bias, the measurements' verdict unreliable, or no skill."""
-    return bool(t.rough or t.gap is not None or t.see_insights or t.no_skill is not None)
-
-
-# ------------------------------------------------------------------ #
-#  Why these suggestions (spec 2026-09-30-bo-views §3.1; review I4, I5,
-#  I9, I12, M4, M5, M9, M15): a fold under the Round table, collapsed and
-#  worked out only once opened.
-# ------------------------------------------------------------------ #
-
-WHY_KEY = "why_these"
-
-
-def _why_models(opt):
-    """(the current Overall-score model, the checks) for the withhold rule,
-    from what Make a round's column already has. The checks are None
-    while the workers are still fitting them: the fold then shows no role
-    and no expected improvement, so it never shows one it withdraws once
-    they land (answer-key refresh item 8). Without workers (or after they
-    failed) the open fold fits them here."""
-    got = ui_insights.column_models(opt)
-    models = (got or (None, None))[0] or {}
-    checks = ui_insights.checks_for(opt, "trust")
-    if checks is None and not ui_insights.waiting(opt, "trust"):
-        try:
-            checks = ui_insights.checks_here(opt)
-        except Exception:      # still not known: said as withheld, never a traceback
-            checks = None
-    return models.get(insights.SCORE), checks
-
-
-def _best_repeat(opt, score):
-    """Best so far's predicted Repeat from the current Overall-score model
-    (ui_insights.repeat_of_best, the outline's reference), or None."""
-    if score is None or getattr(score, "model", None) is None or opt.best_index() is None:
-        return None
-    try:
-        return ui_insights.repeat_of_best(opt, {insights.SCORE: score})
-    except Exception:
-        return None
-
-
-def _signed_amount(value, unit):
-    return join_unit(wording.signed(value, 2), unit) if unit else wording.signed(value, 2)
-
-
-def _signed_change(opt, name, value, unit):
-    """One Largest difference: an amount to the two decimals a balance
-    works to, a setting as the Compared with cell writes it (fmt_setting:
-    "+30 s", never "+30.00 s", 01 O15)."""
-    if not insights.is_setting(opt, name):
-        return _signed_amount(value, unit)
-    return ("+" if value > 0 else "−") + fmt_setting(abs(value), unit)
+    # v3: the cold start's line (HOW_CHOSEN_2) is the "?" of the caption
+    # under the title, and the table's key says what it is compared with.
+    return editing, None
 
 
 def own_round_caption(rows):
@@ -1278,237 +1198,6 @@ def own_round_caption(rows):
     if notes - {"", wording.OWN_FORMULATION_NOTE}:
         return wording.ENTERED_ROUND_CAPTION
     return wording.ONLY_OWN_FORMULATIONS_CAPTION
-
-
-def why_frame(opt, why, preds, hide=False):
-    """One row per formulation of the open Round (review I12): its role
-    (M5) straight after its number, so it is on screen at 1366 px (T47
-    review minor 6), its predicted Overall score with its 95 % interval
-    (the table's own column), the suggestion model's sd, its expected
-    improvement in points — "·" when valued with the earlier picks counted
-    — the nearest tested formulation and the two largest differences from
-    it in each row's own unit (M4). `hide` (the noise guard, review I4)
-    leaves out the expected improvement; the role is model-free and always
-    shown (0.8.0 e2e fixes A2, review I3). Every cell in the project's own
-    words (T47 review I-1: "Trial" in a process-only study)."""
-    value_col = (wording.OPTIMISTIC_SCORE if why.kind == "qucb"
-                 else wording.EXPECTED_GAIN)
-    say = lambda text: wording.for_project(opt, text)
-    rows = []
-    made = {int(row['formulation']): row for row in opt.pending_batch or []}
-    for r in why.rows:
-        p = (preds or {}).get(r.formulation, {}).get(insights.SCORE)
-        label = wording.why_row_label(r.formulation, r.own, r.edited)
-        row = made.get(int(r.formulation)) or {}
-        note = str(row.get('note') or "").strip()
-        # Review critique (fix 9): Role holds the role (the distance rule,
-        # for every row); the note, where the row came from, is its Source.
-        try:
-            role = opt.suggestion_role(row['recipe']) if row.get('recipe') else r.role
-        except Exception:
-            role = r.role
-        if r.own and note and note != wording.OWN_FORMULATION_NOTE:
-            # Persona fixes 2: an entered row (its source in Source).
-            label = wording.why_row_label(r.formulation) + wording.ENTERED_TAIL
-        item = {wording.FORMULATION_CAP: say(label)}
-        item[wording.ROLE] = say(role)
-        item[wording.WHY_SOURCE] = say(wording.own_source(note) if note
-                                       else wording.WHY_SOURCE_APP)
-        item[wording.PREDICTED_SCORE_COLUMN] = "" if p is None else ui_insights.score_text(p)
-        if not hide:
-            item[value_col] = f"{r.value:.2f}" + (f" {wording.PENDING_MARK}" if r.pending else "")
-        item[wording.CLOSEST_MADE] = ("" if r.nearest is None
-                                      else say(wording.start_formulation(r.nearest)))
-        item[wording.LARGEST_DIFFERENCES] = ", ".join(
-            wording.why_difference(name, _signed_change(opt, name, d, unit))
-            for name, d, unit in r.differences)
-        rows.append(item)
-    return pd.DataFrame(rows), value_col
-
-
-def why_columns(opt, value_col, help_text):
-    """The Why fold's column_config (D2, review M8): every column visible at
-    1280 px — narrow ones for the short cells, Largest differences the
-    widest — with the full meaning in each header's tooltip."""
-    say = lambda text: wording.for_project(opt, text)
-    col = st.column_config.Column
-    values = not opt.has_ingredients()
-    term = ui_insights.bo_term
-    # Spec 2026-10-01 §3, §7 (R-I6): each header names its statistic, the
-    # plain reading first, then the standard term: posterior mean and the
-    # 95 % interval, latent posterior sd, the acquisition value, the
-    # distance labels and the nearest design point.
-    return {
-        wording.FORMULATION_CAP: col(say(wording.FORMULATION_CAP), width="small"),
-        wording.ROLE: col(wording.ROLE, width="small",
-                          help=say(f"{wording.role_help()} {term(wording.TIP_ROLES)}")),
-        wording.WHY_SOURCE: col(wording.WHY_SOURCE, width="medium"),
-        # Review critique (fix 9): short headers that fit at 1280 px; the
-        # full name in each "?". The model sd is the map's y axis.
-        wording.PREDICTED_SCORE_COLUMN: col(
-            wording.WHY_COL_PREDICTED, width="small",
-            help=say(f"{wording.PREDICTED_SCORE_COLUMN}. {wording.tip_predicted_score(values)}")),
-        # The gain's own tooltip carries its BO term (ftue fix C); qUCB's
-        # optimistic score keeps the shared one.
-        value_col: col(say(wording.WHY_COL_GAIN if value_col == wording.EXPECTED_GAIN
-                           else value_col), width="small",
-                       help=say(help_text if value_col == wording.EXPECTED_GAIN
-                                else f"{help_text} {term(wording.TIP_EXPECTED_IMPROVEMENT)}")),
-        wording.CLOSEST_MADE: col(say(wording.WHY_COL_CLOSEST), width="small",
-                                  help=say(wording.TIP_CLOSEST_MADE)),
-        wording.LARGEST_DIFFERENCES: col(wording.LARGEST_DIFFERENCES, width="medium",
-                                         help=say(wording.LARGEST_DIFFERENCES_FROM_CLOSEST)),
-    }
-
-
-# Ruling 2 (review four): a greyed Expected gain's text colour, readable
-# but quieter on either theme.
-GREYED_GAIN = "#8a9099"
-
-
-def why_chart(opt, why, ref=None, grey=False):
-    """The explore-exploit map (01 #2, 02 §4.3): every sampled allowed
-    formulation as a grey dot, predicted Overall score (the suggestion
-    model's mean) across, its sd up; tested formulations as rings; this
-    Round's rows labelled; a dashed line, labelled, at `ref`: Best so far's
-    predicted Repeat, the reference the Insights outline uses, for every
-    acquisition (answer-key refresh item 6). No line when `ref` is None.
-    None without a pool. Drawn by ui_insights.explore_map_chart, the one
-    map Insights' Explored and unexplored draws too (review R-I16)."""
-    if why.pool_mean is None:
-        return None
-    tested = [{"mean": m, "sd": s}
-              for m, s in zip(why.tested_mean.tolist(), why.tested_sd.tolist())]
-    picks = [{"mean": r.mean, "sd": r.sd, "no": str(r.formulation),
-              "own": bool(r.own)} for r in why.rows]
-    return ui_insights.explore_map_chart(why.pool_mean, why.pool_sd, tested, picks, ref, opt,
-                                         gain=getattr(why, "pool_value", None),
-                                         muted_gain=grey)
-
-
-def _why_these(opt, preds):
-    """The fold (review M15): collapsed, nothing near the lit button, and
-    nothing worked out until it is opened (binding I15). In a keyed place,
-    the Why link's landing (ftue fix C); in plain words, each BO term in
-    its tooltip: the role key first, then the table, the picks marked ·,
-    the Compared with note and, for a recalculated Round, one line."""
-    with st.container(key=WHY_PLACE):
-        _why_fold(opt, preds)
-
-
-def _why_fold(opt, preds):
-    say = lambda text: wording.for_project(opt, text)
-    with st.expander(say(wording.WHY_THESE), key=WHY_KEY, on_change="rerun") as fold:
-        if not fold.open:
-            return
-        with st.spinner(wording.for_project(opt, wording.WHY_WORKING)):
-            try:
-                # The memo: a recomputed Round's display model is rebuilt
-                # from it, never fitted again on each rerun (final review M-1).
-                with insights.memo_in_use(ui_insights.memo(opt)):
-                    why = bo_views.why(opt, None)
-            except Exception:
-                why = None
-            if why is not None and not why.cold:
-                score, checks = _why_models(opt)
-        if why is None:
-            st.caption(wording.for_project(opt, wording.WHY_FAILED))
-            return
-        if why.cold:
-            st.caption(say(wording.why_cold(not opt.has_ingredients())))
-            return
-        # The first line: the three role words read once (early walkthrough
-        # ruling; the Role column's tooltip keeps the exact rule).
-        st.caption(say(wording.WHY_ROLE_KEY_SHORT),       # review polish: at most 8 words
-                   help=say(f"{wording.role_help()} {ui_insights.bo_term(wording.TIP_ROLES)}"))
-        ref = _best_repeat(opt, score)
-        # Review four, ruling 2: Expected gain is never hidden. Where the
-        # rule Progress uses would withhold it, its column is drawn in grey
-        # with one line saying why; the suggestions are made the same way.
-        if checks is None:
-            # Not known yet: greyed until it is (item 8).
-            grey = True
-            st.caption(say(wording.WHY_GAIN_CHECKING_SHORT),
-                       help=say(wording.why_gain_greyed_said(
-                           wording.why_gain_said(wording.WHY_CHECKING))))
-        else:
-            # Review four polish: the profiler's rule (gain_grey), read off
-            # the Predictions card's word, so the line never contradicts it.
-            reason = ui_insights.gain_grey(opt, score, checks)
-            grey = reason is not None
-            if grey:
-                st.caption(say(ui_insights.gain_greyed_text(opt, checks, reason)), help=say(
-                    wording.why_gain_greyed_said(why_greyed_line(opt, score, checks, reason))))
-        frame, value_col = why_frame(opt, why, preds)
-        help_text = (wording.OPTIMISTIC_SCORE_HELP if why.kind == "qucb"
-                     else wording.tip_expected_gain(why.kind))
-        # Review critique (fix 9): a static table, so every header wraps
-        # and nothing is cut at 1280 px; short headers, the full names in
-        # the caption's "?".
-        cfg = why_columns(opt, value_col, help_text)
-        labels = {k: (v.get("label") if isinstance(v, dict) else None) or k
-                  for k, v in cfg.items()}
-        shown = frame.rename(columns=labels).set_index(labels.get(
-            wording.FORMULATION_CAP, wording.FORMULATION_CAP))
-        styled = shown.style
-        if grey and labels.get(value_col, value_col) in shown.columns:
-            styled = styled.map(lambda _: f"color: {GREYED_GAIN}",
-                                subset=[labels.get(value_col, value_col)])
-        st.table(styled)
-        pending = [r.formulation for r in why.rows if r.pending]
-        if pending:
-            st.caption(say(wording.why_picked_after(pending)),
-                       help=say(wording.TIP_PICKED_AFTER))
-        best_no = opt.best_formulation_no()
-        if best_no is not None and opt.compared_with_column() != wording.COMPARED_WITH_ALLOWED:
-            st.caption(say(wording.why_compared_with(best_no)))
-        if not why.exact:
-            # One line, about what is shown (01 O9; last-fix review R-1),
-            # the reason in its tooltip (early walkthrough ruling).
-            st.caption(say(wording.WHY_RECALCULATED), help=say(wording.TIP_RECALCULATED))
-        chart = why_chart(opt, why, ref, grey)
-        if chart is None:
-            # No map without a pool; the roles above never needed one.
-            return
-        ui_insights.show_chart(chart)
-        # Demo build: the map's one home now; its legend names the marks,
-        # so the caption says how to read it (Review's copy did), the marks
-        # and the sample in its "?".
-        st.caption(wording.for_project(opt, wording.MAP_DIAMONDS_CAPTION),
-                   help=wording.for_project(opt, " ".join([
-                       wording.MAP_READING, wording.why_chart_caption_full(
-                           f"{len(why.pool_mean):,}", line=ref is not None,
-                           gain=getattr(why, "pool_value", None) is not None, grey=grey,
-                           entered=sum(1 for r in why.rows if r.own), total=len(why.rows))])))
-
-
-_GUARD_WORDS = {"floor": wording.GUARD_FLOOR, "noise": wording.GUARD_NOISE}
-
-
-def why_greyed_line(opt, score, checks, reason):
-    """Why these' greyed column's "?" (`reason`, ui_insights.gain_grey's):
-    the Predictions card's word, or the noise guard's triggers."""
-    if reason in ("not_yet", "off"):
-        gate = insights.skill_gate(opt, checks) if reason == "not_yet" else None
-        return wording.why_greyed_line(
-            reason, None if gate is None else ui_insights.gain_reason("skill", gate))
-    return wording.why_gain_said(why_withheld_line(opt, score, checks, "guard"))
-
-
-def why_withheld_line(opt, score, checks, reason):
-    """The Why fold's line when the expected improvement is withheld
-    (`reason`, ui_insights.withheld's): the verdict; the A3 gate read from
-    insights.skill_gate (W1) and said in Progress's own words (too few
-    checks, skill under 0.20, no skill); or the guard's triggers."""
-    if reason == "verdict":
-        return wording.why_guard_line(verdict=True)
-    if reason == "skill":
-        gate = insights.skill_gate(opt, checks)
-        if gate is None:
-            return wording.why_guard_line(skill_only=True)
-        return wording.why_guard_line(gate_reason=ui_insights.gain_reason("skill", gate))
-    guard = insights.noise_guard(opt, score, checks)
-    return wording.why_guard_line([_GUARD_WORDS[r] for r in guard.reasons if r != "skill"])
 
 
 def _scaled_cautions(opt, rows, scale_to, sized):
@@ -1587,11 +1276,6 @@ def _downloads(opt, scale_to, sized, said_size=False):
     lit = (not _any_value_typed(opt) and not confirmation_open()
            and not _upload_pending(opt) and review_due(opt) is None)
     print_pack = st.checkbox(wording.for_project(opt, wording.PRINT_PACK_CHECKBOX), key="workbook_print_pack")
-    # One line, and it follows the box: the file a tick produces has no
-    # sheet called Results (spec 2026-09-30 §3, audit V12). The sheet
-    # names are behind the button's "?", which follows the box too.
-    st.caption(wording.for_project(opt, wording.workbook_line(print_pack)),
-               help=wording.for_project(opt, wording.workbook_line_full(print_pack)))
     st.download_button(
         wording.DOWNLOAD_BATCH_SHEETS,
         data=opt.workbook_bytes(rows, scale_to, sized, print_pack=print_pack),
@@ -1603,6 +1287,11 @@ def _downloads(opt, scale_to, sized, said_size=False):
         on_click=_sheets_are_out,
         help=wording.for_project(opt, wording.workbook_tabs_help(print_pack)),
     )
+    # v3: one line under the button naming the sheets (it follows the box:
+    # the file a tick produces has no Results sheet); the pre-mix sheet and
+    # the tick in its "?".
+    st.caption(wording.for_project(opt, wording.workbook_sheets(print_pack)),
+               help=wording.for_project(opt, wording.workbook_sheets_help(print_pack)))
     if scale_to is not None and not said_size:
         # The file carries the amounts on screen, so the size it was written
         # for is named directly under it — unless the refusal above the
@@ -2217,6 +1906,8 @@ def render(opt, storage, tab_open=False):
     sized = getattr(opt, 'pending_batch_total', None) is not None
 
     _title(opt)
+    table = round_compare(opt, scale_to)
+    _improve_caption(opt, table)
     # Review guide: filled after the confirmation below is asked, so an
     # armed one greys "Review Round N" on the same run.
     status_slot = st.container()
@@ -2224,7 +1915,7 @@ def render(opt, storage, tab_open=False):
     # Above the table: the size is what the table is a table of.
     _batch_size_control(opt, opt.one_amount_unit(), typed, scale_to,
                         sized, refusal)
-    editing, later = _batch_table(opt, scale_to, tab_open)
+    editing, _ = _batch_table(opt, scale_to, tab_open, table)
     if editing:
         preserve_tab_forms()
         st.caption(wording.for_project(opt, wording.FINISH_FORMULATION_EDITS))
@@ -2259,17 +1950,14 @@ def render(opt, storage, tab_open=False):
         preserve=True,
     )
 
-    linked = False
     if tab_open:
         with status_slot:
             due = review_due(opt)
-            linked = _review_status(opt, due, _review_lit(opt, due))
+            _review_status(opt, due, _review_lit(opt, due))
     with print_slot:
         _downloads(opt, scale_to, sized, said_size)
     with record_slot:
-        if tab_open:
-            # Review learned: the forecast before tasting, above the grid.
-            ui_insights.forecast_panel(opt)
+        # v3: no forecast before tasting (owner: no forecasts on this screen).
         _record_results(opt)
     with own_slot:
         _own_formulation(opt)
@@ -2278,7 +1966,3 @@ def render(opt, storage, tab_open=False):
 
     if regenerate:
         _regenerate(opt, rows, numbers)
-    elif tab_open:
-        # Only while this tab is open (a hidden tab never fits a model), and
-        # only now: the table, Save results and the upload are already up.
-        _show_predictions(opt, later, linked)

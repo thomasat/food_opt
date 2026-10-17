@@ -726,6 +726,116 @@ def largest_differences_caption(best_no):
     return f"Amounts after the role: largest differences from {FORMULATION_CAP} {best_no}."
 
 
+# v3 (final-v3/2-make-round.png, wording.md §2): the open Round as one
+# table, ingredients down, Best so far then each formulation across. Short
+# formulation names (F10), as Review writes them; ui_batch turns them into
+# T10 in a study of trials.
+def short_no(no):
+    """'F10'."""
+    return f"F{int(no)}"
+
+
+def _tied_names(nos):
+    """'F10'; 'F16, F17 (tied)' for a tie (ties are named, never one picked)."""
+    names = ", ".join(short_no(n) for n in nos)
+    return names if len(nos) < 2 else f"{names} (tied)"
+
+
+def improve_on_caption(nos):
+    """Under the Round title: 'Best bets to improve on F10.' (≤ 8 words)."""
+    return f"Best bets to improve on {_tied_names(nos)}."
+
+
+def improve_on_help(nos):
+    """The caption's "?"."""
+    return (f"Chosen for how much they could improve on {_tied_names(nos)}, weighing how good "
+            "they look and how unsure the model is.")
+
+
+# The shipped yogurt pilot's Rounds 3-10 were picked by EGBO (its notes say
+# so); a Round the app generates there is not.
+CHOSEN_BY_EGBO = "Chosen by EGBO in the pilot"
+# During the cold start there is no best to compare with (the old
+# COMPARED_WITH_ALLOWED column); the caption says what the table is instead
+# ("cover", never "spread": review M2), and HOW_CHOSEN_2 is its "?".
+COVER_CAPTION = "These cover your allowed amounts."
+
+
+def best_column(no, score_text):
+    """The table's first column after the rows: 'Best so far (F10 · 95.0)'."""
+    return f"Best so far ({short_no(no)} · {score_text})"
+
+
+def best_tied_help(no, others):
+    """The Best so far column's "?" on a tie: the first made is shown."""
+    return (f"{short_no(no)} is shown: first made; tied with "
+            f"{', '.join(short_no(n) for n in others)}.")
+
+
+def suggestion_column(k):
+    """A suggestion not yet made: 'Suggestion 1'. Its formulation number
+    stays in the workbook and the records; the table does not show it, so a
+    new Round never reads like a sample's own numbers."""
+    return f"Suggestion {k}"
+
+
+def suggestion_numbers_help(pairs):
+    """'Suggestion 1 is F19 in the workbook, …' for the key's "?"."""
+    return ("In the workbook: "
+            + ", ".join(f"{suggestion_column(k)} is {short_no(no)}" for k, no in pairs) + ".")
+
+
+# A suggestion's column label when the distance rule says it explores
+# (food_bo.FAR_FROM_TESTED); no label for the other two roles.
+LESS_TRIED = "Less-tried area"
+
+
+def less_tried_help(share_pct):
+    return (f"{LESS_TRIED}: more than {share_pct} % of an ingredient's allowed range from every "
+            f"{FORMULATION} made before this {ROUND_CAP}.")
+
+
+AT_UPPER_LIMIT = "at upper limit"
+AT_LOWER_LIMIT = "at lower limit"
+TOTAL_ROW = "Total"
+
+
+def total_row(lo_text=None, hi_text=None, unit=""):
+    """'Total (allowed 97.69–98.69 g)' with a limit on the total; 'Total
+    (set to 100.00 g)' with Set up's Total of each formulation; else
+    'Total (g)'."""
+    u = f" {unit}" if unit else ""
+    if lo_text is not None and lo_text == hi_text:
+        return f"{TOTAL_ROW} (set to {lo_text}{u})"
+    if lo_text is not None and hi_text is not None:
+        return f"{TOTAL_ROW} (allowed {lo_text}–{hi_text}{u})"
+    if hi_text is not None:
+        return f"{TOTAL_ROW} (allowed up to {hi_text}{u})"
+    if lo_text is not None:
+        return f"{TOTAL_ROW} (allowed from {lo_text}{u})"
+    return f"{TOTAL_ROW} ({unit})" if unit else TOTAL_ROW
+
+
+def compare_row_header(unit=None):
+    """The rows' header: 'Ingredient (g)'; 'Ingredient or process setting'
+    when the rows do not share one unit (each row then carries its own)."""
+    return f"Ingredient ({unit})" if unit else "Ingredient or process setting"
+
+
+def change_key(no, unit=None, row="ingredient"):
+    """Under the table: '(change from F10, g) · shading: change vs that
+    ingredient's allowed range' ('setting' in a study of settings alone)."""
+    u = f", {unit}" if unit else ""
+    return f"(change from {short_no(no)}{u}) · shading: change vs that {row}'s allowed range"
+
+
+def change_key_help(no, hide_pct, full_pct):
+    return (f"Each cell: the amount, then its change from {short_no(no)} in brackets. "
+            f"Changes under {hide_pct} % of the allowed range are not shown. Grey gets darker "
+            f"as the change grows, as a share of that row's allowed range (darkest at "
+            f"{full_pct} %).")
+
+
 def compared_with_line(column, cell):
     """The same line on paper: 'Compared with Formulation 2: Close to the
     best · Pea protein +0.28 g'. The table writes the column header once, at
@@ -4884,6 +4994,22 @@ def workbook_tabs_help(print_pack=False):
                 f"{FORMULATION}. Without the tick it has {OVERVIEW_SHEET} and {RESULTS_SHEET}, "
                 f"and {PREPARATION_SHEET} when the {ROUND} has pre-mixes.")
     return WORKBOOK_TABS_HELP
+
+
+def workbook_sheets(print_pack=False):
+    """v3: the one caption under the download (≤ 8 words); the pre-mix
+    sheet and the tick are in its "?" (workbook_sheets_help)."""
+    if print_pack:
+        return f"Sheets: {ROUND_CAP} · one page per {FORMULATION}"
+    return f"Sheets: {OVERVIEW_SHEET} · {RESULTS_SHEET}"
+
+
+def workbook_sheets_help(print_pack=False):
+    if print_pack:
+        return (f"One {ROUND_CAP} sheet and one printable page per {FORMULATION}. Untick for "
+                f"{OVERVIEW_SHEET} and {RESULTS_SHEET}.")
+    return (f"A {PREPARATION_SHEET} sheet is added when the {ROUND} has pre-mixes. Tick "
+            f"“{PRINT_PACK_CHECKBOX}” for one printable page each.")
 RECORD_RESULTS_LINE = "Leave a result blank until it is in."
 RECORD_RESULTS_HELP = ("One number per measurement; the panel mean where a panel rated it. "
                        "Leave blank if the result isn't in yet; you can add it later on Results.")

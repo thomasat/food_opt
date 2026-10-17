@@ -12,7 +12,6 @@ from streamlit.testing.v1 import AppTest
 import insights
 import insights_cache
 import insights_jobs
-import ui_batch
 import ui_insights
 import wording
 from tests.test_app_ui import APP_PATH
@@ -396,35 +395,6 @@ def test_the_poller_polls_while_fits_are_in_flight_and_stops_once_they_are_in(
     assert steps == [False, True]                        # nothing in flight: no poller
 
 
-def test_make_a_round_never_fits_for_the_track_line(five_rounds, monkeypatch):
-    """Review C I-4: without workers and with Insights never opened, Make a
-    round fits its column's models (the current ones and every Round's
-    Overall-score check) and nothing for the track line: no measurement
-    Round check, and no line."""
-    _with_open_round(five_rounds)
-    calls = []
-    real = insights.check_rounds
-
-    def check_rounds(opt, *a, **k):
-        calls.append(k.get("only"))
-        return real(opt, *a, **k)
-    monkeypatch.setattr(insights, "check_rounds", check_rounds)
-    models = []
-    real_fit = insights.fit
-
-    def fit(opt, name, rows):
-        models.append((name, len(rows)))
-        return real_fit(opt, name, rows)
-    monkeypatch.setattr(insights, "fit", fit)
-    at = _open(_app(five_rounds.project_name), wording.TAB_BATCH)
-    assert not at.exception
-    every = len(five_rounds.Y_history)
-    assert models and all(name == insights.SCORE or rows == every for name, rows in models)
-    assert calls and all(only is not None and {n for _, n in only} == {insights.SCORE}
-                         for only in calls)
-    assert not [c.value for c in at.tabs[1].caption if c.value.startswith("Recent Rounds")]
-
-
 def test_answer_1_waits_when_a_verdict_rounds_fit_failed(stuck, five_rounds):
     """Review C I-4: the settled guard. A measurement check in the
     verdict's Rounds failed, so the Rounds the verdict reads may not be the
@@ -544,68 +514,3 @@ def test_line_1_is_drawn_again_in_its_place_when_the_checks_change_the_yardstick
     md = [m.value for m in at.tabs[3].markdown]
     [line_1] = [i for i, m in enumerate(md) if "Best so far: Overall score " in m]
     assert line_1 == md.index(f"##### {wording.Q_STAND}") + 1
-
-
-# ------------------------------------------------------------------ #
-#  Task 10: Make a round's column (I1) and its track-record line (I16)
-# ------------------------------------------------------------------ #
-
-def _column(at):
-    [table] = [d for d in at.tabs[1].dataframe if wording.PREDICTED_SCORE_COLUMN in d.value]
-    return list(table.value[wording.PREDICTED_SCORE_COLUMN])
-
-
-def _with_open_round(opt):
-    opt.set_pending_batch([{"Pea": 6.0, "Oil": 4.0, "Water": 90.0},
-                           {"Pea": 7.0, "Oil": 3.0, "Water": 90.0}])
-    return opt
-
-
-def test_the_column_shows_dots_while_its_models_are_fitted(stuck, five_rounds, monkeypatch):
-    _with_open_round(five_rounds)
-    monkeypatch.setattr(insights, "_fit_gp", lambda *a: pytest.fail("fitted on Make a round"))
-    at = _open(_app(five_rounds.project_name), wording.TAB_BATCH)
-    assert not at.exception
-    assert _column(at) == [wording.PREDICTION_PENDING] * 2
-
-
-def test_the_column_is_widened_by_every_rounds_overall_score_check(five_rounds):
-    _with_open_round(five_rounds)
-    at = _open(_app(five_rounds.project_name), wording.TAB_BATCH)
-    assert not at.exception
-    fitted = insights.fit_all(five_rounds)
-    factor = insights.score_widen(insights.check_rounds(five_rounds))
-    assert factor > 1.0
-    rows = ui_batch.open_rows(five_rounds)
-    preds = insights.round_predictions(five_rounds, fitted, rows)
-    want = [ui_insights.score_text(insights.widened(fitted[insights.SCORE], p[insights.SCORE],
-                                                    factor))
-            for p in preds.values()]
-    assert _column(at) == want
-
-
-def test_the_track_line_sits_under_the_table_once_the_checks_are_in(five_rounds):
-    _with_open_round(five_rounds)
-    at = _app(five_rounds.project_name)
-    at.run()
-    _seed(at, five_rounds, "all")
-    at.session_state["main_tab"] = wording.TAB_BATCH
-    at.run()
-    t = insights.round_track(five_rounds, insights.check_rounds(five_rounds))
-    # Said by ui_insights.track_text, with its Rounds (BO views, 03 §5.8).
-    assert ui_insights.track_text(t) in [c.value for c in at.tabs[1].caption]
-    assert f"Overall score, {wording.rounds_span(t.rounds)}: " in ui_insights.track_text(t)
-
-
-def test_values_typed_on_make_a_round_survive_the_column_filling_in(stuck, five_rounds):
-    _with_open_round(five_rounds)
-    at = _open(_app(five_rounds.project_name), wording.TAB_BATCH)
-    assert _column(at) == [wording.PREDICTION_PENDING] * 2
-    at.number_input(key="f16_Firmness").set_value(5.5)
-    at.run()
-    _seed(at, five_rounds, "all")                  # the workers' models land
-    at.session_state["main_tab"] = wording.TAB_BATCH
-    at.run()                                       # what the poller's rerun does
-    assert not at.exception
-    assert wording.PREDICTION_PENDING not in _column(at)
-    assert at.number_input(key="f16_Firmness").value == 5.5

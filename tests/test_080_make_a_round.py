@@ -4,11 +4,9 @@ two changes, one "More" per formulation, one workbook line, lot numbers in
 a fold, the first-five caption only before five, one waiting line, "Start
 from Best so far" and a lit Back to Set up (spec 2026-09-30 §3; review
 M2, M10, M11, M14; audit V3, V11–V17, V31)."""
-import pandas as pd
 import pytest
 from streamlit.testing.v1 import AppTest
 
-import insights
 import ui_batch
 import wording
 from food_bo import FoodOptimizer
@@ -57,57 +55,6 @@ def test_the_screen_names_two_changes_and_the_sheet_keeps_its_list(four):
     sheet = four.batch_frame(four.pending_batch)[trying].iloc[0]
     assert screen.count(",") == 1 and sheet.count(",") == 2
     assert four.compared_with_text(recipe) == sheet
-
-
-def test_compared_with_comes_straight_after_formulation(four):
-    frame = ui_batch._compared_second(four, four.batch_frame(four.pending_batch))
-    assert list(frame.columns)[:2] == [wording.FORMULATION_CAP, four.compared_with_column()]
-    assert list(four.batch_frame(four.pending_batch).columns)[-1] == four.compared_with_column()
-
-
-def test_the_round_table_on_screen_has_compared_with_second(four):
-    at = _on_batch(_app())
-    at.run()
-    assert not at.exception
-    frame = at.tabs[1].dataframe[0].value
-    assert list(frame.columns)[:3] == [wording.FORMULATION_CAP, wording.PREDICTED_SCORE_COLUMN,
-                                       four.compared_with_column()]
-    # The screen names two of the three changes (review M14).
-    assert frame[four.compared_with_column()].iloc[0].count(",") == 1
-
-
-# ------------------------------------------------------------------ #
-#  "too uncertain yet" (§3, review M10)
-# ------------------------------------------------------------------ #
-
-def test_a_likely_range_over_three_quarters_of_the_range_is_too_uncertain():
-    opt = _patty(rows=0)
-    preds = {7: {"Firmness": insights.Prediction(5.0, 1.0, 9.0),        # 8 of 10
-                 "Juiciness": insights.Prediction(5.0, 3.0, 7.0),       # 4 of 10
-                 "Cook loss": insights.Prediction(20.0, 0.0, 30.0)}}    # 30 of 40: not over
-    cells, tips = ui_batch._measurement_cells(opt, preds)
-    assert cells["Firmness"].iloc[0] == wording.TOO_UNCERTAIN
-    # Round 2: the cell reads "—"; its tip keeps the numbers and says why.
-    assert tips["Firmness"].iloc[0] == "95\u00a0% range over ¾ of the Range: 5.0 (1.0–9.0)."
-    assert cells["Juiciness"].iloc[0] == "5.0 (3.0–7.0)" and tips["Juiciness"].iloc[0] == ""
-    assert cells["Cook loss"].iloc[0] != wording.TOO_UNCERTAIN
-    assert cells.shape == tips.shape and list(cells.columns) == list(tips.columns)
-
-
-def test_a_too_uncertain_cell_keeps_its_numbers_in_the_tooltip(four, monkeypatch):
-    """On screen, not only in the frame: the cell says "too uncertain yet"
-    and its tooltip carries the numbers (planning ruling 6)."""
-    no = four.pending_batch[0]['formulation']
-    wide = {no: {insights.SCORE: insights.Prediction(5.0, 3.0, 7.0),
-                 "Firmness": insights.Prediction(5.0, 1.0, 9.0)}}     # 8 of 10
-    monkeypatch.setattr(ui_batch, "_round_predictions", lambda opt: wide)
-    at = _on_batch(_app())
-    assert not at.exception
-    [fold] = [e for e in at.tabs[1].expander if e.label == wording.PREDICTED_MEASUREMENTS]
-    table = fold.table[0]
-    column = four._measurement_column(four.objectives[0])
-    assert table.value[column].iloc[0] == wording.TOO_UNCERTAIN
-    assert '5.0 (1.0–9.0)."' in table.proto.arrow_data.styler.styles   # round 2: with its reason
 
 
 # ------------------------------------------------------------------ #
@@ -175,13 +122,15 @@ def test_one_workbook_line_that_follows_the_box(open_batch):
     at = _app()
     at.run()
     captions = [c.value for c in at.tabs[1].caption]
-    assert wording.workbook_line(False) in captions
+    # v3: the line names the sheets, under the button.
+    assert wording.workbook_sheets(False) in captions
+    assert wording.workbook_line(False) not in captions
     # The two old workbook captions, by their text: Task 9 deletes the names.
     assert not any(c.startswith(("Download → Enter measurements", "Three tabs: Round overview"))
                    for c in captions)
     at.checkbox(key="workbook_print_pack").check()
     at.run()
-    assert wording.workbook_line(True) in [c.value for c in at.tabs[1].caption]
+    assert wording.workbook_sheets(True) in [c.value for c in at.tabs[1].caption]
 
 
 def test_the_download_help_follows_the_box(open_batch):

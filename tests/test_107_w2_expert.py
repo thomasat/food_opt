@@ -22,7 +22,6 @@ from streamlit.testing.v1 import AppTest
 import bo_views
 import insights
 import insights_jobs
-import ui_batch
 import ui_insights
 import wording as W
 from food_bo import COLD_START_RUNS, validate_bo_config
@@ -372,51 +371,3 @@ def test_method_and_definitions_at_the_gate():
         assert line in text
     rules, _ = list(fold.table)
     assert len(rules.value) == 6
-
-
-# ------------------------------------------------------------------ #
-#  Make a round: the column, the track line, the Why fold (§3, §7)
-# ------------------------------------------------------------------ #
-
-def test_the_predicted_score_column_names_its_statistics():
-    opt = D.load(D.LINE_A)
-    tip = ui_batch._score_help(opt)
-    assert tip.startswith(W.predicted_score_help(20))
-    assert "posterior mean of the Gaussian process" in tip
-    assert "95 % posterior predictive interval" in tip
-
-
-def test_the_track_line_help(project, monkeypatch):
-    # Line B's bias shows under the earlier 2-standard-error rule only
-    # (ftue fix A, cold read I5); the help with a bias is checked under it.
-    monkeypatch.setattr(insights, "t_critical", lambda df, p=0.975: 2.0)
-    opt, checks = project(D.LINE_B)
-    t = insights.round_track(opt, checks)
-    tip = ui_batch.track_help(opt, t)
-    for needle in ("rolling-origin", "95 % posterior predictive interval",
-                   "mean prediction error", "out-of-sample skill score"):
-        assert needle in tip, needle
-    a, checks = project(D.LINE_A)
-    plain = ui_batch.track_help(a, insights.round_track(a, checks))
-    assert "mean prediction error" not in plain and "rolling-origin" in plain
-
-
-@pytest.mark.parametrize("kind", ["qlognei", "qlogei", "qucb"])
-def test_the_why_columns_name_their_statistics(kind):
-    opt = D.load(D.LINE_A)
-    # Ftue fix C: the plain gain column, its tooltip carrying its BO term.
-    value_col = W.OPTIMISTIC_SCORE if kind == "qucb" else W.EXPECTED_GAIN
-    help_text = (W.OPTIMISTIC_SCORE_HELP if kind == "qucb" else W.tip_expected_gain(kind))
-    cols = ui_batch.why_columns(opt, value_col, help_text)
-    helps = {k: v["help"] for k, v in cols.items() if v.get("help")}
-    assert helps[W.MODEL_SD] == W.TIP_MODEL_SD
-    assert helps[W.CLOSEST_MADE] == W.TIP_CLOSEST_MADE
-    assert helps[W.ROLE].startswith(W.role_help()) and "distance labels" in helps[W.ROLE]
-    assert helps[W.PREDICTED_SCORE_COLUMN].startswith(W.tip_predicted_score())
-    assert W.TIP_INTERVAL in helps[W.PREDICTED_SCORE_COLUMN]
-    assert helps[value_col].startswith(help_text)
-    assert "acquisition value" in helps[value_col]
-    for text in helps.values():
-        assert not any(p.search(text) for p in _BANNED), text
-
-

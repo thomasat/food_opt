@@ -5692,7 +5692,7 @@ class TestWhatEachFormulationIsTrying:
         review I3): Formulations 1-5 hold 40-45 g of water."""
         opt = self._warm(self._opt(tmp_path, monkeypatch))
         assert opt.suggestion_kind({"Water": 55.0, "Wheat gluten": 20.0}) == \
-            "refines the best"
+            "close to the best"
         assert opt.suggestion_kind({"Water": 55.1, "Wheat gluten": 20.0}) == \
             "balanced"
         assert opt.suggestion_kind({"Water": 75.0, "Wheat gluten": 20.0}) == \
@@ -5719,7 +5719,7 @@ class TestWhatEachFormulationIsTrying:
             "explores"
         assert opt.suggestion_kind(
             {"Water": 40.0, "Wheat gluten": 20.0, "Salt": 0.5}) == \
-            "refines the best"
+            "close to the best"
 
     def test_a_fixed_variable_does_not_decide_the_kind(self, tmp_path,
                                                         monkeypatch):
@@ -5731,7 +5731,7 @@ class TestWhatEachFormulationIsTrying:
         moved = {"Water": 40.0, "Wheat gluten": 20.0, "Salt": 5.0}
         assert opt.suggestion_kind(moved) == "explores"
         opt.add_ingredient("Salt", 0, 0)
-        assert opt.suggestion_kind(moved) == "refines the best"
+        assert opt.suggestion_kind(moved) == "close to the best"
 
     def test_the_cold_start_is_spread_across_the_allowed_amounts(
             self, tmp_path, monkeypatch):
@@ -5798,7 +5798,7 @@ class TestWhatEachFormulationIsTrying:
         assert opt.compared_with_text({"Water": 60.0, "Wheat gluten": 20.0}) \
             == "Balanced · Water +20.00 g"
         assert opt.compared_with_text({"Water": 41.0, "Wheat gluten": 20.0}) \
-            == "Refines the best · Water +1.00 g"
+            == "Close to the best · Water +1.00 g"
 
     def test_the_batch_table_carries_the_column_and_the_sheet_does_not(
             self, tmp_path, monkeypatch):
@@ -5811,7 +5811,7 @@ class TestWhatEachFormulationIsTrying:
         assert list(df.columns)[-1] == "Compared with Formulation 1"
         assert list(df["Compared with Formulation 1"]) == [
             "Explores · Water +40.00 g",
-            "Refines the best · Water +1.00 g"]
+            "Close to the best · Water +1.00 g"]
         # ... and not on the sheets: a workbook's rows are the ingredients
         # to weigh out, and a column of prose is not one of them.
         summary = _book(opt.workbook_bytes(opt.pending_batch, None)).worksheets[0]
@@ -5832,7 +5832,7 @@ class TestWhatEachFormulationIsTrying:
         # gluten the same distance the other way. The KIND is read off the
         # amounts the project stores, because the allowed amounts it is a
         # fraction of are the project's own: 52 g against 40 g is still close.
-        assert cell == ("Refines the best · Water +6.67 g, "
+        assert cell == ("Close to the best · Water +6.67 g, "
                         "Wheat gluten −6.67 g"), cell
         # The frame itself carries the two decimals the screen shows.
         assert df["Water (g)"].iloc[0] == 86.67
@@ -5870,7 +5870,7 @@ class TestWhatEachFormulationIsTrying:
         recipe = {"Water": 41.0, "Wheat gluten": 20.0}
         assert wording.compared_with_line(opt.compared_with_column(),
                                           opt.compared_with_text(recipe)) == \
-            ("Compared with Formulation 1: Refines the best · "
+            ("Compared with Formulation 1: Close to the best · "
              "Water +1.00 g")
 
 
