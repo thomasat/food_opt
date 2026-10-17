@@ -474,7 +474,7 @@ opt.add_ingredient("water", 0.0, 100.0)
 opt.add_ingredient("flour", 0.0, 100.0)
 opt.add_objective("taste", 1.0, goal="max")
 opt.set_formulation_total(50.0)
-# Five scored rows: the Compared-with column is drawn only once the cold
+# Five scored rows: the Best-so-far column is drawn only once the cold
 # start is over (the first five formulations are spread out, not compared).
 for no, water in enumerate((20.0, 22.0, 24.0, 26.0, 28.0), start=1):
     opt.tell({"water": water, "flour": 50.0 - water}, {"taste": 5.0 + no * 0.4},
@@ -517,17 +517,16 @@ assert _unknown(at.sidebar, "file_uploader", wording.OPEN_A_SAVED_COPY) is not N
 assert wording.formulation_total_label("g") in [n.label for n in at.number_input], \
     [n.label for n in at.number_input]
 
-# Tab 2 - Make a round: one workbook download, and the last column of the
-# round table says what each formulation is trying, against the best so far.
+# Tab 2 - Make a round: one workbook download, and the round table (v3)
+# compares each formulation with the best so far, column by column.
 at.session_state["main_tab"] = wording.TAB_BATCH
 at.run()
 assert not at.exception, at.exception
 assert _unknown(at.main, "download_button",
                 wording.DOWNLOAD_BATCH_SHEETS) is not None
-table = next(d.value for d in at.dataframe
-             if any(str(c).startswith("Compared with") for c in d.value.columns))
-assert any(str(c).startswith("Compared with") for c in table.columns), \
-    list(table.columns)
+best_cols = [str(c) for d in at.dataframe for c in d.value.columns
+             if str(c).startswith(wording.BEST_SO_FAR_COLUMN)]
+assert best_cols, [list(d.value.columns) for d in at.dataframe]
 print("KITCHEN_TRUST_OK")
 PY
 )"
