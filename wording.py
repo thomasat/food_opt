@@ -3833,25 +3833,24 @@ def calculated_range_caption(low_text, high_text, unit):
             "limits. This is not a measured result.")
 
 
-# The three sheets of the compact workbook, and the lines that head them.
+# The sheets of the compact workbook, and the lines that head them:
+# Round overview and Results always, Preparation only when the Round has
+# pre-mixes (v3).
 OVERVIEW_SHEET = "Round overview"
 PREPARATION_SHEET = "Preparation"
 RESULTS_SHEET = "Results"
-SHEET_NAVIGATION = (
-    f"Use the sheet tabs: {OVERVIEW_SHEET} → {PREPARATION_SHEET} → "
-    f"{RESULTS_SHEET}. Tabs are at the bottom in Excel and at the top in "
-    "Numbers. ")
 OVERVIEW_SHEET_INTRO = (
     f"Review the plan, prepare each {FORMULATION} separately, then enter "
     f"measurements on {RESULTS_SHEET} and upload this file in the app.")
 
 
 def sheet_navigation(premixes=True):
-    """Preview 0.8.1: the tabs named, Preparation only when there is one."""
-    if premixes:
-        return SHEET_NAVIGATION
-    return (f"Use the sheet tabs: {OVERVIEW_SHEET} → {RESULTS_SHEET}. Tabs are at the bottom "
-            "in Excel and at the top in Numbers. ")
+    """The line that opens each sheet, naming the workbook's tabs in order:
+    Preparation only when the Round has pre-mixes and so has that sheet."""
+    tabs = ((OVERVIEW_SHEET, PREPARATION_SHEET, RESULTS_SHEET) if premixes
+            else (OVERVIEW_SHEET, RESULTS_SHEET))
+    return (f"Use the sheet tabs: {' → '.join(tabs)}. Tabs are at the bottom in "
+            "Excel and at the top in Numbers. ")
 
 
 PREPARATION_SHEET_TITLE = f"{PREPARATION_SHEET} — Pre-mixes for this round"
@@ -3859,8 +3858,6 @@ PREPARATION_SHEET_INTRO = (
     f"Prepare pre-mixes with fixed {INGREDIENT} percentages here. For blends "
     f"where {INGREDIENT} amounts vary separately, follow the individual "
     f"amounts on {OVERVIEW_SHEET}.")
-PREPARATION_SHEET_EMPTY = (
-    f"No pre-mixes are required. Follow the method on {OVERVIEW_SHEET}.")
 RESULTS_SHEET_TITLE = f"{RESULTS_SHEET} — Enter measurements here"
 RESULTS_SHEET_INTRO = (
     f"Each {FORMULATION} has its own column. Blank means not recorded yet. "

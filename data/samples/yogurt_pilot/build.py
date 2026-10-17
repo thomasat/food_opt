@@ -3,7 +3,9 @@
 Run with the devenv python, from anywhere:
     devenv/bin/python data/samples/yogurt_pilot/build.py [OUT_DIR]
 It writes <project>.json (default: beside this file) for the two shipped
-projects, plus "Round 5" which is built by tests only.
+projects, plus "Round 5" which is built by tests only, and "Round 6 results
+(pilot).xlsx", Round 6's workbook with the pilot's ratings typed in
+(write_round6_results).
 
 Every pilot Iteration is one Round; its three Batches are recorded in Batch
 order as formulations of your own, exactly as the app records them:
@@ -207,6 +209,53 @@ def build(name, scored, open_round=None, out_dir=None):
         os.chdir(prev)
 
 
+ROUND6_RESULTS = "Round 6 results (pilot).xlsx"
+
+
+def _cell_value(value):
+    """12, not 12.0: a whole panel median as the bench would type it."""
+    return int(value) if float(value).is_integer() else float(value)
+
+
+def write_round6_results(path=None, work_dir=None):
+    """The shipped ROUND6_RESULTS: Round 6's workbook exactly as 2 · Make a
+    round downloads it (the compact one, at the Round's own size), with
+    the pilot's Round 6 ratings typed into its Results sheet. The notes
+    are the ones the Round's rows carry (note_of). Its title names the
+    Round and the project but no print date: the pilot printed nothing on
+    the day this runs. `work_dir` holds the throwaway project build."""
+    import io
+    import tempfile
+
+    from openpyxl import load_workbook
+
+    import wording
+
+    path = path or os.path.join(HERE, ROUND6_RESULTS)
+    with tempfile.TemporaryDirectory() as scratch:
+        opt = build("Yogurt pilot - Round 6 to score", scored=5, open_round=6,
+                    out_dir=work_dir or scratch)
+        book = load_workbook(io.BytesIO(opt.workbook_bytes(
+            opt.pending_batch, opt.open_round_size(), print_pack=False)))
+    overview = book[wording.OVERVIEW_SHEET]
+    overview["A1"] = f"{wording.batch_sheet_name(opt.pending_batch_no)} · {opt.project_name}"
+    by_note = {note_of(b): res for b, _, res, _ in pilot()[6]}
+    sheet = book[wording.RESULTS_SHEET]
+    header = next(c.row for row in sheet for c in row
+                  if c.column == 1 and c.value == wording.MEASUREMENT_COLUMN)
+    columns = {opt._formulation_column_number(c.value): c.column
+               for c in sheet[header] if opt._formulation_column_number(c.value)}
+    for row in opt.pending_batch:
+        results = by_note[row["note"]]
+        for r in range(header + 1, sheet.max_row + 1):
+            label = str(sheet.cell(r, 1).value or "")
+            name = next((n for n in results if label.startswith(n + " (")), None)
+            if name is not None:
+                sheet.cell(r, columns[row["formulation"]], _cell_value(results[name]))
+    book.save(path)
+    return path
+
+
 def check_scores(opt):
     """The app's Overall score against the pilot's utility x 100."""
     want = [u for it in pilot().values() for _, _, _, u in it]
@@ -223,6 +272,7 @@ if __name__ == "__main__":
               out_dir=out),
         build("Yogurt pilot - all 10 Rounds", scored=10, out_dir=out),
     ]
+    print("wrote", write_round6_results(os.path.join(out, ROUND6_RESULTS)))
     for p in projects:
         worst, n = check_scores(p)
         os.replace(os.path.join(out, f"{p.project_name}.pkl"),
