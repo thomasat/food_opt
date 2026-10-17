@@ -3766,7 +3766,7 @@ class TestSharesAreTheWeights:
         saved = FoodOptimizer(opt.project_name)
         assert saved.Y_history[0] == pytest.approx(100.0)
         assert wording.overall_score_line(
-            saved.Y_history[0], saved.utility_ceiling()) == "Overall score 100.00 of 100."
+            saved.Y_history[0], saved.utility_ceiling()) == "Overall score 100.0 of 100."
 
     def test_a_measurement_deleted_leaves_the_rest_at_a_hundred(
             self, tmp_path, monkeypatch):
@@ -4404,7 +4404,8 @@ class TestRoundTwoFixes:
 
     def test_the_downloaded_scores_are_the_scores_on_screen(self, tmp_path,
                                                             monkeypatch):
-        """The table shows 2.62; the file used to hold 2.625."""
+        """The table shows 2.6; the file keeps 2.62 (two decimals, never
+        2.625), and reads as the screen's number at one decimal."""
         opt = self._opt(tmp_path, monkeypatch)
         opt.add_objective("Juiciness", 0.75, goal="target", target=7,
                           min_val=0, max_val=10, unit="/10")
@@ -4413,7 +4414,7 @@ class TestRoundTwoFixes:
                  batch_no=1)
         frame = pd.read_csv(io.StringIO(opt.history_csv()))
         on_screen = opt.history_frame()["Overall score"].iloc[0]
-        assert f"{frame['Overall score'].iloc[0]:.2f}" == on_screen
+        assert f"{frame['Overall score'].iloc[0]:.1f}" == on_screen
         assert frame["Overall score"].iloc[0] == round(
             float(opt.Y_history[0]), 2)
 

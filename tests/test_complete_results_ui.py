@@ -231,7 +231,7 @@ def test_a_formulation_scored_without_a_measurement_says_so(scored):
     assert not at.exception
     opened = FoodOptimizer("burger")         # the scores the screen reads
     best = opened.best_index()
-    line = (f"Overall score {opened.Y_history[best]:.2f} of "
+    line = (f"Overall score {opened.Y_history[best]:.1f} of "
             f"{opened.utility_ceiling():g} · scored without Cook loss.")
     assert any(c.value.startswith(line) for c in at.caption), \
         [c.value for c in at.caption]

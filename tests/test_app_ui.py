@@ -2665,7 +2665,7 @@ def test_best_heading_off_by_table_and_score_caption(scored):
     # measurement on target" would be a false claim about the formulation
     # the table above it is describing. What the ceiling means is said once,
     # on Set up. One line, the rest behind its "?" (spec 2026-09-30 §4, V10):
-    score = next(c for c in at.tabs[2].caption if c.value == "Overall score 88.00 of 100.")
+    score = next(c for c in at.tabs[2].caption if c.value == "Overall score 88.0 of 100.")
     assert score.proto.help == wording.OVERALL_SCORE_HELP
 
 
