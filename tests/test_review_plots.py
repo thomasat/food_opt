@@ -156,15 +156,17 @@ def _colours(spec):
 
 def test_one_colour_per_meaning_across_charts(specs):
     ink = U.mark("bar_latest")[0].lower()
-    orange = U.outline_colour().lower()
+    above, below = (U.direction_colour(k).lower() for k in ("above", "below"))
     blue = U.model_blue().lower()
     # Best so far: the ink line; its own dots and labels blue (v3).
     assert ink in _colours(specs["improving"]) and blue in _colours(specs["improving"])
-    # Off target orange on the strip.
-    assert orange in _colours(specs["targets"])
-    # The strip: blue on target; the amounts: no orange at all.
-    assert blue in _colours(specs["targets"])
-    assert orange not in _colours(specs["amounts"])
+    # Off target shows its direction on the strip (v3 final cleanup):
+    # orange above its target, purple below; the old single orange is gone.
+    assert {above, below} & _colours(specs["targets"])
+    assert U.outline_colour().lower() not in _colours(specs["targets"])
+    # The strip: blue only on target (this best is on target nowhere, and
+    # its key lists only what is drawn); the amounts: no direction colour.
+    assert above not in _colours(specs["amounts"]) and below not in _colours(specs["amounts"])
     # No default palette: every colour channel with a field has its range.
     for name, spec in specs.items():
         for unit in _units(spec):

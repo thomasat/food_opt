@@ -188,6 +188,7 @@ def test_the_strip_has_one_row_per_attribute_with_its_value_text(r6):
     assert texts == {"Consistency": "12 (target 12)", "Creaminess": "5 (target 5)",
                      "Tangy": "4 (target 5, −1)", "Thickness uniformity": "13 (target 13)"}
     assert [r["off"] for r in rows] == [False, False, True, False]
+    assert [d["direction"] for r in rows for d in r["dots"]] == ["", "", "below", ""]
     # F16 and F17 agree on every attribute: one dot a row.
     assert all(len(r["dots"]) == 1 for r in rows)
 
@@ -196,9 +197,17 @@ def test_the_strip_spec(r6, monkeypatch):
     spec = U.targets_chart(r6, U.round_view(r6)).to_dict()
     text = _spec_text(spec)
     assert "Panel median (0–15)" in text
-    for entry in ("Target", "Best, on target", "Best, off target"):
+    # Off target shows its direction (owner, v3 final cleanup): Tangy 4
+    # against 5 is below, purple — its dot, its gap line and its text. Only
+    # the entries present are in the key.
+    for entry in ("Target", "Best, on target", "Below target"):
         assert entry in text
-    assert U.outline_colour() in text and U.model_blue() in text
+    assert "Above target" not in text and "Best, off target" not in text
+    below = U.direction_colour("below")
+    assert U.model_blue() in text and below in text
+    assert U.outline_colour() not in text and U.direction_colour("above") not in text
+    marks = [(m["mark"].get("type"), m["mark"].get("color")) for m in spec["layer"]]
+    assert ("rule", below) in marks and ("text", below) in marks
     assert "theta" not in text and "arc" not in text        # no radar
     for gone in ("spider_chart", "spider_data", "_spider_block", "target_chart"):
         assert not hasattr(U, gone), gone
@@ -295,7 +304,8 @@ def test_dark_theme_uses_the_dark_tokens(r6, monkeypatch):
         assert colour not in amounts
     strip = _spec_text(U.targets_chart(r6, v).to_dict())
     assert U._TRACK_COLOURS["dark"][0] in strip and U._TRACK_COLOURS["light"][0] not in strip
-    assert U.model_blue("dark") in strip and U._OUTLINE_DARK in strip
+    assert U.model_blue("dark") in strip and U.direction_colour("below", "dark") in strip
+    assert U._OUTLINE_DARK not in strip
     score = _spec_text(U.improving_chart(r6, height=U.PANEL_CHART_H).to_dict())
     assert U.model_blue("dark") in score and "#0e1117" in score
 
@@ -490,3 +500,21 @@ def test_the_advanced_noise_setting_says_no_tasting_noise_or_stop():
     assert wording.NOISE_LABEL == "Noise"
     for word in ("tasting noise", "stop", "when to stop"):
         assert word not in said.lower(), word
+
+
+def test_an_above_target_best_is_orange_in_the_strip(r6):
+    v = U.round_view(r6)
+    for i in v.bests:
+        r6.results_history[i]["Tangy"] = 6.0
+    row = next(r for r in U.target_strip_rows(r6, v) if r["name"] == "Tangy")
+    assert row["dots"][0]["direction"] == "above"
+    text = _spec_text(U.targets_chart(r6, v).to_dict())
+    assert "Above target" in text and "Below target" not in text
+    assert U.direction_colour("above") in text
+
+
+@pytest.mark.parametrize("which, above, below", [("light", "#c2410c", "#7e3fbf"),
+                                                 ("dark", "#ff9f5a", "#c79bff")])
+def test_the_direction_tokens(which, above, below):
+    assert U.direction_colour("above", which) == above
+    assert U.direction_colour("below", which) == below

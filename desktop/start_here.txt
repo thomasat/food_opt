@@ -112,7 +112,7 @@ log; review it before attaching it. If the app cannot open, find the log at:
 
 REVIEWING RESULTS
 Results opens on the last Round's results: Overall scores and ratings
-against their targets, off-target ratings in orange. How the score is
+against their targets: orange above a target, purple below. How the score is
 worked out shows one formulation's points. Use View formulation to
 inspect another recorded formulation, including one without a score. Amount and % of
 formulation appear together. Percentages exclude process settings and are

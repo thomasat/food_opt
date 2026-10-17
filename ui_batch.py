@@ -685,31 +685,41 @@ def _title(opt):
 #  v3 · the Round table (final-v3/2-make-round.png; wording.md §2): the
 #  rows are the ingredients and settings in Set up's order, the columns
 #  Best so far and then each formulation of the open Round. Each cell is
-#  the amount with its change from Best so far in brackets; grey shading
-#  grows with that change as a share of the row's allowed range. No
-#  forecasts on this screen (owner, v3): the model only picks.
+#  the amount alone, its number orange when it is more than Best so far's
+#  by DIRECTION_SHARE of the row's allowed range or more, purple when it
+#  is less (owner, v3 final cleanup; it replaced the bracketed change and
+#  the grey shading). No forecasts on this screen (owner, v3): the model
+#  only picks.
 # ------------------------------------------------------------------ #
 
-# A change under this share of a row's allowed range is not written.
-HIDE_CHANGE = 0.01
-# The share of a row's allowed range at which the shading is darkest.
-FULL_SHADE = 0.20
+# A change of at least this share of a row's allowed range (Lowest–Highest)
+# colours the number; _SHARE_TOL keeps 5 % up to float error at 5 %.
+DIRECTION_SHARE = 0.05
+_SHARE_TOL = 1e-9
 # Two Overall scores this close are the same score (ties are named).
 SCORE_TIE = 1e-6
-# Theme-keyed table colours: the plain cell, the darkest grey, and Best so
-# far's blue (blue = best so far only; grey = everything else). The text
-# keeps at least 4.5:1 on the darkest grey in each theme.
+# Theme-keyed table colours: Best so far's column tint (blue = best so far
+# only). The direction colours are ui_insights.direction_colour's.
 _COMPARE_COLOURS = {
-    "light": {"plain": "#ffffff", "full": "#9aa0aa", "best": "#e8f0fe"},
-    "dark": {"plain": "#0e1117", "full": "#5a6170", "best": "#1c2a4a"},
+    "light": {"best": "#e8f0fe"},
+    "dark": {"best": "#1c2a4a"},
 }
+
+
+def direction_of(change, span):
+    """'more' | 'less' when `change` is at least DIRECTION_SHARE of `span`
+    (with _SHARE_TOL), else ''."""
+    if span <= 0 or abs(change) / span < DIRECTION_SHARE - _SHARE_TOL:
+        return ""
+    return "more" if change > 0 else "less"
 
 
 @dataclass
 class CompareCell:
     text: str            # what the cell says (lines joined by "\n")
-    share: float = 0.0   # |change| / allowed range; 0 when not written
+    share: float = 0.0   # |change from Best so far| / allowed range
     tag: str = ""        # wording.AT_UPPER_LIMIT / AT_LOWER_LIMIT / ""
+    direction: str = ""  # 'more' | 'less' | '' (direction_of)
 
 
 @dataclass
@@ -796,12 +806,6 @@ def _number(opt, var, value):
     return f"{float(value):.2f}"
 
 
-def _change(opt, var, delta):
-    if var.get('category') == 'process':
-        return ("+" if delta > 0 else "−") + fmt_setting(abs(delta))
-    return wording.signed(delta, 2)
-
-
 def _as_float(value):
     try:
         return float(value)
@@ -842,8 +846,8 @@ def _column_label(opt, row, k):
 def round_compare(opt, scale_to=None):
     """The open Round's table, worked out (no Streamlit): see RoundCompare.
     Amounts as the bench weighs them (shown_recipe, at `scale_to`); the
-    change, the shading and the limit tags read at the Formulation total, so
-    they never move with the Batch size box."""
+    change from Best so far, its direction and the limit tags read at the
+    Formulation total, so they never move with the Batch size box."""
     variables = list(opt.variables)
     rows = list(opt.pending_batch or [])
     # One unit down the whole table: in the header, once. Otherwise each
@@ -903,24 +907,20 @@ def round_compare(opt, scale_to=None):
                 col.append(CompareCell(str(shown.get(name, ""))))
                 continue
             text = _number(opt, v, x)
-            share = 0.0
+            share, way = 0.0, ""
             if ref is not None:
-                r = _as_float(ref.get(name))
                 a, b = _as_float(at_total.get(name)), _as_float(ref_total.get(name))
                 try:
                     lo, hi = (float(e) for e in v['bounds'])
                 except (KeyError, TypeError, ValueError):
                     lo = hi = 0.0
-                if r is not None and a is not None and b is not None and hi > lo:
-                    s = abs(a - b) / (hi - lo)
-                    delta = round(x, 2) - round(r, 2)
-                    if s >= HIDE_CHANGE - 1e-12 and _change(opt, v, delta) not in ("0.00", "−0"):
-                        text += f" ({_change(opt, v, delta)})"
-                        share = s
+                if a is not None and b is not None and hi > lo:
+                    share = abs(a - b) / (hi - lo)
+                    way = direction_of(a - b, hi - lo)
             tag = _limit_tag(v, at_total.get(name))
             if tag:
                 text += "\n" + tag
-            col.append(CompareCell(text, share, tag))
+            col.append(CompareCell(text, share, tag, way))
         if with_total:
             col.append(total_cell(shown))
         cells.append(col)
@@ -933,17 +933,10 @@ def round_compare(opt, scale_to=None):
         formulations=[int(r['formulation']) for r in rows], total_row=with_total)
 
 
-def _blend(plain, full, t):
-    """The colour t (0-1) of the way from `plain` to `full`."""
-    a = [int(plain[i:i + 2], 16) for i in (1, 3, 5)]
-    b = [int(full[i:i + 2], 16) for i in (1, 3, 5)]
-    return "#" + "".join(f"{round(x + (y - x) * t):02x}" for x, y in zip(a, b))
-
-
 def compare_styles(table, which="light"):
     """[column][row] CSS for the table in theme `which`: Best so far's
-    column blue; each changed cell grey, from the plain cell colour to the
-    darkest at FULL_SHADE of the row's allowed range; the Total bold."""
+    column blue; a number with a direction in its colour (more orange, less
+    purple: ui_insights.direction_colour); everything else plain."""
     tokens = _COMPARE_COLOURS[which]
     out = []
     best = table.best_no is not None
@@ -954,27 +947,44 @@ def compare_styles(table, which="light"):
             total = table.total_row and r == len(col) - 1
             if best and c == 0:
                 parts.append(f"background-color: {tokens['best']}")
-            elif cell.share > 0 and not total:
-                t = min(1.0, cell.share / FULL_SHADE)
-                parts.append(f"background-color: {_blend(tokens['plain'], tokens['full'], t)}")
+            elif cell.direction and not total:
+                kind = "above" if cell.direction == "more" else "below"
+                parts.append(f"color: {ui_insights.direction_colour(kind, which)}")
             css.append("; ".join(parts))
         out.append(css)
     return out
 
 
+def limit_tag_style(which="light"):
+    """The table style for a cell's limit line (drawn as *at upper limit*):
+    always the theme's muted grey, smaller than the number and upright,
+    whatever colour the number has (owner, v3 final cleanup)."""
+    grey = ui_insights._MUTED_DARK if which == "dark" else ui_insights._MUTED_LIGHT
+    return {"selector": "td em",
+            "props": f"color: {grey} !important; font-size: 0.8em; font-style: normal; "
+                     "font-weight: 400"}
+
+
 def compare_frames(opt, table, which="light"):
     """(cells, css): two frames of one shape, the row labels as the index,
     in the project's own words (Trial, T10 in a study of trials). st.table
-    draws each cell as Markdown: a limit tag goes on a line of its own (a
-    hard break), and the Total row is bold."""
+    draws each cell as Markdown: a number with a direction is bold, a limit
+    tag goes on a line of its own (a hard break) in emphasis, which
+    limit_tag_style draws muted and small, and the Total row is bold."""
     say = lambda text: ui_insights._short(opt, text)
     last = len(table.rows) - 1 if table.total_row else None
     bold = lambda text, r: f"**{text}**" if r == last and text else text
+
+    def shown(cell, r):
+        number, _, tag = cell.text.partition("\n")
+        if cell.direction and number and r != last:
+            number = f"**{number}**"
+        text = bold(number, r)
+        return f"{text}  \n*{tag}*" if tag else text
     index = pd.Index([bold(say(r), k) for k, r in enumerate(table.rows)],
                      name=say(table.row_header))
     columns = [say(c) for c in table.columns]
-    cells = pd.DataFrame({c: [bold(cell.text.replace("\n", "  \n"), r)
-                              for r, cell in enumerate(col)]
+    cells = pd.DataFrame({c: [shown(cell, r) for r, cell in enumerate(col)]
                           for c, col in zip(columns, table.cells)}, index=index)
     css = pd.DataFrame({c: col for c, col in zip(columns, compare_styles(table, which))},
                        index=index)
@@ -1004,7 +1014,8 @@ def _draw_compare(opt, table):
     say = lambda text: ui_insights._short(opt, text)
     cells, css = compare_frames(opt, table, ui_insights.theme())
     styled = cells.style.apply(lambda _: css, axis=None).set_table_styles(
-        [{"selector": "thead th", "props": "text-align: center !important"}])
+        [{"selector": "thead th", "props": "text-align: center !important"},
+         limit_tag_style(ui_insights.theme())])
     if table.tied:
         # The tie in the Best so far column's cells' "?" (st.table draws no
         # header help); the key's "?" says it too.
@@ -1015,9 +1026,9 @@ def _draw_compare(opt, table):
     st.table(styled)
     if table.best_no is None:
         return
-    unit = table.unit if opt.has_ingredients() else None
-    tips = [wording.change_key_help(table.best_no, round(HIDE_CHANGE * 100),
-                                    round(FULL_SHADE * 100))]
+    row = "ingredient" if opt.has_ingredients() else "setting"
+    pct = DIRECTION_SHARE * 100
+    tips = [wording.compare_key_help(table.best_no, pct, row)]
     if table.tied:
         tips.append(wording.best_tied_help(table.best_no, table.tied))
     if any(wording.LESS_TRIED in c for c in table.columns):
@@ -1032,8 +1043,10 @@ def _draw_compare(opt, table):
                          table.formulations):
         if no in prefixes:
             tips.append(f"{label.split(' · ')[0]}: {prefixes[no].strip()}")
-    row = "ingredient" if opt.has_ingredients() else "setting"
-    st.caption(say(wording.change_key(table.best_no, unit, row)), help=say(" ".join(tips)))
+    st.caption(ui_insights.direction_key_html(
+        "", say(wording.compare_key_more(table.best_no)),
+        say(wording.compare_key_less(table.best_no)), wording.compare_key_plain(pct)),
+        help=say(" ".join(tips)), unsafe_allow_html=True)
 
 
 def _near_copy_prefixes(opt, batch):

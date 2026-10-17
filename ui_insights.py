@@ -3,6 +3,7 @@ and never call Streamlit; render() at the bottom is the only Streamlit code."""
 import collections
 import contextlib
 import dataclasses
+import html
 import math
 import re
 import threading
@@ -234,6 +235,32 @@ _OUTLINE_DARK = "#E69F00"      # on Streamlit's dark background
 def outline_colour():
     """The Predicted above Best so far outline for the reader's theme."""
     return _OUTLINE_DARK if muted() == _MUTED_DARK else _OUTLINE_LIGHT
+
+
+# Direction against a target (Results, the score fold, Review's strip) or
+# against Best so far (Make a round): above / more orange, below / less
+# purple, per theme (owner, v3 final cleanup; it replaced one orange for
+# "off target"). Each at least 4.5:1 on its theme's page.
+_DIRECTION = {"light": {"above": "#c2410c", "below": "#7e3fbf"},
+              "dark": {"above": "#ff9f5a", "below": "#c79bff"}}
+
+
+def direction_colour(kind, which=None):
+    """The colour of `kind` ('above' | 'below') in theme `which` (the
+    reader's when None)."""
+    return _DIRECTION[which or theme()][kind]
+
+
+def direction_key_html(head, above, below, tail="", which=None):
+    """A caption's key: `head`, then `above` in the above colour and
+    `below` in the below colour, bold, then `tail` — for st.caption with
+    unsafe_allow_html (st.markdown's own colours are named, not tokens)."""
+    def span(text, kind):
+        return (f'<span style="color: {direction_colour(kind, which)}; font-weight: 600">'
+                f'{html.escape(text)}</span>')
+    parts = [span(above, "above"), span(below, "below")] + ([html.escape(tail)] if tail else [])
+    key = " · ".join(parts)
+    return f"{html.escape(head)} {key}" if head else key
 
 
 def fitted_models(opt, working=wording.INSIGHTS_WORKING, bar=None):
@@ -1188,7 +1215,8 @@ def target_strip_rows(opt, view):
     """One row per measurement with a value for the best so far, largest
     Share of score first: its Range, goal and target, one dot for the best
     so far (one per tied best where they differ, each named), whether each
-    is off target, and the value text ('4 (target 5, −1)')."""
+    is off target and which way ('above' | 'below' | ''), and the value
+    text ('4 (target 5, −1)')."""
     out = []
     names = _names(opt, view.bests)
     for obj in opt.measurements_by_importance():
@@ -1205,6 +1233,7 @@ def target_strip_rows(opt, view):
         for k, v in (vals[:1] if same else vals):
             off = target is not None and abs(v - target) > 1e-9 * max(hi - lo, 1.0)
             dots.append({"k": k, "who": names[k], "value": v, "off": off,
+                         "direction": ("" if not off else "above" if v > target else "below"),
                          "shape": "circle" if same else BEST_SHAPES[k % len(BEST_SHAPES)]})
         t_text = None if target is None else _measure_text(target)
         if same:
@@ -1250,9 +1279,10 @@ def _room_scale(room, gap=_STRIP_GAP_PX):
 def targets_chart(opt, view):
     """Best so far vs targets (final-v3; replaces the radar): one row per
     measured attribute on its own Range — a light track, the target a
-    tall ink tick, the best so far's dot blue on target, orange off target
-    with the gap to the target drawn; the value at the row's end ('4
-    (target 5, −1)', orange when off). A max or min goal has no target
+    tall ink tick, the best so far's dot blue on target; off target, its
+    dot, the gap to the target and the value at the row's end ('4 (target
+    5, −1)') orange above the target and purple below it (owner, v3 final
+    cleanup). A max or min goal has no target
     tick: its dot grey, its text 'higher is better'. Tied bests that
     differ: one dot each, its own marker, named in the text. None with no
     row."""
@@ -1262,7 +1292,7 @@ def targets_chart(opt, view):
     names = [r["name"] for r in rows]
     ink, _ = mark("bar_latest")
     grey, _ = mark("neutral")
-    blue, orange = model_blue(), outline_colour()
+    blue = model_blue()
     fill, edge = _TRACK_COLOURS[theme()]
     axis_title = _axis_label(opt, rows)
     xs = _room_scale(_STRIP_ROOM_PX)
@@ -1313,7 +1343,8 @@ def targets_chart(opt, view):
     dots = []
     for r in rows:
         for d in r["dots"]:
-            colour = (orange if d["off"] else blue) if r["target"] is not None else grey
+            colour = ((direction_colour(d["direction"]) if d["off"] else blue)
+                      if r["target"] is not None else grey)
             dots.append({"name": r["name"], "x": t(r, d["value"]),
                          "tx": t(r, r["target"]) if r["target"] is not None else None,
                          "off": d["off"], "colour": colour, "shape": d["shape"],
@@ -1321,8 +1352,8 @@ def targets_chart(opt, view):
                          "label": f"{d['who']}" if r["named"] else ""})
     ddf = pd.DataFrame(dots)
     gaps = ddf[ddf["off"]]
-    if not gaps.empty:
-        layers.append(alt.Chart(gaps).mark_rule(color=orange, strokeWidth=5, tooltip=False)
+    for colour, part in (gaps.groupby("colour") if not gaps.empty else ()):
+        layers.append(alt.Chart(part).mark_rule(color=colour, strokeWidth=5, tooltip=False)
                       .encode(x=xa("x"), x2="tx:Q", y=y))
     tip = [alt.Tooltip("value:N", title=_say(opt, wording.BEST_SO_FAR_COLUMN))]
     if (ddf["who"] != "").any():
@@ -1335,8 +1366,11 @@ def targets_chart(opt, view):
     if not named.empty:
         layers += _halo_text(named, xa("x"), y, "label:N", ink,
                              fontSize=FONT_SMALL, dy=-14, baseline="bottom")
+    def text_colour(r):
+        ways = [d["direction"] for d in r["dots"] if d["direction"]]
+        return direction_colour(ways[0]) if ways else ink
     texts = pd.DataFrame([{"name": r["name"], "x": 1.0, "text": _say(opt, r["text"]),
-                           "colour": orange if r["off"] else ink} for r in rows])
+                           "colour": text_colour(r)} for r in rows])
     for colour, part in texts.groupby("colour"):
         layers.append(alt.Chart(part).mark_text(fontSize=FONT_LABEL, align="left", dx=12,
                                                 baseline="middle", color=colour, tooltip=False)
@@ -1345,9 +1379,15 @@ def targets_chart(opt, view):
     # entry), so the marks above keep their own colours and shapes.
     entries = []
     if not targets.empty:
-        entries += [(wording.REVIEW_KEY_TARGET, ink, "stroke"),
-                    (wording.REVIEW_KEY_ON, blue, "circle"),
-                    (wording.REVIEW_KEY_OFF, orange, "circle")]
+        # Only the entries drawn (owner, v3 final cleanup: keep it short).
+        ways = {d["direction"] for r in rows if r["target"] is not None for d in r["dots"]}
+        entries.append((wording.REVIEW_KEY_TARGET, ink, "stroke"))
+        if "" in ways:
+            entries.append((wording.REVIEW_KEY_ON, blue, "circle"))
+        if "above" in ways:
+            entries.append((wording.ABOVE_TARGET, direction_colour("above"), "circle"))
+        if "below" in ways:
+            entries.append((wording.BELOW_TARGET, direction_colour("below"), "circle"))
     if any(r["target"] is None for r in rows):
         entries.append((wording.REVIEW_KEY_NO_TARGET, grey, "circle"))
     layers.append(_key_layer(entries, width=2))

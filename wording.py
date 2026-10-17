@@ -816,18 +816,25 @@ def compare_row_header(unit=None):
     return f"Ingredient ({unit})" if unit else "Ingredient or process setting"
 
 
-def change_key(no, unit=None, row="ingredient"):
-    """Under the table: '(change from F10, g) · shading: change vs that
-    ingredient's allowed range' ('setting' in a study of settings alone)."""
-    u = f", {unit}" if unit else ""
-    return f"(change from {short_no(no)}{u}) · shading: change vs that {row}'s allowed range"
+# The Round table's key (owner, v3 final cleanup; it replaced the bracketed
+# change and the grey shading): 'More than F10 · Less than F10 · plain:
+# within 5 % of its range', the first two in the direction colours.
+def compare_key_more(no):
+    return f"More than {short_no(no)}"
 
 
-def change_key_help(no, hide_pct, full_pct):
-    return (f"Each cell: the amount, then its change from {short_no(no)} in brackets. "
-            f"Changes under {hide_pct} % of the allowed range are not shown. Grey gets darker "
-            f"as the change grows, as a share of that row's allowed range (darkest at "
-            f"{full_pct} %).")
+def compare_key_less(no):
+    return f"Less than {short_no(no)}"
+
+
+def compare_key_plain(pct):
+    return f"plain: within {pct:g} % of its range"
+
+
+def compare_key_help(no, pct, row="ingredient"):
+    """The key's "?": the rule behind the colours."""
+    return (f"Orange: more than {short_no(no)} by at least {pct:g} % of that {row}'s allowed "
+            "range (Lowest–Highest); purple: less by as much.")
 
 
 def compared_with_line(column, cell):
@@ -1831,22 +1838,27 @@ def _scale_text(low, high):
     return f"{float(low):g}–{float(high):g}"
 
 
-def round_results_caption(scale=None, panel_size=None, targets_only=True):
-    """'Panel median (n = 5), 0–15; each made once, rated once. Orange: off
-    target.' `scale`: (low, high) when every measurement shares one, else
+def round_results_caption(scale=None, panel_size=None):
+    """Under the Round's table, before its colour key: 'Panel median (n =
+    5), 0–15.' `scale`: (low, high) when every measurement shares one, else
     None (each header then names its own). `panel_size`: the panel's n, only
     when the project's provenance records how a rating was made (the median
     of a panel, sample_projects.panel_size); without it nothing is claimed
-    about how a value was arrived at. `targets_only`: every goal is a target;
-    a higher-or-lower goal loses points too, without a target to be off."""
-    orange = "Orange: off target." if targets_only else "Orange: points lost."
+    about how a value was arrived at. '' with neither."""
     if panel_size:
         head = f"Panel median (n = {panel_size})"
         head += f", {_scale_text(*scale)}" if scale else ""
-        return f"{head}; each made once, rated once. {orange}"
+        return f"{head}."
     if scale:
-        return f"Range {_scale_text(*scale)}. {orange}"
-    return orange
+        return f"Range {_scale_text(*scale)}."
+    return ""
+
+
+# The colour key under Round N results and Review's strip (owner, v3 final
+# cleanup): a rating off its target shows its direction, above in orange,
+# below in purple (ui_insights.direction_colour).
+ABOVE_TARGET = "Above target"
+BELOW_TARGET = "Below target"
 
 
 def round_results_column(name, goal, target=None, unit="", scale=None):
@@ -6335,7 +6347,6 @@ def review_targets_axis(label, low, high):
 
 REVIEW_KEY_TARGET = "Target"
 REVIEW_KEY_ON = "Best, on target"
-REVIEW_KEY_OFF = "Best, off target"
 REVIEW_KEY_NO_TARGET = "Best, no target"
 REVIEW_HIGHER = "higher is better"
 REVIEW_LOWER = "lower is better"

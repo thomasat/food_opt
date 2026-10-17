@@ -49,7 +49,7 @@ def test_the_score_is_the_first_line_under_the_box_with_its_help(scored):
     # v3: after Round N results' caption and its fold's line, the first
     # line under the View formulation box.
     captions = at.tabs[2].caption
-    assert captions[0].value == ui_results.round_results(opt)["caption"]
+    assert captions[0].value == ui_results.results_key_markup(ui_results.round_results(opt))
     first = captions[2]
     assert first.value == wording.overall_score_line(
         float(opt.Y_history[opt.best_index()]), opt.utility_ceiling())

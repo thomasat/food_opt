@@ -1,8 +1,10 @@
 """v3 · Make a round (final-v3/2-make-round.png, wording.md §2): the Round
 as one table — the ingredients down, Best so far and each formulation
-across, each cell the amount with its change from Best so far, grey shading
-by that change as a share of the row's allowed range, limit tags and a
-Total row — and no forecast anywhere on the screen."""
+across, each cell the amount alone, coloured by direction (orange more,
+purple less) when it differs from Best so far by at least 5 % of the row's
+allowed range (owner, v3 final cleanup; it replaced the bracketed change
+and the grey shading), limit tags and a Total row — and no forecast
+anywhere on the screen."""
 import pytest
 from streamlit.testing.v1 import AppTest
 
@@ -64,21 +66,17 @@ def test_round6_table_values_signs_tags_and_total():
     c = _cells(table)
     best = c["Best so far (F10 · 95.0)"]
     assert best["Coconut cream"].text == "51.84" and best["Tap water"].text == "41.22"
-    assert c["F16"]["Coconut cream"].text == "51.27 (−0.57)"
-    assert c["F18"]["Coconut cream"].text == "52.27 (+0.43)"
-    assert c["F17"]["Coconut cream"].text == "50.24 (−1.60)"
+    # One number per cell: the amount alone, no bracketed change.
+    assert c["F16"]["Coconut cream"].text == "51.27"
+    assert c["F18"]["Coconut cream"].text == "52.27"
+    assert c["F17"]["Coconut cream"].text == "50.24"
+    assert not any("(" in cell.text for col in table.cells for cell in col)
     # At the upper limit: the tag on a line of its own.
-    assert c["F16"]["Tap water"].text == "42.00 (+0.78)\nat upper limit"
+    assert c["F16"]["Tap water"].text == "42.00\nat upper limit"
     assert c["F16"]["Tap water"].tag == wording.AT_UPPER_LIMIT
     assert all(c[f]["Tapioca starch"].tag == wording.AT_UPPER_LIMIT for f in ("F16", "F17", "F18"))
-    assert c["F18"]["Xanthan gum"].text == "0.65 (+0.07)\nat upper limit"
+    assert c["F18"]["Xanthan gum"].text == "0.65\nat upper limit"
     assert c["F18"]["Tap water"].tag == ""
-    # Under 1 % of the allowed range (0.5 g for xanthan): no change written,
-    # no shading.
-    assert c["F17"]["Xanthan gum"].text == "0.58"
-    assert c["F17"]["Xanthan gum"].share == 0
-    # The change is the difference of the two numbers shown.
-    assert c["F18"]["Lemon juice"].text == "0.45 (−0.15)"
     # The share is of the row's allowed range: salt 0–1.8 g.
     assert c["F18"]["Salt"].share == pytest.approx(abs(0.551 - 0.21) / 1.8, abs=0.01)
     totals = [c[k][table.rows[-1]].text for k in table.columns]
@@ -152,42 +150,77 @@ def test_cold_start_shows_amounts_only():
     assert table.best_no is None
     assert not any(c.startswith("Best so far") for c in table.columns)
     assert all("(" not in cell.text for col in table.cells for cell in col)
-    assert all(cell.share == 0 for col in table.cells for cell in col)
+    assert all(cell.direction == "" for col in table.cells for cell in col)
     styles = ui_batch.compare_styles(table, "light")
-    assert not any("background" in css for col in styles for css in col)
+    assert not any("background" in css or "color:" in css for col in styles for css in col)
 
 
 # ------------------------------------------------------------------ #
-#  Theme: light and dark tokens, shading from the plain cell colour
+#  Direction: orange more, purple less, at 5 % of the allowed range
 # ------------------------------------------------------------------ #
+
+def _directions(table):
+    return {col: {row: cell.direction for row, cell in rows.items()}
+            for col, rows in _cells(table).items()}
+
+
+def test_round6_directions_against_f10():
+    """Changes from F10 as a share of each row's allowed range, at the
+    Formulation total: coconut F17 −10.7 %; salt F16 +9.5 %, F18 +19.0 %;
+    yeast −17.7, −14.9, −18.6 %; xanthan F16 +5.1 %, F18 +14.5 %. Plain:
+    lemon (−1.6, +4.9, −4.9 %), water (+4.6, +4.6, −1.8 %), tapioca
+    (+4.9 % each)."""
+    d = _directions(ui_batch.round_compare(_round6()))
+    assert d["F17"]["Coconut cream"] == "less"
+    assert d["F16"]["Coconut cream"] == d["F18"]["Coconut cream"] == ""
+    assert [d[f]["Nutritional yeast"] for f in ("F16", "F17", "F18")] == ["less"] * 3
+    assert d["F16"]["Salt"] == d["F18"]["Salt"] == "more" and d["F17"]["Salt"] == ""
+    assert d["F16"]["Xanthan gum"] == d["F18"]["Xanthan gum"] == "more"
+    assert d["F17"]["Xanthan gum"] == ""
+    for row in ("Lemon juice", "Tap water", "Tapioca starch"):
+        assert [d[f][row] for f in ("F16", "F17", "F18")] == [""] * 3, row
+    assert not any(d["Best so far (F10 · 95.0)"].values())
+    assert not d["F16"]["Total (allowed 97.69–98.69 g)"]
+
+
+def test_the_5_percent_edge_uses_a_tolerance():
+    assert ui_batch.direction_of(0.05 - 1e-12, 1.0) == "more"
+    assert ui_batch.direction_of(-(0.05 - 1e-12), 1.0) == "less"
+    assert ui_batch.direction_of(0.0499, 1.0) == ""
+    assert ui_batch.direction_of(0.2, 4.0) == "more"       # 5 % of a 4 g range
+
 
 @pytest.mark.parametrize("which", ["light", "dark"])
-def test_shading_uses_the_themes_tokens(which):
+def test_direction_colours_use_the_themes_tokens(which):
     table = ui_batch.round_compare(_round6())
     tokens = ui_batch._COMPARE_COLOURS[which]
     styles = ui_batch.compare_styles(table, which)
     c = {col: dict(zip(table.rows, css)) for col, css in zip(table.columns, styles)}
+    import ui_insights
+    more, less = (ui_insights.direction_colour(k, which) for k in ("above", "below"))
     assert f"background-color: {tokens['best']}" in c[table.columns[0]]["Salt"]
-    # A hidden change: the plain cell (no background of its own).
-    assert "background" not in c["F17"]["Xanthan gum"]
-    # Salt +0.34 of 1.8 g (19 %, just under FULL_SHADE): nearly the darkest
-    # grey, blended from the theme's plain cell colour.
-    salt = _cells(table)["F18"]["Salt"].share
-    want = ui_batch._blend(tokens["plain"], tokens["full"], min(1, salt / ui_batch.FULL_SHADE))
-    assert f"background-color: {want}" in c["F18"]["Salt"]
-    full = ui_batch._blend(tokens["plain"], tokens["full"], 1.0)
-    assert full == tokens["full"]
-    # A small change: part way from the plain cell colour.
-    lemon = c["F16"]["Lemon juice"].split("background-color: ")[1][:7]
-    assert lemon not in (tokens["plain"], tokens["full"])
+    assert f"color: {more}" in c["F18"]["Salt"]
+    assert f"color: {less}" in c["F17"]["Coconut cream"]
+    # Plain: no colour and no grey shading of its own.
+    assert "color" not in c["F16"]["Lemon juice"] and "background" not in c["F16"]["Lemon juice"]
     other = ui_batch._COMPARE_COLOURS["dark" if which == "light" else "light"]
     assert other["best"] not in " ".join(c[table.columns[0]].values())
+    assert {"light": ("#c2410c", "#7e3fbf"), "dark": ("#ff9f5a", "#c79bff")}[which] == (more, less)
 
 
-def test_blend_runs_from_plain_to_full():
-    assert ui_batch._blend("#ffffff", "#000000", 0) == "#ffffff"
-    assert ui_batch._blend("#ffffff", "#000000", 1) == "#000000"
-    assert ui_batch._blend("#0e1117", "#5a6170", 0.5) == "#343944"
+def test_coloured_numbers_are_bold_and_the_limit_line_is_muted_small_text():
+    table = ui_batch.round_compare(_round6())
+    cells, _css = ui_batch.compare_frames(_round6(), table, "light")
+    assert cells.loc["Salt", "F18"] == "**0.55**"
+    assert cells.loc["Lemon juice", "F18"] == "0.45"
+    # The limit line: never the number's colour, whatever it is.
+    assert cells.loc["Xanthan gum", "F18"] == "**0.65**  \n*at upper limit*"
+    assert cells.loc["Tap water", "F16"] == "42.00  \n*at upper limit*"
+    import ui_insights
+    rule = ui_batch.limit_tag_style("light")
+    assert rule["selector"] == "td em"
+    assert f"color: {ui_insights._MUTED_LIGHT}" in rule["props"]
+    assert "font-size" in rule["props"] and "font-style: normal" in rule["props"]
 
 
 # ------------------------------------------------------------------ #
@@ -214,22 +247,22 @@ def test_round6_screen_has_the_table_captions_and_no_forecast():
     captions = [c.value for c in tab.caption]
     assert "Best bets to improve on F10." in captions
     assert wording.CHOSEN_BY_EGBO in captions
-    assert ("(change from F10, g) · shading: change vs that ingredient's allowed range"
-            in captions)
+    key = next(c for c in captions if "More than F10" in c)
+    assert "Less than F10" in key and "plain: within 5 % of its range" in key
     assert "Sheets: Round overview · Results" in captions
     assert len(tab.table) == 1
     shown = tab.table[0].value
     assert list(shown.columns) == ["Best so far (F10 · 95.0)", "F16", "F17", "F18"]
-    assert shown.loc["Tap water", "F16"] == "42.00 (+0.78)  \nat upper limit"
+    assert shown.loc["Tap water", "F16"] == "42.00  \n*at upper limit*"
     assert shown.loc["**Total (allowed 97.69–98.69 g)**", "F17"] == "**97.69**"
     texts = captions + [e.label for e in tab.expander] + [m.value for m in tab.markdown]
     for word in _FORECAST_WORDS:
         assert not any(word in t for t in texts), word
     assert not any(e.label == 'Why these suggestions' for e in tab.expander)
     assert not tab.dataframe        # the old formulation-per-row table is gone
-    # The key's "?" says how the shading reads.
-    key = next(c for c in tab.caption if c.value.startswith("(change from"))
-    assert "allowed range" in key.help
+    # The key's "?" says the 5 % rule.
+    key = next(c for c in tab.caption if "More than F10" in c.value)
+    assert "5 %" in key.help and "allowed range" in key.help
 
 
 def test_app_generated_round_reads_suggestions_on_screen():
@@ -328,9 +361,9 @@ def test_a_process_only_round_reads_trial(tmp_path, monkeypatch):
     assert list(shown.index) == ["Incubation temperature (°C)", "Incubation time (h)"]
     assert shown.columns[0].startswith("Best so far (T") and shown.columns[1].startswith(
         "Suggestion 1")
-    assert shown.iloc[1, 1].endswith("at upper limit")
-    key = next(c for c in tab.caption if c.value.startswith("(change from T"))
-    assert key.value.endswith("that setting's allowed range")
+    assert shown.iloc[1, 1].endswith("*at upper limit*")
+    key = next(c for c in tab.caption if "More than T" in c.value)
+    assert "setting" in key.help
     texts = [c.value for c in tab.caption] + [str(c.help or "") for c in tab.caption]
     assert not any("ormulation" in t for t in texts)
 
@@ -344,7 +377,8 @@ def test_the_v3_lines_pass_the_vocabulary_guard_and_the_length_rules():
               wording.AT_UPPER_LIMIT, wording.AT_LOWER_LIMIT, wording.compare_row_header("g")]
     helps = [wording.improve_on_help([10]), wording.best_tied_help(16, [17]),
              wording.SUGGESTION_NUMBERS_HELP, wording.less_tried_help(30),
-             wording.change_key(10, "g"), wording.change_key_help(10, 1, 20),
+             wording.compare_key_more(10), wording.compare_key_less(10),
+             wording.compare_key_plain(5), wording.compare_key_help(10, 5),
              wording.workbook_sheets_help(), wording.workbook_sheets_help(True),
              wording.total_row("97.69", "98.69", "g")]
     for text in captions + labels + helps:

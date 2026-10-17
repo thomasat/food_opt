@@ -9,6 +9,8 @@ The one coloured button is at the foot: `Start the next round`, or `Back to
 Round N` while a round is still unrecorded. Everything destructive is behind a
 confirmation that keeps a copy first and says so — once, in the confirmation.
 """
+import html
+
 import pandas as pd
 import streamlit as st
 
@@ -315,6 +317,19 @@ def _off(part):
             and part['utility'] < 1.0 - _FULL)
 
 
+def _direction(part):
+    """'above' | 'below' for a rating off a target value (its goal's own,
+    or a higher-or-lower goal's when it has one); '' on target, without a
+    target or without a rating (owner, v3 final cleanup)."""
+    target = part.get('target')
+    rating = part.get('rating')
+    if target is None or rating is None or not _off(part):
+        return ""
+    if abs(float(rating) - float(target)) <= _TIE:
+        return ""
+    return "above" if float(rating) > float(target) else "below"
+
+
 def new_best_rows(opt, round_no):
     """Positions of the Round's formulations that are a new Best so far:
     the Round's highest score among best_candidates, when it is above
@@ -336,7 +351,9 @@ def new_best_rows(opt, round_no):
 
 def round_results(opt, round_no=None):
     """'Round N results' as data: {'round', 'columns', 'frame' (text
-    cells), 'off' {(row, column)}, 'best' [rows], 'caption'}. One row per
+    cells), 'off' {(row, column): 'above' | 'below'}, 'best' [rows],
+    'caption' (the line before the colour key), 'key' (a target is on
+    the table, so the key is said)}. One row per
     formulation of the Round, in number order: Formulation, Overall score,
     then each measurement (most important first) with its target in the
     header. None when there is no Round to show."""
@@ -358,7 +375,7 @@ def round_results(opt, round_no=None):
                if opt.batch_history[i] == round_no]
     entries += [(int(r['formulation']), None) for r in opt.skipped
                 if r.get(ROUND_FIELD) is not None and int(r[ROUND_FIELD]) == round_no]
-    rows, off, best_rows = [], set(), []
+    rows, off, best_rows = [], {}, []
     for pos, (number, index) in enumerate(sorted(entries)):
         row = {c: "" for c in columns}
         row[form] = wording.round_results_row_label(
@@ -378,20 +395,29 @@ def round_results(opt, round_no=None):
                     row[column] = wording.DOES_NOT_APPLY
                 elif part['rating'] is not None:
                     row[column] = _rating_text(part['rating'])
-                if _off(part):
-                    off.add((pos, column))
+                if _direction(part):
+                    off[(pos, column)] = _direction(part)
         rows.append(row)
-    caption = wording.round_results_caption(
-        common, sample_projects.panel_size(opt),
-        targets_only=all(o.get('goal') == 'target' for o in objs))
+    caption = wording.round_results_caption(common, sample_projects.panel_size(opt))
     return {"round": round_no, "columns": columns,
             "frame": pd.DataFrame(rows, columns=columns), "off": off,
-            "best": best_rows, "caption": wording.for_project(opt, caption)}
+            "best": best_rows, "caption": wording.for_project(opt, caption),
+            "key": any(o.get('target') is not None for o in objs)}
+
+
+def results_key_markup(table):
+    """The line under Round N results: its caption, then 'Above target ·
+    Below target' each in its colour (HTML for st.caption), or the caption
+    alone without a target on the table."""
+    if not table["key"]:
+        return html.escape(table["caption"])
+    return ui_insights.direction_key_html(table["caption"], wording.ABOVE_TARGET,
+                                          wording.BELOW_TARGET)
 
 
 def score_breakdown_frame(opt, index):
     """How formulation `index`'s Overall score is worked out, as data:
-    {'frame', 'off' {(row, column)}, 'total' (the sum of the points),
+    {'frame', 'off' {(row, 'Rating'): 'above' | 'below'}, 'total' (the sum of the points),
     'line'}. One row per measurement — Attribute, Rating, Target, Share,
     Points earned — then the Overall score row, Share and Points summed.
     Every number is food_bo's own (score_breakdown, the parts
@@ -400,7 +426,7 @@ def score_breakdown_frame(opt, index):
     cols = (wording.SCORE_ATTRIBUTE_COLUMN, wording.SCORE_RATING_COLUMN,
             wording.SCORE_TARGET_COLUMN, wording.SCORE_SHARE_COLUMN,
             wording.SCORE_POINTS_COLUMN)
-    rows, off = [], set()
+    rows, off = [], {}
     for pos, part in enumerate(parts):
         if part['goal'] == 'target':
             target = f"{part['target']:g}"
@@ -416,8 +442,10 @@ def score_breakdown_frame(opt, index):
             cols[3]: ("" if part['share_of_score'] is None
                       else f"{round(part['share_of_score'], 1):g}"),
             cols[4]: "" if part['points'] is None else f"{part['points']:.1f}"})
-        if _off(part):
-            off.update({(pos, cols[1]), (pos, cols[4])})
+        # Only the rating carries the direction; Points earned stays
+        # neutral (owner, v3 final cleanup).
+        if _direction(part):
+            off[(pos, cols[1])] = _direction(part)
     total = sum(p['points'] for p in parts if p['points'] is not None)
     shares = sum(p['share_of_score'] for p in parts if p['share_of_score'] is not None)
     rows.append({cols[0]: wording.OVERALL_SCORE_COLUMN, cols[1]: "", cols[2]: "",
@@ -429,12 +457,12 @@ def score_breakdown_frame(opt, index):
 
 
 def _styled(frame, off, tinted=(), bold=(), total_row=None):
-    """`frame` for st.table: off-target cells in the theme's orange, the
-    `tinted` rows in the best-so-far blue, `bold` {(row, column)} cells
-    bold, a total row on the secondary background and bold. Theme-keyed,
-    never one theme's colours."""
+    """`frame` for st.table: off-target cells {(row, column): 'above' |
+    'below'} in their direction's colour and bold, the `tinted` rows in the
+    best-so-far blue, `bold` {(row, column)} cells bold, a total row on the
+    secondary background and bold. Theme-keyed, never one theme's
+    colours."""
     which = ui_insights.theme()
-    orange = ui_insights.outline_colour()
 
     def css(data):
         out = pd.DataFrame("", index=data.index, columns=data.columns)
@@ -445,15 +473,15 @@ def _styled(frame, off, tinted=(), bold=(), total_row=None):
                     rules.append(f"background-color: {_BEST_TINT[which]}")
                 if r == total_row:
                     rules.append(f"background-color: {_TOTAL_TINT[which]}")
-                if (r, c) in off:
-                    rules.append(f"color: {orange}")
+                if off.get((r, c)):
+                    rules.append(f"color: {ui_insights.direction_colour(off[(r, c)], which)}")
                 out.iloc[r, list(data.columns).index(c)] = "; ".join(rules)
         return out
 
     # Bold as Markdown, which st.table renders in every cell: it draws a
     # Styler's colours but not its font-weight.
-    strong = set(bold) | ({(total_row, c) for c in frame.columns}
-                          if total_row is not None else set())
+    strong = set(bold) | set(off) | ({(total_row, c) for c in frame.columns}
+                                     if total_row is not None else set())
     marked = frame.copy()
     for r, c in strong:
         if str(marked.iat[r, list(frame.columns).index(c)]):
@@ -476,11 +504,14 @@ def _round_results_section(opt):
     if table is None or table["frame"].empty:
         return
     st.markdown(f"#### {wording.round_results_heading(table['round'])}")
-    st.caption(table["caption"])
     score = wording.OVERALL_SCORE_COLUMN
     st.table(_styled(table["frame"], table["off"], tinted=set(table["best"]),
                      bold={(r, score) for r in table["best"]}),
              width="content")
+    # Under the table, as the key it is (owner mock-up, v3 final cleanup).
+    line = results_key_markup(table)
+    if line:
+        st.caption(line, unsafe_allow_html=True)
     _score_breakdown(opt, table)
 
 

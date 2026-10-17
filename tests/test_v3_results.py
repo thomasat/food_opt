@@ -75,10 +75,12 @@ def test_round6_results_table(round6):
         ["F18", "91.7", "13", "7", "4", "12"]]
     assert table["best"] == [0, 1]
     tangy, cons, cream, thick = (table["columns"][k] for k in (4, 2, 3, 5))
-    assert table["off"] == {(0, tangy), (1, tangy), (2, tangy), (2, cons),
-                            (2, cream), (2, thick)}
-    assert table["caption"] == ("Panel median (n = 5), 0–15; each made once, rated "
-                                "once. Orange: off target.")
+    # Off target shows its direction (owner, v3 final cleanup): above
+    # orange, below purple; one number a cell, no gap text.
+    assert table["off"] == {(0, tangy): "below", (1, tangy): "below", (2, tangy): "below",
+                            (2, cons): "above", (2, cream): "above", (2, thick): "below"}
+    assert table["caption"] == "Panel median (n = 5), 0–15."
+    assert table["key"] is True
 
 
 def test_the_new_best_is_measured_against_every_earlier_formulation(round6):
@@ -120,7 +122,9 @@ def test_a_project_without_a_recorded_panel_claims_none(tmp_path, monkeypatch):
     opt.add_objective("Cook loss", 40, goal="target", target=20, min_val=0, max_val=100, unit="%")
     opt.tell({"Oil": 5}, {"Taste": 7, "Cook loss": 25}, batch_no=1)
     table = ui_results.round_results(opt)
-    assert table["caption"] == "Orange: points lost."
+    # Taste has no target: plain. Cook loss 25 against 20 is above.
+    assert table["caption"] == "" and table["key"] is True
+    assert table["off"] == {(0, table["columns"][3]): "above"}
     assert table["columns"][2:] == ["Taste (0–10, higher is better)",
                                     "Cook loss (0–100, %, target 20)"]
     assert sp.panel_size(opt) is None
@@ -156,6 +160,9 @@ def test_results_says_no_forecast(round6):
                     + [e.label for e in tab.expander])
     assert "Round 6 results" in said
     assert wording.SCORE_WORKED_OUT_FOLD in said
+    # "Above target" is the colour key's (v3 final cleanup), not a forecast's
+    # Above / In / Below.
+    said = said.replace(wording.ABOVE_TARGET, "")
     for word in ("redict", "orecast", "95 %", "Above", " range", "measured against",
                  'Review says stop.', "noise", "Stop"):
         assert word not in said, word
@@ -190,7 +197,8 @@ def test_breakdown_of_f16(round6):
         ["Tangy", "4", "5", "25", "23.3"],
         ["Thickness uniformity", "13", "13", "25", "25.0"],
         ["Overall score", "", "", "100", "98.3"]]
-    assert shown["off"] == {(2, "Rating"), (2, "Points earned")}
+    # Only the rating carries the direction; Points earned stays neutral.
+    assert shown["off"] == {(2, "Rating"): "below"}
 
 
 @pytest.mark.parametrize("goal", ["max", "min", "target"])
@@ -466,3 +474,33 @@ def test_results_tab_says_the_score_at_one_decimal(round6):
     assert "Overall score 98.3 of 100." in said
     assert "Formulations 16 and 17 are tied at 98.3." in said
     assert "98.33" not in said
+
+
+@pytest.mark.parametrize("which", ["light", "dark"])
+def test_round_results_colour_and_bold_the_direction(round6, monkeypatch, which):
+    import ui_insights
+    monkeypatch.setattr(ui_insights, "theme", lambda: which)
+    table = ui_results.round_results(round6)
+    styled = ui_results._styled(table["frame"], table["off"], tinted=set(table["best"]))
+    css = {}
+    styled._compute()
+    for style in styled._translate(False, False)["cellstyle"]:
+        for sel in style["selectors"]:
+            r, c = map(int, sel.split("row")[1].split("_col"))
+            css[(r, c)] = "; ".join(f"{k}: {v}" for k, v in style["props"])
+    above, below = (ui_insights.direction_colour(k, which) for k in ("above", "below"))
+    cols = list(table["frame"].columns)[1:]
+    tangy = cols.index(table["columns"][4])
+    cons = cols.index(table["columns"][2])
+    assert f"color: {below}" in css[(0, tangy)] and f"color: {above}" in css[(2, cons)]
+    shown = styled.data
+    assert shown.iloc[2, cons] == "**13**" and shown.iloc[0, tangy] == "**4**"
+    assert shown.iloc[0, cons] == "12"
+
+
+def test_the_results_key_is_coloured_under_the_table(round6):
+    import ui_insights
+    html = ui_results.results_key_markup(ui_results.round_results(round6))
+    assert html.startswith("Panel median (n = 5), 0–15.")
+    assert f"color: {ui_insights.direction_colour('above')}" in html
+    assert ">Above target<" in html and ">Below target<" in html

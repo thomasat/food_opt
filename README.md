@@ -37,7 +37,7 @@ The included **Start Here.txt** explains installation and the first-round workfl
 
 ## Review results
 
-**Results** opens on the last Round's results: each formulation's **Overall score** and its ratings, each measurement's target in the header. Off-target ratings are orange; a new best is blue. **How the score is worked out** shows one formulation's points per attribute: each point off target costs a fixed part of its share (1/15 when ratings run 0–15). **View formulation** shows any recorded formulation's amounts and **% of formulation**; **All formulations** compares them all.
+**Results** opens on the last Round's results: each formulation's **Overall score** and its ratings, each measurement's target in the header. Off-target ratings are orange above the target and purple below it; a new best is blue. **How the score is worked out** shows one formulation's points per attribute: each point off target costs a fixed part of its share (1/15 when ratings run 0–15). **View formulation** shows any recorded formulation's amounts and **% of formulation**; **All formulations** compares them all.
 
 ## How the Review works
 
