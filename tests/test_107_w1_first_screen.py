@@ -531,12 +531,12 @@ def test_a_landing_on_progress_opens_progress_figures(screens):
     assert at.session_state[ui_insights.PROGRESS_FIGURES_KEY] is True
 
 
-def test_results_e1_link_lands_on_the_section():
+def test_results_has_no_forecast_link():
+    """v3: Results shows measurements only; no link to the forecasts."""
     import inspect
     import ui_results
     src = inspect.getsource(ui_results)
-    # Final review: no fold arg; no widget reads EACH_KEY any more.
-    assert "section=ui_insights.TRUST_SECTION, key=\"link_round_checked\"" in src
+    assert "link_round_checked" not in src and "TRUST_SECTION" not in src
     assert "EACH_KEY" not in src
 
 

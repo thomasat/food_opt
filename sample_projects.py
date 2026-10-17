@@ -71,6 +71,19 @@ def is_yogurt(name):
     return name in YOGURT_NAMES
 
 
+# How the yogurt pilot's ratings were made, from its provenance
+# (data/samples/yogurt_pilot/README.md, build.py): each the median of a
+# trained panel of five, one per attribute per batch, no batch repeated.
+# A project file records no panel, so only the pilot's two projects say so.
+PILOT_PANEL = ("median", 5)
+
+
+def panel(opt):
+    """(summary, panel size) when this project's provenance records how a
+    rating was made — the yogurt pilot's, ("median", 5) — else None."""
+    return PILOT_PANEL if is_yogurt(getattr(opt, "project_name", None)) else None
+
+
 def untouched_example(opt):
     """The example setup as it ships: no formulation recorded or set aside
     and no Round open. Only then may the screen say it has no results."""

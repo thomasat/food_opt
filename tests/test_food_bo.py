@@ -4440,6 +4440,8 @@ _FTUE_ALLOWED = _FTUE_BO_TERMS
 _ALLOWED_EXACT = {
     # The glossary and Model and method (above): exact strings, one scope.
     *_FTUE_ALLOWED,
+    # v3 (owner's tweak to the final-v3 Results mock): the fold's one name.
+    wording.SCORE_WORKED_OUT_FOLD,
     # Custom records apply to formulations and process-only trials.
     wording.CUSTOM_FIELD_HELP, wording.CUSTOM_SCOPE_NAMES["formulation"],
     wording.CUSTOM_SECTION_NAMES["formulation"],
@@ -4881,7 +4883,10 @@ def test_no_old_vocabulary_reaches_the_user_outside_python():
             # Process-only studies deliberately use trials in the user guide.
             if name == "desktop/start_here.txt" and line == "and time. A project containing only process settings uses trials and does":
                 continue
-            if any(pattern.search(line) for pattern in _BANNED):
+            # v3: the Results fold, named as the screen names it.
+            scanned = line.replace("worked out", "") if "score is" in line or \
+                line.startswith("worked out shows") else line
+            if any(pattern.search(scanned) for pattern in _BANNED):
                 offenders.append((name, i, line))
     swift = (root / _USER_FACING_SWIFT).read_text()
     for fragment in _SWIFT_NOT_PROSE:

@@ -163,9 +163,9 @@ def test_e1_waits_for_a_checkable_round():
     assert _links(_app(opt, wording.TAB_RESULTS)) == []
 
 
-def test_e1_in_a_process_only_project():
-    """T47 review minor 3: E1 drawn in a study of process settings alone;
-    its label names no formulation."""
+def test_no_e1_in_a_process_only_project():
+    """v3: Results has no "measured against predicted" link in any
+    project (it was E1)."""
     from tests.test_094_make_a_round import _ferment
     opt = _ferment()
     opt.ask(2)
@@ -173,9 +173,7 @@ def test_e1_in_a_process_only_project():
         opt.tell(row["recipe"], {"Acidity": 5.0}, formulation_no=row["formulation"],
                  batch_no=opt.pending_batch_no)
     opt.set_pending_batch(None)
-    [e1] = _links(_app(opt, wording.TAB_RESULTS))
-    assert e1.label == wording.round_measured_against_predicted(2)
-    assert "ormulation" not in e1.label
+    assert _links(_app(opt, wording.TAB_RESULTS)) == []
 
 
 def test_opening_a_project_lands_at_the_top():
