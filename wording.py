@@ -6392,11 +6392,24 @@ def review_tried(n):
     return f"Tried ({n})"
 
 
-def review_top_key(names, n=None):
-    """'Top 4 (F16, F17, F10, F13)'; one: 'Top 1 (F16)'. `n`: the count
-    when `names` is cut short ('…')."""
+# Up to this many top formulations are named in the key itself; more, and
+# the key says the rule and its "?" names them (owner, v3 final fixes).
+REVIEW_TOP_INLINE = 4
+
+
+def review_top_key(names, within):
+    """'Top 4 (F16, F17, F10, F13)'; one: 'Top 1 (F16)'; past
+    REVIEW_TOP_INLINE: 'Top 14 · within 5 points of the best' (the names
+    go in its "?", review_top_names)."""
     names = list(names)
-    return f"Top {len(names) if n is None else n} ({', '.join(names)})"
+    if len(names) <= REVIEW_TOP_INLINE:
+        return f"Top {len(names)} ({', '.join(names)})"
+    return f"Top {len(names)} · within {within} points of the best"
+
+
+def review_top_names(names_text):
+    """The long Top key's "?": 'Top formulations: F21, F16, F17.'"""
+    return f"Top {FORMULATION}s: {names_text}."
 
 
 def review_best_key(name, tied=False):

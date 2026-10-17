@@ -360,3 +360,87 @@ def test_stepping_back_redraws_the_headline_for_that_round(review):
     review.button(key="insights_replay_prev").click().run()
     md = [m.value for m in review.tabs[3].markdown]
     assert "**Best 95.0: F10 (Round 4). No new best since.**" in md
+
+
+# ------------------------------------------------------------------ #
+#  v3 final fixes: the All-10 sample's Best label and Top key
+# ------------------------------------------------------------------ #
+
+@pytest.fixture
+def all10(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    store = storage_backend.LocalStorage()
+    sp.ensure(store)
+    return FoodOptimizer(sp.ALL10, storage=store)
+
+
+def _layers(spec):
+    """Every unit layer of a spec, with its rows (from the named datasets)."""
+    out = []
+
+    def walk(node):
+        for child in node.get("layer", []):
+            walk(child)
+        if "mark" in node:
+            data = node.get("data", {})
+            rows = spec.get("datasets", {}).get(data.get("name"), data.get("values", []))
+            out.append((node, rows))
+    walk(spec)
+    return out
+
+
+def _label_and_rules(opt):
+    spec = U.improving_chart(opt, height=U.PANEL_CHART_H).to_dict()
+    layers = _layers(spec)
+    label = next(rows[0] for node, rows in layers
+                 if rows and str(rows[0].get("text", "")).startswith("Best: "))
+    rules = [r for node, rows in layers
+             if (node["mark"] if isinstance(node["mark"], str) else node["mark"]["type"]) == "rule"
+             and "x" in node.get("encoding", {})
+             and node["encoding"]["x"].get("axis", {}).get("orient") == "top"
+             for r in rows]
+    y = next(node["encoding"]["y"]["scale"]["domain"] for node, rows in layers
+             if "y" in node.get("encoding", {})
+             and "scale" in node["encoding"]["y"] and "domain" in node["encoding"]["y"]["scale"])
+    return label, rules, y
+
+
+@pytest.mark.parametrize("which", ["all10", "r6"])
+def test_the_best_label_clears_the_round_lines_and_the_top_line(which, request):
+    """The label sits in its own lane over the plot: above the 100 line's
+    own label, and every Round line stops at the 100 line, so no line or
+    label runs through it (owner, v3 final fixes)."""
+    opt = request.getfixturevalue(which)
+    label, rules, (bottom, top) = _label_and_rules(opt)
+    px = U.PANEL_CHART_H / (top - bottom)
+    ceiling = float(opt.utility_ceiling())
+    assert rules, "the Round lines are drawn"
+    assert all(r["y1"] <= ceiling + 1e-9 for r in rules)
+    half = U.FONT_LABEL / 2
+    # Clear of '100 = every attribute on target' (its baseline 3 px over the
+    # 100 line, FONT_SMALL high) and inside the plot.
+    assert (label["y"] - ceiling) * px - half >= 3 + U.FONT_SMALL
+    assert (top - label["y"]) * px >= half
+
+
+def test_the_best_label_on_the_all10_sample(all10):
+    label, _rules, _y = _label_and_rules(all10)
+    assert label["text"] == "Best: 99.2 (F21)"
+
+
+def test_a_long_top_key_names_its_rule_and_keeps_the_names_for_the_question_mark(all10):
+    v = U.round_view(all10)
+    assert len(v.top) == 14
+    text = _spec_text(U.amounts_chart(all10, v).to_dict())
+    assert "Top 14 · within 5 points of the best (?)" in text
+    names = ", ".join(U._names(all10, v.top))
+    assert wording.review_top_names(names) in text
+    assert "…" not in text
+    assert wording.review_top_names("F21, F16") == "Top formulations: F21, F16."
+
+
+def test_a_short_top_key_keeps_its_names_inline(r6):
+    text = _spec_text(U.amounts_chart(r6, U.round_view(r6)).to_dict())
+    assert "Top 4 (F16, F17, F10, F13)" in text
+    assert "within 5 points of the best (?)" not in text
+

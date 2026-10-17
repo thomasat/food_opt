@@ -1014,6 +1014,9 @@ def _amounts_part(opt, view):
 
 PANEL_CHART_H = 250          # px: the score chart's plot in the panel
 _TOP_LANE = 18               # px above the top score for its line's label
+# px over that for the Best label: its own lane, so no Round line, dot or
+# other label ever runs through it (owner, v3 final fixes).
+_BEST_LANE = 20
 
 
 def improving_spec(opt, r=None, height=None):
@@ -1033,7 +1036,9 @@ def improving_chart(opt, height=None, upto=None):
     value), Best so far (an ink step, moving at Round boundaries), each
     Round's average (a light bar), the Rounds named along the top, the top
     score's dotted line labelled '100 = every attribute on target' and the
-    best labelled 'Best: 98.3 (F16, F17 tied)'. Model-free; no stop mark, no
+    best labelled 'Best: 98.3 (F16, F17 tied)' in its own lane over the
+    plot (the Round lines stop at the 100 line, under both labels, so
+    nothing runs through it). Model-free; no stop mark, no
     zone. `upto`: an earlier Round on view — only what was measured by its
     end (the axes as at the latest). None with nothing to draw."""
     plot_h = height or PANEL_CHART_H
@@ -1067,8 +1072,13 @@ def improving_chart(opt, height=None, upto=None):
     pad = 0.04 * max(hi - lo, 4.0)
     bottom = lo - pad
     data_top = (ceiling if show_top else hi) + pad / 2
-    lane = _TOP_LANE if show_top else 0
-    top = data_top + (data_top - bottom) * lane / max(1, plot_h - lane)
+    lane = (_TOP_LANE if show_top else 0) + _BEST_LANE
+    per_px = (data_top - bottom) / max(1, plot_h - lane)
+    top = data_top + per_px * lane
+    # The Best label's lane is the topmost; the Round lines stop at the
+    # 100 line (or the data's top without it), below both labels.
+    best_y = data_top + per_px * (lane - _BEST_LANE / 2)
+    rules_top = ceiling if show_top else data_top
     y_scale = alt.Scale(domain=[bottom, top], nice=False, zero=False)
     x_scale = alt.Scale(domain=_x_domain(opt), nice=False)
     span = data_top - bottom
@@ -1138,15 +1148,16 @@ def improving_chart(opt, height=None, upto=None):
         x0 = float(top_dots[formulation].iloc[0])
         lo_x, hi_x = _x_domain(opt)
         right = (x0 - lo_x) / ((hi_x - lo_x) or 1.0) > 0.45
-        ldf = pd.DataFrame([{"x": x0, "y": view.best, "text": _say(opt, wording.review_best_label(
+        ldf = pd.DataFrame([{"x": x0, "y": best_y, "text": _say(opt, wording.review_best_label(
             one_decimal(view.best), _names(opt, view.bests)))}])
         layers += _halo_text(ldf, alt.X("x:Q", scale=x_scale),
                              alt.Y("y:Q", scale=y_scale, title=y_title), "text:N", blue,
                              fontSize=FONT_LABEL, align="right" if right else "left",
-                             dx=-8 if right else 8, dy=14, baseline="middle")
+                             dx=4 if right else -4, baseline="middle")
     layers.append(_key_layer([(each, grey, "circle"), (best_name, ink, "stroke"),
                               (avg_name, light, "stroke")]))
-    rounds = _round_layer(opt, formulation, list(frame[formulation]), x_scale)
+    rounds = _round_layer(opt, formulation, list(frame[formulation]), x_scale,
+                          y=(alt.Y("y0:Q", scale=y_scale, title=y_title), bottom, rules_top))
     body = alt.layer(*layers)
     chart = alt.layer(rounds, body).resolve_axis(x="independent") if rounds else body
     return readable(chart.properties(height=plot_h))
@@ -1360,7 +1371,6 @@ AMOUNT_ROW_H = 62            # px per ingredient or setting
 _AMOUNT_ROOM_PX = 150        # px kept right of each track for its limit tag
 _TAG_FROM = 0.012            # bests closer than this share of a track are offset
 _OFFSET_PX = 8               # px between two markers at one amount
-_TOP_NAMES = 6               # names the Top key lists before '…'
 # Tried (grey), the top formulations' range (blue) and the best so far's
 # markers, per theme: blue only for the top and the best (owner's colour
 # language); the allowed track is _TRACK_COLOURS'.
@@ -1497,7 +1507,9 @@ def amounts_chart(opt, view):
     marker (spread a little when two share an amount, so none hides
     another), and 'at upper limit (?)' / 'at lower limit (?)' where the best
     so far sits at a limit, its "?" naming the top formulations there.
-    The key counts what is drawn. None with no row."""
+    The key counts what is drawn; past REVIEW_TOP_INLINE top formulations
+    it says their rule, 'Top 14 · within 5 points of the best (?)', and
+    the "?" names them. None with no row."""
     rows = amounts_rows(opt, view)
     if not rows:
         return None
@@ -1516,9 +1528,11 @@ def amounts_chart(opt, view):
     def amt(r, v):
         return join_unit(_num(v), r["unit"])
     top_names = _names(opt, view.top)
-    if len(top_names) > _TOP_NAMES:
-        top_names = top_names[:_TOP_NAMES] + ["…"]
-    top_label = _say(opt, wording.review_top_key(top_names, len(view.top)))
+    top_label = _say(opt, wording.review_top_key(top_names, f"{TOP_WITHIN:g}"))
+    # Named inline up to REVIEW_TOP_INLINE; past it the key says the rule
+    # and its "(?)" names them all, so the key is never cut short.
+    top_help = (None if len(top_names) <= wording.REVIEW_TOP_INLINE
+                else _say(opt, wording.review_top_names(", ".join(top_names))))
     tried_label = _say(opt, wording.review_tried(len(view.tried)))
     allowed = pd.DataFrame([{"name": r["name"], "x0": 0.0, "x1": 1.0,
                              "tip": f"{_limit_amount(opt, r['name'], r['low'])}–"
@@ -1573,16 +1587,72 @@ def amounts_chart(opt, view):
         layers.append(alt.Chart(tags).mark_text(fontSize=FONT_LABEL + 1, color=ink, align="left",
                                                 dx=10, baseline="middle")
                       .encode(x=X("x"), y=y, text="text:N", tooltip="help:N"))
-    entries = [(_say(opt, wording.REVIEW_ALLOWED), fill, "square", edge),
-               (tried_label, c["tried"], "square")]
+    entries = [(_say(opt, wording.REVIEW_ALLOWED), fill, "square", edge, None),
+               (tried_label, c["tried"], "square", c["tried"], None)]
     if not top.empty:
-        entries.append((top_label, c["top"], "square"))
+        entries.append((top_label + (" (?)" if top_help else ""), c["top"], "square",
+                        c["top"], top_help))
     best_names = _names(opt, view.bests)
     for k, who in enumerate(best_names):
         entries.append((_say(opt, wording.review_best_key(who, tied=k > 0)), c["best"],
-                        BEST_SHAPES[k % len(BEST_SHAPES)]))
-    layers.append(_key_layer(entries, width=1, size=150))
-    return readable(alt.layer(*layers).properties(height=AMOUNT_ROW_H * len(rows)))
+                        BEST_SHAPES[k % len(BEST_SHAPES)], page, None))
+    height = AMOUNT_ROW_H * len(rows)
+    layers += _mark_key(entries, height + _KEY_OFFSET_PX)
+    return readable(alt.layer(*layers).properties(height=height))
+
+
+# The amounts chart's key, drawn as marks under the tracks (a Vega-Lite
+# legend cannot carry a "(?)" tooltip): one line, or two when the plot is
+# narrower than one line's width.
+_KEY_OFFSET_PX = 26          # px from the plot's bottom to the key's first line
+_KEY_LINE_PX = 22            # px between the key's two lines
+_KEY_SYMBOL_PX = 16          # px from an entry's start to its text
+_KEY_GAP_PX = 20             # px between two entries
+
+
+def _text_px(text, size=FONT_LABEL):
+    """A generous width of `text` in px at `size` (the app's sans): narrow
+    marks, wide letters, capitals and digits, the rest."""
+    em = 0.0
+    for ch in text:
+        em += (0.3 if ch in " .,:;'|!()[]ilIjtf·" else 0.85 if ch in "mwMW—…"
+               else 0.62 if ch.isupper() or ch.isdigit() else 0.52)
+    return em * size
+
+
+def _mark_key(entries, y_px, size=150):
+    """Key layers for [(label, fill, shape, stroke, help)]: a symbol and
+    its label per entry from the plot's left edge, on one line when the
+    plot is wide enough, else on two (split where the longer line is
+    shortest). An entry with `help` carries it as its label's tooltip."""
+    spans = [_KEY_SYMBOL_PX + _text_px(e[0]) for e in entries]
+
+    def starts(part):
+        out, x = [], 0.0
+        for w in part:
+            out.append(x)
+            x += w + _KEY_GAP_PX
+        return out, x - _KEY_GAP_PX
+    one, total = starts(spans)
+    split = min(range(1, len(spans)), default=len(spans),
+                key=lambda k: max(starts(spans[:k])[1], starts(spans[k:])[1]))
+    two = starts(spans[:split])[0] + starts(spans[split:])[0]
+    layers = []
+    for k, (label, fill, shape, stroke, help_) in enumerate(entries):
+        line2 = k >= split
+        x = alt.ExprRef(f"width >= {total:.0f} ? {one[k]:.1f} : {two[k]:.1f}")
+        y = alt.ExprRef(f"width >= {total:.0f} ? {y_px} : {y_px + (_KEY_LINE_PX if line2 else 0)}")
+        tx = alt.ExprRef(f"width >= {total:.0f} ? {one[k] + _KEY_SYMBOL_PX:.1f} : "
+                         f"{two[k] + _KEY_SYMBOL_PX:.1f}")
+        dot = pd.DataFrame([{"k": k}])
+        layers.append(alt.Chart(dot).mark_point(
+            x=alt.ExprRef(f"({x.expr}) + 6"), y=y, shape=shape, filled=True, fill=fill,
+            stroke=stroke or fill, strokeWidth=1, size=size, opacity=1, tooltip=False))
+        text = dict(x=tx, y=y, text=label, align="left", baseline="middle",
+                    fontSize=FONT_LABEL, color=muted())
+        layers.append(alt.Chart(dot).mark_text(
+            **text, **({"tooltip": help_} if help_ else {"tooltip": False})))
+    return layers
 
 
                         # axis titles inside it)
@@ -2244,9 +2314,11 @@ def _x_domain(opt):
     return [min(numbers) - 0.7, max(numbers) + 0.7] if numbers else [0, 1]
 
 
-def _round_layer(opt, frame_x, numbers, scale):
+def _round_layer(opt, frame_x, numbers, scale, y=None):
     """Light rules between Rounds and 'R3' labels along the top, on the
-    Formulation field (one scale), or None with under two Rounds."""
+    Formulation field (one scale), or None with under two Rounds. `y`:
+    (the y encoding, from, to) — the rules span only that, so they stop
+    short of labels above it; the full height without it."""
     marks = round_marks(opt, numbers)
     if not marks:
         return None
@@ -2258,8 +2330,13 @@ def _round_layer(opt, frame_x, numbers, scale):
                 axis=alt.Axis(orient="top", values=mids, labelExpr=expr, ticks=False,
                               domain=False, grid=False, labelFontSize=FONT_SMALL,
                               labelPadding=3, labelColor=muted()))
-    return (alt.Chart(pd.DataFrame({frame_x: rules}))
-            .mark_rule(color=light, strokeWidth=1, tooltip=False).encode(x=top))
+    if y is None:
+        return (alt.Chart(pd.DataFrame({frame_x: rules}))
+                .mark_rule(color=light, strokeWidth=1, tooltip=False).encode(x=top))
+    enc, lo, hi = y
+    rows = pd.DataFrame({frame_x: rules, "y0": float(lo), "y1": float(hi)})
+    return (alt.Chart(rows).mark_rule(color=light, strokeWidth=1, tooltip=False)
+            .encode(x=top, y=enc, y2="y1:Q"))
 
 
 def _page():
