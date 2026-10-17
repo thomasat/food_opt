@@ -1,4 +1,6 @@
-"""Tab 3 · Results: the best formulation, every formulation, and one
+"""Tab 3 · Results: the last Round's results against their targets (v3:
+measurements only, no forecast), how one formulation's score is worked
+out, the best formulation, every formulation, and one
 collapsed section — `Correct, delete or add past formulations` — for every
 way the record is fixed after the fact: a correction, a deletion, and a
 formulation made before this project existed, typed in or read off a CSV.
@@ -22,7 +24,7 @@ from ui_helpers import (
     best_formulation_no, best_move_sentence,
     bounds_caution, clear_selection, confirm_action, confirmation_open,
     SCROLL_KEY, clear_scale_total, disarm, flash, fmt_amount, fmt_setting, goal_line,
-    entry_label, go_to_tab, link, review_due, number_list, open_rows, other_confirmation,
+    entry_label, go_to_tab, review_due, number_list, open_rows, other_confirmation,
     park_clear,
     plural, preserve_tab_forms, readiness, render_flash, saved_ok, scale_error,
     table_height, take_clear, waiting_text,
@@ -262,60 +264,262 @@ def _number(cell):
         return None
 
 
-def _round_checkable(opt):
-    """Whether the last Round has a Round-ahead check to link to (no Round
-    open, the last Round checkable)."""
-    last = opt.last_batch_no()
-    return not (opt.pending_batch or last is None
-                or last in insights.rounds_not_checked(opt)
-                or last not in {r for r, _ in insights.round_order(opt)})
+# ------------------------------------------------------------------ #
+#  Round N results (final-v3, 3 · Results): the last Round's ratings
+#  against their targets, and how one formulation's score is worked out.
+#  Measurements only: no forecast, no range, no verdict.
+# ------------------------------------------------------------------ #
+
+_TIE = 1e-6          # Overall scores this close are equal (owner rule)
+_FULL = 1e-9         # a fraction of a share this close to 1 is on target
+# A new best's row: the best-so-far blue, as a tint under the reader's text
+# colour in each theme; a total row: Streamlit's own secondary background.
+_BEST_TINT = {"light": "#e8f0fc", "dark": "#1b2a4a"}
+_TOTAL_TINT = {"light": "#f0f2f6", "dark": "#262730"}
+BREAKDOWN_KEY = "score_breakdown"
 
 
-def _round_link(opt):
-    """E1 (spec 2026-09-30-bo-views §5; 04 §3): after Save results, with no
-    Round open and the last Round checkable, one text-style link landing on
-    the Review's Forecast check (it has no fold to open). A rule
-    that needs no fit (rounds_not_checked), so it never waits; gone once
-    the next Round is generated."""
-    if not _round_checkable(opt):
-        return False
-    last = opt.last_batch_no()
-    link(wording.for_project(opt, wording.round_measured_against_predicted(last)),
-         wording.TAB_INSIGHTS, section=ui_insights.TRUST_SECTION, key="link_round_checked")
-    return True
+def _rating_text(value):
+    """12, 4.5, 12.25: a rating as it was entered, never 12.000000."""
+    return f"{round(float(value), 2):g}"
 
 
-def _round_predicted(opt):
-    """Persona fixes: under the link, the last Round's forecast beside what
-    was measured — a Predicted column (the Round-ahead forecast and its 95 %
-    range) next to Measured, for the Overall score and the Predictable
-    measurements. Read from the Review's checks; fitted here only when they
-    are not worked out yet."""
-    last = opt.last_batch_no()
-    checks = ui_insights.cached_checks(opt)
-    if not checks or last not in insights._ordered_rounds(checks):
-        try:
-            with st.spinner(wording.for_project(opt, wording.RESULTS_PREDICTED_SPINNER)):
-                checks = ui_insights.checks_here(opt)
-        except Exception:
-            return
-    try:
-        frame = ui_insights.round_predicted_frame(opt, checks, last)
-    except Exception:
-        frame = None
-    if frame is None or frame.empty:
+def _scales(opt):
+    return {(float(o.get('min_val', 0.0)), float(o.get('max_val', 10.0)))
+            for o in opt.objectives}
+
+
+def _common_scale(opt):
+    """(low, high) when every measurement shares one scale, else None."""
+    scales = _scales(opt)
+    return next(iter(scales)) if len(scales) == 1 else None
+
+
+def results_round(opt):
+    """The Round 'Round N results' shows: the last one with anything
+    recorded or moved to Not scored, or None (only past formulations)."""
+    rounds = {int(b) for b in opt.batch_history if b is not None}
+    rounds |= {int(r[ROUND_FIELD]) for r in opt.skipped
+               if r.get(ROUND_FIELD) is not None}
+    return max(rounds) if rounds else None
+
+
+def _short(opt, number):
+    return ui_insights._short(opt, f"F{int(number)}")
+
+
+def _off(part):
+    """A rating that lost points: off its target, or short of the end of
+    the scale a higher-or-lower goal wants."""
+    return (part['applies'] and part['utility'] is not None
+            and part['utility'] < 1.0 - _FULL)
+
+
+def new_best_rows(opt, round_no):
+    """Positions of the Round's formulations that are a new Best so far:
+    the Round's highest score among best_candidates, when it is above
+    every earlier formulation's (an earlier Round's, or one made before the
+    project) by more than _TIE; all of them when tied. [] when the Round
+    did not raise the best."""
+    pool = set(opt.best_candidates())
+    mine = [i for i in pool if opt.batch_history[i] == round_no]
+    if not mine:
+        return []
+    top = max(float(opt.Y_history[i]) for i in mine)
+    earlier = [float(opt.Y_history[i]) for i in pool
+               if opt.batch_history[i] is None or int(opt.batch_history[i]) < round_no]
+    if earlier and top <= max(earlier) + _TIE:
+        return []
+    return sorted((i for i in mine if float(opt.Y_history[i]) >= top - _TIE),
+                  key=lambda i: int(opt.formulation_ids[i]))
+
+
+def round_results(opt, round_no=None):
+    """'Round N results' as data: {'round', 'columns', 'frame' (text
+    cells), 'off' {(row, column)}, 'best' [rows], 'caption'}. One row per
+    formulation of the Round, in number order: Formulation, Overall score,
+    then each measurement (most important first) with its target in the
+    header. None when there is no Round to show."""
+    round_no = results_round(opt) if round_no is None else round_no
+    if round_no is None:
+        return None
+    common = _common_scale(opt)
+    objs = opt.measurements_by_importance()
+    headers = {o['name']: wording.round_results_column(
+        o['name'], o.get('goal'), o.get('target'), o.get('unit', ''),
+        None if common else (o.get('min_val', 0.0), o.get('max_val', 10.0)))
+        for o in objs}
+    form = wording.for_project(opt, wording.FORMULATION_CAP)
+    score = wording.OVERALL_SCORE_COLUMN
+    columns = [form, score] + [headers[o['name']] for o in objs]
+    best = new_best_rows(opt, round_no)
+    tied = len(best) > 1
+    entries = [(int(opt.formulation_ids[i]), i) for i in range(len(opt.formulation_ids))
+               if opt.batch_history[i] == round_no]
+    entries += [(int(r['formulation']), None) for r in opt.skipped
+                if r.get(ROUND_FIELD) is not None and int(r[ROUND_FIELD]) == round_no]
+    rows, off, best_rows = [], set(), []
+    for pos, (number, index) in enumerate(sorted(entries)):
+        row = {c: "" for c in columns}
+        row[form] = wording.round_results_row_label(
+            _short(opt, number), best=index in best, tied=tied)
+        if index in best:
+            best_rows.append(pos)
+        if index is None or opt.is_set_aside(index):
+            row[score] = wording.NOT_SCORED
+        elif not opt.fully_measured(index):
+            row[score] = wording.MEASURED_WAITING
+        else:
+            row[score] = f"{float(opt.Y_history[index]):.1f}"
+        if index is not None:
+            for part in opt.score_breakdown(index):
+                column = headers[part['name']]
+                if not part['applies']:
+                    row[column] = wording.DOES_NOT_APPLY
+                elif part['rating'] is not None:
+                    row[column] = _rating_text(part['rating'])
+                if _off(part):
+                    off.add((pos, column))
+        rows.append(row)
+    caption = wording.round_results_caption(
+        common, sample_projects.panel(opt),
+        targets_only=all(o.get('goal') == 'target' for o in objs))
+    return {"round": round_no, "columns": columns,
+            "frame": pd.DataFrame(rows, columns=columns), "off": off,
+            "best": best_rows, "caption": wording.for_project(opt, caption)}
+
+
+def score_breakdown_frame(opt, index):
+    """How formulation `index`'s Overall score is worked out, as data:
+    {'frame', 'off' {(row, column)}, 'total' (the sum of the points),
+    'line'}. One row per measurement — Attribute, Rating, Target, Share,
+    Points earned — then the Overall score row, Share and Points summed.
+    Every number is food_bo's own (score_breakdown, the parts
+    _compute_utility adds), so the total is the Overall score."""
+    parts = opt.score_breakdown(index)
+    cols = (wording.SCORE_ATTRIBUTE_COLUMN, wording.SCORE_RATING_COLUMN,
+            wording.SCORE_TARGET_COLUMN, wording.SCORE_SHARE_COLUMN,
+            wording.SCORE_POINTS_COLUMN)
+    rows, off = [], set()
+    for pos, part in enumerate(parts):
+        if part['goal'] == 'target':
+            target = f"{part['target']:g}"
+        elif part['goal'] == 'max':
+            target = f"{part['high']:g} ({wording.SCORE_GOAL_HIGHER})"
+        else:
+            target = f"{part['low']:g} ({wording.SCORE_GOAL_LOWER})"
+        rows.append({
+            cols[0]: part['name'],
+            cols[1]: (wording.DOES_NOT_APPLY if not part['applies']
+                      else "" if part['rating'] is None else _rating_text(part['rating'])),
+            cols[2]: target,
+            cols[3]: ("" if part['share_of_score'] is None
+                      else f"{round(part['share_of_score'], 1):g}"),
+            cols[4]: "" if part['points'] is None else f"{part['points']:.1f}"})
+        if _off(part):
+            off.update({(pos, cols[1]), (pos, cols[4])})
+    total = sum(p['points'] for p in parts if p['points'] is not None)
+    shares = sum(p['share_of_score'] for p in parts if p['share_of_score'] is not None)
+    rows.append({cols[0]: wording.OVERALL_SCORE_COLUMN, cols[1]: "", cols[2]: "",
+                 cols[3]: f"{round(shares, 1):g}", cols[4]: f"{total:.1f}"})
+    common = _common_scale(opt)
+    return {"frame": pd.DataFrame(rows, columns=list(cols)), "off": off, "total": total,
+            "line": wording.score_point_line(None if common is None
+                                             else common[1] - common[0])}
+
+
+def _styled(frame, off, tinted=(), bold=(), total_row=None):
+    """`frame` for st.table: off-target cells in the theme's orange, the
+    `tinted` rows in the best-so-far blue, `bold` {(row, column)} cells
+    bold, a total row on the secondary background and bold. Theme-keyed,
+    never one theme's colours."""
+    which = ui_insights.theme()
+    orange = ui_insights.outline_colour()
+
+    def css(data):
+        out = pd.DataFrame("", index=data.index, columns=data.columns)
+        for r in range(len(data)):
+            for c in data.columns:
+                rules = []
+                if r in tinted:
+                    rules.append(f"background-color: {_BEST_TINT[which]}")
+                if r == total_row:
+                    rules.append(f"background-color: {_TOTAL_TINT[which]}")
+                if (r, c) in off:
+                    rules.append(f"color: {orange}")
+                out.iloc[r, list(data.columns).index(c)] = "; ".join(rules)
+        return out
+
+    # Bold as Markdown, which st.table renders in every cell: it draws a
+    # Styler's colours but not its font-weight.
+    strong = set(bold) | ({(total_row, c) for c in frame.columns}
+                          if total_row is not None else set())
+    marked = frame.copy()
+    for r, c in strong:
+        if str(marked.iat[r, list(frame.columns).index(c)]):
+            marked.iat[r, list(frame.columns).index(c)] = (
+                f"**{marked.iat[r, list(frame.columns).index(c)]}**")
+    # The first column is the index: st.table always draws one, and a
+    # column of 0, 1, 2 beside the formulations read as a fourth number.
+    first = frame.columns[0]
+    shown = marked.set_index(first)
+    return shown.style.apply(lambda data: css(frame).drop(columns=first).set_axis(data.index),
+                             axis=None)
+
+
+def _round_results_section(opt):
+    """'Round N results', its caption and table, then the fold that works
+    one formulation's score out. Nothing when there is no Round yet."""
+    if not opt.objectives:
         return
-    # Round-2 fixes (P2 #15): every row shown, no inner scroll.
-    st.dataframe(frame, hide_index=True, key="round_predicted",
-                 height=35 * (len(frame) + 1) + 3)
-    # Sceptic review: the "?" says what No forecast is, when a row reads it.
-    try:
-        none = ui_insights.no_forecast_items(opt, checks, last)
-    except Exception:
-        none = []
-    st.caption(wording.for_project(opt, wording.RESULTS_PREDICTED_CAPTION),
-               help=wording.for_project(opt, wording.results_predicted_help(
-                   last, none or False, sample_projects.is_yogurt(opt.project_name))))
+    table = round_results(opt)
+    if table is None or table["frame"].empty:
+        return
+    st.markdown(f"#### {wording.round_results_heading(table['round'])}")
+    st.caption(table["caption"])
+    score = wording.OVERALL_SCORE_COLUMN
+    st.table(_styled(table["frame"], table["off"], tinted=set(table["best"]),
+                     bold={(r, score) for r in table["best"]}),
+             width="content")
+    _score_breakdown(opt, table)
+
+
+def _score_breakdown(opt, table):
+    """The fold: pick a formulation (the Round's best by default), and its
+    Overall score worked out measurement by measurement."""
+    scored = [int(n) for n in opt.formulation_ids]
+    if not scored or not opt.objectives:
+        return
+    mine = [i for i in range(len(opt.formulation_ids))
+            if opt.batch_history[i] == table["round"]]
+    best_rows = new_best_rows(opt, table["round"])
+    pool = [i for i in mine if opt.fully_measured(i)] or mine
+    default_index = (best_rows[0] if best_rows
+                     else max(pool, key=lambda i: float(opt.Y_history[i])) if pool else None)
+    default = (int(opt.formulation_ids[default_index]) if default_index is not None
+               else sorted(scored)[-1])
+    key = f"{BREAKDOWN_KEY}_{opt.project_name}"
+    seen = f"_{key}_round"
+    if (st.session_state.get(seen) != table["round"]
+            or st.session_state.get(key) not in scored):
+        st.session_state[key] = default
+    st.session_state[seen] = table["round"]
+    with st.expander(wording.SCORE_WORKED_OUT_FOLD, key=f"{BREAKDOWN_KEY}_fold"):
+        # A label that never changes with Best so far or a result arriving:
+        # the browser keeps the label it was shown, and a stale one is no
+        # option at all.
+        rounds = {int(n): b for n, b in zip(opt.formulation_ids, opt.batch_history)}
+        number = st.selectbox(
+            wording.for_project(opt, wording.SCORE_WORKED_OUT_PICK), sorted(scored),
+            format_func=lambda n: wording.for_project(
+                opt, wording.result_view_option(n, rounds.get(n))), key=key)
+        index = opt.index_of_formulation(number)
+        if index is None:
+            return
+        shown = score_breakdown_frame(opt, index)
+        st.caption(shown["line"])
+        last = len(shown["frame"]) - 1
+        st.table(_styled(shown["frame"], shown["off"], total_row=last), width="content")
 
 
 def _progress_line(opt):
@@ -462,12 +666,6 @@ def _best(opt):
         line = _progress_line(opt)
         if line:
             st.caption(wording.for_project(opt, line))
-        if _round_checkable(opt):
-            # Persona fixes 2: the link, its table and its caption in one
-            # box, so the caption never reads as the next table's.
-            with st.container(border=True, key="round_predicted_box"):
-                if _round_link(opt):
-                    _round_predicted(opt)
         for text in _waiting_lines(opt):
             st.caption(wording.for_project(opt, text))
 
@@ -1261,13 +1459,10 @@ def _foot(opt, correcting=False, typed=False, review=False):
     # Review guide: while a Round is due a Review, "Review Round N" is
     # the lit one and this waits a step, enabled.
     lit = enabled and not typed and not review
-    # Round-2 fixes (P2 #16): not lit when the Review says stop.
-    stop = not opt.pending_batch and ui_insights.review_says_stop(opt)
-    if st.button(label, type="primary" if lit and not stop else "secondary",
+    # v3: no stop rule, so nothing here holds the next Round back.
+    if st.button(label, type="primary" if lit else "secondary",
                  disabled=not enabled, key="foot_batch") and enabled:
         go_to_tab(TAB_BATCH)
-    if stop:
-        st.caption(wording.REVIEW_SAYS_STOP)
 
 
 def _batch_numbers(opt):
@@ -1702,6 +1897,8 @@ def render(opt, storage):
     # Review guide: the one lit button after Save results, at the top where
     # Save results lands; drawn last, like the foot, so a confirmation armed
     # below greys it on the same run.
+    # v3: the last Round's results first, the way they were measured.
+    _round_results_section(opt)
     due = review_due(opt)
     review_slot = st.container() if due is not None else None
     said_partial, missing, settled = _best(opt)

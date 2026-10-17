@@ -1818,6 +1818,89 @@ IN_USE_PREFIX = "In use: "
 # Tab 3 · Results: the best formulation, every formulation, corrections
 # (ui_results.py).
 # ------------------------------------------------------------------ #
+# v3: the last Round's results, one row per formulation, and how one
+# formulation's Overall score is worked out (final-v3 wording, 3 · Results).
+def round_results_heading(no):
+    """'Round 6 results'."""
+    return f"{ROUND_CAP} {no} results"
+
+
+def _scale_text(low, high):
+    return f"{float(low):g}–{float(high):g}"
+
+
+def round_results_caption(scale=None, panel=None, targets_only=True):
+    """'Panel median (n = 5), 0–15; each made once, rated once. Orange: off
+    target.' `scale`: (low, high) when every measurement shares one, else
+    None (each header then names its own). `panel`: (summary, n), e.g.
+    ("median", 5), only when the project's provenance records how a rating
+    was made (sample_projects.panel); without it nothing is claimed about
+    how a value was arrived at. `targets_only`: every goal is a target; a
+    higher-or-lower goal loses points too, without a target to be off."""
+    orange = "Orange: off target." if targets_only else "Orange: points lost."
+    if panel is not None:
+        summary, n = panel
+        head = f"Panel {summary} (n = {n})"
+        head += f", {_scale_text(*scale)}" if scale else ""
+        return f"{head}; each made once, rated once. {orange}"
+    if scale:
+        return f"Range {_scale_text(*scale)}. {orange}"
+    return orange
+
+
+def round_results_column(name, goal, target=None, unit="", scale=None):
+    """A measurement's header: 'Tangy (target 5)'; 'Juiciness (higher is
+    better)'. `unit` is shown unless it is the scale itself ('/15');
+    `scale` (low, high) only when measurements differ in scale."""
+    said = []
+    if scale:
+        said.append(_scale_text(*scale))
+    if unit and not str(unit).startswith("/"):
+        said.append(str(unit))
+    if goal == "target" and target is not None:
+        said.append(f"target {float(target):g}")
+    elif goal == "max":
+        said.append("higher is better")
+    elif goal == "min":
+        said.append("lower is better")
+    return f"{name} ({', '.join(said)})" if said else name
+
+
+NEW_BEST = "new best"
+NEW_BEST_TIED = "new best (tied)"
+
+
+def round_results_row_label(short, best=False, tied=False):
+    """'F16 · new best (tied)', 'F18'."""
+    if not best:
+        return short
+    return f"{short} · {NEW_BEST_TIED if tied else NEW_BEST}"
+
+
+# The fold under the table: one name (owner tweak to the final-v3 mock).
+SCORE_WORKED_OUT_FOLD = "How the score is worked out"
+SCORE_WORKED_OUT_PICK = FORMULATION_CAP
+
+
+def score_point_line(span=None):
+    """'Each point off costs 1/15 of its share.' — `span` is the Range's
+    width (Highest - Lowest) when every measurement shares one, else None."""
+    if span is None:
+        return "Each point off costs 1/(its Range's width) of its share."
+    return f"Each point off costs 1/{float(span):g} of its share."
+
+
+SCORE_ATTRIBUTE_COLUMN = "Attribute"
+SCORE_RATING_COLUMN = "Rating"
+SCORE_TARGET_COLUMN = "Target"
+# "Share of score", the Set up column it comes from (a bare "Share" is
+# banned vocabulary; the final-v3 mock's "Share").
+SCORE_SHARE_COLUMN = "Share of score"
+SCORE_POINTS_COLUMN = "Points earned"
+SCORE_GOAL_HIGHER = "highest"
+SCORE_GOAL_LOWER = "lowest"
+
+
 # 0.8.0: a formulation teaches the suggestions only once every measurement
 # that applies to it has a value. A dash in its row is a measurement it is
 # scored without — added after it was recorded, or imported without it.
@@ -3943,25 +4026,24 @@ def calculated_range_caption(low_text, high_text, unit):
             "limits. This is not a measured result.")
 
 
-# The three sheets of the compact workbook, and the lines that head them.
+# The sheets of the compact workbook, and the lines that head them:
+# Round overview and Results always, Preparation only when the Round has
+# pre-mixes (v3).
 OVERVIEW_SHEET = "Round overview"
 PREPARATION_SHEET = "Preparation"
 RESULTS_SHEET = "Results"
-SHEET_NAVIGATION = (
-    f"Use the sheet tabs: {OVERVIEW_SHEET} → {PREPARATION_SHEET} → "
-    f"{RESULTS_SHEET}. Tabs are at the bottom in Excel and at the top in "
-    "Numbers. ")
 OVERVIEW_SHEET_INTRO = (
     f"Review the plan, prepare each {FORMULATION} separately, then enter "
     f"measurements on {RESULTS_SHEET} and upload this file in the app.")
 
 
 def sheet_navigation(premixes=True):
-    """Preview 0.8.1: the tabs named, Preparation only when there is one."""
-    if premixes:
-        return SHEET_NAVIGATION
-    return (f"Use the sheet tabs: {OVERVIEW_SHEET} → {RESULTS_SHEET}. Tabs are at the bottom "
-            "in Excel and at the top in Numbers. ")
+    """The line that opens each sheet, naming the workbook's tabs in order:
+    Preparation only when the Round has pre-mixes and so has that sheet."""
+    tabs = ((OVERVIEW_SHEET, PREPARATION_SHEET, RESULTS_SHEET) if premixes
+            else (OVERVIEW_SHEET, RESULTS_SHEET))
+    return (f"Use the sheet tabs: {' → '.join(tabs)}. Tabs are at the bottom in "
+            "Excel and at the top in Numbers. ")
 
 
 PREPARATION_SHEET_TITLE = f"{PREPARATION_SHEET} — Pre-mixes for this round"
@@ -3969,8 +4051,6 @@ PREPARATION_SHEET_INTRO = (
     f"Prepare pre-mixes with fixed {INGREDIENT} percentages here. For blends "
     f"where {INGREDIENT} amounts vary separately, follow the individual "
     f"amounts on {OVERVIEW_SHEET}.")
-PREPARATION_SHEET_EMPTY = (
-    f"No pre-mixes are required. Follow the method on {OVERVIEW_SHEET}.")
 RESULTS_SHEET_TITLE = f"{RESULTS_SHEET} — Enter measurements here"
 RESULTS_SHEET_INTRO = (
     f"Each {FORMULATION} has its own column. Blank means not recorded yet. "

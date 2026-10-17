@@ -167,7 +167,9 @@ def compact(book, opt, rows, note=""):
     overview = result.active
     overview.title = OVERVIEW
     copy_cells(source, overview, last=split - 1)
-    # Preview 0.8.1: the Preparation sheet only when the Round has pre-mixes.
+    # The Preparation sheet only when the Round has (portioned) pre-mixes:
+    # an empty sheet saying "No pre-mixes are required" was one more tab to
+    # open for nothing.
     premixes = list(opt._premix_sheet_names([r['formulation'] for r in rows]).values())
     navigation = wording.sheet_navigation(bool(premixes))
     # The line that says these amounts were re-sized survives the fold: it
@@ -319,7 +321,8 @@ def prepare_import(source, opt, batch_no):
     if OVERVIEW not in book.sheetnames:
         out = io.BytesIO(); book.save(out); out.seek(0)
         return out
-    # Preview 0.8.1: Preparation is there only when the Round has pre-mixes.
+    # Preparation is there only when the Round has pre-mixes; a workbook
+    # downloaded before v3 carries an empty one, which reads as none.
     if not marker or RESULTS not in book.sheetnames:
         raise ValueError(wording.WORKBOOK_MISSING_SHEET)
     original = Workbook()

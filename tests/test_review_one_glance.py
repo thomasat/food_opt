@@ -69,20 +69,22 @@ def _ordering(name, right, pairs, ties=0, close=0):
 # ------------------------------------------------------------------ #
 
 
-def test_the_readme_holds_the_full_method_in_25_lines():
+def test_the_readme_says_the_v3_review_in_25_lines():
+    """v3: four tabs; the Review shows best so far, best vs targets and the
+    amounts in the top formulations; single tastings; no stop rule and no
+    forecasts on screen."""
     text = open(README, encoding="utf-8").read()
     assert "## How the Review works" in text
     section = text.split("## How the Review works", 1)[1].split("\n## ", 1)[0]
     lines = [line for line in section.splitlines() if line.strip()]
     assert 3 <= len(lines) <= 25
-    for term in ("Gaussian process", "calibration factor", "Holm", "No forecast",
-                 "Tasting noise", "Stop", "second factor", "1-in-20 threshold",
-                 "No term p-values or coefficient table",
-                 "until then the project's Tasting noise setting (Set up › Preparation and records; "
-                 "1 point unless changed), assumed"):
+    for term in ("four tabs", "Best so far", "Best vs targets",
+                 "Amounts in the top formulations", "single tasting", "no stop rule",
+                 "not shown on screen", "Gaussian process"):
         assert term in section, term
-    assert "a fixed rule, not a significance test" not in section
-    assert "barely varies" not in section
+    for gone in ("Holm", "calibration factor", "No forecast", "Tasting noise", "**Stop.**",
+                 "95 % range", "Round-ahead"):
+        assert gone not in section, gone
 
 
 def test_the_new_strings_pass_the_guards():
