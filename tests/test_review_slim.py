@@ -27,8 +27,6 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 import bo_views
-import learned
-import insights
 import ui_insights as U
 import wording
 from food_bo import FoodOptimizer

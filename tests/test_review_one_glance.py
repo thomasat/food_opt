@@ -15,8 +15,6 @@ import pytest
 import learned
 import ui_insights as U
 import wording
-from tests.test_090_wording import _STYLE
-from tests.test_food_bo import _BANNED
 
 README = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "README.md")
 

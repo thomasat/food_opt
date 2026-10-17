@@ -36,7 +36,7 @@ from food_bo import FoodOptimizer
 from tests import demo_projects as D
 from tests.test_app_ui import APP_PATH
 from tests.test_food_bo import _BANNED
-from tests.review_screens import _install, _leaves, _text, strip
+from tests.review_screens import _install
 from tests.test_review_diag import ALL10, R6
 
 # Review critique (fix 5, re-pinned): Are we improving?, What next?, What has

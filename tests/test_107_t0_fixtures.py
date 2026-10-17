@@ -7,7 +7,6 @@ have their 1280 × 800 screen."""
 import pathlib
 
 import insights
-import wording
 from tests import demo_projects as D
 
 

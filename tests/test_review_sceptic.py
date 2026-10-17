@@ -9,17 +9,14 @@ called of all with how many right; the stop's Set up "?" checks first; the
 rebuilt forecasts' "?" says what they are (never "today").
 
 Synthetic projects only (test_final_demo's yogurt-shaped panel)."""
-import dataclasses
-import re
 from types import SimpleNamespace as NS
 
 import pytest
 
 import insights
-import learned
 import ui_insights as U
 import wording
-from tests.test_final_demo import ROWS, _FakeSt, _clean, _facts, _opt, _words
+from tests.test_final_demo import ROWS, _FakeSt, _facts, _opt
 
 
 @pytest.fixture(autouse=True)

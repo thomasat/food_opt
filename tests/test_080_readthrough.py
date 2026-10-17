@@ -9,7 +9,6 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 import insights
-import ui_insights
 import wording
 from tests.test_app_ui import APP_PATH
 from tests.test_complete_results import _patty
@@ -57,8 +56,7 @@ def test_higher_needs_a_shown_lead_beyond_the_yardstick_too():
 #        yardstick AND clear of noise (|gap| > 2 sd / sqrt(n))
 # ------------------------------------------------------------------ #
 
-from tests.test_080_round_track import _scores  # noqa: E402
-from tests.test_080_trust import _check, _values  # noqa: E402
+from tests.test_080_trust import _check  # noqa: E402
 
 
 def _noisy(rnd, misses, no=700):

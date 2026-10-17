@@ -6,7 +6,6 @@ import re
 
 import pytest
 
-import insights
 import wording
 from tests.test_food_bo import _BANNED
 

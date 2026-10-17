@@ -5,7 +5,6 @@ Overall score's own record always in view, and the typical miss compared
 with the spread between Repeats instead of R² (spec 2026-09-29 §3.1-3.5,
 §9 B1, I7, I8, I9)."""
 import pytest
-from tests.demo_build_reason import REVIEW_FOUR
 from streamlit.testing.v1 import AppTest
 
 import insights

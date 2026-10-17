@@ -20,12 +20,10 @@ from streamlit.testing.v1 import AppTest
 
 import bo_views
 import insights
-import insights_jobs
 import ui_insights as U
 import wording
 from tests import demo_projects as D
 from tests.test_app_ui import APP_PATH
-from tests.test_food_bo import _BANNED
 from tests.review_screens import _leaves, _text, screens  # noqa: F401 (fixture)
 from tests.test_review_diag import ALL10, R5, R6
 

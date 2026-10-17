@@ -6,7 +6,6 @@ lands at the top of the tab (the Results scroll bug)."""
 import pathlib
 
 import pytest
-from tests.demo_build_reason import REVIEW_FOUR
 from streamlit.testing.v1 import AppTest
 
 import insights

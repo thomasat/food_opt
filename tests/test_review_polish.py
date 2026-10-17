@@ -7,13 +7,10 @@ Make a round lines over the owner's limits are trimmed. Wording and
 layout only."""
 import re
 
-import pytest
 
 import ui_insights as U
 import wording
-from tests import demo_projects as D
 from tests.test_food_bo import _BANNED
-from tests.review_screens import screens  # noqa: F401  (module fixture)
 
 
 def _words(text):

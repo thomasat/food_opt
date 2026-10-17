@@ -12,7 +12,6 @@ from tests.demo_build_reason import REVIEW_FOUR
 from streamlit.testing.v1 import AppTest
 
 import insights
-import ui_insights
 import wording
 from food_bo import FoodOptimizer
 from tests.test_app_ui import APP_PATH, burger  # noqa: F401

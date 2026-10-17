@@ -18,7 +18,6 @@ import json
 import os
 
 import pytest
-from tests.demo_build_reason import REVIEW_FOUR
 import torch
 from streamlit.testing.v1 import AppTest
 

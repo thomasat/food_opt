@@ -12,7 +12,6 @@ import pytest
 
 import insights
 import learned
-import ui_insights as U
 import wording
 from insights import Check
 from tests.test_food_bo import _BANNED

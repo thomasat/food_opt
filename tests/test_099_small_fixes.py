@@ -10,11 +10,9 @@ import json
 import os
 
 import pytest
-from tests.demo_build_reason import REVIEW_FOUR
 from streamlit.testing.v1 import AppTest
 
 import bo_views
-import insights
 import insights_jobs
 import ui_insights
 import wording

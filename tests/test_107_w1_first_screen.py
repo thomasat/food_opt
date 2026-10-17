@@ -22,7 +22,6 @@ from tests.demo_build_reason import REVIEW_FOUR
 from streamlit.testing.v1 import AppTest
 
 import bo_views
-import insights
 import ui_insights
 import wording
 from food_bo import FoodOptimizer

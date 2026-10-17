@@ -41,7 +41,6 @@ from food_bo import FoodOptimizer
 from insights import Check, Prediction
 from tests import demo_projects as D
 from tests.test_app_ui import APP_PATH
-from tests.test_food_bo import _BANNED
 from tests.review_screens import _install, _leaves, _text
 
 

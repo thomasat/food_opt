@@ -17,7 +17,6 @@ import math
 from types import SimpleNamespace
 
 import pytest
-from tests.demo_build_reason import REVIEW_FOUR
 
 import insights
 import ui_insights

@@ -23,12 +23,10 @@ import pytest
 
 import bo_views
 import insights
-import learned
 import ui_insights as U
 import wording
 from food_bo import FoodOptimizer
 from insights import Check
-from tests import demo_projects as D
 from tests.test_food_bo import _BANNED
 
 

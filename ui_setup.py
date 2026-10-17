@@ -37,7 +37,6 @@ from ui_helpers import (
     COPY_KEPT, ING_ERRORS_KEY, ING_GRID_KEY, ING_PENDING_KEY,
     ING_SAVE_KEY, MEAS_ERRORS_KEY, MEAS_GRID_KEY, MEAS_SAVE_KEY,
     PROP_ERRORS_KEY, PROP_GRID_KEY, TAB_BATCH,
-    TAB_SETUP, join_unit,
     all_grid_keys, armed_confirmation, armed_deletions_key,
     best_formulation_no,
     best_move_sentence, clear_formulation_total_box, clear_grid, grid_key,

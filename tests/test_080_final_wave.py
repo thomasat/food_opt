@@ -8,7 +8,6 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 import insights
-import ui_insights
 import wording
 from tests.test_app_ui import APP_PATH
 from tests.test_food_bo import _BANNED

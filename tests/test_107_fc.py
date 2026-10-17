@@ -25,10 +25,8 @@ import bo_views
 import insights
 import ui_batch
 import ui_helpers
-import ui_insights
 import wording
 from tests.test_app_ui import APP_PATH
-from tests.test_complete_results import _patty
 from tests.test_food_bo import _BANNED
 from tests.test_insights import _burger
 

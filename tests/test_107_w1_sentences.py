@@ -11,8 +11,6 @@ import pytest
 import bo_views
 import insights
 import ui_insights
-import wording
-from tests.ftue_terms import statistic_names_in
 from tests.test_complete_results import _patty
 
 

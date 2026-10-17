@@ -13,14 +13,12 @@ from streamlit.testing.v1 import AppTest
 import insights
 import ui_batch
 import ui_results
-import ui_setup
 import wording
 from food_bo import FoodOptimizer
 from tests import e2e_fixtures as E
 from tests.test_app_ui import (  # noqa: F401
     APP_PATH, _submit_button, _tab_primaries, burger, scored, scored_open_batch)
 from tests.test_complete_results_ui import one_waiting  # noqa: F401
-from ui_helpers import SCROLL_KEY
 
 # ------------------------------------------------------------------ #
 #  Sticky flashes (review I10)

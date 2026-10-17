@@ -18,7 +18,7 @@ import ui_insights
 import wording
 from food_bo import FoodOptimizer
 from tests.test_app_ui import APP_PATH, _submit_button, burger, scored  # noqa: F401
-from tests.test_insights_ui import _tab_text, insights_scored  # noqa: F401
+from tests.test_insights_ui import insights_scored  # noqa: F401
 
 
 def _app():

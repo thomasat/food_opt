@@ -20,7 +20,6 @@ Synthetic projects and hand-made checks only; no pilot data."""
 import ast
 import contextlib
 import json
-import math
 import pathlib
 import re
 from types import SimpleNamespace as NS
@@ -29,9 +28,6 @@ import pytest
 
 import insights
 import learned
-import ui_batch
-import ui_insights as U
-import ui_results
 import wording
 from food_bo import FoodOptimizer
 from insights import Check
