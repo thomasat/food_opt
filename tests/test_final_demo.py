@@ -213,20 +213,6 @@ def test_the_measured_noise_takes_over_from_three_df(tmp_path):
     assert yard.value != 3 and yard.value < 1.5           # the Repeats', not the setting
     assert learned.overall_noise(opt)[1] is False
     assert insights.improvement(opt, yardstick=yard) is None or True
-    # Set up › More settings shows it, read-only: a caption, no selectbox.
-    fake = _FakeSt()
-    ui_setup.st, real = fake, ui_setup.st
-    try:
-        ui_setup._tasting_noise(opt)
-    finally:
-        ui_setup.st = real
-    kinds = [c[0] for c in fake.calls]
-    assert "selectbox" not in kinds
-    cap = next(c for c in fake.calls if c[0] == "caption")
-    assert cap[1][0] == wording.tasting_noise_measured(f"{yard.value:.1f}")
-    assert cap[1][0] == f"Tasting noise: {yard.value:.1f} points, measured from Repeats"
-    assert _words(cap[1][0]) <= 10
-    assert cap[2]["help"] == "Measured from your 3 Repeats, so the setting is ignored."
     # The stop's "?" says the measured basis, with no Repeat to ask for.
     facts = _facts(opt)
     facts.yardstick = yard
@@ -235,42 +221,15 @@ def test_the_measured_noise_takes_over_from_three_df(tmp_path):
     assert k == 18
 
 
-def test_set_up_offers_the_four_choices_with_1_point_the_start(monkeypatch):
-    """Spec §11: Tasting noise in Set up › More settings, next to Default
-    batch size: 0.5 / 1 / 2 / 3 points, 1 point the start, said plainly."""
-    opt = _opt()
-    fake = _FakeSt()
-    monkeypatch.setattr(ui_setup, "st", fake)
-    monkeypatch.setattr(ui_setup, "confirmation_open", lambda: False)
-    ui_setup._tasting_noise(opt)
-    sb = next(c for c in fake.calls if c[0] == "selectbox")
-    label, choices = sb[1]
-    assert label == wording.TASTING_NOISE_LABEL == "Tasting noise"
-    assert list(choices) == [0.5, 1.0, 2.0, 3.0]
-    assert fake.session_state[ui_setup.TASTING_NOISE_KEY] == 1.0
-    fmt = sb[2]["format_func"]
-    assert [fmt(v) for v in choices] == ["0.5 points", "1 point", "2 points", "3 points"]
-    assert sb[2]["on_change"] is ui_setup._on_tasting_noise
-    help_ = sb[2]["help"]
-    assert help_ == ("Points of the Overall score: how far two tastings of the same formulation "
-                     "usually differ. Used for when to stop. Repeats measure it; then this is "
-                     "ignored.")
-    assert help_.count(". ") + 1 <= 3                     # three short sentences
-    # A saved 2 points is what the box starts on; a choice is saved (not 1).
-    insights.set_tasting_noise(opt, 2.0)
-    fake.session_state.clear()
-    ui_setup._tasting_noise(opt)
-    assert fake.session_state[ui_setup.TASTING_NOISE_KEY] == 2.0
-    fake.session_state[ui_setup.TASTING_NOISE_KEY] = 3.0
-    ui_setup._on_tasting_noise(opt)
-    assert json.load(open("final_demo.pkl"))["tasting_noise"] == 3.0
-    fake.session_state[ui_setup.TASTING_NOISE_KEY] = 1.0
-    ui_setup._on_tasting_noise(opt)
-    assert "tasting_noise" not in json.load(open("final_demo.pkl"))
-    # In More settings, right after Default batch size.
-    src = inspect.getsource(ui_setup._more_settings)
-    assert src.index("_formulation_total(opt)") < src.index("_tasting_noise(opt)") \
-        < src.index("_method_editor(opt)")
+def test_set_up_has_no_tasting_noise_control():
+    """v3: Tasting noise is no longer shown in Set up; it stays internal at
+    its default (insights.assumed_noise), and Set up says nothing of noise
+    or of when to stop."""
+    assert not hasattr(ui_setup, "_tasting_noise")
+    assert not hasattr(ui_setup, "TASTING_NOISE_KEY")
+    src = inspect.getsource(ui_setup)
+    assert "TASTING_NOISE_LABEL" not in src and "SETUP_NOISE_HELP" not in src
+    assert insights.assumed_noise(_opt()) == 1.0
 
 
 def test_the_review_has_no_noise_control():

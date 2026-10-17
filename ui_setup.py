@@ -6,9 +6,8 @@ Three tiers, top to bottom (spec 1.5), and nothing else on the tab:
      hand, its per-row errors and its collapsed `Or upload an ingredients
      file` alternative;
   2. the measurements grid, the same way;
-  3. one collapsed `Preparation and records` — Default batch size, Tasting
-     noise, the Method, what else to record and where the targets came
-     from — then `Ingredient limits (optional)`, holding Limits and the
+  3. one collapsed `Preparation and records` — Default batch size, the
+     Method, what else to record and where the targets came from — then `Ingredient limits (optional)`, holding Limits and the
      properties those limits read — and one collapsed `Advanced` at the
      very foot, holding the model settings and the two explanations.
 
@@ -30,7 +29,6 @@ import storage as storage_backend
 import wording
 import custom_records
 import calculation_editor
-import insights
 from food_bo import (
     GRID_ID, RECORD_FIELDS, WORKBOOK_MIME, grid_signature,
     ingredients_template_workbook,
@@ -2051,48 +2049,6 @@ def _limit_half_written():
     return False
 
 
-# The project's tasting noise (spec 2026-10-13 §11): back off the Review,
-# next to Default batch size. Points of the Overall score, 1 SD of a single
-# tasting; the Review's noise readings use it until Repeats (3 df) measure
-# it. Suggestions never read it.
-TASTING_NOISE_KEY = "setup_tasting_noise"
-
-
-def _on_tasting_noise(opt):
-    """Save the chosen tasting noise; a failed save shows its error, as
-    every other Set up save does (a cloud failure lands in save_error)."""
-    try:
-        insights.set_tasting_noise(opt, st.session_state.get(TASTING_NOISE_KEY))
-    except (ValueError, TypeError, OSError, storage_backend.StorageError) as e:
-        st.error(str(e))
-        return
-    saved_ok(opt)
-
-
-def _tasting_noise(opt):
-    """Tasting noise: 0.5 / 1 / 2 / 3 points, 1 point the start (saved only
-    when not 1; insights.set_tasting_noise). Measured from Repeats instead
-    (insights.YARDSTICK_DF df or more): that value, read-only."""
-    try:
-        yard = insights.noise_yardstick(opt)
-    except Exception:
-        return
-    if getattr(yard, "from_repeats", False) and yard.value is not None:
-        st.caption(wording.for_project(opt, wording.tasting_noise_measured(f"{yard.value:.1f}")),
-                   help=wording.tasting_noise_measured_help(yard.df))
-        return
-    want = insights.assumed_noise(opt)
-    choices = list(insights.TASTING_NOISE_CHOICES)
-    if all(abs(want - c) > 1e-9 for c in choices):
-        choices = sorted(choices + [want])
-    if st.session_state.get(TASTING_NOISE_KEY) != want:
-        st.session_state[TASTING_NOISE_KEY] = want
-    st.selectbox(wording.TASTING_NOISE_LABEL, choices, key=TASTING_NOISE_KEY,
-                 format_func=wording.tasting_noise_option,
-                 help=wording.for_project(opt, wording.SETUP_NOISE_HELP),
-                 on_change=_on_tasting_noise, args=(opt,), disabled=confirmation_open())
-
-
 def _more_settings(opt, storage):
     """Shared preparation and records, separated from optional ingredient limits.
 
@@ -2100,8 +2056,9 @@ def _more_settings(opt, storage):
     """
     with st.expander(wording.MORE_SETTINGS_EXPANDER):
         _formulation_total(opt)
-        # Preview 0.8.1: Tasting noise hidden; the Review still reads it
-        # (insights.assumed_noise: 1 point unless Repeats measure it).
+        # v3: no Tasting noise here. The app keeps it internal, at its
+        # default (insights.assumed_noise: 1 point unless Repeats measure
+        # it); nothing on Set up speaks of noise or of when to stop.
         _method_editor(opt)
         _also_record(opt)
         _targets_source_editor(opt)
