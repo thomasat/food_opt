@@ -77,7 +77,7 @@ def test_the_readme_says_the_v3_review_in_25_lines():
     lines = [line for line in section.splitlines() if line.strip()]
     assert 3 <= len(lines) <= 25
     for term in ("four tabs", "Best so far", "Best vs targets",
-                 "Amounts in the top formulations", "single tasting", "no stop rule",
+                 "Amounts in the 3 best formulations", "single tasting", "no stop rule",
                  "not shown on screen", "Gaussian process"):
         assert term in section, term
     for gone in ("Holm", "calibration factor", "No forecast", "Tasting noise", "**Stop.**",

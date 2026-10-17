@@ -5000,22 +5000,23 @@ def test_the_compared_with_column_reads_the_amounts_on_the_table(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
-    # v3: each cell of the Round table carries its change from Best so far
-    # (F1). As generated, the only change is +20.00 g of protein.
+    # v3 final cleanup: each cell is the amount alone, bold in its direction
+    # colour when it differs from Best so far (F1) by 5 % of its range or
+    # more. As generated, the only change is +20.00 g of protein.
     table = at.tabs[1].table[0].value
     mine = table.columns[1]
     assert table.columns[0].startswith("Best so far (F1")
-    assert table.loc["Pea protein", mine] == "30.00 (+20.00)"
+    assert table.loc["Pea protein", mine] == "**30.00**"
     assert table.loc["Methylcellulose", mine] == "10.00"
     at.number_input(key="scale_total").set_value(20.0)
     at.run()
-    # Scaled to 20 g the table reads 15.00 / 5.00 against 10.00 / 10.00: the
-    # best is scaled to the same total, so each change is between two
-    # numbers on the screen.
+    # Scaled to 20 g the table reads 15.00 / 5.00 against 10.00 / 10.00
+    # (the best scaled to the same total): protein more, methylcellulose
+    # less, each by at least 5 % of its range, so both are coloured.
     table = at.tabs[1].table[0].value
     assert table.loc["Pea protein", table.columns[0]] == "10.00"
-    assert table.loc["Pea protein", mine] == "15.00 (+5.00)"
-    assert table.loc["Methylcellulose", mine] == "5.00 (−5.00)"
+    assert table.loc["Pea protein", mine] == "**15.00**"
+    assert table.loc["Methylcellulose", mine] == "**5.00**"
 
 
 def _uploader_keys(at):

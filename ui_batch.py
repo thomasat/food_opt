@@ -961,8 +961,7 @@ def limit_tag_style(which="light"):
     whatever colour the number has (owner, v3 final cleanup)."""
     grey = ui_insights._MUTED_DARK if which == "dark" else ui_insights._MUTED_LIGHT
     return {"selector": "td em",
-            "props": f"color: {grey} !important; font-size: 0.8em; font-style: normal; "
-                     "font-weight: 400"}
+            "props": f"color: {grey} !important; font-size: 0.8em; font-style: normal"}
 
 
 def compare_frames(opt, table, which="light"):

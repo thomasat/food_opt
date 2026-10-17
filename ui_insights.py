@@ -256,8 +256,8 @@ def direction_key_html(head, above, below, tail="", which=None):
     `below` in the below colour, bold, then `tail` — for st.caption with
     unsafe_allow_html (st.markdown's own colours are named, not tokens)."""
     def span(text, kind):
-        return (f'<span style="color: {direction_colour(kind, which)}; font-weight: 600">'
-                f'{html.escape(text)}</span>')
+        return (f'<span style="color: {direction_colour(kind, which)}">'
+                f'<strong>{html.escape(text)}</strong></span>')
     parts = [span(above, "above"), span(below, "below")] + ([html.escape(tail)] if tail else [])
     key = " · ".join(parts)
     return f"{html.escape(head)} {key}" if head else key
