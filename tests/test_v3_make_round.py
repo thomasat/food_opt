@@ -248,6 +248,46 @@ def test_app_generated_round_reads_suggestions_on_screen():
     assert not any(c.startswith("F19") for c in shown.columns)
 
 
+def test_the_record_grid_names_suggestions_as_the_table_does():
+    """v3 integration: the grid under the table says 'Suggestion 1' for an
+    app suggestion not yet made, as the table does; the workbook, the upload
+    and the records keep Formulation 19-21. Once a row is recorded every
+    label is the formulation number again, in the table and the grid."""
+    opt = _record_round6(_round6())
+    ui_batch.ask_alone(opt, n_suggestions=3)
+    opt.save()
+    assert ui_batch.suggestion_numbers(opt) == {19: 1, 20: 2, 21: 3}
+    at = _app()
+    heads = [m.value for m in at.tabs[1].markdown]
+    assert [h for h in heads if h.startswith("**Suggestion")] == [
+        wording.suggestion_heading(k) for k in (1, 2, 3)]
+    assert not [h for h in heads if h.startswith("**Formulation 1") or
+                h.startswith("**Formulation 2")]
+    # The workbook still names the formulations by number, and its upload
+    # lands on those rows.
+    import io
+    import openpyxl
+    book = openpyxl.load_workbook(io.BytesIO(opt.workbook_bytes(opt.pending_batch)))
+    assert [s for s in book.sheetnames if s.startswith("Formulation")] == [
+        "Formulation 19", "Formulation 20", "Formulation 21"]
+    for row, value in zip(range(18, 22), (12, 5, 5, 13)):
+        book["Formulation 20"].cell(row, 4, value)
+    out = io.BytesIO()
+    book.save(out)
+    out.seek(0)
+    sheet, weighed, _ = uploaded_parts(opt.results_from_workbook(out))
+    parsed, _ = opt.parse_batch_results(sheet, opt.pending_batch, with_skipped=True,
+                                        weighed=weighed)
+    assert [number for number, _, _ in parsed] == [20]
+    # One row recorded: the Round's labels are formulation numbers again.
+    number, results, note = parsed[0]
+    recipe = next(r["recipe"] for r in opt.pending_batch if r["formulation"] == 20)
+    opt.tell(recipe, results, formulation_no=20, batch_no=opt.pending_batch_no, note=note)
+    assert ui_batch.suggestion_numbers(opt) == {}
+    assert [c.split(" · ")[0] for c in ui_batch.round_compare(opt).columns[1:]] == [
+        "F19", "F20", "F21"]
+
+
 def test_make_a_round_fits_nothing(monkeypatch):
     """No forecast on Make a round, so nothing on it fits a model (another
     tab's own fits are that tab's)."""

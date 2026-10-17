@@ -985,6 +985,12 @@ def formulation_heading(no):
     return f"**{FORMULATION_CAP} {no}**"
 
 
+def suggestion_heading(k):
+    """Make a round's record grid, for an app suggestion not yet made: the
+    table's own name, '**Suggestion 1**' (suggestion_column)."""
+    return f"**{suggestion_column(k)}**"
+
+
 NOTHING_TO_SAVE = "Nothing to save — at least one formulation needs results."
 # Said by food_bo when a row arrives with nothing on it, and by the Results
 # tab when a not-scored formulation is saved with every box empty. One

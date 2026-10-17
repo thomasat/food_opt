@@ -862,11 +862,27 @@ def _as_float(value):
         return None
 
 
-def _column_label(opt, row, k, relabel):
-    """'Suggestion k' for an app suggestion not yet made, else 'F16'; with
-    ' · Less-tried area' when the distance rule says it explores."""
-    label = (wording.suggestion_column(k) if relabel and not row.get('note')
-             else wording.short_no(row['formulation']))
+def suggestion_numbers(opt):
+    """{formulation number: k} for the open Round's app suggestions while no
+    row of it is recorded (or set aside): Make a round's table and its record
+    grid call them 'Suggestion 1', 2, 3 in that order. A row of the user's
+    own keeps its number; the workbook, the upload and the records keep
+    every formulation's number. Empty once anything is recorded."""
+    rows = list(opt.pending_batch or [])
+    if not rows or len(open_rows(opt)) != len(rows):
+        return {}
+    out = {}
+    for row in rows:
+        if not row.get('note'):
+            out[int(row['formulation'])] = len(out) + 1
+    return out
+
+
+def _column_label(opt, row, k):
+    """'Suggestion k' for an app suggestion not yet made (k given), else
+    'F16'; with ' · Less-tried area' when the distance rule says it
+    explores."""
+    label = wording.suggestion_column(k) if k else wording.short_no(row['formulation'])
     try:
         role = opt.suggestion_role(row['recipe'])
     except Exception:
@@ -893,7 +909,7 @@ def round_compare(opt, scale_to=None):
     _, tied = best_shown(opt) if best is not None else (None, [])
     # Suggestions not yet made are numbered 1, 2, 3 on screen (no row of the
     # Round recorded yet); a row of the user's own keeps its number.
-    relabel = len(open_rows(opt)) == len(rows)
+    shown_as = suggestion_numbers(opt)
     columns, cells, numbers = [], [], []
     with_total = opt.has_ingredients()
     limit = _total_limit(opt) if with_total else None
@@ -925,12 +941,11 @@ def round_compare(opt, scale_to=None):
         if with_total:
             col.append(total_cell(ref))
         cells.append(col)
-    k = 0
     for row in rows:
-        if relabel and not row.get('note'):
-            k += 1
+        k = shown_as.get(int(row['formulation']))
+        if k:
             numbers.append((k, int(row['formulation'])))
-        columns.append(_column_label(opt, row, k, relabel))
+        columns.append(_column_label(opt, row, k))
         shown, _ = opt.shown_recipe(row, scale_to)
         at_total = insights.at_total(opt, row['recipe'])
         col = []
@@ -1394,10 +1409,14 @@ def _record_results(opt):
                 st.session_state[f'f{number}_leave_out'] = draft.get('not_scored', False)
     st.caption(wording.RECORD_RESULTS_LINE, help=wording.RECORD_RESULTS_HELP)
     left_out, entered, partly = set(), 0, 0
+    # As the table above names them: 'Suggestion 1' until a row is recorded.
+    shown_as = suggestion_numbers(opt)
 
     for row in rows:
         number = row['formulation']
-        st.markdown(wording.for_project(opt, wording.formulation_heading(number)))
+        k = shown_as.get(int(number))
+        st.markdown(wording.for_project(opt, wording.suggestion_heading(k) if k
+                                        else wording.formulation_heading(number)))
         if number not in open_numbers:
             _recorded_row(opt, number, ordered)
             st.divider()

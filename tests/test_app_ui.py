@@ -8104,7 +8104,7 @@ def test_tab_two_reads_as_the_three_steps_of_the_work(open_batch):
             < _first(order, wording.STEP_PRINT_HEADING)
             < _first(order, wording.DOWNLOAD_BATCH_SHEETS)
             < _first(order, wording.STEP_RECORD_HEADING)
-            < _first(order, wording.formulation_heading(1))
+            < _first(order, wording.suggestion_heading(1))
             < _first(order, "0 of 2 complete")
             < _first(order, wording.SAVE_RESULTS)), order
     # The two folded extras come after Save, in one order, and the one
@@ -8617,8 +8617,9 @@ def test_an_out_of_range_result_is_said_where_it_was_typed(open_batch):
     assert said == ["Firmness 12 N is outside your range of 0 to 10 N."
                     " Check the value, or adjust Scale minimum or Scale maximum in Set up."], said
     order = _tab_flow(at)
+    # The grid names an unmade app suggestion as the table does (v3).
     assert (order.index(said[0])
-            < _first(order, wording.formulation_heading(2))), order
+            < _first(order, wording.suggestion_heading(2))), order
     save = _submit_button(at, wording.SAVE_RESULTS)
     assert not save.disabled
     save.click().run()
@@ -9966,10 +9967,11 @@ def test_the_round_tab_reads_in_one_order(open_batch):
         wording.STEP_PRINT_HEADING,
         wording.STEP_RECORD_HEADING,
         # One heading per row of the round, inside step 3, each with its
-        # own More fold (spec 2026-09-30 §3, V11).
-        wording.formulation_heading(1),
+        # own More fold (spec 2026-09-30 §3, V11). v3: an unmade app
+        # suggestion is named as the table above names it.
+        wording.suggestion_heading(1),
         wording.MORE,
-        wording.formulation_heading(2),
+        wording.suggestion_heading(2),
         wording.MORE,
         wording.ADD_OWN_EXPANDER,
         wording.UPLOAD_EXPANDER,
