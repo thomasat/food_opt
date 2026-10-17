@@ -30,8 +30,8 @@ from food_bo import FoodOptimizer
 from tests.test_app_ui import APP_PATH
 from tests.test_food_bo import _BANNED
 
-TARGETS = [("Consistency", 12), ("Creaminess", 5), ("Tangy", 5), ("Thickness", 13)]
-# (Round, Formulation, Consistency, Creaminess, Tangy, Thickness): Round
+TARGETS = [("Consistency", 12), ("Creaminess", 5), ("Tanginess", 5), ("Thickness", 13)]
+# (Round, Formulation, Consistency, Creaminess, Tanginess, Thickness): Round
 # bests 91.7 (R1, F3), 92.5 (R3, F7), 95.0 (R4, F10), 98.3 (R6, F16).
 ROWS = [
     (1, 1, 6, 3, 7, 13), (1, 2, 8, 3, 6, 12), (1, 3, 8, 4, 5, 13),

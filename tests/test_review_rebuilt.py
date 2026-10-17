@@ -21,8 +21,8 @@ def _texts():
     return [*_section(), 
             wording.LEARNED_COL_PAIRS,
             wording.learned_counts([("Overall score", 10, 11, 5.5)]),
-            wording.model_plain(["Overall score"], ["Tangy"], ["Creaminess"]),
-            wording.model_plain([], ["Tangy"], ["Creaminess"])]
+            wording.model_plain(["Overall score"], ["Tanginess"], ["Creaminess"]),
+            wording.model_plain([], ["Tanginess"], ["Creaminess"])]
 
 
 def test_rebuilt_strings_pass_banned():

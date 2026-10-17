@@ -17,7 +17,7 @@ import wording
 from food_bo import FoodOptimizer, uploaded_parts
 from tests.test_app_ui import APP_PATH
 
-NAMES = ("Consistency", "Creaminess", "Tangy", "Thickness uniformity")
+NAMES = ("Consistency", "Creaminess", "Tanginess", "Uniformity")
 
 
 def _builder():
@@ -67,7 +67,7 @@ def test_round6_results_table(round6):
     assert table["round"] == 6
     assert table["columns"] == [
         "Formulation", "Overall score", "Consistency (target 12)",
-        "Creaminess (target 5)", "Tangy (target 5)", "Thickness uniformity (target 13)"]
+        "Creaminess (target 5)", "Tanginess (target 5)", "Uniformity (target 13)"]
     rows = table["frame"].values.tolist()
     assert rows == [
         ["F16 · new best (tied)", "98.3", "12", "5", "4", "13"],
@@ -134,8 +134,8 @@ def test_waiting_and_not_scored_rows_say_so(store):
     sp.ensure(store)
     opt = FoodOptimizer(sp.ROUND6, storage=store)
     a, b, c = list(opt.pending_batch)
-    opt.tell(a["recipe"], {"Consistency": 12, "Creaminess": 5, "Tangy": 5,
-                           "Thickness uniformity": 13}, formulation_no=a["formulation"], batch_no=6)
+    opt.tell(a["recipe"], {"Consistency": 12, "Creaminess": 5, "Tanginess": 5,
+                           "Uniformity": 13}, formulation_no=a["formulation"], batch_no=6)
     opt.tell(b["recipe"], {"Consistency": 12}, formulation_no=b["formulation"], batch_no=6)
     opt.record_skipped(c["formulation"], 6, c["recipe"])
     opt.set_pending_batch(None)
@@ -194,8 +194,8 @@ def test_breakdown_of_f16(round6):
     assert shown["frame"].values.tolist() == [
         ["Consistency", "12", "12", "25", "25.0"],
         ["Creaminess", "5", "5", "25", "25.0"],
-        ["Tangy", "4", "5", "25", "23.3"],
-        ["Thickness uniformity", "13", "13", "25", "25.0"],
+        ["Tanginess", "4", "5", "25", "23.3"],
+        ["Uniformity", "13", "13", "25", "25.0"],
         ["Overall score", "", "", "100", "98.3"]]
     # Only the rating carries the direction; Points earned stays neutral.
     assert shown["off"] == {(2, "Rating"): "below"}

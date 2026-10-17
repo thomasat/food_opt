@@ -889,7 +889,7 @@ def point_cost(obj, value):
 
 def cost_example(opt, view):
     """The score caption's example, from the best so far's costliest miss:
-    'Example: Tangy 4 instead of 5 costs 1.7 points.'; None when every
+    'Example: Tanginess 4 instead of 5 costs 1.7 points.'; None when every
     attribute of every tied best is on its ideal."""
     worst = None
     for i in view.bests:

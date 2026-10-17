@@ -436,10 +436,10 @@ def test_sample_project_button_creates_ready_project(tmp_path, monkeypatch):
     assert opt.amount_unit == "g"
     # The pilot's brief: four panel scores out of 15, each with a target.
     assert [o["name"] for o in opt.objectives] == [
-        "Consistency", "Creaminess", "Tangy", "Thickness uniformity"]
+        "Consistency", "Creaminess", "Tanginess", "Uniformity"]
     assert {o["name"]: o["target"] for o in opt.objectives} == {
-        "Consistency": 12, "Creaminess": 5, "Tangy": 5,
-        "Thickness uniformity": 13}
+        "Consistency": 12, "Creaminess": 5, "Tanginess": 5,
+        "Uniformity": 13}
     assert {o["unit"] for o in opt.objectives} == {"/15"}
     assert {o["goal"] for o in opt.objectives} == {"target"}
     # One limit on the 7 ingredients' total: the pilot's own.
@@ -461,7 +461,7 @@ def test_the_sample_lists_its_four_measurements(tmp_path, monkeypatch):
     assert at.session_state["main_tab"] == wording.TAB_INSIGHTS
     grid = next(d.value for d in at.dataframe if "Measurement" in d.value.columns)
     assert list(grid["Measurement"]) == [
-        "Consistency", "Creaminess", "Tangy", "Thickness uniformity"]
+        "Consistency", "Creaminess", "Tanginess", "Uniformity"]
     assert list(grid[wording.UNIT_LABEL]) == ["/15"] * 4
     assert list(grid["Goal"]) == [wording.GOAL_LABELS["target"]] * 4
     assert list(grid["Target"]) == [12.0, 5.0, 5.0, 13.0]
@@ -9076,7 +9076,7 @@ def test_the_sample_is_written_with_shares_that_add_up_to_a_hundred(
         written = json.loads((tmp_path / f"{name}.pkl").read_text())
         weights = {o['name']: o['weight'] for o in written['objectives']}
         assert weights == {"Consistency": 25.0, "Creaminess": 25.0,
-                           "Tangy": 25.0, "Thickness uniformity": 25.0}, weights
+                           "Tanginess": 25.0, "Uniformity": 25.0}, weights
         assert written['CLASS_VERSION'] == FoodOptimizer.CLASS_VERSION
 
 

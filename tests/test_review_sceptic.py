@@ -88,8 +88,8 @@ def _round_of(r, whole, missed=0, name="Creaminess", start=1):
 
 def test_check_rounds_marks_each_whole_range_check():
     opt = _opt()
-    marked = insights.mark_no_forecast(opt, [_check("Tangy", 0.0, 15.0), _check("Tangy", 0.1, 14.9),
-                                             _check("Tangy", 2.1, 10.3),
+    marked = insights.mark_no_forecast(opt, [_check("Tanginess", 0.0, 15.0), _check("Tanginess", 0.1, 14.9),
+                                             _check("Tanginess", 2.1, 10.3),
                                              _check(insights.SCORE, 0.0, 100.0, 90.0, 90.0)])
     assert [c.no_forecast for c in marked] == [True, True, False, True]
     assert insights.NO_FORECAST_EDGE == wording.NO_FORECAST_EDGE == 0.01
@@ -100,9 +100,9 @@ def test_check_rounds_returns_checks_marked_on_their_final_range(monkeypatch):
     """Behavioural (fix round 2): check_rounds marks after its widening, so
     a range widened to the whole Range is no forecast."""
     opt = _opt()
-    fake = {r: [_check("Tangy", 2.0, 8.0, 5.0, 5.0, r=r, no=3 * r + k) for k in range(3)]
+    fake = {r: [_check("Tanginess", 2.0, 8.0, 5.0, 5.0, r=r, no=3 * r + k) for k in range(3)]
             for r in (2, 3, 4, 5, 6)}
-    fake[6][0] = _check("Tangy", 0.0, 15.0, 5.0, 5.0, r=6, no=18)
+    fake[6][0] = _check("Tanginess", 0.0, 15.0, 5.0, 5.0, r=6, no=18)
     monkeypatch.setattr(insights, "_check_round", lambda o, r, first, names: list(fake.get(r, [])))
     got = insights.check_rounds(opt)
     whole = [(c.round, c.formulation) for c in got if c.no_forecast]
@@ -132,7 +132,7 @@ def test_the_all_10_samples_bias_numbers_are_as_at_a4e1420(tmp_path):
     """The all-10 sample's records, pinned against the base a4e1420
     (before the sceptic review): only inside and total change. Re-pinned
     when the sample took the pilot's own limits (the model reads amounts
-    as shares of each Lowest-Highest): Tangy's predictions now run high
+    as shares of each Lowest-Highest): Tanginess's predictions now run high
     over Rounds 3-10, beyond its noise; the Overall score's do not."""
     import json
     import sample_projects as sp
@@ -143,8 +143,8 @@ def test_the_all_10_samples_bias_numbers_are_as_at_a4e1420(tmp_path):
     base = {insights.SCORE: (-0.6989407206590066, 3.2753873686595236, 0.7908622282691944, 7),
             "Consistency": (0.9367823847804867, 1.7650620976165172, 0.5993300420438497, 7),
             "Creaminess": (0.6095510888328993, 1.2235456484352254, 0.36900302965143467, 7),
-            "Tangy": (-0.7730958575129686, 1.3654880880458824, 0.24230436210362377, 7),
-            "Thickness uniformity": (-0.04256151085781501, 1.2345902897386172,
+            "Tanginess": (-0.7730958575129686, 1.3654880880458824, 0.24230436210362377, 7),
+            "Uniformity": (-0.04256151085781501, 1.2345902897386172,
                                      0.4018420682708456, 7)}
     for name, (mean, sd, se, df) in base.items():
         r = insights.error_record(checks, name)
@@ -153,7 +153,7 @@ def test_the_all_10_samples_bias_numbers_are_as_at_a4e1420(tmp_path):
         assert r.df == df
     h = insights.headline(opt, checks)
     assert insights.score_bias(opt, checks, h) is None
-    assert [d.name for d in insights.details(opt, checks) if d.bias] == ["Tangy"]
+    assert [d.name for d in insights.details(opt, checks) if d.bias] == ["Tanginess"]
 
 
 # ------------------------------------------------------------------ #
@@ -169,7 +169,7 @@ def test_the_gates_count_values_checked_not_values_forecast():
     checks = insights.mark_no_forecast(opt, _round_of(3, False, 0, start=1)
                                        + _round_of(4, True, 0, start=4)
                                        + _round_of(5, False, 0, start=7)
-                                       + _round_of(5, False, 0, "Tangy", start=7))
+                                       + _round_of(5, False, 0, "Tanginess", start=7))
     h = insights.headline(opt, checks)
     assert h.state == "verdict" and (h.total, h.no_forecast) == (9, 3)
     every = insights.mark_no_forecast(opt, _round_of(3, True, 0, start=1)

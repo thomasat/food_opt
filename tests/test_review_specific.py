@@ -16,7 +16,7 @@ import wording
 from insights import Check
 from tests.test_food_bo import _BANNED
 
-NAMES = ("Creaminess", "Tangy", "Thickness uniformity", "Consistency")
+NAMES = ("Creaminess", "Tanginess", "Uniformity", "Consistency")
 
 
 def _words(text):
@@ -68,15 +68,15 @@ def test_value_misses_counts_the_verdicts_rounds_by_measurement():
     opt = _stub()
     # Round 1 is outside the verdict's window (the last 3 Rounds hold 36
     # values): its misses must not count.
-    checks = _checks({1: {"Tangy": 3}, 2: {"Creaminess": 2}, 3: {"Creaminess": 2, "Tangy": 1},
-                      4: {"Thickness uniformity": 2, "Consistency": 1}})
+    checks = _checks({1: {"Tanginess": 3}, 2: {"Creaminess": 2}, 3: {"Creaminess": 2, "Tanginess": 1},
+                      4: {"Uniformity": 2, "Consistency": 1}})
     h = insights.headline(opt, checks)
     assert h.rounds == [2, 3, 4] and h.total == 36
     m = insights.value_misses(opt, checks, h)
     assert (m.misses, m.total, m.rounds) == (8, 36, [2, 3, 4])
     assert m.misses == h.total - h.inside            # the verdict's own count
     # Most misses first; Results' order on a tie.
-    assert m.items == [("Creaminess", 4, 9), ("Thickness uniformity", 2, 9), ("Tangy", 1, 9),
+    assert m.items == [("Creaminess", 4, 9), ("Uniformity", 2, 9), ("Tanginess", 1, 9),
                        ("Consistency", 1, 9)]
     # One definition of "expected": the verdict's own allowance.
     assert m.allowed == insights.allowed_misses(36) == 4

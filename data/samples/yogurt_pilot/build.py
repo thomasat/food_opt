@@ -82,12 +82,13 @@ INGREDIENTS = OrderedDict([
     ("Xanthan_gum", ("Xanthan gum", 0.15, 0.65)),
 ])
 
-# CSV column -> (name in the app, target). Scale 0-15, equal shares.
+# CSV column -> (name in the app, target). Scale 0-15, equal shares. The
+# names are the paper's (Tanginess, Uniformity); the CSV columns keep theirs.
 MEASUREMENTS = OrderedDict([
     ("Consistency", ("Consistency", 12.0)),
     ("Creaminess", ("Creaminess", 5.0)),
-    ("Tangy", ("Tangy", 5.0)),
-    ("Thickness_Uniformity", ("Thickness uniformity", 13.0)),
+    ("Tangy", ("Tanginess", 5.0)),
+    ("Thickness_Uniformity", ("Uniformity", 13.0)),
 ])
 SCALE = (0.0, 15.0)
 

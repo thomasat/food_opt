@@ -57,7 +57,7 @@ def _project(tmp_path, monkeypatch, name="final", k=4):
     opt.set_amount_unit("g")
     opt.add_ingredient("Oat", 0, 100)
     opt.add_ingredient("Water", 0, 100)
-    targets = [("Consistency", 12), ("Creaminess", 5), ("Tangy", 5), ("Thickness", 13)][:k]
+    targets = [("Consistency", 12), ("Creaminess", 5), ("Tanginess", 5), ("Thickness", 13)][:k]
     for n, t in targets:
         opt.add_objective(n, 100.0 / k, goal="target", target=t, min_val=0, max_val=15)
     return opt
@@ -250,7 +250,7 @@ def _rows():
     def r(name, start, best, target):
         return {"name": name, "goal": "target", "target": target, "low": 0.0, "high": 15.0,
                 "start": start, "best": best, "unit": "/15"}
-    return [r("Consistency", 8, 12, 12), r("Creaminess", 4, 5, 5), r("Tangy", 5, 4, 5),
+    return [r("Consistency", 8, 12, 12), r("Creaminess", 4, 5, 5), r("Tanginess", 5, 4, 5),
             r("Thickness", 13, 13, 13)]
 
 

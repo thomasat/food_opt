@@ -115,7 +115,7 @@
       "not_for": []
     },
     {
-      "name": "Tangy",
+      "name": "Tanginess",
       "weight": 25.0,
       "goal": "target",
       "target": 5.0,
@@ -125,7 +125,7 @@
       "not_for": []
     },
     {
-      "name": "Thickness uniformity",
+      "name": "Uniformity",
       "weight": 25.0,
       "goal": "target",
       "target": 13.0,
@@ -736,182 +736,182 @@
     {
       "Consistency": 5.5,
       "Creaminess": 3.0,
-      "Tangy": 9.0,
-      "Thickness uniformity": 12.0
+      "Tanginess": 9.0,
+      "Uniformity": 12.0
     },
     {
       "Consistency": 6.0,
       "Creaminess": 4.0,
-      "Tangy": 8.0,
-      "Thickness uniformity": 13.0
+      "Tanginess": 8.0,
+      "Uniformity": 13.0
     },
     {
       "Consistency": 8.0,
       "Creaminess": 4.0,
-      "Tangy": 5.0,
-      "Thickness uniformity": 13.0
+      "Tanginess": 5.0,
+      "Uniformity": 13.0
     },
     {
       "Consistency": 10.0,
       "Creaminess": 4.0,
-      "Tangy": 8.0,
-      "Thickness uniformity": 12.0
+      "Tanginess": 8.0,
+      "Uniformity": 12.0
     },
     {
       "Consistency": 8.0,
       "Creaminess": 3.0,
-      "Tangy": 8.0,
-      "Thickness uniformity": 12.0
+      "Tanginess": 8.0,
+      "Uniformity": 12.0
     },
     {
       "Consistency": 9.0,
       "Creaminess": 4.0,
-      "Tangy": 6.0,
-      "Thickness uniformity": 12.0
+      "Tanginess": 6.0,
+      "Uniformity": 12.0
     },
     {
       "Consistency": 10.0,
       "Creaminess": 4.5,
-      "Tangy": 6.0,
-      "Thickness uniformity": 12.0
+      "Tanginess": 6.0,
+      "Uniformity": 12.0
     },
     {
       "Consistency": 9.0,
       "Creaminess": 4.0,
-      "Tangy": 1.0,
-      "Thickness uniformity": 12.0
+      "Tanginess": 1.0,
+      "Uniformity": 12.0
     },
     {
       "Consistency": 9.0,
       "Creaminess": 4.0,
-      "Tangy": 7.0,
-      "Thickness uniformity": 13.0
+      "Tanginess": 7.0,
+      "Uniformity": 13.0
     },
     {
       "Consistency": 12.0,
       "Creaminess": 5.0,
-      "Tangy": 7.0,
-      "Thickness uniformity": 12.0
+      "Tanginess": 7.0,
+      "Uniformity": 12.0
     },
     {
       "Consistency": 13.0,
       "Creaminess": 6.0,
-      "Tangy": 5.0,
-      "Thickness uniformity": 10.0
+      "Tanginess": 5.0,
+      "Uniformity": 10.0
     },
     {
       "Consistency": 13.0,
       "Creaminess": 6.0,
-      "Tangy": 7.0,
-      "Thickness uniformity": 10.0
+      "Tanginess": 7.0,
+      "Uniformity": 10.0
     },
     {
       "Consistency": 12.0,
       "Creaminess": 7.0,
-      "Tangy": 6.0,
-      "Thickness uniformity": 12.0
+      "Tanginess": 6.0,
+      "Uniformity": 12.0
     },
     {
       "Consistency": 13.0,
       "Creaminess": 6.0,
-      "Tangy": 3.0,
-      "Thickness uniformity": 11.0
+      "Tanginess": 3.0,
+      "Uniformity": 11.0
     },
     {
       "Consistency": 13.0,
       "Creaminess": 7.0,
-      "Tangy": 7.0,
-      "Thickness uniformity": 11.0
+      "Tanginess": 7.0,
+      "Uniformity": 11.0
     },
     {
       "Consistency": 12.0,
       "Creaminess": 5.0,
-      "Tangy": 4.0,
-      "Thickness uniformity": 13.0
+      "Tanginess": 4.0,
+      "Uniformity": 13.0
     },
     {
       "Consistency": 12.0,
       "Creaminess": 5.0,
-      "Tangy": 4.0,
-      "Thickness uniformity": 13.0
+      "Tanginess": 4.0,
+      "Uniformity": 13.0
     },
     {
       "Consistency": 13.0,
       "Creaminess": 7.0,
-      "Tangy": 4.0,
-      "Thickness uniformity": 12.0
+      "Tanginess": 4.0,
+      "Uniformity": 12.0
     },
     {
       "Consistency": 12.0,
       "Creaminess": 5.0,
-      "Tangy": 4.5,
-      "Thickness uniformity": 12.5
+      "Tanginess": 4.5,
+      "Uniformity": 12.5
     },
     {
       "Consistency": 11.0,
       "Creaminess": 6.0,
-      "Tangy": 4.0,
-      "Thickness uniformity": 12.0
+      "Tanginess": 4.0,
+      "Uniformity": 12.0
     },
     {
       "Consistency": 12.0,
       "Creaminess": 5.0,
-      "Tangy": 5.0,
-      "Thickness uniformity": 12.5
+      "Tanginess": 5.0,
+      "Uniformity": 12.5
     },
     {
       "Consistency": 11.5,
       "Creaminess": 4.5,
-      "Tangy": 4.5,
-      "Thickness uniformity": 13.0
+      "Tanginess": 4.5,
+      "Uniformity": 13.0
     },
     {
       "Consistency": 11.5,
       "Creaminess": 5.0,
-      "Tangy": 5.0,
-      "Thickness uniformity": 12.5
+      "Tanginess": 5.0,
+      "Uniformity": 12.5
     },
     {
       "Consistency": 11.0,
       "Creaminess": 5.5,
-      "Tangy": 5.0,
-      "Thickness uniformity": 12.5
+      "Tanginess": 5.0,
+      "Uniformity": 12.5
     },
     {
       "Consistency": 13.0,
       "Creaminess": 4.0,
-      "Tangy": 4.0,
-      "Thickness uniformity": 12.5
+      "Tanginess": 4.0,
+      "Uniformity": 12.5
     },
     {
       "Consistency": 12.5,
       "Creaminess": 5.0,
-      "Tangy": 4.5,
-      "Thickness uniformity": 13.0
+      "Tanginess": 4.5,
+      "Uniformity": 13.0
     },
     {
       "Consistency": 13.5,
       "Creaminess": 6.0,
-      "Tangy": 5.0,
-      "Thickness uniformity": 12.0
+      "Tanginess": 5.0,
+      "Uniformity": 12.0
     },
     {
       "Consistency": 12.0,
       "Creaminess": 4.0,
-      "Tangy": 4.5,
-      "Thickness uniformity": 13.0
+      "Tanginess": 4.5,
+      "Uniformity": 13.0
     },
     {
       "Consistency": 13.0,
       "Creaminess": 5.0,
-      "Tangy": 5.0,
-      "Thickness uniformity": 12.5
+      "Tanginess": 5.0,
+      "Uniformity": 12.5
     },
     {
       "Consistency": 11.5,
       "Creaminess": 4.0,
-      "Tangy": 3.5,
-      "Thickness uniformity": 13.0
+      "Tanginess": 3.5,
+      "Uniformity": 13.0
     }
   ],
   "timestamps_history": [

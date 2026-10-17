@@ -5,7 +5,7 @@ formulations — then What next? (buttons only) and five Definitions. No
 Forecast check, no stop, no verdict anywhere on the tab.
 
 Checked on the yogurt pilot's Round 6 sample after its Round 6 results are
-uploaded: F16 and F17 tie at 98.33 (Tangy 4 against 5), F18 91.67; the best
+uploaded: F16 and F17 tie at 98.33 (Tanginess 4 against 5), F18 91.67; the best
 before is F10's 95.0 (Round 4); the top formulations are the 3 best so far,
 ties at the 3rd included (owner, v3 final cleanup): F16, F17, F10."""
 import io
@@ -157,7 +157,7 @@ def test_the_score_caption_and_its_question_mark(r6):
     caption, help_ = U.score_caption(r6, U.round_view(r6))
     assert caption == "Each formulation made once, rated once by the panel (n = 5)."
     assert help_ == ("Tasting the same formulation again could give a slightly different "
-                     "score, so small differences may not be real. Example: Tangy 4 instead "
+                     "score, so small differences may not be real. Example: Tanginess 4 instead "
                      "of 5 costs 1.7 points.")
 
 
@@ -171,7 +171,7 @@ def test_no_panel_size_on_a_project_that_records_none(tmp_path, monkeypatch):
 def test_no_example_when_every_attribute_is_on_target(r6):
     v = U.round_view(r6)
     for i in v.bests:
-        r6.results_history[i]["Tangy"] = 5.0
+        r6.results_history[i]["Tanginess"] = 5.0
     assert U.cost_example(r6, v) is None
     assert "Example" not in U.score_caption(r6, v)[1]
 
@@ -182,11 +182,11 @@ def test_no_example_when_every_attribute_is_on_target(r6):
 
 def test_the_strip_has_one_row_per_attribute_with_its_value_text(r6):
     rows = U.target_strip_rows(r6, U.round_view(r6))
-    assert [r["name"] for r in rows] == ["Consistency", "Creaminess", "Tangy",
-                                         "Thickness uniformity"]
+    assert [r["name"] for r in rows] == ["Consistency", "Creaminess", "Tanginess",
+                                         "Uniformity"]
     texts = {r["name"]: r["text"] for r in rows}
     assert texts == {"Consistency": "12 (target 12)", "Creaminess": "5 (target 5)",
-                     "Tangy": "4 (target 5, −1)", "Thickness uniformity": "13 (target 13)"}
+                     "Tanginess": "4 (target 5, −1)", "Uniformity": "13 (target 13)"}
     assert [r["off"] for r in rows] == [False, False, True, False]
     assert [d["direction"] for r in rows for d in r["dots"]] == ["", "", "below", ""]
     # F16 and F17 agree on every attribute: one dot a row.
@@ -197,7 +197,7 @@ def test_the_strip_spec(r6, monkeypatch):
     spec = U.targets_chart(r6, U.round_view(r6)).to_dict()
     text = _spec_text(spec)
     assert "Panel median (0–15)" in text
-    # Off target shows its direction (owner, v3 final cleanup): Tangy 4
+    # Off target shows its direction (owner, v3 final cleanup): Tanginess 4
     # against 5 is below, purple — its dot, its gap line and its text. Only
     # the entries present are in the key.
     for entry in ("Target", "Best, on target", "Below target"):
@@ -215,8 +215,8 @@ def test_the_strip_spec(r6, monkeypatch):
 
 def test_tied_bests_that_differ_get_a_dot_each(r6):
     v = U.round_view(r6)
-    r6.results_history[v.bests[1]]["Tangy"] = 5.0      # F17 on target, F16 not
-    row = next(r for r in U.target_strip_rows(r6, v) if r["name"] == "Tangy")
+    r6.results_history[v.bests[1]]["Tanginess"] = 5.0      # F17 on target, F16 not
+    row = next(r for r in U.target_strip_rows(r6, v) if r["name"] == "Tanginess")
     assert [d["who"] for d in row["dots"]] == ["F16", "F17"]
     assert [d["off"] for d in row["dots"]] == [True, False]
     assert row["text"] == "F16 4, F17 5 (target 5)"
@@ -505,8 +505,8 @@ def test_the_advanced_noise_setting_says_no_tasting_noise_or_stop():
 def test_an_above_target_best_is_orange_in_the_strip(r6):
     v = U.round_view(r6)
     for i in v.bests:
-        r6.results_history[i]["Tangy"] = 6.0
-    row = next(r for r in U.target_strip_rows(r6, v) if r["name"] == "Tangy")
+        r6.results_history[i]["Tanginess"] = 6.0
+    row = next(r for r in U.target_strip_rows(r6, v) if r["name"] == "Tanginess")
     assert row["dots"][0]["direction"] == "above"
     text = _spec_text(U.targets_chart(r6, v).to_dict())
     assert "Above target" in text and "Below target" not in text

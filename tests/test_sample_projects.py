@@ -288,7 +288,7 @@ def test_uploading_the_shipped_round6_file_records_the_pilots_results(store):
     opt.store_lots(batch_no, lots)
     opt.set_pending_batch(None)
 
-    names = ("Consistency", "Creaminess", "Tangy", "Thickness uniformity")
+    names = ("Consistency", "Creaminess", "Tanginess", "Uniformity")
     opt = FoodOptimizer(sp.ROUND6, storage=store)
     got = {no: tuple(opt.results_history[opt.index_of_formulation(no)][n] for n in names)
            for no in (16, 17, 18)}
@@ -510,10 +510,20 @@ _OLD_BOUNDS = {"Coconut cream": (48.0, 61.0), "Lemon juice": (0.0, 3.0),
                "Tapioca starch": (1.0, 2.6), "Xanthan gum": (0.1, 0.65)}
 
 
+def _v3_build(name):
+    """The state db0d6b7 (v3) shipped: the same pilot, its attributes still
+    named Tangy and Thickness uniformity (the paper's names are Tanginess
+    and Uniformity)."""
+    import json
+    text = (json.dumps(sp.shipped_state(name))
+            .replace('"Tanginess"', '"Tangy"').replace('"Uniformity"', '"Thickness uniformity"'))
+    return json.loads(text)
+
+
 def _earlier_build(name):
     """The state the previous build (29b1b24) shipped: limits inferred from
-    the data, and 'Pilot starting set' notes."""
-    state = sp.shipped_state(name)
+    the data, 'Pilot starting set' notes and the old attribute names."""
+    state = _v3_build(name)
     for v in state["variables"]:
         if v["name"] in _OLD_BOUNDS:
             v["bounds"] = list(_OLD_BOUNDS[v["name"]])
@@ -527,6 +537,31 @@ def _earlier_build(name):
 def test_the_earlier_build_is_known_and_this_one_is_not(name):
     assert sp.fingerprint(_earlier_build(name)) in sp._SUPERSEDED[name]
     assert sp.fingerprint(sp.shipped_state(name)) not in sp._SUPERSEDED[name]
+
+
+@pytest.mark.parametrize("name", [sp.ROUND6, sp.ALL10])
+def test_the_v3_build_with_the_old_attribute_names_is_known(name):
+    assert sp.fingerprint(_v3_build(name)) in sp._SUPERSEDED[name]
+    assert sp.fingerprint(_v3_build(name)) != sp.fingerprint(sp.shipped_state(name))
+
+
+def test_refresh_gives_an_untouched_v3_copy_the_paper_names(store):
+    for name in sp.YOGURT_NAMES:
+        store.save(name, _v3_build(name))
+    assert sorted(sp.refresh(store)) == sorted(sp.YOGURT_NAMES)
+    for name in sp.YOGURT_NAMES:
+        assert store.load(name) == sp.shipped_state(name)
+        assert [o["name"] for o in store.load(name)["objectives"]] == [
+            "Consistency", "Creaminess", "Tanginess", "Uniformity"]
+    assert sp.refresh(store) == []                  # once only
+
+
+def test_a_changed_v3_copy_keeps_its_names(store):
+    state = _v3_build(sp.ROUND6)
+    state["notes_history"][0] = "mine"
+    store.save(sp.ROUND6, state)
+    assert sp.refresh(store) == []
+    assert store.load(sp.ROUND6)["notes_history"][0] == "mine"
 
 
 def test_refresh_replaces_an_untouched_copy_from_an_earlier_build(store):

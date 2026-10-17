@@ -173,7 +173,7 @@ def _rows():
     def r(name, start, best, target=None, goal="target"):
         return {"name": name, "goal": goal, "target": target, "low": 0.0, "high": 15.0,
                 "start": start, "best": best, "unit": "/15"}
-    return [r("Consistency", 8, 12, 12), r("Creaminess", 4, 5, 5), r("Tangy", 5, 5, 5),
+    return [r("Consistency", 8, 12, 12), r("Creaminess", 4, 5, 5), r("Tanginess", 5, 5, 5),
             r("Thickness", 13, 12.5, 13)]
 
 

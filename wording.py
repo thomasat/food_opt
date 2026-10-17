@@ -1862,7 +1862,7 @@ BELOW_TARGET = "Below target"
 
 
 def round_results_column(name, goal, target=None, unit="", scale=None):
-    """A measurement's header: 'Tangy (target 5)'; 'Juiciness (higher is
+    """A measurement's header: 'Tanginess (target 5)'; 'Juiciness (higher is
     better)'. `unit` is shown unless it is the scale itself ('/15');
     `scale` (low, high) only when measurements differ in scale."""
     said = []
@@ -5781,7 +5781,7 @@ LEARNED_CHANCE = "Chance"
 
 
 def learned_answer(predictable, partly, not_yet):
-    """The section's answer: '**Predicts Consistency, Tangy.** Not yet:
+    """The section's answer: '**Predicts Consistency, Tanginess.** Not yet:
     Creaminess.'"""
     if predictable:
         head = f"Predicts {', '.join(predictable)}"
@@ -5879,8 +5879,8 @@ def called_answer(round_no, verdict, lead=None, record=None, top=None, right=(),
     """Called it?'s headline, at most about 12 words: called — the lead's
     record, then the latest call ('**Consistency: 8 of 8 calls right.**
     Round 6: F18 highest, as forecast.'); partly ('**Round 10: partly.**
-    Consistency right; Overall score, Tangy order off.'); missed
-    ('**Round 10: missed.** Consistency, Tangy order off.')."""
+    Consistency right; Overall score, Tanginess order off.'); missed
+    ('**Round 10: missed.** Consistency, Tanginess order off.')."""
     if verdict == "called" and lead is not None and record is not None:
         # Persona fixes: never "calls right", never "highest" (a target's
         # highest is not its best): the order, then the record so far.
@@ -5901,7 +5901,7 @@ def called_ranges(cells):
 
 
 def called_pairs(name, right, counted, total):
-    """'Consistency: 2 of 2 pairs in the right order.'; all equal: 'Tangy:
+    """'Consistency: 2 of 2 pairs in the right order.'; all equal: 'Tanginess:
     all measured the same, nothing to order.'"""
     if not counted:
         return f"{name}: all measured the same, nothing to order." if total else f"{name}: —"
@@ -5955,7 +5955,7 @@ def called_order(groups):
 
 def called_measure_line(name, right, counted, held):
     """One measurement's line: 'Consistency: order right (2 of 2 pairs).';
-    off: 'Tangy: 1 of 2 pairs in the right order.' Never 'highest': for a
+    off: 'Tanginess: 1 of 2 pairs in the right order.' Never 'highest': for a
     measurement with a target, the highest is not the best."""
     if not counted:
         return f"{name}: all measured the same, nothing to order."
@@ -5999,9 +5999,8 @@ LEARNED_COL_PAIRS = "Ordered right from earlier Rounds"
 
 def model_plain(predictable, partly, not_yet):
     """The Model "?"'s opening sentence: 'Forecasting each Round from
-    earlier Rounds, the model put Consistency and Tangy in the right order,
-    clearly more often than chance. Not yet: Creaminess, Thickness
-    uniformity.'"""
+    earlier Rounds, the model put Consistency and Tanginess in the right order,
+    clearly more often than chance. Not yet: Creaminess, Uniformity.'"""
     def _and(names):
         names = [f"the {n}" if n == OVERALL_SCORE_COLUMN else n for n in names]
         return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
@@ -6046,7 +6045,7 @@ CARD_CEILING = "Stop, or change the target"
 
 def learned_answer(predictable, partly, not_yet):
     """The section's answer: '**Predicts: Consistency.** Partly: Overall
-    score, Tangy. Not yet: Creaminess.'"""
+    score, Tanginess. Not yet: Creaminess.'"""
     if predictable:
         head = f"Predicts: {', '.join(predictable)}"
     elif partly:
@@ -6317,7 +6316,7 @@ def review_score_caption(n=None, once=True):
 
 def review_score_help(example=None):
     """The caption's "?": why small differences may not be real, and what
-    one point off costs, from the project's own best ('Example: Tangy 4
+    one point off costs, from the project's own best ('Example: Tanginess 4
     instead of 5 costs 1.7 points.'); no example when every attribute is on
     target."""
     text = (f"Tasting the same {FORMULATION} again could give a slightly different score, "
@@ -6326,7 +6325,7 @@ def review_score_help(example=None):
 
 
 def review_cost_example(name, value, ideal, cost):
-    """'Example: Tangy 4 instead of 5 costs 1.7 points.'"""
+    """'Example: Tanginess 4 instead of 5 costs 1.7 points.'"""
     unit = "point" if cost == "1.0" else "points"
     return f"Example: {name} {value} instead of {ideal} costs {cost} {unit}."
 

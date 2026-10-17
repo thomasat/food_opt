@@ -136,7 +136,7 @@ def test_called_it_picks_by_the_verdict_before_the_round():
 
 def test_called_it_overall_score_landing_words():
     # A measured tie is said as one; all equal: nothing to order.
-    assert wording.called_pairs("Tangy", 0, 0, 3) == "Tangy: all measured the same, nothing to order."
+    assert wording.called_pairs("Tanginess", 0, 0, 3) == "Tanginess: all measured the same, nothing to order."
 
 
 def _items(score_meas, firm_meas, score_pred=(90, 85, 80), firm_pred=(9, 8, 7)):
