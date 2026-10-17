@@ -6442,12 +6442,12 @@ REVIEW_REPLAY_HELP = (f"◀ ▶ step one {ROUND_CAP}; Play shows each in turn. T
 
 
 def limit_definition(upper=True):
-    """Definitions' entry for the amounts chart's 'at upper limit' tag."""
+    """Definitions' entry for the amounts chart's 'at upper limit' tag:
+    what the tag says about the amount, nothing about which formulations
+    are best (not every top one sits at a limit; owner, v3 fixes)."""
     if upper:
-        return (f"At upper limit: the best {FORMULATION}s use the most this limit allows; "
-                "you can raise it in Set up.")
-    return (f"At lower limit: the best {FORMULATION}s use the least this limit allows; "
-            "you can lower it in Set up.")
+        return "At upper limit: the amount is the highest you allowed; you can raise it in Set up."
+    return "At lower limit: the amount is the lowest you allowed; you can lower it in Set up."
 
 
 def method_definitions(top="100", span="15", count=REVIEW_TOP_COUNT, once=True, limits=()):

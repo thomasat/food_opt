@@ -324,15 +324,15 @@ def test_the_definitions_and_the_at_limit_entry(r6):
         "Top formulations: the 3 highest Overall scores so far (ties included).",
         "Suggestions: best bets to improve on the best so far, weighing how good they look "
         "and how unsure the model is.",
-        "At upper limit: the best formulations use the most this limit allows; you can "
-        "raise it in Set up.",
+        "At upper limit: the amount is the highest you allowed; you can raise it in Set up.",
     ]
     assert len(wording.method_definitions()) == 5
     assert wording.method_definitions(limits=("upper", "lower"))[-2:] == (
-        "At upper limit: the best formulations use the most this limit allows; you can "
-        "raise it in Set up.",
-        "At lower limit: the best formulations use the least this limit allows; you can "
-        "lower it in Set up.")
+        "At upper limit: the amount is the highest you allowed; you can raise it in Set up.",
+        "At lower limit: the amount is the lowest you allowed; you can lower it in Set up.")
+    # No overclaim about the best formulations (F10 is a top one at no limit).
+    for line in wording.method_definitions(limits=("upper", "lower"))[-2:]:
+        assert "best" not in line
 
 
 def test_mixed_scales_say_the_rule_generically():
