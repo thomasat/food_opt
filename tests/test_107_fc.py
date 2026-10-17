@@ -57,7 +57,7 @@ def test_the_role_key_is_the_rulings_line():
     # Concision round (2026-10-01).
     # Review polish (2026-10-02): the screen's key at most 8 words; the
     # rule in its "?" (role_help). WHY_ROLE_KEY stays for the wording round.
-    assert wording.WHY_ROLE_KEY_SHORT == "Refines the best: near. Explores: far. Balanced: between."
+    assert wording.WHY_ROLE_KEY_SHORT == "Close to the best: near. Explores: far. Balanced: between."
     # One vocabulary with the Role column and the Compared with cell.
     for word in (wording.ROLE_REFINES, wording.ROLE_EXPLORES, wording.ROLE_BALANCED):
         assert f"{word.capitalize()}: " in wording.WHY_ROLE_KEY_SHORT
