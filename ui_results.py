@@ -959,9 +959,21 @@ def _amount_format(opt, frame):
                if c not in amounts
                and c not in (wording.FORMULATION_CAP, wording.ROUND_CAP,
                              wording.OVERALL_SCORE_COLUMN)}
+    # A rating reads as the Round table writes it — 12, 4.5, never 12.00
+    # (owner, v3 fixes): the same _rating_text, so the two never disagree.
+    ratings = {opt._measurement_column(o) for o in opt.objectives}
+
+    def rated(value):
+        # Blank and text cells as weighed() leaves them.
+        shown = weighed(value)
+        try:
+            return _rating_text(value) if shown != "" else shown
+        except (TypeError, ValueError):
+            return shown
+
     formats = {c: (fmt_setting if c in settings else weighed)
                for c in frame.columns if c in amounts}
-    formats.update({c: weighed for c in numeric})
+    formats.update({c: (rated if c in ratings else weighed) for c in numeric})
     return formats
 
 

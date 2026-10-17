@@ -8848,10 +8848,11 @@ def test_the_goal_column_offers_its_three_options_and_no_more(burger):
     assert set(_grid_frame(at, 1)["Goal"]) <= set(wording.GOAL_LABELS.values())
 
 
-def test_all_formulations_shows_every_number_to_two_decimals(burger):
+def test_all_formulations_rounds_every_number(burger):
     """A panel rating typed as 5 read 5.000000 beside an amount written 11.88:
-    pandas' default for a column nobody formatted. Every number in the table
-    reads to two decimals; a blank measurement stays blank."""
+    pandas' default for a column nobody formatted. An amount reads to two
+    decimals; a rating as the Round table writes it (5, 6.25 — owner, v3
+    fixes); a blank measurement stays blank."""
     burger.tell({"Pea protein": 11.875, "Methylcellulose": 1.0},
                 {"Juiciness": 5.0, "Firmness": 6.25}, formulation_no=1,
                 batch_no=1)
@@ -8868,7 +8869,7 @@ def test_all_formulations_shows_every_number_to_two_decimals(burger):
 
     by_no = {int(cells[i][headers.index(wording.FORMULATION_CAP) + 1]
                  ["display_value"]): i for i in range(len(cells))}
-    assert cell(by_no[1], "Juiciness (/10)") == "5.00"
+    assert cell(by_no[1], "Juiciness (/10)") == "5"
     assert cell(by_no[1], "Firmness (N)") == "6.25"
     assert cell(by_no[1], "Pea protein (g)") == "11.88"
     # Formulation 2 has no Firmness reading: blank, never "nan".

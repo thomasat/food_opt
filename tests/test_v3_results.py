@@ -453,6 +453,38 @@ def test_all_formulations_draws_the_score_at_one_decimal(round6):
     assert not any(v.count(".") == 1 and len(v.split(".")[1]) == 2 for v in shown), shown
 
 
+def test_all_formulations_ratings_read_as_the_round_table_does(round6):
+    """A rating reads 12 or 4.5, as in Round results — never 12.00; the
+    score keeps its one decimal and an amount its two."""
+    frame = round6.history_frame(include_amounts=True)
+    cells = ui_results._table_style(round6, frame)._translate(False, False)["body"]
+    headers = list(frame.columns)
+    table = ui_results.round_results(round6)
+    for o in round6.objectives:
+        col = headers.index(round6._measurement_column(o)) + 1
+        shown = [row[col]["display_value"] for row in cells]
+        assert not any(v.endswith(".00") or (v.count(".") == 1 and v.endswith("0"))
+                       for v in shown), (o["name"], shown)
+        nums = [v for v in shown if v]
+        assert nums and all(v == ui_results._rating_text(float(v)) for v in nums
+                            if v != wording.DOES_NOT_APPLY), shown
+    score = [row[headers.index(wording.OVERALL_SCORE_COLUMN) + 1]["display_value"]
+             for row in cells]
+    assert "95.0" in score
+    amount = next(c for c in headers if c.startswith("Coconut cream"))
+    assert all(len(row[headers.index(amount) + 1]["display_value"].split(".")[1]) == 2
+               for row in cells if row[headers.index(amount) + 1]["display_value"])
+    # The same text as the Round table, row for row (Round 6's ratings).
+    f16 = next(i for i, row in enumerate(cells)
+               if row[headers.index(wording.FORMULATION_CAP) + 1]["display_value"] == "16")
+    first = round6.measurements_by_importance()[0]
+    head = next(c for c in table["columns"] if c.startswith(first["name"]))
+    r16 = next(r for _i, r in table["frame"].iterrows()
+               if str(r[table["columns"][0]]).startswith(("F16", "Formulation 16", "16")))
+    assert cells[f16][headers.index(round6._measurement_column(first)) + 1][
+        "display_value"] == r16[head]
+
+
 def test_all_formulations_shows_one_decimal_and_the_export_keeps_two(round6):
     frame = round6.history_frame()
     shown = dict(zip(frame["Formulation"].astype(int), frame[wording.OVERALL_SCORE_COLUMN]))
