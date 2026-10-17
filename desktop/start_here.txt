@@ -24,8 +24,8 @@ TRY THE SAMPLE
    “Round 6 results (pilot).xlsx”: it is already there. Or click
    “Download the pilot's Round 6 results,” then upload that file.
 4. Review the imported values and click “Save uploaded results.”
-5. Open 4 · Review. After Round 6, it says “Stop: score within noise
-   of 100.”
+5. Open 3 · Results for Round 6's ratings against their targets, then
+   4 · Review for the best so far.
 6. Click “See what happened next.” It opens “Yogurt pilot - all 10
    Rounds”: the pilot went on to Rounds 7–10.
 To try it again, open Manage project and click “Start this sample over.”
@@ -41,9 +41,9 @@ records and a formulation total.
 YOUR FIRST ROUND
 1. Set up your own project (see below). On 2 · Make a round, click
    “Generate formulations” and choose how many to make.
-2. Download the round sheets (Excel). The workbook has three tabs:
+2. Download the round sheets (Excel). The workbook has these tabs:
    • Round overview — the plan and shared preparation method.
-   • Preparation — pre-mixes to prepare for the round.
+   • Preparation — pre-mixes to prepare, only when the round has them.
    • Results — measurements and any actual amounts you want to record.
    Tabs are at the bottom in Excel and at the top in Numbers. If a link
    does not open in Numbers, select the named tab directly. Ticking
@@ -110,8 +110,10 @@ log; review it before attaching it. If the app cannot open, find the log at:
 ~/Library/Application Support/FoodOptimizer/launcher.log
 
 REVIEWING RESULTS
-Results opens on Best so far. Use View formulation to inspect another
-recorded formulation, including one without a score. Amount and % of
+Results opens on the last Round's results: Overall scores and ratings
+against their targets, off-target ratings in orange. How the score is
+worked out shows one formulation's points. Use View formulation to
+inspect another recorded formulation, including one without a score. Amount and % of
 formulation appear together. Percentages exclude process settings and are
 unavailable for ingredients in different units. All formulations compares
 results in the app; Show amounts adds ingredient amounts to that table.

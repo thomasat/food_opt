@@ -358,11 +358,11 @@ def test_the_results_file_is_never_a_project_or_a_copy(store):
 
 @pytest.mark.parametrize("doc", ["README.md", "desktop/start_here.txt", "desktop/README.md"])
 def test_the_docs_say_what_the_screen_says(doc):
-    """The walkthrough names the stop by the callout's own headline and the
-    results file by the name it has in the FoodOptimizer folder."""
+    """The walkthrough names the results file by the name it has in the
+    FoodOptimizer folder, and (v3) no stop: the Review has no stop rule."""
     import wording
     text = " ".join((Path(sp._ROOT) / doc).read_text().split())
-    assert wording.STOP_CALLOUT_HEAD in text
+    assert wording.STOP_CALLOUT_HEAD not in text and "within noise" not in text
     assert sp.ROUND6_RESULTS_FILE_NAME in text
     assert "Browse files" in text and "FoodOptimizer" in text
     assert "it says to stop, or change the target" not in text

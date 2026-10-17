@@ -172,13 +172,7 @@ def test_each_definition_is_true_to_the_rule_the_app_applies():
     assert "Partly: mostly right, weaker evidence." in verdicts
     assert "Not yet: neither, too few pairs, or most pairs measured equal." in verdicts
     assert learned.PARTLY_MIN == learned.MIN_PAIRS and learned.FLAT_TIES == 0.5
-    section = open(README, encoding="utf-8").read().split("## How the Review works", 1)[1]
-    section = section.split("\n## ", 1)[0]
-    for rule in ("Holm-adjusted", f"p < {learned.VERDICT_P:.2f}",
-                 f"at least {learned.MIN_PAIRS} pairs", f"p < {learned.PARTLY_P:.2f} unadjusted",
-                 "right in more than half", f"under {learned.PARTLY_MIN} pairs called",
-                 "over half the pairs measured equal", "or both forecast at the top"):
-        assert rule in section, rule
+    # v3: the README no longer describes the verdicts (none on screen).
     rng = by["95 % range"]
     assert "95 times in 100" not in rng
     assert f"{wording.SIMULATED_COVERAGE['measurements']} in 100" in rng
@@ -192,20 +186,22 @@ def test_each_definition_is_true_to_the_rule_the_app_applies():
     assert noise.endswith(f"(set in Set up › {wording.MORE_SETTINGS_EXPANDER}).")
 
 
-def test_the_readme_holds_the_full_method_in_25_lines():
+def test_the_readme_says_the_v3_review_in_25_lines():
+    """v3: four tabs; the Review shows best so far, best vs targets and the
+    amounts in the top formulations; single tastings; no stop rule and no
+    forecasts on screen."""
     text = open(README, encoding="utf-8").read()
     assert "## How the Review works" in text
     section = text.split("## How the Review works", 1)[1].split("\n## ", 1)[0]
     lines = [line for line in section.splitlines() if line.strip()]
     assert 3 <= len(lines) <= 25
-    for term in ("Gaussian process", "calibration factor", "Holm", "No forecast",
-                 "Tasting noise", "Stop", "second factor", "1-in-20 threshold",
-                 "No term p-values or coefficient table",
-                 "until then the project's Tasting noise setting (Set up › Preparation and records; "
-                 "1 point unless changed), assumed"):
+    for term in ("four tabs", "Best so far", "Best vs targets",
+                 "Amounts in the top formulations", "single tasting", "no stop rule",
+                 "not shown on screen", "Gaussian process"):
         assert term in section, term
-    assert "a fixed rule, not a significance test" not in section
-    assert "barely varies" not in section
+    for gone in ("Holm", "calibration factor", "No forecast", "Tasting noise", "**Stop.**",
+                 "95 % range", "Round-ahead"):
+        assert gone not in section, gone
 
 
 def test_the_new_strings_pass_the_guards():
