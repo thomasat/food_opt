@@ -45,7 +45,7 @@ The app has four tabs: **Set up**, **Make a round**, **Results** and **Review**.
 
 - **Best so far.** Every Overall score by Round, the best so far and each Round's average. 100 means every attribute on target.
 - **Best vs targets.** The best formulation's rating for each attribute against its target.
-- **Amounts in the top formulations.** The ingredient amounts of the formulations within 5 points of the best, against the allowed amounts.
+- **Amounts in the 3 best formulations.** The ingredient amounts of the 3 highest-scoring formulations so far (more when the 3rd place is tied), against the allowed amounts.
 
 Each score is a single tasting: each formulation is made once and rated once, so small differences may not be real. There is no stop rule; you decide when to stop. **Make a round** suggests the next formulations: a Gaussian process model fitted to the Overall scores picks the best bets to improve on the best so far, weighing how good they look and how unsure the model is. Its predictions are used to choose, not shown on screen.
 

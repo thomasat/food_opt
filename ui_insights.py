@@ -756,7 +756,7 @@ def _land():
 #  score comparisons use SCORE_TOL.
 # ------------------------------------------------------------------ #
 
-TOP_WITHIN = 5.0          # points: a top formulation is within this of the best so far
+TOP_COUNT = 3             # the top formulations: the 3 best so far, ties at the 3rd included
 SCORE_TOL = 1e-6          # points: two scores this close are equal (ties; the top's edge)
 # One marker per tied best, the same on every chart (F16 a dot, F17 a diamond).
 BEST_SHAPES = ("circle", "diamond", "square", "triangle-up", "triangle-down", "cross")
@@ -770,7 +770,7 @@ class RoundView:
     bests: list             # positions at it (ties), in the order made
     rounds: list            # the Rounds those were made in
     new: bool               # Best so far first reached in the Round on view
-    top: list               # positions within TOP_WITHIN of it, highest first
+    top: list               # the TOP_COUNT best (ties at the last included), highest first
     tried: list             # every formulation recorded by then, scored or not
     scored: list            # every Best-so-far candidate by then
     was: float | None = None                                  # the best before
@@ -789,8 +789,10 @@ def round_view(opt, r=None):
     """The Review's facts by the end of Round `r` (None: today), or None
     with nothing scored by then. Best so far and its ties (within
     SCORE_TOL), the Round it was first reached in and the best before that
-    Round, the top formulations (within TOP_WITHIN of Best so far, with
-    SCORE_TOL: 93.33 is within 5 of 98.33), and every formulation tried."""
+    Round, the top formulations (the TOP_COUNT highest scores, with any
+    tied with the last of them within SCORE_TOL: Round 6 gives F16, F17,
+    F10; the pilot's 10 Rounds F21 and five at 98.33), and every
+    formulation tried."""
     pool = [i for i in opt.best_candidates() if _made_by(opt, i, r)]
     if not pool:
         return None
@@ -799,8 +801,12 @@ def round_view(opt, r=None):
         return float(opt.Y_history[i])
     best = max(y(i) for i in pool)
     bests = [i for i in pool if y(i) >= best - SCORE_TOL]
-    top = sorted((i for i in pool if y(i) >= best - TOP_WITHIN - SCORE_TOL),
-                 key=lambda i: (-round(y(i), 6), int(opt.formulation_ids[i])))
+    ranked = sorted(pool, key=lambda i: (-round(y(i), 6), int(opt.formulation_ids[i])))
+    if len(ranked) > TOP_COUNT:
+        last = y(ranked[TOP_COUNT - 1])
+        top = [i for i in ranked if y(i) >= last - SCORE_TOL]
+    else:
+        top = ranked
     rounds = sorted({_round_of(opt, i) for i in bests if _round_of(opt, i) is not None})
     named = [_round_of(opt, i) for i in pool if _round_of(opt, i) is not None]
     on_view = r if r is not None else (max(named) if named else None)
@@ -904,9 +910,14 @@ def scale_span_text(opt):
 
 def definitions(opt):
     """Definitions' lines for this project (wording.method_definitions)."""
+    try:
+        view = round_view(opt)
+        tags = {r["tag"] for r in amounts_rows(opt, view)} if view is not None else set()
+    except Exception:
+        tags = set()
     return [_say(opt, line) for line in wording.method_definitions(
         top=f"{float(opt.utility_ceiling()):g}", span=scale_span_text(opt),
-        within=f"{TOP_WITHIN:g}", once=made_once(opt))]
+        count=f"{TOP_COUNT}", once=made_once(opt), limits=tuple(tags - {None}))]
 
 
 def _progress_body(opt):
@@ -992,7 +1003,7 @@ def _amounts_part(opt, view):
     """Amounts in the top N formulations: its title (Top's rule in its
     "?"), the linked-total line (held empty without a total), the chart."""
     st.markdown(f"**{_say(opt, wording.review_amounts_title(len(view.top)))}**",
-                help=_say(opt, wording.review_amounts_help(f"{TOP_WITHIN:g}")))
+                help=_say(opt, wording.review_amounts_help(f"{TOP_COUNT}")))
     line = amounts_linked_text(opt)
     if line:
         st.caption(line)
@@ -1505,11 +1516,12 @@ def amounts_chart(opt, view):
     it) — outlined where allowed but not tried, grey over the range tried,
     blue over the range the top formulations use — each tied best its own
     marker (spread a little when two share an amount, so none hides
-    another), and 'at upper limit (?)' / 'at lower limit (?)' where the best
-    so far sits at a limit, its "?" naming the top formulations there.
-    The key counts what is drawn; past REVIEW_TOP_INLINE top formulations
-    it says their rule, 'Top 14 · within 5 points of the best (?)', and
-    the "?" names them. None with no row."""
+    another), and 'at upper limit' / 'at lower limit' in muted text where
+    the best so far sits at a limit (Definitions says what it means; its
+    hover names the top formulations there). The key counts what is drawn
+    and names every top formulation inline, 'Top 3: F16, F17, F10' — with
+    its rule on a tie at 3rd, 'Top 6 (3 best, with ties): …'. No "(?)" is
+    drawn inside the chart (owner, v3 final cleanup). None with no row."""
     rows = amounts_rows(opt, view)
     if not rows:
         return None
@@ -1528,11 +1540,7 @@ def amounts_chart(opt, view):
     def amt(r, v):
         return join_unit(_num(v), r["unit"])
     top_names = _names(opt, view.top)
-    top_label = _say(opt, wording.review_top_key(top_names, f"{TOP_WITHIN:g}"))
-    # Named inline up to REVIEW_TOP_INLINE; past it the key says the rule
-    # and its "(?)" names them all, so the key is never cut short.
-    top_help = (None if len(top_names) <= wording.REVIEW_TOP_INLINE
-                else _say(opt, wording.review_top_names(", ".join(top_names))))
+    top_label = _say(opt, wording.review_top_key(top_names, f"{TOP_COUNT}"))
     tried_label = _say(opt, wording.review_tried(len(view.tried)))
     allowed = pd.DataFrame([{"name": r["name"], "x0": 0.0, "x1": 1.0,
                              "tip": f"{_limit_amount(opt, r['name'], r['low'])}–"
@@ -1580,18 +1588,18 @@ def amounts_chart(opt, view):
                 .encode(x=X("x"), y=y, tooltip=[alt.Tooltip("who:N", title=" "),
                                                  alt.Tooltip("tip:N", title=" ")]))
     tags = pd.DataFrame([{"name": r["name"], "x": 1.0,
-                          "text": f"{wording.REVIEW_AT_UPPER if r['tag'] == 'upper' else wording.REVIEW_AT_LOWER}  (?)",
+                          "text": (wording.REVIEW_AT_UPPER if r['tag'] == 'upper'
+                                   else wording.REVIEW_AT_LOWER),
                           "help": _say(opt, wording.review_limit_help(r["at"], r["tag"] == "upper"))}
                          for r in rows if r["tag"]])
     if not tags.empty:
-        layers.append(alt.Chart(tags).mark_text(fontSize=FONT_LABEL + 1, color=ink, align="left",
+        layers.append(alt.Chart(tags).mark_text(fontSize=FONT_LABEL, color=muted(), align="left",
                                                 dx=10, baseline="middle")
                       .encode(x=X("x"), y=y, text="text:N", tooltip="help:N"))
     entries = [(_say(opt, wording.REVIEW_ALLOWED), fill, "square", edge, None),
                (tried_label, c["tried"], "square", c["tried"], None)]
     if not top.empty:
-        entries.append((top_label + (" (?)" if top_help else ""), c["top"], "square",
-                        c["top"], top_help))
+        entries.append((top_label, c["top"], "square", c["top"], None))
     best_names = _names(opt, view.bests)
     for k, who in enumerate(best_names):
         entries.append((_say(opt, wording.review_best_key(who, tied=k > 0)), c["best"],

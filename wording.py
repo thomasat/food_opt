@@ -6352,17 +6352,30 @@ def review_target_value(value, target=None, gap=None, goal="target"):
     return f"{value} (target {target}, {gap})" if gap else f"{value} (target {target})"
 
 
-def review_amounts_title(n):
-    """'Amounts in the top 4 formulations'; one: 'Amounts in the best
-    formulation'."""
+# The top formulations are the REVIEW_TOP_COUNT best so far, ties at the
+# last place included (owner, v3 final cleanup; was "within 5 points").
+REVIEW_TOP_COUNT = 3
+
+
+def review_top_rule(count=REVIEW_TOP_COUNT):
+    """'the 3 highest Overall scores so far (ties included)'."""
+    return f"the {count} highest {OVERALL_SCORE_COLUMN}s so far (ties included)"
+
+
+def review_amounts_title(n, count=REVIEW_TOP_COUNT):
+    """'Amounts in the 3 best formulations'; with ties at the last place
+    (more than `count`): 'Amounts in the top 6 formulations'; one:
+    'Amounts in the best formulation'."""
     if n == 1:
         return f"Amounts in the best {FORMULATION}"
+    if n <= int(count):
+        return f"Amounts in the {n} best {FORMULATION}s"
     return f"Amounts in the top {n} {FORMULATION}s"
 
 
-def review_amounts_help(within):
+def review_amounts_help(count=REVIEW_TOP_COUNT):
     """The amounts title's "?": what Top means and how to read a row."""
-    return (f"Top: {FORMULATION}s within {within} points of the best so far. Each row is one "
+    return (f"Top: {review_top_rule(count)}. Each row is one "
             "ingredient or setting between its limits: outlined, allowed but not tried; grey, "
             "the range tried; blue, the range in the top ones; the marks, the best so far.")
 
@@ -6380,24 +6393,13 @@ def review_tried(n):
     return f"Tried ({n})"
 
 
-# Up to this many top formulations are named in the key itself; more, and
-# the key says the rule and its "?" names them (owner, v3 final fixes).
-REVIEW_TOP_INLINE = 4
-
-
-def review_top_key(names, within):
-    """'Top 4 (F16, F17, F10, F13)'; one: 'Top 1 (F16)'; past
-    REVIEW_TOP_INLINE: 'Top 14 · within 5 points of the best' (the names
-    go in its "?", review_top_names)."""
+def review_top_key(names, count=REVIEW_TOP_COUNT):
+    """'Top 3: F16, F17, F10'; with ties at the last place: 'Top 6 (3
+    best, with ties): F21, F16, F17, F19, F23, F26'. Every name inline,
+    never cut short and no "(?)" (owner, v3 final cleanup)."""
     names = list(names)
-    if len(names) <= REVIEW_TOP_INLINE:
-        return f"Top {len(names)} ({', '.join(names)})"
-    return f"Top {len(names)} · within {within} points of the best"
-
-
-def review_top_names(names_text):
-    """The long Top key's "?": 'Top formulations: F21, F16, F17.'"""
-    return f"Top {FORMULATION}s: {names_text}."
+    rule = f" ({count} best, with ties)" if len(names) > int(count) else ""
+    return f"Top {len(names)}{rule}: {', '.join(names)}"
 
 
 def review_best_key(name, tied=False):
@@ -6429,12 +6431,22 @@ REVIEW_REPLAY_HELP = (f"◀ ▶ step one {ROUND_CAP}; Play shows each in turn. T
                       f"charts show that {ROUND_CAP}.")
 
 
-def method_definitions(top="100", span="15", within="5", once=True):
+def limit_definition(upper=True):
+    """Definitions' entry for the amounts chart's 'at upper limit' tag."""
+    if upper:
+        return (f"At upper limit: the best {FORMULATION}s use the most this limit allows; "
+                "you can raise it in Set up.")
+    return (f"At lower limit: the best {FORMULATION}s use the least this limit allows; "
+            "you can lower it in Set up.")
+
+
+def method_definitions(top="100", span="15", count=REVIEW_TOP_COUNT, once=True, limits=()):
     """Definitions (final-v3/wording.md §4), one line per term, from the
     project: its top score, the span its measurements' Range shares (each
     point off costs 1/span of an attribute's share — _compute_utility's
-    rule; None when they differ) and the top formulations' margin.
-    `once`: no Repeats on file."""
+    rule; None when they differ) and how many the top formulations are.
+    `once`: no Repeats on file. `limits`: the at-limit tags the amounts
+    chart draws ('upper', 'lower'), each defined after the five."""
     cost = f"1/{span}" if span else "1/(its Range)"
     best = f"the highest {OVERALL_SCORE_COLUMN} so far."
     if once:
@@ -6444,9 +6456,10 @@ def method_definitions(top="100", span="15", within="5", once=True):
         f"share; each point off costs {cost} of it.",
         f"{ROUND_CAP}: the {FORMULATION}s made and tasted together.",
         f"{BEST_SO_FAR_COLUMN}: {best}",
-        f"Top {FORMULATION}s: within {within} points of the best so far.",
+        f"Top {FORMULATION}s: {review_top_rule(count)}.",
         "Suggestions: best bets to improve on the best so far, weighing how good they look "
         "and how unsure the model is.",
-    )
+    ) + tuple(limit_definition(kind == "upper") for kind in ("upper", "lower")
+              if kind in limits)
 
 

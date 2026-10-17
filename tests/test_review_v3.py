@@ -6,8 +6,8 @@ Forecast check, no stop, no verdict anywhere on the tab.
 
 Checked on the yogurt pilot's Round 6 sample after its Round 6 results are
 uploaded: F16 and F17 tie at 98.33 (Tangy 4 against 5), F18 91.67; the best
-before is F10's 95.0 (Round 4); the top 4 within 5 points are F16, F17, F10
-and F13 (93.33: exactly 5 below, kept by the score tolerance)."""
+before is F10's 95.0 (Round 4); the top formulations are the 3 best so far,
+ties at the 3rd included (owner, v3 final cleanup): F16, F17, F10."""
 import io
 import json
 import os
@@ -61,26 +61,43 @@ def _nos(opt, positions):
 #  The facts at a Round
 # ------------------------------------------------------------------ #
 
-def test_round_view_names_the_tie_the_best_before_and_the_top_four(r6):
+def test_round_view_names_the_tie_the_best_before_and_the_top_three(r6):
     v = U.round_view(r6)
     assert round(v.best, 2) == 98.33
     assert _nos(r6, v.bests) == [16, 17]
     assert v.rounds == [6] and v.new
     assert round(v.was, 2) == 95.0 and _nos(r6, v.was_bests) == [10] and v.was_rounds == [4]
-    # F13 is 93.33: 98.33 − 93.33 is 5 up to float error, kept by SCORE_TOL.
-    assert _nos(r6, v.top) == [16, 17, 10, 13]
+    # The 3 best so far: F16, F17 (98.33) and F10 (95.0); F13 (93.33) is 4th.
+    assert _nos(r6, v.top) == [16, 17, 10]
     assert len(v.tried) == 18
 
 
-def test_the_top_edge_uses_the_score_tolerance(r6):
-    """A score 5 below the best up to float error (93.33 against 98.33,
-    each a sum of thirds) is in the top; one clearly further is not."""
-    best = max(r6.Y_history)
-    i13 = list(r6.formulation_ids).index(13)
-    r6.Y_history[i13] = best - U.TOP_WITHIN - 1e-9
-    assert 13 in _nos(r6, U.round_view(r6).top)
-    r6.Y_history[i13] = best - U.TOP_WITHIN - 1e-3
-    assert 13 not in _nos(r6, U.round_view(r6).top)
+def test_a_tie_at_third_place_joins_the_top_within_the_tolerance(r6):
+    """F13 tied with the 3rd best (F10, 95.0) up to float error joins the
+    top; one clearly lower does not."""
+    i10 = r6.index_of_formulation(10)
+    i13 = r6.index_of_formulation(13)
+    r6.Y_history[i13] = float(r6.Y_history[i10]) - 1e-9
+    v = U.round_view(r6)
+    assert _nos(r6, v.top) == [16, 17, 10, 13]
+    assert wording.review_amounts_title(len(v.top)) == "Amounts in the top 4 formulations"
+    text = _spec_text(U.amounts_chart(r6, v).to_dict())
+    assert "Top 4 (3 best, with ties): F16, F17, F10, F13" in text
+    r6.Y_history[i13] = float(r6.Y_history[i10]) - 1e-3
+    assert _nos(r6, U.round_view(r6).top) == [16, 17, 10]
+
+
+def test_the_top_is_every_formulation_when_fewer_than_three(r6):
+    v = U.round_view(r6, 1)
+    assert len(v.top) == len(v.scored) <= U.TOP_COUNT
+
+
+def test_the_all10_top_is_the_3_best_with_the_ties_at_third(all10):
+    """F21 99.17, then five at 98.33 (F16, F17, F19, F23, F26): the 3rd
+    place is tied, so the top grows to 6."""
+    v = U.round_view(all10)
+    assert _nos(all10, v.top) == [21, 16, 17, 19, 23, 26]
+    assert wording.review_amounts_title(6) == "Amounts in the top 6 formulations"
 
 
 def test_an_earlier_round_reads_only_what_was_measured_by_then(r6):
@@ -225,10 +242,13 @@ def test_amount_rows_tag_the_limits_the_best_sits_at(r6):
         "F16, F17 use the most this limit allows. You can raise it in Set up.")
 
 
-def test_the_top_band_spans_the_top_four(r6):
+def test_the_top_band_spans_the_top_three(r6):
     row = next(r for r in U.amounts_rows(r6, U.round_view(r6)) if r["name"] == "Tapioca starch")
     lo, hi = row["top_text"]
-    assert round(lo, 3) == 2.102 and round(hi, 3) == 2.6        # F13 … F16/F17
+    tapioca = sorted(float(r6.recipe_history[r6.index_of_formulation(n)]["Tapioca starch"])
+                     for n in (16, 17, 10))
+    assert (round(lo, 3), round(hi, 3)) == (round(tapioca[0], 3), round(tapioca[-1], 3))
+    assert round(hi, 3) == 2.6                                   # F16/F17
 
 
 def test_equal_amounts_are_spread_so_no_marker_hides_another():
@@ -240,12 +260,23 @@ def test_equal_amounts_are_spread_so_no_marker_hides_another():
 def test_the_amounts_key_and_the_linked_total(r6):
     v = U.round_view(r6)
     text = _spec_text(U.amounts_chart(r6, v).to_dict())
-    for entry in ("Allowed, not tried", "Tried (18)", "Top 4 (F16, F17, F10, F13)", "F16",
-                  "F17 (tied)", "at upper limit  (?)"):
+    for entry in ("Allowed, not tried", "Tried (18)", "Top 3: F16, F17, F10", "F16",
+                  "F17 (tied)", '"at upper limit"'):
         assert entry in text, entry
+    # No literal "(?)" drawn inside the chart (owner, v3 final cleanup):
+    # the at-limit tag is plain muted text, explained in Definitions.
+    assert "(?)" not in text
+    tag = next(m for m in U.amounts_chart(r6, v).to_dict()["layer"]
+               if m["mark"].get("type") == "text" and m["mark"].get("align") == "left"
+               and "dx" in m["mark"])
+    assert tag["mark"]["color"] == U.muted()
     assert U.amounts_linked_text(r6) == (
         "The 7 add to 97.7–98.7 g (the allowed total), so amounts are linked.")
+    assert wording.review_amounts_title(3) == "Amounts in the 3 best formulations"
     assert wording.review_amounts_title(4) == "Amounts in the top 4 formulations"
+    assert wording.review_amounts_title(1) == "Amounts in the best formulation"
+    assert wording.review_amounts_help("3").startswith(
+        "Top: the 3 highest Overall scores so far (ties included). Each row")
 
 
 def test_no_linked_line_without_a_total(r6):
@@ -273,18 +304,25 @@ def test_dark_theme_uses_the_dark_tokens(r6, monkeypatch):
 #  Definitions
 # ------------------------------------------------------------------ #
 
-def test_the_five_definitions(r6):
+def test_the_definitions_and_the_at_limit_entry(r6):
     assert U.definitions(r6) == [
         "Overall score: 100 = every attribute on target. Each attribute earns its share; "
         "each point off costs 1/15 of it.",
         "Round: the formulations made and tasted together.",
         "Best so far: the highest Overall score so far. Each formulation is made once and "
         "rated once.",
-        "Top formulations: within 5 points of the best so far.",
+        "Top formulations: the 3 highest Overall scores so far (ties included).",
         "Suggestions: best bets to improve on the best so far, weighing how good they look "
         "and how unsure the model is.",
+        "At upper limit: the best formulations use the most this limit allows; you can "
+        "raise it in Set up.",
     ]
     assert len(wording.method_definitions()) == 5
+    assert wording.method_definitions(limits=("upper", "lower"))[-2:] == (
+        "At upper limit: the best formulations use the most this limit allows; you can "
+        "raise it in Set up.",
+        "At lower limit: the best formulations use the least this limit allows; you can "
+        "lower it in Set up.")
 
 
 def test_mixed_scales_say_the_rule_generically():
@@ -337,7 +375,7 @@ def test_the_review_after_uploading_round6(review):
     assert md[0] == f"#### {wording.Q2_TITLE}"
     assert "**Best 98.3: F16, F17 tied (Round 6). Was 95.0 (F10, Round 4).**" in md
     assert "**Best so far vs targets (F16, F17 tied)**" in md
-    assert "**Amounts in the top 4 formulations**" in md
+    assert "**Amounts in the 3 best formulations**" in md
     assert f"#### {wording.Q5_TITLE}" in md
     # What next?: buttons only.
     labels = [b.label for b in tab.button]
@@ -428,21 +466,18 @@ def test_the_best_label_on_the_all10_sample(all10):
     assert label["text"] == "Best: 99.2 (F21)"
 
 
-def test_a_long_top_key_names_its_rule_and_keeps_the_names_for_the_question_mark(all10):
+def test_a_tied_top_key_says_its_rule_and_lists_every_name_inline(all10):
     v = U.round_view(all10)
-    assert len(v.top) == 14
+    assert len(v.top) == 6
     text = _spec_text(U.amounts_chart(all10, v).to_dict())
-    assert "Top 14 · within 5 points of the best (?)" in text
-    names = ", ".join(U._names(all10, v.top))
-    assert wording.review_top_names(names) in text
-    assert "…" not in text
-    assert wording.review_top_names("F21, F16") == "Top formulations: F21, F16."
+    assert "Top 6 (3 best, with ties): F21, F16, F17, F19, F23, F26" in text
+    assert "(?)" not in text and "…" not in text
 
 
 def test_a_short_top_key_keeps_its_names_inline(r6):
     text = _spec_text(U.amounts_chart(r6, U.round_view(r6)).to_dict())
-    assert "Top 4 (F16, F17, F10, F13)" in text
-    assert "within 5 points of the best (?)" not in text
+    assert "Top 3: F16, F17, F10" in text
+    assert "with ties" not in text and "within 5 points" not in text
 
 
 def test_the_advanced_noise_setting_says_no_tasting_noise_or_stop():
