@@ -47,7 +47,7 @@ def _click(where, label):
 
 
 def _burger(store):
-    sp.ensure_burger(store)
+    sp.ensure(store, (sp.BURGER,))
     return FoodOptimizer(sp.BURGER, storage=store)
 
 
@@ -194,13 +194,13 @@ def test_suggestions_for_the_burger_add_up_and_keep_its_rules(store):
 def test_ensure_writes_the_yogurt_only_and_ensure_burger_the_burger_only(store):
     assert sorted(sp.ensure(store)) == sorted(sp.YOGURT_NAMES)
     assert not Path(f"{sp.BURGER}.pkl").exists()
-    assert sp.ensure_burger(store) == [sp.BURGER]
-    assert sp.ensure_burger(store) == []
+    assert sp.ensure(store, (sp.BURGER,)) == [sp.BURGER]
+    assert sp.ensure(store, (sp.BURGER,)) == []
     assert sorted(store.list_projects()) == sorted(sp.NAMES)
 
 
 def test_the_burger_alone_writes_no_yogurt_and_no_results_file(store):
-    assert sp.ensure_burger(store) == [sp.BURGER]
+    assert sp.ensure(store, (sp.BURGER,)) == [sp.BURGER]
     assert sorted(store.list_projects()) == [sp.BURGER]
     assert not Path(sp.ROUND6_RESULTS_FILE_NAME).exists()
 
@@ -208,7 +208,7 @@ def test_the_burger_alone_writes_no_yogurt_and_no_results_file(store):
 def test_ensure_burger_never_overwrites_it(store):
     opt = _burger(store)
     opt.set_formulation_total(250)
-    sp.ensure_burger(store)
+    sp.ensure(store, (sp.BURGER,))
     assert FoodOptimizer(sp.BURGER, storage=store).formulation_total == 250
 
 
@@ -347,7 +347,7 @@ def test_start_this_sample_over_restores_the_burger_on_set_up(at, tmp_path):
 def test_launching_and_reopening_the_burger_land_on_set_up(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     store = storage_backend.LocalStorage()
-    sp.ensure_burger(store)
+    sp.ensure(store, (sp.BURGER,))
     app = AppTest.from_file(APP, default_timeout=180)
     app.run()                                       # the most recent project
     assert not app.exception

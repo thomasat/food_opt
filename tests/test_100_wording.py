@@ -29,39 +29,23 @@ def _changed_lines():
     return [
         W.SUGGESTION_CLOSE, W.SUGGESTION_BALANCED, W.SUGGESTION_DIFFERENT,
         W.compared_with_cell(W.SUGGESTION_DIFFERENT, "Water +12.00 g"), W.HOW_IT_WORKS[-1],
-        W.how_models(), W.how_models("matern52"), W.how_models("rbf", "fixed_tiny"),
-        W.how_models("linear", "low"), W.HOW_MODELS, W.how_checks(), W.how_checks(values=True),
-        W.how_checks(total=False), 
-        W.ROLE_REFINES, W.ROLE_BALANCED,
-        W.ROLE_EXPLORES, W.EXPECTED_IMPROVEMENT_HELP, W.EXPECTED_IMPROVEMENT_EI_HELP,
-        W.WHY_PENDING,
-        W.LAYER_GAIN_LEGEND, W.open_saved_copy_warning("Pea burger patty", ["24 formulations"],
-                                                       "Pea burger patty", "28 formulations",
-                                                       W.open_round_lost(7, 4)),
+        W.open_saved_copy_warning("Pea burger patty", ["24 formulations"],
+                                  "Pea burger patty", "28 formulations",
+                                  W.open_round_lost(7, 4)),
     ]
 
 
 def _new_lines():
     """One call of every builder, and every constant, the new section adds."""
     return [
-        W.repeat_score("67.30"),
-        W.repeat_score("75.61", disagrees=True),
         W.best_repeats_line(14, ["67.30", "66.34", "75.61"], "75.17"),
-        W.best_repeats_line(14, ["67.30", W.repeat_score("75.61", True)], "78.12"),
         W.best_repeats_line(26, ["77.97"], "79.90"),
         W.rest_needs_batch_size("Water"),
         W.import_limits_not_numbers("Date paste"),
         W.import_limits_not_numbers("Date paste", (W.HIGHEST_LABEL,)),
         W.import_spreadsheet_formula("Date paste", W.LOWEST_LABEL, "=B2*2"),
         W.open_round_lost(6, 4, 2), W.open_round_lost(7, 1, 1), W.open_round_lost(7, 4),
-        W.YES_MOVE_TO_NOT_SCORED, 
-        W.TIP_NEAREST_TESTED, W.LARGEST_DIFFERENCES_HELP,
-        W.LAYER_SCORE_LEGEND, W.LAYER_GAIN_FORMER, W.KERNEL_NAMES["matern32"],
-        # T0′ at integration: the interval chart's caption in both themes,
-        # the progress line with every Round checked, the Why fold's A3
-        # reasons in Progress's words.
-        W.MVP_CAPTION, W.insights_progress(12, 12), W.insights_progress(1, 1),
-        W.insights_progress(3, 12),
+        W.YES_MOVE_TO_NOT_SCORED,
     ]
 
 
@@ -96,13 +80,6 @@ def test_trial_only_through_for_project(group):
         assert not re.search(r"\bformulations?\b", W.for_project(opt, text), re.I), text
 
 
-def test_the_settings_only_forms_name_no_ingredient():
-    """A line that names ingredients has a form for process settings alone."""
-    for text in (
-                 W.how_checks(values=True, total=False)):
-        assert "ingredient" not in text.lower(), text
-
-
 def test_process_only_round_heading_says_trials():
     """B4 (04 M-3): the heading reaches the screen through for_project."""
     opt = _SettingsOnly()
@@ -118,14 +95,11 @@ def test_the_frozen_strings_did_not_move(name, value):
 def test_import_aliases_are_frozen():
     """B1: a file written for these must keep loading."""
     assert W.FILL_TO_TOTAL_IMPORT_ALIASES == ("fill to total", "= rest", "=rest")
-    assert W.LAYER_GAIN_FORMER == "Expected improvement"   # charts proto: one name, Expected gain
 
 
 def test_one_vocabulary_for_role_and_compared_with():
-    """A2 (02 I1): the Why fold's Role and the Compared with cell say the
-    same three words."""
-    assert (W.ROLE_REFINES, W.ROLE_BALANCED, W.ROLE_EXPLORES) == (
-        W.SUGGESTION_CLOSE, W.SUGGESTION_BALANCED, W.SUGGESTION_DIFFERENT) == (
+    """A2 (02 I1): the Compared with cell says the three suggestion words."""
+    assert (W.SUGGESTION_CLOSE, W.SUGGESTION_BALANCED, W.SUGGESTION_DIFFERENT) == (
         "close to the best", "balanced", "explores")
     assert W.compared_with_cell(W.SUGGESTION_BALANCED, "Salt +0.56 g") == (
         "Balanced · Salt +0.56 g")

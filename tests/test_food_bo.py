@@ -4432,9 +4432,7 @@ class TestRoundTwoFixes:
 # term" pass unaided, so they need no entry.
 # Final review (0.8.0): the glossary is gone from the app; only the Model
 # and method lead keeps its allowance.
-_FTUE_BO_TERMS = {
-    wording.MODEL_SUMMARY_LEAD,              # "Bayesian optimisation", said once
-}
+_FTUE_BO_TERMS = set()
 _FTUE_ALLOWED = _FTUE_BO_TERMS
 
 # Sentences that are allowed to keep a banned word, each for a stated reason.
@@ -4635,7 +4633,7 @@ def test_no_old_vocabulary_reaches_the_user():
 
 # The names that carry the allowed BO terms (review R-B2), and the two
 # Method-and-definitions drawers that may say them (W2's, in ui_insights).
-_FTUE_NAMES = {"MODEL_SUMMARY_LEAD", "model_summary"}
+_FTUE_NAMES = set()
 _FTUE_DRAWERS = {"_glossary", "_model_and_method"}
 
 
@@ -4664,7 +4662,7 @@ def test_the_ftue_allowance_is_scoped():
     written in wording.py alone; on screen, only Method and definitions'
     two drawers read them; and every other prose literal stays scanned."""
     root = pathlib.Path(__file__).resolve().parent.parent
-    bo_text = {wording.MODEL_SUMMARY_LEAD}
+    bo_text = set()
 
     def refused(text):
         return (text not in _ALLOWED_EXACT and not text.startswith(_ALLOWED_PREFIXES)
@@ -4682,7 +4680,7 @@ def test_the_ftue_allowance_is_scoped():
     # "Bayesian optimisation" is said in exactly one string (R-B2).
     named = [t for name in _USER_FACING_SOURCES for t in _prose_constants(root / name)
              if re.search(r"bayesian optimi[sz]", t, re.I)]
-    assert named == [wording.MODEL_SUMMARY_LEAD]
+    assert named == []
     # Written in wording.py alone: no other module carries a copy.
     for name in _USER_FACING_SOURCES:
         if name != "wording.py":
@@ -6295,16 +6293,16 @@ class TestTheWorkbook:
         # written in — this sheet's own, the Lot among them, and not the
         # Actual cells that live on the pages; the header the upload reads
         # is under that.
-        assert rows[1][0] == wording.SUMMARY_SHADED_NOTE
-        assert wording.LOT_COLUMN in wording.SUMMARY_SHADED_NOTE
-        assert wording.ACTUAL_COLUMN not in wording.SUMMARY_SHADED_NOTE
+        assert rows[1][0] == wording.summary_write_in_note()
+        assert wording.LOT_COLUMN in wording.summary_write_in_note()
+        assert wording.ACTUAL_COLUMN not in wording.summary_write_in_note()
         # It names the column by the word the block's own header row uses.
         # It said "Measured", which is a header this sheet does not write —
         # the formulation pages do, and their line names it.
         head = next(r for r in rows
                     if r and r[0] == wording.MEASUREMENT_COLUMN)
-        assert head[0] in wording.SUMMARY_SHADED_NOTE, head
-        assert wording.MEASURED_COLUMN not in wording.SUMMARY_SHADED_NOTE
+        assert head[0] in wording.summary_write_in_note(), head
+        assert wording.MEASURED_COLUMN not in wording.summary_write_in_note()
         assert wording.MEASURED_COLUMN in wording.sheet_write_in_note()
         pct = wording.PERCENT_COLUMN
         assert rows[2] == ("Ingredient or process setting", "Formulation 1",
@@ -8723,7 +8721,7 @@ class TestTheLockedWorkbook:
         opt = self._opt(tmp_path, monkeypatch)
         book = _book(opt.workbook_bytes(opt.pending_batch, 100.0))
         for sheet, row, note in ((book["Round 2"], 2,
-                                  wording.SUMMARY_SHADED_NOTE),
+                                  wording.summary_write_in_note()),
                                  (book["Formulation 1"], 3,
                                   wording.sheet_write_in_note("Actual (g)"))):
             last = sheet.print_area.split(":")[-1].strip("'$0123456789")
@@ -8734,9 +8732,9 @@ class TestTheLockedWorkbook:
             assert cell.alignment.wrap_text
             assert sheet.row_dimensions[row].height >= 30
         # Lot is named where the Lot cells are, Actual where they are.
-        assert wording.ACTUAL_COLUMN in wording.SHEET_SHADED_NOTE
-        assert wording.LOT_COLUMN not in wording.SHEET_SHADED_NOTE
-        assert wording.LOT_COLUMN in wording.SUMMARY_SHADED_NOTE
+        assert wording.ACTUAL_COLUMN in wording.sheet_write_in_note()
+        assert wording.LOT_COLUMN not in wording.sheet_write_in_note()
+        assert wording.LOT_COLUMN in wording.summary_write_in_note()
         # And the line the measurements block carries is merged too.
         page = book["Formulation 1"]
         row = self._rows_of(page, column=2)[wording.SHEET_WRITE_IN_NOTE]

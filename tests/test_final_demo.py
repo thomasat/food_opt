@@ -21,8 +21,6 @@ from types import SimpleNamespace as NS
 import pytest
 from streamlit.testing.v1 import AppTest
 
-import insights
-import learned
 import ui_insights as U
 import ui_setup
 import wording
@@ -63,7 +61,8 @@ def _opt(name="final_demo", rows=ROWS, noise=None):
         opt.tell(_recipe(k), dict(zip([n for n, _ in TARGETS], vals)),
                  formulation_no=no, batch_no=r)
     if noise is not None:
-        insights.set_tasting_noise(opt, noise)
+        opt.tasting_noise = float(noise)
+        opt.save()
     return opt
 
 
@@ -100,12 +99,6 @@ class _FakeSt:
         return call
 
 
-def _facts(opt):
-    b = opt.best_index()
-    return NS(yardstick=insights.noise_yardstick(opt), best=NS(score=float(opt.Y_history[b]),
-                                                                 formulation=16))
-
-
 # ------------------------------------------------------------------ #
 #  The synthetic project mirrors the pilot's shape
 # ------------------------------------------------------------------ #
@@ -125,31 +118,15 @@ def test_the_project_has_the_pilots_round_bests():
 # ------------------------------------------------------------------ #
 
 
-@pytest.mark.parametrize("sigma", [1, 2, 3])
-def test_the_noise_moves_the_derived_noise_and_the_pairs_too_close(sigma):
-    opt = _opt(noise=None if sigma == 1 else sigma)
-    noise = learned.pair_noise(opt)
-    assert noise[insights.SCORE] == sigma
-    # σ_a = σ × 15 ÷ (25 × √4) = 0.3 σ, each measurement.
-    for n, _ in TARGETS:
-        assert noise[n] == pytest.approx(0.3 * sigma)
-    assert learned.overall_noise(opt) == (sigma, True)
-    # Two forecasts 1.5 apart: called at 1 point, too close at 2 and 3.
-    a = insights.Check(1, 1, insights.SCORE, 90.0, 85, 95, 91.0, True, True, raw_mean=90.0, sd=1)
-    b = insights.Check(2, 1, insights.SCORE, 91.5, 86, 96, 93.0, True, True, raw_mean=91.5, sd=1)
-    call = learned.round_call([a, b], insights.SCORE, 1, noise[insights.SCORE])
-    assert (call.close == 1) == (sigma > 1.5)
-
-
 def test_set_up_has_no_tasting_noise_control():
     """v3: Tasting noise is no longer shown in Set up; it stays internal at
-    its default (insights.assumed_noise), and Set up says nothing of noise
-    or of when to stop."""
+    its default (None), and Set up says nothing of noise or of when to
+    stop."""
     assert not hasattr(ui_setup, "_tasting_noise")
     assert not hasattr(ui_setup, "TASTING_NOISE_KEY")
     src = inspect.getsource(ui_setup)
     assert "TASTING_NOISE_LABEL" not in src and "SETUP_NOISE_HELP" not in src
-    assert insights.assumed_noise(_opt()) == 1.0
+    assert _opt().tasting_noise is None
 
 
 def test_the_review_has_no_noise_control():
@@ -167,13 +144,14 @@ def test_the_noise_is_saved_with_the_project_and_read_back():
     opt = _opt("saved")
     raw = json.load(open("saved.pkl"))
     assert "tasting_noise" not in raw                     # the default writes nothing new
-    insights.set_tasting_noise(opt, 2.0)
+    opt.tasting_noise = 2.0
+    opt.save()
     assert json.load(open("saved.pkl"))["tasting_noise"] == 2.0
     again = FoodOptimizer("saved")
-    assert again.tasting_noise == 2.0 and insights.assumed_noise(again) == 2.0
-    # Back to 1: the default again (None), and nothing on disk.
-    insights.set_tasting_noise(again, 1.0)
-    assert again.tasting_noise is None
+    assert again.tasting_noise == 2.0
+    # Back to the default (None): nothing on disk.
+    again.tasting_noise = None
+    again.save()
     assert "tasting_noise" not in json.load(open("saved.pkl"))
     assert FoodOptimizer("saved").tasting_noise is None
 
@@ -187,7 +165,7 @@ def test_an_older_file_loads_with_the_assumed_noise():
     before = open("older.pkl").read()
     opt = FoodOptimizer("older")
     assert opt.load_error is None if hasattr(opt, "load_error") else True
-    assert opt.tasting_noise is None and insights.assumed_noise(opt) == 1.0
+    assert opt.tasting_noise is None
     assert open("older.pkl").read() == before            # not rewritten on open
     assert FoodOptimizer.validate_state(raw)
 
@@ -200,12 +178,12 @@ def test_a_damaged_noise_reads_as_the_assumed_one(bad):
     with open("damaged.pkl", "w") as f:
         f.write(json.dumps(raw).replace("NaN", "NaN"))
     opt = FoodOptimizer("damaged")
-    assert opt.tasting_noise is None and insights.assumed_noise(opt) == 1.0
+    assert opt.tasting_noise is None
 
 
 def test_start_over_and_a_new_project_keep_the_default():
     fresh = FoodOptimizer("fresh")
-    assert fresh.tasting_noise is None and insights.assumed_noise(fresh) == 1.0
+    assert fresh.tasting_noise is None
     # app.py's Start this project over writes a fresh FoodOptimizer.
     src = open(APP_PATH).read()
     i = src.index("wording.START_OVER_LABEL")
@@ -337,15 +315,6 @@ def test_the_play_state_is_not_the_play_buttons_widget_state():
 # ------------------------------------------------------------------ #
 #  A3 · the Forecast check's pairs: called of all
 # ------------------------------------------------------------------ #
-
-def _lf(right, pairs, close, ties, p=0.03, p_holm=0.15, tested=5):
-    o = learned.Ordering(insights.SCORE, right=right, pairs=pairs, close=close, ties=ties)
-    o.verdict, o.reason, o.p_holm, o.tested = learned.PARTLY, "", p_holm, tested
-    o.nulls = []
-    lf = NS(orderings={insights.SCORE: o}, items=[], noise={insights.SCORE: 1.0})
-    lf.model_names = lambda opt, v: (["Overall score"] if v == learned.PARTLY else [])
-    return lf
-
 
 # ------------------------------------------------------------------ #
 #  A4 · the stop's "?" — one tasting, regression to the mean

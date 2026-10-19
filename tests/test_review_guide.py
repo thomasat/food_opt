@@ -15,7 +15,6 @@ import re
 import pytest
 from streamlit.testing.v1 import AppTest
 
-import bo_views
 import wording
 from food_bo import FoodOptimizer
 from tests import demo_projects as D
@@ -83,21 +82,20 @@ def walked(tmp_path_factory):
     here = os.getcwd()
     os.chdir(tmp_path_factory.mktemp("review-guide"))
     try:
-        with bo_views.fresh():
-            out = {}
-            for name in STATUS:
-                _install(name)
-                at = _app(name, wording.TAB_INSIGHTS)
-                # Review story: the screen shows Progress, Predictions, Next;
-                # read in the (Predictions, Progress, Next) order pinned below.
-                # v3: the Review has no cards or status words.
-                words = []
-                review_lit = _tab_primaries(at, REVIEW)
-                _go(at, wording.TAB_BATCH)
-                links = [b for b in at.tabs[BATCH].button if b.key == "link_review_status"]
-                out[name] = (words, review_lit, _status_line(at), links,
-                             _tab_primaries(at, BATCH))
-            yield out
+        out = {}
+        for name in STATUS:
+            _install(name)
+            at = _app(name, wording.TAB_INSIGHTS)
+            # Review story: the screen shows Progress, Predictions, Next;
+            # read in the (Predictions, Progress, Next) order pinned below.
+            # v3: the Review has no cards or status words.
+            words = []
+            review_lit = _tab_primaries(at, REVIEW)
+            _go(at, wording.TAB_BATCH)
+            links = [b for b in at.tabs[BATCH].button if b.key == "link_review_status"]
+            out[name] = (words, review_lit, _status_line(at), links,
+                         _tab_primaries(at, BATCH))
+        yield out
     finally:
         os.chdir(here)
 
@@ -133,59 +131,58 @@ def _tab_dot(at):
 
 def test_save_results_then_review_round_n_opens_review(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    with bo_views.fresh():
-        _install(D.LINE_A)
-        at = _app(D.LINE_A, wording.TAB_BATCH)
-        opt = at.session_state["optimizer"]
-        no = opt.pending_batch_no
-        numbers = [r['formulation'] for r in open_rows(opt)]
-        assert len(numbers) == 4
-        # Part of the Round: it stays open, and Review is still due.
-        _fill(at, opt, numbers[:1])
-        _button(at, BATCH, "save_results").click().run()
-        assert not at.exception, [e.message for e in at.exception]
-        assert at.session_state[REVIEW_DUE_KEY] == no
-        # The reader lands back here: "Review Round N" is its one lit button
-        # (the sheets step aside), in Make a round's status line.
-        _go(at, wording.TAB_BATCH)
-        assert _tab_primaries(at, BATCH) == [wording.review_round_label(no)]
-        _go(at, wording.TAB_RESULTS)
-        assert _tab_primaries(at, RESULTS) == [wording.review_round_label(no)]
-        foot = _button(at, RESULTS, "foot_batch")
-        assert foot.label == wording.back_to_batch_label(no, 3) and not foot.disabled
-        assert _tab_dot(at), "no tab dot"
-        _button(at, RESULTS, "review_round").click().run()
-        assert at.session_state["main_tab"] == wording.TAB_INSIGHTS
-        assert REVIEW_DUE_KEY not in at.session_state
-        assert not _tab_dot(at)
-        # Reviewed: Results' foot is the lit one again.
-        assert _tab_primaries(at, RESULTS) == [wording.back_to_batch_label(no, 3)]
-        # The rest of the Round: Save results lands on Results, Review lit.
-        _go(at, wording.TAB_BATCH)
-        _fill(at, opt, numbers[1:])
-        _button(at, BATCH, "save_results").click().run()
-        assert not at.exception, [e.message for e in at.exception]
-        assert at.session_state["main_tab"] == wording.TAB_RESULTS
-        assert _tab_primaries(at, RESULTS) == [wording.review_round_label(no)]
-        assert _button(at, RESULTS, "foot_batch").label == wording.START_NEXT_BATCH
-        # AppTest cannot run again on a tree that still holds the closed
-        # Round's boxes: the same session state, in a new AppTest.
-        due = at.session_state[REVIEW_DUE_KEY]
-        at = AppTest.from_file(APP_PATH, default_timeout=600)
-        at.session_state["_loaded_project"] = D.LINE_A
-        at.run()
-        at.session_state[REVIEW_DUE_KEY] = due
-        _go(at, wording.TAB_RESULTS)
-        assert _tab_primaries(at, RESULTS) == [wording.review_round_label(no)]
-        _button(at, RESULTS, "review_round").click().run()
-        assert at.session_state["main_tab"] == wording.TAB_INSIGHTS
-        # Review's Next card leads back to Make a round.
-        # Review v3: What next?'s primary names the next Round.
-        assert _tab_primaries(at, REVIEW) == [wording.start_round_label(
-            at.session_state["optimizer"].next_batch_no())]
-        _button(at, REVIEW, "insights_foot").click().run()
-        assert at.session_state["main_tab"] == wording.TAB_BATCH
-        assert _status_line(at) is None          # v3: no verdict line here
+    _install(D.LINE_A)
+    at = _app(D.LINE_A, wording.TAB_BATCH)
+    opt = at.session_state["optimizer"]
+    no = opt.pending_batch_no
+    numbers = [r['formulation'] for r in open_rows(opt)]
+    assert len(numbers) == 4
+    # Part of the Round: it stays open, and Review is still due.
+    _fill(at, opt, numbers[:1])
+    _button(at, BATCH, "save_results").click().run()
+    assert not at.exception, [e.message for e in at.exception]
+    assert at.session_state[REVIEW_DUE_KEY] == no
+    # The reader lands back here: "Review Round N" is its one lit button
+    # (the sheets step aside), in Make a round's status line.
+    _go(at, wording.TAB_BATCH)
+    assert _tab_primaries(at, BATCH) == [wording.review_round_label(no)]
+    _go(at, wording.TAB_RESULTS)
+    assert _tab_primaries(at, RESULTS) == [wording.review_round_label(no)]
+    foot = _button(at, RESULTS, "foot_batch")
+    assert foot.label == wording.back_to_batch_label(no, 3) and not foot.disabled
+    assert _tab_dot(at), "no tab dot"
+    _button(at, RESULTS, "review_round").click().run()
+    assert at.session_state["main_tab"] == wording.TAB_INSIGHTS
+    assert REVIEW_DUE_KEY not in at.session_state
+    assert not _tab_dot(at)
+    # Reviewed: Results' foot is the lit one again.
+    assert _tab_primaries(at, RESULTS) == [wording.back_to_batch_label(no, 3)]
+    # The rest of the Round: Save results lands on Results, Review lit.
+    _go(at, wording.TAB_BATCH)
+    _fill(at, opt, numbers[1:])
+    _button(at, BATCH, "save_results").click().run()
+    assert not at.exception, [e.message for e in at.exception]
+    assert at.session_state["main_tab"] == wording.TAB_RESULTS
+    assert _tab_primaries(at, RESULTS) == [wording.review_round_label(no)]
+    assert _button(at, RESULTS, "foot_batch").label == wording.START_NEXT_BATCH
+    # AppTest cannot run again on a tree that still holds the closed
+    # Round's boxes: the same session state, in a new AppTest.
+    due = at.session_state[REVIEW_DUE_KEY]
+    at = AppTest.from_file(APP_PATH, default_timeout=600)
+    at.session_state["_loaded_project"] = D.LINE_A
+    at.run()
+    at.session_state[REVIEW_DUE_KEY] = due
+    _go(at, wording.TAB_RESULTS)
+    assert _tab_primaries(at, RESULTS) == [wording.review_round_label(no)]
+    _button(at, RESULTS, "review_round").click().run()
+    assert at.session_state["main_tab"] == wording.TAB_INSIGHTS
+    # Review's Next card leads back to Make a round.
+    # Review v3: What next?'s primary names the next Round.
+    assert _tab_primaries(at, REVIEW) == [wording.start_round_label(
+        at.session_state["optimizer"].next_batch_no())]
+    _button(at, REVIEW, "insights_foot").click().run()
+    assert at.session_state["main_tab"] == wording.TAB_BATCH
+    assert _status_line(at) is None          # v3: no verdict line here
 
 
 def test_the_welcome_lists_review_as_step_four(tmp_path, monkeypatch):

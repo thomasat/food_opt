@@ -4,15 +4,9 @@ every chart has a title (the hero's is its heading), labelled axes, a
 legend for every encoded colour, tooltips with a "BO term" row, one
 colour per meaning across charts, short captions, and a withheld chart's
 reason. One model fit for the module."""
-import json
-import re
-import types
 
 import pytest
 
-import bo_views
-import insights
-import insights_jobs
 import ui_insights as U
 import wording
 from tests import demo_projects as D
@@ -24,18 +18,12 @@ _COLOUR_CHANNELS = ("color", "fill", "stroke", "strokeDash", "shape", "opacity")
 def line_a(tmp_path_factory):
     mp = pytest.MonkeyPatch()
     mp.chdir(tmp_path_factory.mktemp("review-plots"))
-    mp.setattr(insights_jobs, "_JOBS", {})
-    mp.setattr(insights_jobs, "_INFLIGHT", {})
     mp.setattr(U.st, "session_state", {})
-    with bo_views.fresh():
-        opt = D.load(D.LINE_A)
-        computed = U._computed(opt, quiet=True)
-        mp.setattr(U, "checks_for", lambda o, stage: computed["checks"])
-        yield opt, computed
+    yield D.load(D.LINE_A)
     mp.undo()
 
 
-def _specs(opt, computed):
+def _specs(opt):
     """{name: spec} for every chart the Review draws (Make a round draws
     none since v3: its map went with the Why fold)."""
     out = {}
@@ -53,7 +41,7 @@ def _specs(opt, computed):
 
 @pytest.fixture(scope="module")
 def specs(line_a):
-    return _specs(*line_a)
+    return _specs(line_a)
 
 
 def _units(spec):
@@ -65,10 +53,6 @@ def _units(spec):
             yield from _units(child)
     if "spec" in spec:
         yield from _units(spec["spec"])
-
-
-def _words(text):
-    return len([w for w in re.sub(r"[^\w%' ]", " ", text).split() if w])
 
 
 # The Review's charts are titled by the heading drawn above each (the panel's
@@ -163,7 +147,6 @@ def test_one_colour_per_meaning_across_charts(specs):
     # Off target shows its direction on the strip (v3 final cleanup):
     # orange above its target, purple below; the old single orange is gone.
     assert {above, below} & _colours(specs["targets"])
-    assert U.outline_colour().lower() not in _colours(specs["targets"])
     # The strip: blue only on target (this best is on target nowhere, and
     # its key lists only what is drawn); the amounts: no direction colour.
     assert above not in _colours(specs["amounts"]) and below not in _colours(specs["amounts"])
@@ -174,21 +157,3 @@ def test_one_colour_per_meaning_across_charts(specs):
                 e = unit.get("encoding", {}).get(ch)
                 if isinstance(e, dict) and e.get("type") == "nominal" and "field" in e:
                     assert "range" in e.get("scale", {}), (name, ch, e)
-
-
-def test_short_captions_and_withheld_reasons():
-    for text in (wording.PLOT_CAPTION_PROGRESS, wording.PLOT_CAPTION_GAIN,
-                 wording.PLOT_CAPTION_MVP, wording.PLOT_CAPTION_CHANGE,
-                 wording.PLOT_CAPTION_PATH, wording.PLOT_CAPTION_MAP,
-                 wording.PLOT_CAPTION_PAIR, wording.PLOT_CAPTION_PAIR_NONE,
-                 wording.HERO_CAPTION,
-                 wording.tried_caption()):
-        assert _words(text) <= 8, text
-    for text in (wording.PLOT_SPARK_WAIT, wording.PLOT_GAIN_WITHHELD,
-                 *wording.HERO_HIDDEN.values()):
-        assert _words(text) <= 10, text
-
-
-# Review critique (fix 5): the parallel coordinates' end labels went with the chart.
-
-

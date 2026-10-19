@@ -52,8 +52,9 @@ def test_scanner_sees_the_insights_chain():
 
 
 def test_build_script_ships_the_sample_data():
-    # Run by path, never imported, so the import scan cannot see it.
-    assert "insights_worker.py" in _packaged()
+    # 0.8.0 cleanup: the Review fits nothing, so the worker engine is gone.
+    assert not {"insights_worker.py", "insights_jobs.py", "insights_cache.py",
+                "learned.py"} & _packaged()
     SHIPPED_DATA = [
         "data/ingredients_template.csv",
         "data/samples/yogurt_pilot/Yogurt pilot - Round 6 to score.json",

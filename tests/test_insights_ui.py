@@ -1,5 +1,6 @@
 import pytest
 from tests.demo_build_reason import REVIEW_FOUR
+import food_bo
 import insights
 import ui_insights
 import wording
@@ -181,8 +182,7 @@ def test_progress_chart_moved_from_results(insights_scored):
     at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
     labels = [e.label for e in at.expander]
-    assert "Progress chart" not in labels and wording.FOLD_PROGRESS_CHART not in labels
-    assert not any(c.value == wording.progress_caption_2() for c in at.caption)
+    assert "Progress chart" not in labels
     at = _open_insights(_app())
     # It lives on the Review as "Best so far", under its own caption.
     tab = at.tabs[3]
@@ -193,7 +193,8 @@ def test_progress_chart_moved_from_results(insights_scored):
 
 def test_insights_not_computed_while_another_tab_is_open(insights_scored, monkeypatch):
     calls = []
-    monkeypatch.setattr(insights, "fit_all", lambda opt: calls.append(1) or {})
+    real = food_bo.fit_gpytorch_mll
+    monkeypatch.setattr(food_bo, "fit_gpytorch_mll", lambda *a, **k: calls.append(1) or real(*a, **k))
     at = _app()
     at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
@@ -203,20 +204,19 @@ def test_insights_not_computed_while_another_tab_is_open(insights_scored, monkey
 
 
 def test_the_review_fits_nothing_on_any_run(insights_scored, monkeypatch):
-    # Review v3 draws from the measurements alone: it neither fits a model
-    # nor checks Rounds, on the first run or on a rerun, and keeps no checks.
-    fit_calls, check_calls = [], []
-    real_fit, real_check = insights.fit_all, insights.check_rounds
-    monkeypatch.setattr(insights, "fit_all", lambda opt: fit_calls.append(1) or real_fit(opt))
-    monkeypatch.setattr(insights, "check_rounds",
-                        lambda opt, **kw: check_calls.append(1) or real_check(opt, **kw))
+    # Review v3 draws from the measurements alone: it fits no model
+    # on the first run or on a rerun, and keeps no cache.
+    fit_calls = []
+    real_fit = food_bo.fit_gpytorch_mll
+    monkeypatch.setattr(food_bo, "fit_gpytorch_mll",
+                        lambda *a, **k: fit_calls.append(1) or real_fit(*a, **k))
     at = _open_insights(_app())
     assert not at.exception
-    assert fit_calls == [] and check_calls == []
+    assert fit_calls == []
     assert ui_insights.CACHE_KEY not in at.session_state
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
     at.run()
-    assert fit_calls == [] and check_calls == []
+    assert fit_calls == []
 
 
 def test_no_scored_formulation_one_line(burger):
@@ -271,18 +271,6 @@ def test_round_and_tab_words_come_from_constants(monkeypatch):
     src = open(wording.__file__).read()
     assert 'f"2 · {TAB_BATCH_NAME}"' in src or "TAB_BATCH_NAME" in src
     assert wording.TAB_BATCH.endswith(wording.TAB_BATCH_NAME)
-    for fn in ("STAND_LATEST", "stand_since", "HOW_MODELS"):
-        block = src[src.index(fn + (" = " if fn.isupper() else "(")):][:400]
-        assert " round" not in block.split("\n\n")[0].replace("{ROUND}", ""), (fn, block)
-
-
-def test_path_skipped_names_the_property():
-    opt = _burger(rounds=2)
-    opt.add_property("Fat")
-    opt.set_property_value("Oil", "Fat", 100.0)
-    opt.add_constraint("Fat", max_val=5.0)
-    p = insights.build_path(opt, "Oil", insights.start_recipe(opt, opt.best_index()))
-    assert p.skipped == [(opt.property_limit_text(opt.constraints[0]), "Fat")]
 
 
 # The tab in the app ------------------------------------------------ #

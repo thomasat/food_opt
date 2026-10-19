@@ -2932,7 +2932,7 @@ def test_results_collapsed_sections_are_the_spec_list(scored):
     # Progress chart moved to Insights (0.8.0).
     for label in (wording.EDIT_PAST_FOLD,):
         assert label in labels, labels
-    assert "Progress chart" not in labels and wording.FOLD_PROGRESS_CHART not in labels
+    assert "Progress chart" not in labels
 
 
 def test_whole_batch_pick_fills_the_selection(scored):
@@ -4523,7 +4523,7 @@ def test_the_sheet_writes_every_amount_in_its_own_unit(mixed_units):
                               wording.MADE_BY_FOOTER], list(rows)
     # Under the title, the line that says which of this sheet's cells take
     # a number.
-    assert list(rows)[1] == wording.SUMMARY_SHADED_NOTE
+    assert list(rows)[1] == wording.summary_write_in_note()
     # One column per formulation, not two — and the Lot cell after it.
     assert rows["Pea protein (g)"] == [10.0, None], rows["Pea protein (g)"]
 
@@ -4924,7 +4924,7 @@ def test_the_best_score_says_partial_when_a_measurement_was_not_scored(burger):
                for c in at.caption), [c.value for c in at.caption]
     # ...and no dash caption: a waiting cell reads "waiting", not "—"
     # (spec 2026-09-30 §4, audit V9).
-    assert not any(c.value == wording.COMPLETE_RESULTS_CAPTION
+    assert not any(c.value == wording.complete_results_caption()
                    for c in at.caption), [c.value for c in at.caption]
 
 
@@ -6822,7 +6822,7 @@ def test_the_partial_sentence_is_said_once_on_the_tab(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
-    sentence = wording.COMPLETE_RESULTS_CAPTION
+    sentence = wording.complete_results_caption()
     assert sentence == "“—”: scored without that measurement.", sentence
     assert wording.complete_results_help() == (
         "A formulation counts once all its results are in; “—” means it is scored without "
@@ -9134,16 +9134,6 @@ def test_an_own_formulation_gets_the_same_line(burger):
     assert list(table["Compared with Formulation 1"]) == [
         "Close to the best · Pea protein +1.00 g",
         "Your own formulation · Pea protein +10.00 g"]
-
-
-def test_the_what_it_is_trying_column_is_never_formatted_as_a_number(burger):
-    """It is words, not an amount: handing it to a two-decimal format would
-    raise the moment the table was drawn."""
-    from ui_batch import _amount_format
-    _warm_burger(burger)
-    burger.set_pending_batch([{"Pea protein": 11.0, "Methylcellulose": 1.0}])
-    frame = burger.batch_frame(burger.pending_batch)
-    assert "Compared with Formulation 1" not in _amount_format(burger, frame)
 
 
 # ------------------------------------------------------------------ #

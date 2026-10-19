@@ -14,25 +14,9 @@ import os
 
 import pytest
 
-import bo_views
 import ui_insights
-import wording
 from tests import demo_projects as D
-from tests.test_food_bo import _BANNED
 from tests.review_screens import _install, _leaves, _open
-
-
-def _words(text):
-    return len(text.split())
-
-
-def test_limit_fact_is_short_and_agrees_with_the_chart_heading():
-    for end in ("Highest", "Lowest"):
-        fact = wording.at_limit_fact("Tap water", end)
-        assert fact == f"Tap water: already at its {end}"
-        assert _words(fact) <= 8
-        assert f"at its {end}" in wording.path_head_at_limit("Tap water", end, "42 g")
-        assert not any(p.search(fact) for p in _BANNED)
 
 
 def test_removed_charts_are_gone():
@@ -45,9 +29,8 @@ def line_a(tmp_path_factory):
     here = os.getcwd()
     os.chdir(tmp_path_factory.mktemp("demo-build"))
     try:
-        with bo_views.fresh():
-            _install(D.LINE_A)
-            yield _open(D.LINE_A)
+        _install(D.LINE_A)
+        yield _open(D.LINE_A)
     finally:
         os.chdir(here)
 

@@ -1,10 +1,8 @@
 """0.8.0 review fixes, the final wave: the whole-branch review's items
 (final-review.md I-1..I-3, M-1..M-5) and the parked minors."""
 import pytest
-from tests.demo_build_reason import REVIEW_FOUR
 from streamlit.testing.v1 import AppTest
 
-import insights
 import ui_insights
 import wording
 from food_bo import FoodOptimizer
@@ -30,7 +28,6 @@ def test_the_headline_names_the_latest_scored_round_while_a_later_one_waits():
     before = ui_insights.round_view(opt)
     for no in (7, 8, 9):
         _tell(opt, no, 3, drop=("Cook loss",))
-    assert [r for r, _ in insights.scored_rounds(opt)] == [1, 2]
     view = ui_insights.round_view(opt)
     assert view.round == 2 and view.scored == before.scored == [0, 1, 2, 3, 4, 5]
     assert ui_insights.headline_text(opt, view) == ui_insights.headline_text(opt, before)
@@ -231,119 +228,6 @@ def test_import_prunes_a_stale_set_aside_number():
                           if k != "Cook loss"})
     assert not other.is_set_aside(i)
     assert i in other.awaited_rows()
-
-
-# ------------------------------------------------------------------ #
-#  Task 8 parked minors: compare-all, spread_two, "varied"
-# ------------------------------------------------------------------ #
-
-from tests.test_insights_ui import _open_insights, insights_scored  # noqa: E402,F401
-from tests.test_insights_wave_c_ui import _rerun_on  # noqa: E402
-from tests.test_spread_fixes import _three  # noqa: E402
-
-
-@pytest.fixture(autouse=True)
-def _a_model_with_skill(monkeypatch):
-    """These tests are about the effect lines, so they stand in a model
-    whose Round-ahead skill lets them be said: the 0.8.0 e2e fixes' A3 gate
-    (review I4) withholds them below 10 checks or skill 0.20, which these
-    small projects are. tests/test_102_w1_insights.py covers the gate."""
-    monkeypatch.setattr(insights, "skill_gate", lambda opt, checks, fact=None: None)
-
-
-def test_a_row_that_only_carries_float_noise_did_not_vary():
-    """Salt stays at 1 g but for noise of 1e-7 (an Excel round-trip),
-    rising with Pea: it is not named as moved together with Pea."""
-    opt = _three([(4.0, 5.0, 1.0, 150), (5.0, 2.0, 1.0 + 1e-7, 160),
-                  (6.0, 6.0, 1.0 + 2e-7, 170), (7.0, 3.0, 1.0 + 3e-7, 180)])
-    assert insights.moved_together(opt) is None
-
-
-@pytest.mark.skip(reason="review profiler prototype: pins Try one's path and Compare all, which the profiler replaces; reconcile at the final merge")
-def test_compare_all_ranks_by_the_measurement_it_was_given(insights_scored, monkeypatch):
-    """The bars under "Firmness" are Firmness's own spreads (Task 8 review
-    Minor 3): passing the Overall score instead would fail here."""
-    calls = []
-    real_changes = insights.tested_near_changes
-
-    def spy(opt, fitted, start, name=insights.SCORE):
-        found = real_changes(opt, fitted, start, name)
-        calls.append((name, found))
-        return found
-    monkeypatch.setattr(insights, "tested_near_changes", spy)
-    drawn = []
-    real_chart = ui_insights.change_chart
-    monkeypatch.setattr(ui_insights, "change_chart",
-                        lambda s, *a: drawn.append(s) or real_chart(s, *a))
-    at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
-    at.tabs[3].selectbox(key=ui_insights.SPREAD_KEY).set_value("Firmness")
-    _rerun_on(at, wording.TAB_INSIGHTS)
-    assert not at.exception
-    firmness = [found.moved for name, found in calls if name == "Firmness"]
-    assert firmness and drawn[-1] == firmness[-1]
-    score = [found.moved for name, found in calls if name == insights.SCORE]
-    assert [s.whole for s in firmness[-1]] != [s.whole for s in score[-1]]
-
-
-@pytest.mark.skip(reason="review profiler prototype: pins Try one's path and Compare all, which the profiler replaces; reconcile at the final merge")
-def test_compare_all_says_no_caption_without_a_chart(insights_scored, monkeypatch):
-    real_changes = insights.tested_near_changes
-    monkeypatch.setattr(
-        insights, "tested_near_changes", lambda opt, fitted, start, name=insights.SCORE:
-        insights.NearChanges([], [], False) if name == "Firmness"
-        else real_changes(opt, fitted, start, name))
-    at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
-    at.tabs[3].selectbox(key=ui_insights.SPREAD_KEY).set_value("Firmness")
-    _rerun_on(at, wording.TAB_INSIGHTS)
-    assert not at.exception
-    caps = [c.value for c in at.tabs[3].caption]
-    assert wording.change_caption(measure="Firmness") not in caps, caps
-
-
-# ------------------------------------------------------------------ #
-#  Task 7 M1 / M3 a widened range on screen; the luck line in a Trial
-# ------------------------------------------------------------------ #
-
-@pytest.fixture
-def trial_scored(tmp_path, monkeypatch):
-    """Six trials of two process settings over two Rounds, all scored."""
-    monkeypatch.chdir(tmp_path)
-    opt = FoodOptimizer("ferment")
-    opt.add_process_parameter("Incubation temperature", 30, 42, unit="°C")
-    opt.add_process_parameter("Incubation time", 4, 16, unit="h")
-    opt.add_objective("Acidity", 1.0, goal="target", target=4.5,
-                      min_val=3.0, max_val=7.0, unit="pH")
-    opt.add_objective("Aroma", 1.0, goal="max", min_val=0, max_val=10)
-    pts = [(37, 8), (33, 12), (40, 6), (35, 10), (31, 14), (38, 9)]
-    for k, (t, h) in enumerate(pts, start=1):
-        opt.tell({"Incubation temperature": float(t), "Incubation time": float(h)},
-                 {"Acidity": 4.0 + (t - 30) / 20, "Aroma": 3 + h / 3},
-                 formulation_no=k, batch_no=(k - 1) // 3 + 1)
-    return opt
-
-
-@pytest.mark.skip(reason=REVIEW_FOUR)
-def test_the_luck_line_says_trial_in_a_process_only_project(trial_scored, monkeypatch):
-    top = trial_scored.best_index()
-    measured = float(trial_scored.Y_history[top])
-
-    def fake(opt, fitted, checks=()):
-        return insights.PredictedBest(
-            dict(opt.recipe_history[0]),
-            insights.Prediction(measured - 5, measured - 10, measured),
-            None, opt.best_index(), 1.0, insights.Prediction(80.2, 75.4, 85.1))
-    monkeypatch.setattr(insights, "predicted_best", fake)
-    at = AppTest.from_file(APP_PATH, default_timeout=180)
-    at.run()
-    at.session_state["main_tab"] = wording.TAB_INSIGHTS
-    at.run()
-    assert not at.exception
-    md = [m.value for m in at.tabs[3].markdown]
-    no = trial_scored.best_formulation_no()
-    shown = FoodOptimizer(trial_scored.project_name)       # the app's own reading
-    assert (f"A Repeat of Trial {no} is predicted at 80 (95 % interval 75–85), below its "
-            f"measured {shown.Y_history[shown.best_index()]:.2f}. Best so far's measured score "
-            "is partly chance, so its Repeat is predicted lower.") in md, md
 
 
 def test_the_changed_strings_pass_the_vocabulary_guard():

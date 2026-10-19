@@ -132,11 +132,6 @@ else
   fail "bundle list covers app.py's local imports (missing: $(printf '%s' "$MISSING" | tr '\n' ' '))"
 fi
 
-# The Insights worker is started by path (python insights_worker.py), so the
-# import check above cannot see it: it is checked by name.
-assert "bundle list carries the Insights worker" \
-  grep -qE '^for f in .* insights_worker\.py .*; do$' "$DESKTOP_DIR/build_dmg.sh"
-
 echo "== Level 1: build =="
 if "$DESKTOP_DIR/build_dmg.sh" "$TEST_VERSION"; then ok "build_dmg.sh runs"; else fail "build_dmg.sh runs"; fi
 
@@ -154,7 +149,7 @@ if file "$DIST_APP/Contents/MacOS/FoodOptimizer" | grep -q "Mach-O 64-bit execut
 else
   fail "native wrapper is arm64 Mach-O"
 fi
-for f in app.py food_bo.py storage.py ui_helpers.py ui_setup.py ui_batch.py ui_results.py insights.py ui_insights.py insights_jobs.py insights_cache.py insights_worker.py bo_views.py calculation_editor.py wording.py workbook_flow.py custom_records.py sample_projects.py learned.py data/ingredients_template.csv requirements.lock.txt icon.icns; do
+for f in app.py food_bo.py storage.py ui_helpers.py ui_setup.py ui_batch.py ui_results.py insights.py ui_insights.py bo_views.py calculation_editor.py wording.py workbook_flow.py custom_records.py sample_projects.py data/ingredients_template.csv requirements.lock.txt icon.icns; do
   assert "Resources/$f present" test -f "$DIST_APP/Contents/Resources/$f"
 done
 for f in "Yogurt pilot - Round 6 to score.json" "Yogurt pilot - all 10 Rounds.json" "Round 6 results (pilot).xlsx"; do
@@ -443,21 +438,6 @@ echo "-- test 5d: openpyxl importable in the bundled venv --"
 assert "import openpyxl" env PYTHONDONTWRITEBYTECODE=1 \
   PYTHONPATH="$WORK/$APP_NAME.app/Contents/Resources" \
   "$SUPPORT/venv/bin/python" -c "import openpyxl"
-
-echo "-- test 5d2: Insights fits run in worker processes in the packaged app --"
-IW_OUT="$(cd "$DATA" && HOME="$E2E_HOME" PYTHONDONTWRITEBYTECODE=1 \
-  PYTHONPATH="$WORK/$APP_NAME.app/Contents/Resources" \
-  "$SUPPORT/venv/bin/python" - <<'PY'
-import insights_jobs
-pool = insights_jobs.Pool(1)
-assert pool.wait_ready(180), "no Insights worker started"
-answer = pool.submit(0, {"id": 1, "kind": "ping"}).result(60)
-assert answer["threads"] == 1, answer
-pool.close()
-print("WORKERS_OK")
-PY
-)"
-if echo "$IW_OUT" | grep -q WORKERS_OK; then ok "Insights workers start in the packaged app"; else fail "Insights workers start in the packaged app ($IW_OUT)"; fi
 
 echo "-- test 5e: kitchen-trust controls (0.4.0) are in the packaged app --"
 KT_OUT="$(cd "$DATA" && HOME="$E2E_HOME" PYTHONDONTWRITEBYTECODE=1 \

@@ -545,14 +545,21 @@ def test_a_downloaded_waiting_row_imports_as_scored_on_what_it_has():
 
 
 def test_the_insights_score_model_learns_only_from_complete_rows():
+    import bo_views
     import insights
     opt = _patty(rows=6)
     _tell(opt, 7, 3, drop=("Cook loss",))
     rows = list(range(7))
+
+    def counted(name):
+        return sum(insights.measured(opt, name, i) is not None for i in rows)
     assert insights.measured(opt, insights.SCORE, 6) is None
-    assert insights.fit(opt, insights.SCORE, rows).n_rows == 6
-    assert insights.fit(opt, "Firmness", rows).n_rows == 7
-    assert insights.fit(opt, "Cook loss", rows).n_rows == 6
+    assert counted(insights.SCORE) == 6
+    assert counted("Firmness") == 7
+    assert counted("Cook loss") == 6
+    # The rows a Generate learns from (its generation record) leave the
+    # waiting one out too.
+    assert bo_views._complete_rows(opt) == list(range(6))
 
 
 def test_the_progress_chart_leaves_a_gap_for_a_waiting_row():
@@ -578,14 +585,19 @@ def test_repeat_spread_leaves_out_a_rescaled_repeat():
     _tell(opt, 2, 1)
     opt.recipe_history[1] = dict(opt.recipe_history[0])
     opt.X_history[1] = list(opt.X_history[0])
-    assert insights.repeat_sd(opt, insights.SCORE).sd is None
+    import ui_results
+    # The two are Repeats of each other...
+    assert insights.repeat_groups(opt, [0, 1]) == [[0, 1]]
+    # ...but the Repeats line compares only what Best so far compares.
+    assert insights.repeat_groups(opt, opt.best_candidates()) == []
+    assert ui_results.best_repeats_text(opt) == ""
 
 
 def test_every_new_string_passes_the_vocabulary_guard():
     from tests.test_food_bo import _BANNED
     strings = [
         wording.waiting_for("Cook loss"), wording.waiting_for(),
-        wording.COMPLETE_RESULTS_CAPTION, wording.NO_COMPLETE_FORMULATION,
+        wording.complete_results_caption(), wording.NO_COMPLETE_FORMULATION,
         wording.overall_score_waiting("Cook loss"),
         wording.saved_waiting([12], "Cook loss"),
         wording.saved_waiting([7, 8, 9, 10, 11, 12], "Cook loss"),

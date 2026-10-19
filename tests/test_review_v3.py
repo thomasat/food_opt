@@ -205,7 +205,7 @@ def test_the_strip_spec(r6, monkeypatch):
     assert "Above target" not in text and "Best, off target" not in text
     below = U.direction_colour("below")
     assert U.model_blue() in text and below in text
-    assert U.outline_colour() not in text and U.direction_colour("above") not in text
+    assert U.direction_colour("above") not in text
     marks = [(m["mark"].get("type"), m["mark"].get("color")) for m in spec["layer"]]
     assert ("rule", below) in marks and ("text", below) in marks
     assert "theta" not in text and "arc" not in text        # no radar
@@ -305,7 +305,6 @@ def test_dark_theme_uses_the_dark_tokens(r6, monkeypatch):
     strip = _spec_text(U.targets_chart(r6, v).to_dict())
     assert U._TRACK_COLOURS["dark"][0] in strip and U._TRACK_COLOURS["light"][0] not in strip
     assert U.model_blue("dark") in strip and U.direction_colour("below", "dark") in strip
-    assert U._OUTLINE_DARK not in strip
     score = _spec_text(U.improving_chart(r6, height=U.PANEL_CHART_H).to_dict())
     assert U.model_blue("dark") in score and "#0e1117" in score
 

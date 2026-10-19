@@ -8,7 +8,6 @@ anywhere on the screen."""
 import pytest
 from streamlit.testing.v1 import AppTest
 
-import bo_views
 import sample_projects as sp
 import storage as storage_backend
 import ui_batch
@@ -22,8 +21,7 @@ from tests.test_insights import _burger
 def _samples(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     sp.ensure(storage_backend.LocalStorage())
-    with bo_views.fresh():
-        yield
+    yield
 
 
 def _round6():
@@ -327,15 +325,15 @@ def test_make_a_round_fits_nothing(monkeypatch):
     import os
     import traceback
 
-    import insights
+    import food_bo
     from_here = []
-    real = insights.fit_xy
+    real = food_bo.fit_gpytorch_mll
 
     def spy(*a, **k):
         if any(os.path.basename(f.filename) == "ui_batch.py" for f in traceback.extract_stack()):
             from_here.append(1)
         return real(*a, **k)
-    monkeypatch.setattr(insights, "fit_xy", spy)
+    monkeypatch.setattr(food_bo, "fit_gpytorch_mll", spy)
     _app()
     assert from_here == []
 

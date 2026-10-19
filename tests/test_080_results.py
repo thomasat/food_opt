@@ -73,7 +73,7 @@ def test_the_rule_line_says_when_none_has_every_measurement(scored):
 
 def test_the_dash_caption_only_with_a_dash_on_screen(one_waiting):
     said = _captions(_results())
-    assert wording.COMPLETE_RESULTS_CAPTION not in said            # a waiting cell is no dash
+    assert wording.complete_results_caption() not in said            # a waiting cell is no dash
     one_waiting.add_objective("Aroma", 1.0, goal="max", min_val=0, max_val=10)
     reloaded = FoodOptimizer("burger")
     assert any(reloaded.not_expected(i) for i in range(len(reloaded.Y_history)))

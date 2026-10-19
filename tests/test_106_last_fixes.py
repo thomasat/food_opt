@@ -466,15 +466,6 @@ def test_deleting_a_row_while_typing_a_share_still_rebalances(tmp_path, monkeypa
     assert opt.share_percents()[frame.loc[frame.index[0], wording.MEASUREMENT_COLUMN]] == 70.0
 
 
-# ------------------------------------------------------------------ #
-#  Polish 4: the effect line names the nearest tested formulation, as
-#  the Why fold does, by the same distance
-# ------------------------------------------------------------------ #
-
-def test_the_untested_start_line_without_a_nearest():
-    assert wording.near_start_untested("Best so far") == (
-        "Nothing has been tested within 15 % of each span of Best so far, so nothing "
-        "is ranked.")
 
 
 # ------------------------------------------------------------------ #

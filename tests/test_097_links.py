@@ -110,15 +110,20 @@ def test_e1_is_gone_while_a_round_is_open():
 def test_e1_waits_for_a_checkable_round():
     """Round 1 had nothing recorded before it: never checked."""
     opt = _burger(rounds=1, per_round=5)
-    assert insights.rounds_not_checked(opt) == [1]
     assert _links(_app(opt, wording.TAB_RESULTS)) == []
 
 
 def test_no_e1_in_a_process_only_project():
     """v3: Results has no "measured against predicted" link in any
     project (it was E1)."""
-    from tests.test_094_make_a_round import _ferment
-    opt = _ferment()
+    from food_bo import FoodOptimizer
+    opt = FoodOptimizer("ferment_why")
+    opt.add_process_parameter("Mixing time", 1, 10, unit="min")
+    opt.add_process_parameter("Temperature", 20, 40, unit="°C")
+    opt.add_objective("Acidity", 1.0, goal="max", min_val=0, max_val=10, unit="pH")
+    for k in range(6):
+        opt.tell({"Mixing time": 1 + 1.5 * k, "Temperature": 20 + (7 * k) % 20},
+                 {"Acidity": 3 + 0.5 * k - 0.02 * k * k}, formulation_no=k + 1, batch_no=1)
     opt.ask(2)
     for row in list(opt.pending_batch):
         opt.tell(row["recipe"], {"Acidity": 5.0}, formulation_no=row["formulation"],

@@ -16,28 +16,7 @@ def _new_lines():
     """One call of every builder, and every constant, the wave adds."""
     w = wording
     return [
-        w.pairs_text(1), w.pairs_text(2), w.pairs_text(4), w.points_text("1.0"),
-        w.TRUST_BEFOREHAND,
-        w.MVP_CAPTION, w.Q_STAND, 
-        w.STAND_LATEST, w.stand_since(1),
-        w.stand_since(2), w.stand_best("90.65", 15, 4), w.stand_best("90.65", 15, None, "Aroma"),
-        w.stand_limits([
-                        ]),
-        w.NEXT_RISING,
-        w.try_one_fold(True), w.try_one_fold(False), w.try_one_fold(True, False),
-        w.near_line("Coconut oil", "1.4", "Best so far"),
-        w.near_line("Salt", "0.3", "Formulation 9", only=True),
-        w.near_two("Coconut oil", "Salt", "1.4", "1.2", "Best so far"),
-        w.near_bigger(), w.near_bigger(True), w.near_none(), w.near_none(True),
-        w.near_none(False, False), w.near_start_untested("Formulation 9"),
-        w.CHANGE_AXIS, w.change_axis("Firmness", "N"), w.change_caption(),
-        w.change_caption(True, "Firmness"),
-        w.path_what(w.path_head_fill("Coconut oil", "Water"), [("8.04 g", "Fat per 100 g")],
-                    [("Salt", "1.5 g")]),
-        w.path_what(w.path_head_proportional("Pea", "100 g")), w.path_what(w.path_head_free("Pea")),
-        w.path_what(w.path_head_process("Cook temperature")),
-        w.path_key(15, grey=True, targets=True), w.path_key(15),
-        w.progress_caption_2(), w.progress_caption_2(True),
+        w.pairs_text(1), w.pairs_text(2), w.pairs_text(4),
         w.START_FROM_BEST_SO_FAR, w.HOW_CHOSEN_2, w.still_covering(5),
         w.waiting_line(1, "Cook loss"), w.waiting_line(2, "Cook loss and Aroma", True),
         w.waiting_line(3, ""), w.WORKBOOK_TABS_HELP,
@@ -53,7 +32,6 @@ def _new_lines():
         w.result_view_waiting("Formulation 22 (Round 6)", "Cook loss"),
         w.NEXT_MAKE_A_ROUND, w.SETUP_FIRST_LINE, w.setup_first_line(True),
         w.MEASUREMENT_GOAL_CAPTION,
-        w.CHANGE_NEAR, w.CHANGE_WHOLE,
     ]
 
 

@@ -103,22 +103,26 @@ def test_use_calculation_writes_the_row_and_lights_save_changes(project):
     drawn only where the button that opens it is pressed, so everything the
     panel said about the calculation — the refusal included — went with it.
 
-    The apply is a function now, and what it hands back is what the grid is
-    staged with."""
-    from calculation_editor import apply_calculation
+    The dialog stages the candidate it builds (canonical_calculation of the
+    typed text) only when the grid's own plan (_validate) takes it."""
     frame = project.ingredient_grid_frame()
     index = frame.index[frame[wording.NAME_LABEL] == 'Water'][0]
-    errors, candidate = apply_calculation(project, frame, index,
-                                          '2 * (Flour + Starch)')
+    candidate = frame.copy()
+    candidate.at[index, wording.FORMULA_LABEL] = canonical_calculation(
+        '2 * (Flour + Starch)')
+    errors, _ = _validate(project, candidate)
     assert errors == []
     assert candidate.at[index, wording.FORMULA_LABEL] == '= 2 * (Flour + Starch)'
     # Nothing is written until the grid's own Save changes is pressed.
     assert not project._var_by_name('Water').get('formula')
     # ...and a calculation the project cannot take comes back as the
-    # refusal, with nothing staged.
-    errors, candidate = apply_calculation(project, frame, index,
-                                          'Flour * Starch')
-    assert errors and candidate is None
+    # refusal, so the dialog stages nothing.
+    candidate = frame.copy()
+    candidate.at[index, wording.FORMULA_LABEL] = canonical_calculation(
+        'Flour * Starch')
+    errors, _ = _validate(project, candidate)
+    assert errors
+    assert not project._var_by_name('Water').get('formula')
 
 
 def test_the_editor_stays_open_while_a_calculation_is_being_written(project):

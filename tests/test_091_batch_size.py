@@ -237,17 +237,12 @@ def test_the_metadata_goes_with_its_round():
 
 
 def test_the_cache_keys_follow_the_models_inputs():
-    """Review I11: a fit made on the old inputs is never reused. A row made
-    off the total has a new key, and so does every model when the
-    Formulation total changes."""
+    """Review I11: a chart drawn on the old inputs is never reused: its key
+    (data_key) changes when the Formulation total changes."""
     opt = _record(_project("keys"), 500)
-    rows = list(range(9))
-    key = insights.model_key(opt, insights.SCORE, rows)
-    assert insights._row_key(opt, 6) != insights._digest(
-        [opt.X_history[6], opt.Y_history[6], opt.results_history[6],
-         opt.formulation_ids[6], False])
+    key = insights.data_key(opt)
     opt.formulation_total = 120.0
-    assert insights.model_key(opt, insights.SCORE, rows) != key
+    assert insights.data_key(opt) != key
 
 
 # ------------------------------------------------------------------ #
@@ -349,18 +344,6 @@ def test_a_waiting_row_leaves_the_rest_learned_at_the_total():
     small.ask(2)
     assert seen_big[0].shape[0] == 8
     assert torch.allclose(seen_big[0], seen_small[0], rtol=0, atol=1e-12)
-
-
-def test_the_round_ahead_checks_predict_the_rows_as_learned():
-    """T1 review I1 (3): _check_round predicts a 500 g Round at the total,
-    as its twin recorded at the total."""
-    big, small = _twins("checks")
-    got = {(c.formulation, c.name): c for c in insights.check_rounds(big) if c.round == 3}
-    want = {(c.formulation, c.name): c for c in insights.check_rounds(small) if c.round == 3}
-    assert got and got.keys() == want.keys()
-    for key, c in got.items():
-        assert c.predicted == pytest.approx(want[key].predicted, abs=1e-9), key
-        assert c.low == pytest.approx(want[key].low, abs=1e-9), key
 
 
 def test_the_models_settings_carry_the_total():

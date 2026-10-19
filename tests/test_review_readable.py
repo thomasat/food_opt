@@ -9,9 +9,6 @@ don't look smooshed and it's easy to read"). A layout and type pass only:
 Synthetic: the Plant patty Line A demo project (CI); no pilot data."""
 import pytest
 
-import bo_views
-import insights
-import insights_jobs
 import ui_insights as U
 from tests import demo_projects as D
 
@@ -23,22 +20,17 @@ FULL_WIDTH = 820          # px: a chart drawn at the column's width
 def charts(tmp_path_factory):
     mp = pytest.MonkeyPatch()
     mp.chdir(tmp_path_factory.mktemp("review-readable"))
-    mp.setattr(insights_jobs, "_JOBS", {})
-    mp.setattr(insights_jobs, "_INFLIGHT", {})
     mp.setattr(U.st, "session_state", {})
-    with bo_views.fresh():
-        opt = D.load(D.LINE_A)
-        computed = U._computed(opt, quiet=True)
-        mp.setattr(U, "checks_for", lambda o, stage: computed["checks"])
-        view = U.round_view(opt)
-        out = {
-            "improving": U.improving_chart(opt),
-            "targets": U.targets_chart(opt, view),
-            "amounts": U.amounts_chart(opt, view),
-        }
-        missing = [k for k, v in out.items() if v is None]
-        assert not missing, missing
-        yield {k: v.to_dict() for k, v in out.items()}
+    opt = D.load(D.LINE_A)
+    view = U.round_view(opt)
+    out = {
+        "improving": U.improving_chart(opt),
+        "targets": U.targets_chart(opt, view),
+        "amounts": U.amounts_chart(opt, view),
+    }
+    missing = [k for k, v in out.items() if v is None]
+    assert not missing, missing
+    yield {k: v.to_dict() for k, v in out.items()}
     mp.undo()
 
 

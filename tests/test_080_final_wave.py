@@ -2,16 +2,12 @@
 parked items): what the "How" table says about the Overall score's
 widening, "What to do next" while a Round is open, one factor for the
 predicted best and Make a round's column."""
-from types import SimpleNamespace
-
 import pytest
 from streamlit.testing.v1 import AppTest
 
-import insights
 import wording
 from tests.test_app_ui import APP_PATH
 from tests.test_food_bo import _BANNED
-from tests.test_insights import _burger
 from tests.test_insights_wave_c_ui import ferment_scored  # noqa: F401
 
 
@@ -30,37 +26,14 @@ def _isolate_cwd(tmp_path, monkeypatch):
 #  round's column carry one factor
 # ------------------------------------------------------------------ #
 
-def test_the_predicted_best_is_widened_as_the_column_is_mid_round():
-    opt = _burger(rounds=5, noise=0.6)
-    checks = insights.check_rounds(opt)
-    fitted = {insights.SCORE: insights.fit(opt, insights.SCORE, list(range(len(opt.Y_history))))}
-    opt.pending_batch_no = 5                  # Round 5 open, its rows recorded
-    best = insights.predicted_best(opt, fitted, checks)
-    assert best.factor == insights.column_factor(opt, checks)
-    assert best.factor != insights.score_widen(checks)
-
-
 # ------------------------------------------------------------------ #
 #  Final review M-1: "What to do next" while a Round is open says to
 #  record it first, as the foot under it does
 # ------------------------------------------------------------------ #
 
-def _step(kind):
-    return SimpleNamespace(kind=kind, gap=None, disagreement=None, binding=None)
-
-
-def _open(opt, n):
-    opt.set_pending_batch([{"Pea protein": 12.0 + k, "Methylcellulose": 1.0} for k in range(n)])
-    return opt
-
-
 # ------------------------------------------------------------------ #
 #  Final review M-3, M-7, M-8, M-9: words
 # ------------------------------------------------------------------ #
-
-def test_best_failed_says_predicted_best():
-    """M-3: "Predicted best" everywhere; "worked out" is not the owner's word."""
-    assert wording.BEST_FAILED == "The predicted best could not be found."
 
 
 def test_move_to_not_scored_help_counts_the_results():
@@ -89,8 +62,7 @@ def test_the_results_setup_button_names_process_settings_on_a_process_only_proje
 
 
 def test_the_new_words_pass_the_guard():
-    for text in (wording.BEST_FAILED,
-                 wording.move_to_not_scored_help(2),
+    for text in (wording.move_to_not_scored_help(2),
                  wording.change_setup_from_results(settings_only=True),
                  ):
         assert not any(p.search(text) for p in _BANNED), text

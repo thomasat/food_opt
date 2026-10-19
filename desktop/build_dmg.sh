@@ -37,9 +37,7 @@ chmod 755 "$APP_DIR/Contents/MacOS/FoodOptimizer"
 
 # theory.py is deliberately not bundled: nothing in the app imports it, and
 # it needs matplotlib, which left requirements.txt with the deploy cleanup.
-# insights_worker.py is run by path (insights_jobs starts it), never imported:
-# test_e2e.sh checks for it by name, since its import check cannot see it.
-for f in app.py food_bo.py storage.py ui_helpers.py ui_setup.py ui_batch.py ui_results.py insights.py ui_insights.py insights_jobs.py insights_cache.py insights_worker.py bo_views.py calculation_editor.py wording.py workbook_flow.py sample_projects.py custom_records.py learned.py; do
+for f in app.py food_bo.py storage.py ui_helpers.py ui_setup.py ui_batch.py ui_results.py insights.py ui_insights.py bo_views.py calculation_editor.py wording.py workbook_flow.py sample_projects.py custom_records.py; do
   cp "$REPO_DIR/$f" "$APP_DIR/Contents/Resources/$f"
 done
 mkdir -p "$APP_DIR/Contents/Resources/data/samples/yogurt_pilot"

@@ -79,25 +79,15 @@ def test_repeats_and_nearest_compare_only_the_same_formulations():
     # Formulation 4 made again as a Repeat of exempt Formulation 1.
     opt.recipe_history[3] = dict(opt.recipe_history[0])
     opt.X_history[3] = list(opt.X_history[0])
-    assert insights.repeat_sd(opt, insights.SCORE).sd is None
-    i, _ = insights.nearest(opt, insights.start_recipe(opt, 0))
-    assert i in opt.best_candidates()
-
-
-def test_the_insights_best_line_names_what_it_is_scored_without():
-    opt = _patty(rows=6, cook_loss=False)
-    _add_cook_loss(opt)
-    facts = insights.best_facts(opt)
-    assert facts.without == ["Cook loss"]
-    line = wording.stand_best("81.00", facts.formulation, facts.round, "Cook loss")
-    assert line == (f"Best so far: Overall score 81.00, Formulation {facts.formulation} "
-                    f"(Round {facts.round}) · scored without Cook loss.")
-    assert wording.stand_best("81.00", 14, "4") == (
-        "Best so far: Overall score 81.00, Formulation 14 (Round 4).")
+    import ui_results
+    assert insights.repeat_groups(opt, [0, 3]) == [[0, 3]]
+    # The Repeats line compares only what Best so far compares.
+    assert insights.repeat_groups(opt, opt.best_candidates()) == []
+    assert ui_results.best_repeats_text(opt) == ""
 
 
 def test_complete_results_caption_says_dashes_are_not_compared():
-    assert wording.COMPLETE_RESULTS_CAPTION == "“—”: scored without that measurement."
+    assert wording.complete_results_caption() == "“—”: scored without that measurement."
 
 
 def test_suggestions_are_unchanged_by_the_new_best():
@@ -113,14 +103,13 @@ def test_the_fallback_caption_does_not_contradict_the_star():
     """Review I-1: while no formulation has every measurement, Best so far
     has a dash itself, so the caption must not say dashed rows are never
     compared."""
-    assert wording.complete_results_caption() == wording.COMPLETE_RESULTS_CAPTION
     assert wording.complete_results_caption(compared=False) == (
         "“—”: scored without that measurement, as is Best so far.")
 
 
 def test_every_new_string_passes_the_vocabulary_guard():
     from tests.test_food_bo import _BANNED
-    strings = [wording.COMPLETE_RESULTS_CAPTION,
+    strings = [wording.complete_results_caption(),
                wording.complete_results_caption(compared=False)]
     for s in strings:
         for pattern in _BANNED:

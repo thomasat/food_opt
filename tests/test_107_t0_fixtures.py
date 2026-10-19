@@ -6,7 +6,6 @@ tests/process_only_fixture.py, never regenerated), and the browser pins
 have their 1280 × 800 screen."""
 import pathlib
 
-import insights
 from tests import demo_projects as D
 
 
@@ -19,7 +18,7 @@ def test_the_seven_projects_load_as_saved():
 
 def test_the_snack_bar_sits_at_the_gate():
     opt = D.load(D.SNACK)
-    assert opt.complete_count() == 3 < insights.MIN_ROWS
+    assert opt.complete_count() == 3
     assert set(opt.batch_history) == {1}
 
 

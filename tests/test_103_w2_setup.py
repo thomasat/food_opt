@@ -69,9 +69,11 @@ def test_the_dialog_accepts_fill_to_total_without_a_size(tmp_path, monkeypatch):
     assert errors == []
     frame = opt.ingredient_grid_frame()
     water = frame.index[frame[wording.NAME_LABEL] == "Water"][0]
-    errors, candidate = calculation_editor.apply_calculation(
-        opt, frame, water, wording.FILL_TO_TOTAL)
-    assert errors == [] and candidate is not None
+    # The candidate the dialog's Fill to total mode builds and validates.
+    candidate = frame.copy()
+    candidate.at[water, wording.FORMULA_LABEL] = f"= {wording.REST_TOKEN}"
+    errors, _ = calculation_editor._validate(opt, candidate)
+    assert errors == []
 
 
 def test_the_one_door_takes_rest_without_a_size(tmp_path, monkeypatch):

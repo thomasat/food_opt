@@ -10,7 +10,6 @@ import io
 import pytest
 from streamlit.testing.v1 import AppTest
 
-import insights
 import ui_batch
 import ui_results
 import wording
@@ -26,12 +25,13 @@ from tests.test_complete_results_ui import one_waiting  # noqa: F401
 
 FLASH_SCRIPT = """
 import streamlit as st
-from ui_helpers import app_rerun, flash, go_to_tab, render_flash
+from ui_helpers import APP_RERUN_KEY, flash, go_to_tab, render_flash
 st.session_state.setdefault("main_tab", "A")
-# The app's own rerun (the poller's fragment) comes before this run's
-# render_flash, as in app.py; a click comes after it.
+# The app's own rerun (marked with APP_RERUN_KEY) comes before this run's
+# render_flash; a click comes after it.
 if st.session_state.pop("_poll", False):
-    app_rerun()
+    st.session_state[APP_RERUN_KEY] = True
+    st.rerun()
 render_flash()
 with st.container(key="slot"):
     render_flash(place="here")
@@ -228,21 +228,12 @@ def test_best_so_far_lists_its_repeats_with_the_mean():
     """03 noisy (review I7): F14 91.45 with Repeats 67.30, 66.34, 75.61; the
     mean from the stored scores reads 75.17 (stage-1 report §1.2 #4)."""
     opt = E.load(E.BAR_NOISY)
-    assert ui_results.best_repeats_text(opt, checks=()) == (
+    assert ui_results.best_repeats_text(opt) == (
         "Repeats of Formulation 14: 67.3, 66.3, 75.6. Mean of all: 75.2.")
 
 
-def test_a_disagreeing_repeat_is_listed_and_marked(monkeypatch):
-    opt = E.load(E.BAR_NOISY)
-    row = opt.index_of_formulation(20)
-    monkeypatch.setattr(insights, "disagreeing_repeat",
-                        lambda o, c, m=None: insights.Disagreement(20, 14, -24.15, row))
-    assert ui_results.best_repeats_text(opt, checks=[object()]) == (
-        "Repeats of Formulation 14: 67.3 (disagrees), 66.3, 75.6. Mean of all: 75.2.")
-
-
 def test_no_repeats_no_line():
-    assert ui_results.best_repeats_text(E.load(E.PATTY), checks=()) == ""
+    assert ui_results.best_repeats_text(E.load(E.PATTY)) == ""
 
 
 def test_results_shows_the_repeats_under_best_so_far(scored):
@@ -251,7 +242,7 @@ def test_results_shows_the_repeats_under_best_so_far(scored):
                 {"Juiciness": 7.0, "Firmness": 9.0}, formulation_no=4, batch_no=2,
                 note="Repeat of Formulation 2")
     at = _app(wording.TAB_RESULTS)
-    line = ui_results.best_repeats_text(FoodOptimizer("burger"), checks=())
+    line = ui_results.best_repeats_text(FoodOptimizer("burger"))
     assert line.startswith("Repeat of Formulation 2: ")
     assert line in [c.value for c in at.tabs[2].caption]
     assert FoodOptimizer("burger").best_formulation_no() == 2

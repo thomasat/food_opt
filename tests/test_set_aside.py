@@ -170,14 +170,14 @@ def test_the_workbook_ticks_it_not_scored():
 
 def test_insights_counts_nothing_from_it():
     opt = _with_one_waiting()
-    before_key, before_rounds = insights.data_key(opt), insights.round_keys(opt)
+    before_key = insights.data_key(opt)
     assert insights.measured(opt, "Firmness", 6) is not None
     opt.set_aside_formulation(7)
     for name in ("Firmness", "Juiciness", "Cook loss", insights.SCORE):
         assert insights.measured(opt, name, 6) is None
-    assert insights.fit(opt, "Firmness", list(range(7))).n_rows == 6
+    assert sum(insights.measured(opt, "Firmness", i) is not None
+               for i in range(7)) == 6
     assert insights.data_key(opt) != before_key
-    assert insights.round_keys(opt)[3] != before_rounds[3]
 
 
 def test_suggestions_are_bit_identical_whether_it_waits_or_is_set_aside():

@@ -246,9 +246,6 @@ def test_a_click_pending_is_read_for_this_fragment_only(monkeypatch):
     assert U._click_pending() is False
 
 
-def test_the_poller_never_reruns_the_page_during_a_replay():
-    src = inspect.getsource(U._poller)
-    assert "not replaying()" in src and "app_rerun()" in src
 
 
 # ------------------------------------------------------------------ #

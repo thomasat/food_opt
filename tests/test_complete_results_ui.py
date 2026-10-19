@@ -82,7 +82,7 @@ def test_the_table_says_what_a_waiting_formulation_waits_for(one_waiting):
     captions = [c.value for c in at.caption]
     # A waiting cell is no dash, so the dash caption stays off (spec
     # 2026-09-30 §4, audit V9); the one rule line says what is compared.
-    assert wording.COMPLETE_RESULTS_CAPTION not in captions, captions
+    assert wording.complete_results_caption() not in captions, captions
     assert "Only formulations with all their results are compared." not in captions
     assert wording.BEST_RULE in captions
     assert not any("contribute zero" in c for c in captions)
@@ -220,7 +220,7 @@ def _arm_delete(at):
 
 def test_the_caption_says_what_a_dash_means():
     """Review #2: the dash is a measurement it is scored without."""
-    assert wording.COMPLETE_RESULTS_CAPTION == "“—”: scored without that measurement."
+    assert wording.complete_results_caption() == "“—”: scored without that measurement."
     assert wording.complete_results_help() == (
         "A formulation counts once all its results are in; “—” means it is "
         "scored without that measurement, so it is not compared for Best so far.")
@@ -247,7 +247,7 @@ def test_just_after_a_measurement_is_added_the_caption_fits_the_star(scored):
     assert not at.exception
     captions = [c.value for c in at.caption]
     assert wording.complete_results_caption(compared=False) in captions, captions
-    assert wording.COMPLETE_RESULTS_CAPTION not in captions, captions
+    assert wording.complete_results_caption() not in captions, captions
     assert wording.BEST_RULE_WITHOUT in captions, captions
     assert wording.BEST_RULE not in captions, captions
 

@@ -7,7 +7,6 @@ from collections import Counter
 
 import pytest
 
-import bo_views
 import wording
 from food_bo import CLOSE_TO_THE_BEST, FAR_FROM_TESTED, FoodOptimizer
 from tests import e2e_fixtures as E
@@ -149,20 +148,14 @@ def test_the_cold_start_and_own_rows_keep_their_kinds(tmp_path, monkeypatch):
     opt = _opt(tmp_path, monkeypatch, "own")
     assert opt.compared_with_text({"Water": 90.0, "Wheat gluten": 20.0}, own=True) == (
         "Your own formulation · Water +50.00 g")
-    # Persona fixes: a note of the user's own is the row's source.
-    assert bo_views.role(opt, {"recipe": {"Water": 90.0}, "note": "Mine"}) == "Mine"
-    assert bo_views.role(opt, {"recipe": {"Water": 90.0},
-                               "note": wording.OWN_FORMULATION_NOTE}) == (
-        wording.OWN_FORMULATION_KIND)
 
 
 def test_the_role_does_not_ask_the_model(tmp_path, monkeypatch):
     """Model-free (review I3; reverts 11152ff's role part): nothing fitted,
     no pool, no checks."""
-    import insights
+    import food_bo
     opt = _opt(tmp_path, monkeypatch)
-    monkeypatch.setattr(insights, "fit", lambda *a, **k: pytest.fail("fitted"))
-    monkeypatch.setattr(bo_views, "feasible_pool", lambda *a, **k: pytest.fail("pooled"))
+    monkeypatch.setattr(food_bo, "fit_gpytorch_mll", lambda *a, **k: pytest.fail("fitted"))
     assert opt.suggestion_role({"Water": 90.0, "Wheat gluten": 20.0}) == EXPLORES
 
 
@@ -179,19 +172,6 @@ def test_the_03_temperature_change_is_named_first():
     full = E.load(E.BAR_CLEAN)
     assert before.compared_with_text(full.recipe_history[13], max_changes=2) == (
         "Balanced · Baking temperature +10.66 °C, Rolled oats −0.67 g")
-
-
-def test_the_why_fold_ranks_by_the_same_rule():
-    """Review M3: the cell and the Why fold rank alike (bo_views._differences
-    is _variable_deltas)."""
-    before = E.load(E.BAR_CLEAN, last_round=3)
-    full = E.load(E.BAR_CLEAN)
-    import insights
-    mine = insights.start_recipe(full, 13)
-    best = insights.start_recipe(before, before.best_index())
-    assert [n for n, _, _ in bo_views._differences(before, mine, best, k=4)] == [
-        n for n, _ in before._variable_deltas(mine, best)][:4]
-    assert bo_views._differences(before, mine, best)[0][:1] == ("Baking temperature",)
 
 
 def test_fill_to_total_and_residue_are_left_out(tmp_path, monkeypatch):

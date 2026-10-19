@@ -8,7 +8,6 @@ import re
 import pytest
 from streamlit.testing.v1 import AppTest
 
-import bo_views
 import ui_insights
 import wording
 from food_bo import FoodOptimizer
@@ -39,12 +38,11 @@ def screens(tmp_path_factory):
     here = os.getcwd()
     os.chdir(tmp_path_factory.mktemp("review-cards"))
     try:
-        with bo_views.fresh():
-            out = {}
-            for name in D.ALL:
-                _install(name)
-                out[name] = _open(name)
-            yield out
+        out = {}
+        for name in D.ALL:
+            _install(name)
+            out[name] = _open(name)
+        yield out
     finally:
         os.chdir(here)
 

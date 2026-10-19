@@ -13,18 +13,12 @@ import ui_insights
 import wording
 from tests.test_app_ui import APP_PATH, burger  # noqa: F401
 from tests.test_complete_results import _patty, _tell
-from tests.test_insights import _burger
 from tests.test_insights_ui import _open_insights, insights_scored  # noqa: F401
 
 
 @pytest.fixture(autouse=True)
 def _isolate_cwd(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-
-
-def _check(name="Firmness", rnd=3, measured=5.0, predicted=5.0, low=4.0, high=6.0,
-           inside=True, full=True, no=1):
-    return insights.Check(no, rnd, name, predicted, low, high, measured, inside, full)
 
 
 # ------------------------------------------------------------------ #
@@ -76,47 +70,10 @@ def test_the_headline_counts_only_the_scored_formulations(burger, complete):
 #  §3.2 / §9 B1, I8 the verdict and the wide-range line
 # ------------------------------------------------------------------ #
 
-def test_a_wide_range_is_named_per_output():
-    opt = _burger(rounds=1)                          # Firmness, Juiciness on 0-10
-    narrow = [_check("Firmness", low=4.0, high=6.0)] * 3        # half-width 1 = 10 %
-    wide = [_check("Juiciness", low=2.0, high=8.0)] * 3          # half-width 3 = 30 %
-    score = [_check(insights.SCORE, low=40.0, high=90.0)] * 3    # 25 of 100 = 25 %: not over
-    assert insights.wide_ranges(opt, narrow + wide + score) == ["Juiciness"]
-    assert insights.wide_ranges(opt, [_check(insights.SCORE, low=20.0, high=80.0)]) == [
-        insights.SCORE]
-    assert insights.WIDE == 0.25
-
 
 # ------------------------------------------------------------------ #
 #  §3.3 / §9 I7 the Overall score's own record
 # ------------------------------------------------------------------ #
-
-def test_the_score_record_needs_five_fully_measured_checks_in_the_headline_rounds():
-    four = [_check(insights.SCORE, measured=48.0, predicted=50.0)] * 4
-    assert insights.score_record(four, [3]) is None
-    five = four + [_check(insights.SCORE, measured=60.0, predicted=50.0, inside=False)]
-    rec = insights.score_record(five, [3])
-    assert (rec.inside, rec.total) == (4, 5)
-    assert rec.mean_miss == pytest.approx((4 * -2.0 + 10.0) / 5)
-    other_round = [_check(insights.SCORE, rnd=2)] * 5
-    assert insights.score_record(other_round, [3]) is None
-    partial = [_check(insights.SCORE, full=False)] * 5
-    assert insights.score_record(partial, [3]) is None
-    assert insights.SCORE_RECORD_MIN == 5
-
-
-def test_the_headline_carries_the_record_for_every_round_checked():
-    """0.8.0 e2e fixes (review I1): the Overall score's record spans every
-    Round checked, not the verdict's window."""
-    opt = _burger(rounds=5, noise=0.3)
-    checks = insights.check_rounds(opt)
-    h = insights.headline(opt, checks)
-    want = insights.score_record(checks, None)
-    assert want.rounds == insights._ordered_rounds(
-        [c for c in checks if c.name == insights.SCORE])
-    assert h.score is not None and h.score.total >= insights.SCORE_RECORD_MIN
-    assert h.score == want
-    assert not hasattr(wording, "SCORE_BELOW")
 
 
 # ------------------------------------------------------------------ #
@@ -136,15 +93,6 @@ def _with_repeats():
     return opt
 
 
-def test_repeat_sd_is_pooled_within_repeat_groups():
-    opt = _with_repeats()
-    spread = insights.repeat_sd(opt, "Firmness")
-    ss = (0.2 ** 2 + 0.2 ** 2 + 0.0) + (0.3 ** 2 + 0.3 ** 2)
-    assert spread.sd == pytest.approx((ss / (2 + 1)) ** 0.5)
-    assert spread.pairs == 3 + 1
-    assert insights.repeat_sd(_patty(rows=6), "Firmness") == insights.RepeatSpread(None, 0)
-
-
 def test_a_chain_of_near_matches_is_one_group():
     opt = _patty(rows=3)
     base = dict(opt.recipe_history[0])
@@ -154,46 +102,6 @@ def test_a_chain_of_near_matches_is_one_group():
         opt.X_history[k] = opt._encode(opt.recipe_history[k])
     groups = insights.repeat_groups(opt, [0, 1, 2])
     assert groups == [[0, 1, 2]]
-
-
-def test_repeats_that_agreed_exactly_are_not_no_repeats():
-    """A Repeat whose value matched to the last digit gives a spread of 0:
-    there are Repeats, and nothing to divide by (found on the demo, Line A
-    Juiciness)."""
-    opt = _with_repeats()
-    opt.results_history[1]["Juiciness"] = opt.results_history[0]["Juiciness"]
-    opt.results_history[2]["Juiciness"] = opt.results_history[0]["Juiciness"]
-    opt.results_history[4]["Juiciness"] = opt.results_history[3]["Juiciness"]
-    assert insights.repeat_sd(opt, "Juiciness").sd == 0.0
-    [row] = insights.details(opt, [_check("Juiciness", measured=5.0, predicted=5.4)])
-    assert row.repeat_sd == 0.0 and row.ratio is None
-
-
-def test_details_compare_the_recipes_once_for_every_output(monkeypatch):
-    """Review M-4: the O(n²) recipe comparisons run once per details call,
-    and give each output the same spread as its own repeat_sd."""
-    opt = _with_repeats()
-    calls = []
-    real = insights._matches
-    monkeypatch.setattr(insights, "_matches",
-                        lambda o, rows: calls.append(rows) or real(o, rows))
-    checks = [_check(n, measured=5.0, predicted=5.4)
-              for n in ("Firmness", "Juiciness", insights.SCORE)]
-    rows = insights.details(opt, checks)
-    assert len(calls) == 1
-    monkeypatch.setattr(insights, "_matches", real)
-    assert [r.repeat_sd for r in rows] == [insights.repeat_sd(opt, r.name).sd for r in rows]
-
-
-def test_details_compare_the_typical_miss_with_the_repeats():
-    opt = _with_repeats()
-    checks = [_check("Firmness", measured=5.0, predicted=5.0 + d) for d in (0.3, 0.5, 0.7)]
-    [row] = insights.details(opt, checks)
-    assert row.typical_miss == pytest.approx(0.5)
-    # Like with like (spec 2026-09-30 review M6): a median miss against the
-    # median difference a normal spread of this sd gives.
-    assert row.ratio == pytest.approx(
-        0.5 / (insights.MAD_OF_NORMAL * insights.repeat_sd(opt, "Firmness").sd))
 
 
 # ------------------------------------------------------------------ #
@@ -207,16 +115,3 @@ def test_the_tab_shows_the_headline(insights_scored):
     opt = FoodOptimizer("burger")
     headline = ui_insights.headline_text(opt, ui_insights.round_view(opt))
     assert f"**{headline}**" in [m.value for m in tab.markdown]
-
-
-@pytest.fixture
-def verdict_project():
-    """Six Rounds of a noisy _burger: a verdict (holding), Firmness and
-    Juiciness with wide likely ranges, the Overall score's not, and 9
-    fully measured Overall-score checks in the headline's Rounds. Noise
-    1.5, not 2.0, since ftue fix A's Round-grouped folds (cold read I9)
-    widen the Overall score's range at 2.0 too, and every range wide is a
-    verdict of its own."""
-    return _burger(rounds=6, noise=1.5)
-
-

@@ -6,9 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 from tests.demo_build_reason import REVIEW_FOUR
-import streamlit as st
 
-import insights
 import ui_insights
 import wording
 from tests.test_complete_results import _patty
@@ -19,10 +17,6 @@ def _isolate_cwd(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
 
-def _check(name, rnd, no, measured, predicted, half=1.0):
-    low, high = predicted - half, predicted + half
-    return insights.Check(no, rnd, name, predicted, low, high, measured,
-                          low <= measured <= high, True, predicted, half / insights.Z95)
 
 
 def _panels(chart):
@@ -99,26 +93,3 @@ def test_the_progress_chart_fits_the_scores():
     three = ui_insights.improving_chart(_patty(rows=3)).to_dict()
     dots = [l for l in _leaves(three) if l["mark"]["type"] == "point" and "x" in l["encoding"]]
     assert dots[0]["encoding"]["x"]["axis"]["values"] == [1, 2, 3]
-
-
-def test_the_progress_caption_says_a_flat_stretch_proves_nothing():
-    assert wording.progress_caption_2().startswith("Dashed line: Best so far.")
-    assert wording.progress_caption_2(True).endswith(wording.PROGRESS_RING)
-
-
-# ------------------------------------------------------------------ #
-#  cached_checks: one door for Results and Make a round
-# ------------------------------------------------------------------ #
-
-def test_cached_checks_are_the_insights_cache_or_nothing(monkeypatch):
-    opt = _patty(rows=6)
-    state = {}
-    monkeypatch.setattr(st, "session_state", state)
-    assert ui_insights.cached_checks(opt) == ()
-    checks = [_check("Firmness", 2, 4, 5.0, 5.0)]
-    state[ui_insights.CACHE_KEY] = (insights.data_key(opt), {"fitted": {}, "checks": checks})
-    assert ui_insights.cached_checks(opt) == checks
-    state[ui_insights.CACHE_KEY] = (insights.data_key(opt), ui_insights._FAILED)
-    assert ui_insights.cached_checks(opt) == ()
-    state[ui_insights.CACHE_KEY] = ("stale", {"fitted": {}, "checks": checks})
-    assert ui_insights.cached_checks(opt) == ()
