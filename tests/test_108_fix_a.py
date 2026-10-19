@@ -540,21 +540,17 @@ def _banned():
     return _BANNED
 
 
-def test_ties_use_the_q1_rise_threshold(_cwd):
-    """A lead of 2.0 is under rise_threshold(1 point, 1) = 2.33: a tie on
-    Results and in Progress figures, as Rising would not read on it."""
-    import ui_insights
+def test_ties_are_equal_scores_only_never_judged_against_the_noise(_cwd):
+    """v3 final cleanup (owner): a 2.0 lead, under the old Q1 rise threshold
+    of 2.33, is a lead and no tie; only equal scores tie."""
     import ui_results
+    import wording
     opt = _rounds([[70.0, 72.0]])
-    yard = insights.noise_yardstick(opt)
-    assert insights.rise_threshold(yard, 1) == pytest.approx(2.326, abs=1e-3)
-    assert ui_results._tie(opt, 0, 1) == (
-        "Tied with Formulation 1: 2.00 apart, under the 2.3 points needed to differ.")
-    assert ui_insights.tie_text(opt, yard).startswith(
-        "Formulation 1 (70.00) is within the 2.3 points needed to differ")
-    assert ui_insights.near_tie(opt, yard) == 1
-    opt = _rounds([[70.0, 72.4]])
+    assert insights.rise_threshold(insights.noise_yardstick(opt), 1) > 2.0
     assert ui_results._tie(opt, 0, 1) == ""
-    assert ui_insights.tie_text(opt, insights.noise_yardstick(opt)) == ""
+    opt = _rounds([[70.0, 70.0]])
+    assert ui_results._tie(opt, 0, 1) == wording.tie_equal(
+        int(opt.formulation_ids[1]), int(opt.formulation_ids[0]),
+        wording.score_shown(opt.Y_history[1]))
 
 

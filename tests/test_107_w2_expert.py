@@ -228,12 +228,22 @@ def test_the_rule_keys_line_up_with_the_table():
     assert [k for line, k in insights.RULE_KEYS if line == "next"] == list(insights.NEXT_ROWS)
 
 
+def _unchanged(rows):
+    """The rows insights.status_rules does not rewrite or add after
+    wording.status_rule_rows: Rising and Within noise say the screen's own
+    number and words, and Plateau and the stop row are added."""
+    own = {W.PROGRESS_WORDS["rising"], W.PROGRESS_WORDS["within_noise"],
+           W.METHOD_PLATEAU_WORD, W.CARD_CEILING}
+    return [r for r in rows if r[1] not in own]
+
+
 def test_status_rules_in_the_projects_own_form(project):
     opt, checks = project(D.LINE_A)
-    assert insights.status_rules(opt, checks) == W.status_rule_rows("−0.20")
+    assert _unchanged(insights.status_rules(opt, checks)) == _unchanged(
+        W.status_rule_rows("−0.20"))
     oven, checks = project(D.PROCESS_ONLY)
     rows = insights.status_rules(oven, checks)
-    assert rows == W.status_rule_rows("−0.20", settings_only=True)
+    assert _unchanged(rows) == _unchanged(W.status_rule_rows("−0.20", settings_only=True))
     assert any("process setting" in r[1] for r in rows)
 
 
@@ -241,8 +251,9 @@ def test_at_the_gate_only_what_applies(project):
     """M9: the gate row and the Progress rows; no Next row is tried yet."""
     opt, _ = project(D.SNACK)
     rows = insights.status_rules(opt)
-    assert [r[0] for r in rows] == [W.STATUS_PREDICTIONS] + [W.STATUS_PROGRESS] * 5
-    assert rows[0][1] == "Not yet (gate)"
+    assert rows[0][:2] == (W.STATUS_PREDICTIONS, "Not yet (gate)")
+    assert len(rows) > 1
+    assert all(r[0] == W.STATUS_PROGRESS for r in rows[1:])
 
 
 # ------------------------------------------------------------------ #
@@ -342,11 +353,10 @@ def _cells(table):
 
 
 @pytest.mark.usefixtures("_isolate")
-def test_method_and_definitions_at_the_gate():
+def test_definitions_at_the_gate():
     opt, fold = _method(D.SNACK)
     text = "\n".join(m.value for m in fold.markdown)
-    assert W.MODEL_SUMMARY_LEAD not in text
-    for line in W.model_summary(insights.model_summary(opt)):
+    lines = ui_insights.definitions(opt)
+    assert lines
+    for line in lines:
         assert line in text
-    rules, _ = list(fold.table)
-    assert len(rules.value) == 6

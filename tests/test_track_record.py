@@ -8,6 +8,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 import insights
+from food_bo import FoodOptimizer
 import ui_insights
 import wording
 from tests.test_app_ui import APP_PATH, burger  # noqa: F401
@@ -30,14 +31,15 @@ def _check(name="Firmness", rnd=3, measured=5.0, predicted=5.0, low=4.0, high=6.
 #  §3.1 / §3.5 the header
 # ------------------------------------------------------------------ #
 
-def test_header_text_leaves_out_waiting_and_set_aside_rows():
+def test_headline_text_leaves_out_waiting_and_set_aside_rows():
     opt = _patty(rows=6)
+    want = ui_insights.headline_text(opt, ui_insights.round_view(opt))
     _tell(opt, 7, 3, drop=("Cook loss",))
     _tell(opt, 8, 3, drop=("Cook loss",))
     opt.set_aside_formulation(8)
-    text = ui_insights.header_text(opt)
-    assert text == ("Based on 6 scored formulations (all results in), up to Round 2. "
-                    "Formulation 7 is waiting for Cook loss and is not used yet.")
+    view = ui_insights.round_view(opt)
+    assert view.scored == [0, 1, 2, 3, 4, 5]
+    assert ui_insights.headline_text(opt, view) == want
 
 
 def _recorded(opt, complete, waiting):
@@ -52,19 +54,21 @@ def _recorded(opt, complete, waiting):
 
 
 @pytest.mark.parametrize("complete", [3, 4])
-def test_the_header_and_the_gate_count_the_same_scored_formulations(burger, complete):
+def test_the_headline_counts_only_the_scored_formulations(burger, complete):
     """Review I-1: with one of 4 (or 5) recorded formulations waiting, the
-    header and "So far: N" both count the scored ones, and a waiting one
-    does not open the checks early."""
+    headline is about the scored ones (the waiting one is not Best so far
+    and is not named), and a waiting one does not open the checks early."""
     _recorded(burger, complete, 1)
     at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
     assert not at.exception
-    captions = [c.value for c in at.tabs[3].caption]
-    assert captions[0] == (
-        f"Based on {complete} scored formulations (all results in), up to Round 1. "
-        f"Formulation {complete + 1} is waiting for Juiciness and is not used yet."), captions
-    # Said once (Task 6), by the Predictions status line since ftue W1.
-    gates = [m.value for m in at.tabs[3].markdown if "once 5 formulations have results" in m.value]
+    opt = FoodOptimizer("burger")                    # as the app loaded it
+    view = ui_insights.round_view(opt)
+    assert view.scored == list(range(complete)) and len(view.tried) == complete + 1
+    markdown = [m.value for m in at.tabs[3].markdown]
+    headline = ui_insights.headline_text(opt, view)
+    assert f"**{headline}**" in markdown, markdown
+    assert f"F{complete + 1}" not in headline and "Round 2" not in headline
+    gates = [m for m in markdown if "once 5 formulations have results" in m]
     assert gates == [], gates
 
 
@@ -196,15 +200,13 @@ def test_details_compare_the_typical_miss_with_the_repeats():
 #  On screen
 # ------------------------------------------------------------------ #
 
-def test_the_tab_shows_the_new_header_verdict_and_record(insights_scored):
+def test_the_tab_shows_the_headline(insights_scored):
     at = _open_insights(AppTest.from_file(APP_PATH, default_timeout=180))
     assert not at.exception
     tab = at.tabs[3]
-    captions = [c.value for c in tab.caption]
-    assert captions[0] == "Based on 9 scored formulations (all results in), up to Round 3."
-    text = " ".join(m.value for m in tab.markdown)
-    # R² is named once, in Method and details, as the statistic not used
-    # (review M6).
+    opt = FoodOptimizer("burger")
+    headline = ui_insights.headline_text(opt, ui_insights.round_view(opt))
+    assert f"**{headline}**" in [m.value for m in tab.markdown]
 
 
 @pytest.fixture

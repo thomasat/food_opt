@@ -287,7 +287,10 @@ def test_close_to_the_top_needs_the_expected_improvement_under_the_threshold_too
     standing = SimpleNamespace(higher=False, tested_near=True, binding=[])
     step = insights.next_step(opt, checks, standing, gain=gain)
     assert step.kind == kind
-    assert step.gain == (gain if kind == "explore" else None)
+    # "close" carries the gain and the threshold it fell under (specific
+    # wording, 6de8364), so the line can name both numbers.
+    assert step.gain == gain
+    assert step.noise == (1.0 if kind == "close" else None)
 
 
 def test_the_track_line_carries_no_skill_even_when_coverage_holds(lines):

@@ -23,28 +23,29 @@ def _isolate_cwd(tmp_path, monkeypatch):
 #  I-1 the header's latest Round is the latest scored Round
 # ------------------------------------------------------------------ #
 
-def test_the_header_names_the_latest_scored_round_while_a_later_one_waits():
-    """Rounds 1-2 scored, Round 3 all waiting: "up to Round 2", the Round
-    "Is it still improving?" calls the last one; the waiting sentence
-    still says what is pending."""
+def test_the_headline_names_the_latest_scored_round_while_a_later_one_waits():
+    """Rounds 1-2 scored, Round 3 all waiting: the headline is about Round 2
+    and counts only the scored formulations."""
     opt = _patty(rows=6)
+    before = ui_insights.round_view(opt)
     for no in (7, 8, 9):
         _tell(opt, no, 3, drop=("Cook loss",))
     assert [r for r, _ in insights.scored_rounds(opt)] == [1, 2]
-    # Ledger, early five-second re-test (fix round B): the header names the
-    # waiting formulation(s) by number instead of counting "N more".
-    assert ui_insights.header_text(opt) == (
-        "Based on 6 scored formulations (all results in), up to Round 2. "
-        "Formulations 7–9 are waiting for Cook loss and are not used yet.")
+    view = ui_insights.round_view(opt)
+    assert view.round == 2 and view.scored == before.scored == [0, 1, 2, 3, 4, 5]
+    assert ui_insights.headline_text(opt, view) == ui_insights.headline_text(opt, before)
+    assert "Round 3" not in ui_insights.headline_text(opt, view)
 
 
-def test_the_header_leaves_out_a_round_moved_to_not_scored():
+def test_the_headline_leaves_out_a_round_moved_to_not_scored():
     opt = _patty(rows=6)
+    before = ui_insights.headline_text(opt, ui_insights.round_view(opt))
     for no in (7, 8, 9):
         _tell(opt, no, 3, drop=("Cook loss",))
         opt.set_aside_formulation(no)
-    assert ui_insights.header_text(opt) == (
-        "Based on 6 scored formulations (all results in), up to Round 2.")
+    view = ui_insights.round_view(opt)
+    assert view.round == 2 and view.scored == [0, 1, 2, 3, 4, 5]
+    assert ui_insights.headline_text(opt, view) == before
 
 
 # ------------------------------------------------------------------ #
@@ -63,8 +64,7 @@ def test_best_so_far_help_names_trials_in_a_process_only_project(trial_waiting):
     at.run()
     assert not at.exception
     captions = [c.value for c in at.tabs[2].caption]      # Results
-    assert ("Best so far: the highest Overall score among trials with a result for "
-            "every measurement.") in captions, captions
+    assert wording.for_project(trial_waiting, wording.BEST_RULE) in captions, captions
     assert not any("formulation" in c.lower() for c in captions), captions
 
 
