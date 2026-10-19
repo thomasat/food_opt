@@ -493,8 +493,10 @@ def test_the_discarded_notice_names_the_round_and_what_to_do_next():
     clause was unreadable on one pass and still never said what to do. The
     round is named because the notice lands above the tabs."""
     notice = wording.batch_discarded_notice(2)
-    assert notice == ("Round 2 was discarded: your set-up changed after it "
-                      "was made. Generate a new one."), notice
+    # 3c0aab1 (concision): "after it was made" went to the tooltip.
+    assert notice == (f"Round 2 was discarded: {wording.SETUP_CHANGED_REASON}. "
+                      "Generate a new one."), notice
+    assert wording.SETUP_CHANGED_REASON == "your set-up changed"
     assert "generated" not in notice, notice
     assert wording.batch_discarded_notice().startswith("The open Round")
 

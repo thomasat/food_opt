@@ -286,15 +286,22 @@ def test_excel_cached_measurement_formula_is_preserved(project):
     with pytest.raises(ValueError, match='no saved result'):
         project.results_from_workbook(saved)
     # Excel supplies the cached number on recalculation; openpyxl cannot
-    # calculate, so emulate the standard OOXML value Excel would write.
+    # calculate, so emulate the standard OOXML value Excel would write. The
+    # Results sheet's part number depends on which sheets the workbook has
+    # (no Preparation sheet without pre-mixes), so search every worksheet.
+    import re
+    empty_cache = re.compile(rb'<f>4\+4</f><v\s*/>|<f>4\+4</f><v></v>')
     original = ZipFile(data(book))
     out = io.BytesIO()
+    filled = 0
     with ZipFile(out, 'w', ZIP_DEFLATED) as rewritten:
         for name in original.namelist():
             payload = original.read(name)
-            if name == 'xl/worksheets/sheet3.xml':
-                payload = payload.replace(b'<f>4+4</f><v></v>', b'<f>4+4</f><v>8</v>')
+            if name.startswith('xl/worksheets/'):
+                payload, count = empty_cache.subn(b'<f>4+4</f><v>8</v>', payload)
+                filled += count
             rewritten.writestr(name, payload)
+    assert filled == 1
     out.seek(0)
     assert project.results_from_workbook(out).frame['Taste'].tolist() == [8]
 

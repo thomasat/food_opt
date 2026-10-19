@@ -343,9 +343,10 @@ def test_barely_is_judged_against_one_point_under_three_pairs():
 
 
 def test_barely_uses_the_repeats_sd_from_three_pairs():
-    """Ftue fix A (cold read I6): against the Repeat SD × √2 × z_3 (Round 2
-    has 3 formulations): 0.3 × 3.00 = 0.90. A rise of 0.5 is within noise,
-    1.0 is Rising."""
+    """Ftue fix A (cold read I6), with the fix A follow-up's decision 3
+    (1e065e1): against the Repeat SD × √2 × t_q on the Repeats' 4 df,
+    t_4⁻¹(0.95^(1/3)) = 3.17 (Round 2 has 3 formulations): 0.3 × √2 × 3.17
+    = 1.34. A rise of 0.5 is within noise, 1.5 is Rising."""
     opt = _patty(rows=6)
     yard = insights.Yardstick(0.3, 0.3, 4, True, df=4)
     f = insights.BestFacts(71.0, 6, 2, 0, True, [])
@@ -353,11 +354,11 @@ def test_barely_uses_the_repeats_sd_from_three_pairs():
         if opt.batch_history[i] != 2:
             opt.Y_history[i] = 70.5
     a = insights.improvement(opt, f, yardstick=yard)
-    assert (a.state, a.sd, a.q) == ("barely", 0.3, 3)
-    assert a.threshold == pytest.approx(0.9, abs=0.01)
+    assert (a.state, a.sd, a.q, a.df) == ("barely", 0.3, 3, 4)
+    assert a.threshold == pytest.approx(1.344, abs=0.001)
     for i in opt.best_candidates():
         if opt.batch_history[i] != 2:
-            opt.Y_history[i] = 70.0
+            opt.Y_history[i] = 69.5
     assert insights.improvement(opt, f, yardstick=yard).state == "yes"
 
 

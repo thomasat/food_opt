@@ -44,7 +44,8 @@ def test_with_no_round_open_the_foot_says_next_make_a_round(burger):
 def test_with_a_round_open_the_foot_says_back_to_it(open_batch):
     at = _app(tab=wording.TAB_SETUP)
     foot = next(b for b in at.tabs[0].button if b.key == "continue_to_batch")
-    assert foot.label == wording.back_to_batch_label(1, 2) == "Back to Round 1 · 2 to record"
+    # 9412f30: at most 5 words; the count to record is on Make a round.
+    assert foot.label == wording.back_to_batch_label(1, 2) == "Back to Round 1"
     assert "Generate formulations" not in [b.label for b in at.tabs[0].button]
 
 

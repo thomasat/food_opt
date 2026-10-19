@@ -95,13 +95,43 @@ def test_the_lock_is_held_inside_isolated_and_around_ask(monkeypatch):
 
 
 def test_generate_asks_through_the_lock():
-    """ui_batch._generate's one ask() goes through ask_alone, and no other
-    screen calls ask()."""
+    """ui_batch._generate's one ask() goes through ask_alone, and the only
+    other ask() is learned.preview_next's, on a never-saving copy, which
+    holds the lock itself (test_the_preview_asks_holding_the_lock)."""
     import inspect
     import pathlib
     src = inspect.getsource(ui_batch._generate)
     assert "ask_alone(" in src and "opt.ask(" not in src
+    import ast
     root = pathlib.Path(ui_batch.__file__).parent
-    callers = [p.name for p in root.glob("*.py") if p.name not in ("food_bo.py", "benchmark.py", "theory.py")
-               and ".ask(" in p.read_text().replace("opt.ask(**kwargs)", "")]
-    assert callers == []
+    # Real ask() calls only (an AST walk, so a docstring that names ask()
+    # is not a caller), as (file, enclosing function).
+    calls = []
+    for path in sorted(root.glob("*.py")):
+        if path.name in ("food_bo.py", "benchmark.py", "theory.py"):
+            continue
+        tree = ast.parse(path.read_text())
+        asks = {id(n) for n in ast.walk(tree) if isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Attribute) and n.func.attr == "ask"}
+        placed = set()
+        for fn in ast.walk(tree):
+            if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for node in ast.walk(fn):
+                    if id(node) in asks:
+                        calls.append((path.name, fn.name))
+                        placed.add(id(node))
+        calls += [(path.name, "<module>")] * len(asks - placed)
+    assert sorted(set(calls)) == [("learned.py", "preview_next"), ("ui_batch.py", "ask_alone")]
+    import learned
+    preview = inspect.getsource(learned.preview_next)
+    assert "insights.RNG_LOCK" in preview and "clone.ask(n_suggestions=int(n))" in preview
+
+
+def test_the_preview_asks_holding_the_lock(monkeypatch):
+    import learned
+    held = []
+    opt = CASES["imported_blank"]()
+    monkeypatch.setattr(opt, "ask", lambda **kw: held.append(insights.RNG_LOCK._is_owned()))
+    learned.preview_next(opt, 1)
+    assert held == [True]
+    assert not insights.RNG_LOCK._is_owned()

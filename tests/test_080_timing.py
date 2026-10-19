@@ -1,11 +1,15 @@
 """0.8.0 speed, Plan A Task 11 (spec 2026-09-30 §8, §10): the Insights
 work at 60 formulations x 4 measurements (the owner's bench shape), with
 4 workers, inside generous bounds — the first answers (the verdict, the
-predicted best and the next step) under 3 s, the whole tab under 10 s,
+predicted best and the next step) under 5 s, the whole tab under 10 s,
 a reopened project (the next Round's
 expected gain included) under 1 s, and a saved Round under 6 s. The pool's own
 start (about 2 s, once per app launch) is not counted. On the owner's Mac
-(M4 Pro) the figures are about 2.8, 4.7, 0.01 and 1.4 s.
+(M4 Pro) the figures are about 3.9, 4.3, 0.01 and 1.0 s. The first answers
+were 2.4 s under a 3 s bound until 633c531 (2026-10-07, "one 95 % range per
+forecast, whatever is cached") made "trust" and "stand" wait for every check
+their widening reads, a cost that commit states (about 3.9 s against 2.4 s;
+whole tab unchanged); the bound moved to 5 s with it.
 FOODOPT_SKIP_TIMING=1 skips it; FOODOPT_TIMING_WORKERS sets the pool."""
 import os
 import time
@@ -120,7 +124,7 @@ def test_sixty_by_four(pool):
 
     print(f"\n60x4, {pool.n} workers: first answers {first:.1f} s, whole tab {whole:.1f} s, "
           f"reopen {reopen:.2f} s, after Save results {after_save:.1f} s")
-    assert first < 3.0
+    assert first < 5.0
     assert whole < 10.0
     assert reopen < 1.0
     assert after_save < 6.0

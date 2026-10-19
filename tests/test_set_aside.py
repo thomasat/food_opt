@@ -206,4 +206,4 @@ def test_the_new_strings_pass_the_vocabulary_guard():
         assert not any(p.search(text) for p in _BANNED), text
     assert wording.never_coming_warning(33, "Cook loss") == (
         "Cook loss for Formulation 33 will never come? It stays in your records, unscored, "
-        "and stops counting on Insights.")
+        "and stops counting in the review.")  # 469a1d1: Insights is now 4 · Review

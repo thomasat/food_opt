@@ -124,18 +124,24 @@ def test_only_works_out_the_pairs_asked_for_and_keeps_nothing():
 
 
 def test_a_disagreeing_repeat_is_judged_on_the_range_shown():
-    """Ftue fix A (cold read I7): the limit is √2 × 1.96 × σ, σ a noise SD
-    (here the assumed 1 point: 2.77), no longer the range shown, so the
-    range's widening leaves it alone."""
+    """Fix A follow-up, owner's decision 2 (1e065e1): before the Repeat SD
+    has 3 df, a pair is flagged only beyond BOTH √2 × 1.96 × σ (σ here the
+    assumed 1 point: 2.77) AND √2 × the later one's shown 95 % half-width,
+    its widening included (√2 × 1.96 × 2.0 = 5.54); the limit is the
+    larger. So widening the range shown widens the limit too."""
     opt = _patty(rows=6)
     _repeat_of(opt, 0, 4)
     opt.Y_history[4] = opt.Y_history[0] - 10.0
     shown = _check(insights.SCORE, 2, 5, opt.Y_history[4], opt.Y_history[4], 2.0)
     checks = _values(2) + [shown]
     d = insights.disagreeing_repeat(opt, checks)
-    assert d is not None and d.limit == pytest.approx(math.sqrt(2) * insights.Z95)
-    wide = dataclasses.replace(shown, widen=2.0)
-    assert insights.disagreeing_repeat(opt, _values(2) + [wide]) == d
+    floor = math.sqrt(2) * insights.Z95 * 1.0
+    shown_limit = math.sqrt(2) * insights.Z95 * 2.0
+    assert d is not None and d.basis == "assumed"
+    assert d.predictive == pytest.approx(shown_limit)
+    assert d.limit == pytest.approx(max(floor, shown_limit))
+    wide = dataclasses.replace(shown, widen=2.0)      # limit 11.09 > |-10|
+    assert insights.disagreeing_repeat(opt, _values(2) + [wide]) is None
 
 
 def test_make_a_rounds_factor_leaves_out_the_open_rounds_own_checks():
