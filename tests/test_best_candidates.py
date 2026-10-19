@@ -97,9 +97,7 @@ def test_the_insights_best_line_names_what_it_is_scored_without():
 
 
 def test_complete_results_caption_says_dashes_are_not_compared():
-    assert wording.COMPLETE_RESULTS_CAPTION == (
-        "A formulation counts once all its results are in; “—” means it is "
-        "scored without that measurement, so it is not compared for Best so far.")
+    assert wording.COMPLETE_RESULTS_CAPTION == "“—”: scored without that measurement."
 
 
 def test_suggestions_are_unchanged_by_the_new_best():
@@ -117,9 +115,7 @@ def test_the_fallback_caption_does_not_contradict_the_star():
     compared."""
     assert wording.complete_results_caption() == wording.COMPLETE_RESULTS_CAPTION
     assert wording.complete_results_caption(compared=False) == (
-        "A formulation counts once all its results are in; “—” means it is "
-        "scored without that measurement; until a formulation has every "
-        "measurement, Best so far is scored without it too.")
+        "“—”: scored without that measurement, as is Best so far.")
 
 
 def test_every_new_string_passes_the_vocabulary_guard():

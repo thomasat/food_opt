@@ -1838,13 +1838,13 @@ def test_one_download_is_offered_and_it_is_lit_until_a_result_is_typed(open_batc
         [wording.DOWNLOAD_BATCH_SHEETS], \
         [d.label for d in _unknowns(at.tabs[1], "download_button")]
     assert _unknown(at.main, "download_button",
-                    "Download the round sheets (Excel)").proto.type == "primary"
+                    wording.DOWNLOAD_BATCH_SHEETS).proto.type == "primary"
     # The download IS the coloured thing here, and it is the only one.
-    assert _tab_primaries(at, 1) == ["Download the round sheets (Excel)"], _tab_primaries(at, 1)
+    assert _tab_primaries(at, 1) == [wording.DOWNLOAD_BATCH_SHEETS], _tab_primaries(at, 1)
     at.number_input(key="f1_Firmness").set_value(6.0)
     at.run()
     assert _unknown(at.main, "download_button",
-                    "Download the round sheets (Excel)").proto.type == "secondary"
+                    wording.DOWNLOAD_BATCH_SHEETS).proto.type == "secondary"
 
 
 def test_leaving_a_row_out_does_not_grey_the_batch_sheets(open_batch):
@@ -1857,7 +1857,7 @@ def test_leaving_a_row_out_does_not_grey_the_batch_sheets(open_batch):
     at.checkbox(key="f1_leave_out").check()
     at.run()
     assert _unknown(at.main, "download_button",
-                    "Download the round sheets (Excel)").proto.type == "primary"
+                    wording.DOWNLOAD_BATCH_SHEETS).proto.type == "primary"
 
 
 def test_regenerating_names_the_numbers_it_discards(open_batch):
@@ -2230,11 +2230,11 @@ def test_a_confirmation_takes_the_colour_from_the_batch_sheets(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert _unknown(at.main, "download_button",
-                    "Download the round sheets (Excel)").proto.type == "primary"
+                    wording.DOWNLOAD_BATCH_SHEETS).proto.type == "primary"
     _submit_button(at, wording.GENERATE_DIFFERENT_BATCH).click()
     at.run()
     assert _unknown(at.main, "download_button",
-                    "Download the round sheets (Excel)").proto.type == "secondary"
+                    wording.DOWNLOAD_BATCH_SHEETS).proto.type == "secondary"
     assert _tab_primaries(at, 1) == ["Yes, discard"], _tab_primaries(at, 1)
 
 
@@ -7009,7 +7009,7 @@ def test_the_one_download_on_the_batch_names_its_format(open_batch):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     names = [b.label for b in _unknowns(at.tabs[1], "download_button")]
-    assert names == ["Download the round sheets (Excel)"], names
+    assert names == [wording.DOWNLOAD_BATCH_SHEETS], names
     assert "Preview the printed sheets" not in [e.label for e in at.expander], \
         [e.label for e in at.expander]
 
@@ -7145,17 +7145,18 @@ def test_the_delete_multiselect_placeholder_says_choose_one_or_more(scored):
            == "Choose one or more")
 
 
-def test_the_progress_chart_caption_reads_a_flat_stretch(scored):
-    # On Insights since 0.8.0, under "Is it still improving?". The project is
-    # opened first: that run lands on its landing tab, never Insights.
+def test_the_best_so_far_chart_caption_says_made_once_rated_once(scored):
+    # On Review (4 · Review) since 0.8.0 the Best so far chart carries the
+    # "made once, rated once" caption; the old flat-stretch caption is gone.
+    # The project is opened first: that run lands on its landing tab.
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
-    # Drawn only while its fold is open (BO views, binding I15).
-    at.session_state["insights_progress_fold"] = True
     at.run()
-    assert any(c.value == wording.progress_caption_2()
-               for c in at.tabs[3].caption), [c.value for c in at.caption]
+    caps = [c.value for c in at.tabs[3].caption]
+    assert any(c.startswith(f"Each {wording.FORMULATION} made once, rated once")
+               or c.startswith(f"Each dot: one {wording.FORMULATION}, rated once")
+               for c in caps), caps
 
 
 def test_the_batch_size_help_ties_the_box_to_the_column_that_reads_it(
@@ -8120,7 +8121,7 @@ def test_tab_two_reads_as_the_three_steps_of_the_work(open_batch):
     assert order[-1] == wording.GENERATE_DIFFERENT_BATCH, order[-4:]
     # Step 1 carries no count of its own: the title above it already has one.
     assert wording.STEP_MAKE_HEADING == "##### Make the formulations"
-    assert wording.STEP_PRINT_HEADING == "##### Download the workbook"
+    assert wording.STEP_PRINT_HEADING == "##### Download the Round workbook"
     assert wording.STEP_RECORD_HEADING == "##### Record the results"
 
 

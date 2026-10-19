@@ -229,7 +229,7 @@ def test_best_so_far_lists_its_repeats_with_the_mean():
     mean from the stored scores reads 75.17 (stage-1 report §1.2 #4)."""
     opt = E.load(E.BAR_NOISY)
     assert ui_results.best_repeats_text(opt, checks=()) == (
-        "Repeats of Formulation 14: 67.30, 66.34, 75.61 (mean with Formulation 14: 75.17).")
+        "Repeats of Formulation 14: 67.3, 66.3, 75.6. Mean of all: 75.2.")
 
 
 def test_a_disagreeing_repeat_is_listed_and_marked(monkeypatch):
@@ -238,8 +238,7 @@ def test_a_disagreeing_repeat_is_listed_and_marked(monkeypatch):
     monkeypatch.setattr(insights, "disagreeing_repeat",
                         lambda o, c, m=None: insights.Disagreement(20, 14, -24.15, row))
     assert ui_results.best_repeats_text(opt, checks=[object()]) == (
-        "Repeats of Formulation 14: 67.30 (disagrees), 66.34, 75.61 "
-        "(mean with Formulation 14: 75.17).")
+        "Repeats of Formulation 14: 67.3 (disagrees), 66.3, 75.6. Mean of all: 75.2.")
 
 
 def test_no_repeats_no_line():
