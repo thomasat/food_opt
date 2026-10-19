@@ -15,8 +15,12 @@ an app update may need another software download.
 Updating? Quit the old app, then replace it in Applications. Your saved
 projects are stored separately and are retained.
 
-TRY THE SAMPLE
-1. Click “Open the yogurt pilot.” It opens “Yogurt pilot - Round 6 to
+TRY THE SAMPLES
+“Open the burger example” opens an example set-up on 1 · Set up, with
+illustrative values and no results.
+
+For real results:
+1. Click “Try the yogurt pilot.” It opens “Yogurt pilot - Round 6 to
    score” on 4 · Review. It is a real yogurt-style pilot: 15 formulations
    scored, and Round 6 made and waiting for its results.
 2. Go to 2 · Make a round and open “Or upload results from a file.”

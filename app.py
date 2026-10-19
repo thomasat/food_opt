@@ -276,16 +276,16 @@ def _open_sample(name=sample_projects.ROUND6):
 def _sidebar_samples():
     """Manage project's Samples group: the welcome screen's two ways into
     the samples, with the same labels and captions, both secondary."""
-    if sample_projects.available():
-        if st.button(wording.OPEN_YOGURT_LABEL, key="sample_project_sidebar",
-                     help=wording.OPEN_YOGURT_HELP):
-            _open_sample(sample_projects.ROUND6)
-        st.caption(wording.OPEN_YOGURT_CAPTION)
     if sample_projects.burger_available():
         if st.button(wording.SEE_EXAMPLE_SETUP_LABEL, key="sample_burger_sidebar",
                      help=wording.BURGER_PROVENANCE_HELP):
             _open_sample(sample_projects.BURGER)
         st.caption(wording.SEE_EXAMPLE_SETUP_CAPTION)
+    if sample_projects.available():
+        if st.button(wording.OPEN_YOGURT_LABEL, key="sample_project_sidebar",
+                     help=wording.OPEN_YOGURT_HELP):
+            _open_sample(sample_projects.ROUND6)
+        st.caption(wording.OPEN_YOGURT_CAPTION)
 
 
 # Once per session, before any project is opened: a yogurt pilot copy an
@@ -845,21 +845,22 @@ render_flash(_FLASH_BOX)
 if opt is None:
     st.markdown(wording.WELCOME_HEADER)
     st.markdown(wording.welcome_steps())
-    # One primary: the yogurt pilot. The example setup beside it, and the
-    # ingredients template as a quiet link under both (spec 2026-10-13 §9).
+    # One primary: the burger example (owner, 2026-10-19: start from a
+    # set-up to try). The yogurt pilot beside it, and the ingredients
+    # template as a quiet link under both.
     wc1, wc2 = st.columns(2)
     with wc1:
-        if sample_projects.available():
-            if st.button(wording.OPEN_YOGURT_LABEL, type="primary",
-                         help=wording.OPEN_YOGURT_HELP):
-                _open_sample(sample_projects.ROUND6)
-            st.caption(wording.OPEN_YOGURT_CAPTION)
-    with wc2:
         if sample_projects.burger_available():
-            if st.button(wording.SEE_EXAMPLE_SETUP_LABEL,
+            if st.button(wording.SEE_EXAMPLE_SETUP_LABEL, type="primary",
                          help=wording.BURGER_PROVENANCE_HELP):
                 _open_sample(sample_projects.BURGER)
             st.caption(wording.SEE_EXAMPLE_SETUP_CAPTION)
+    with wc2:
+        if sample_projects.available():
+            if st.button(wording.OPEN_YOGURT_LABEL,
+                         help=wording.OPEN_YOGURT_HELP):
+                _open_sample(sample_projects.ROUND6)
+            st.caption(wording.OPEN_YOGURT_CAPTION)
     if os.path.exists(_TEMPLATE_CSV):
         st.download_button(
             wording.DOWNLOAD_TEMPLATE,

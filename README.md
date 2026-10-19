@@ -19,7 +19,9 @@ First-time setup downloads about **1 GB** and needs about **6 GB of free space**
 
 ## Start with the example
 
-Choose **Open the yogurt pilot**. It opens **Yogurt pilot - Round 6 to score** on **4 · Review**: a real yogurt-style pilot with 15 formulations scored and Round 6 made, waiting for its results. The pilot's data is public.
+Choose **Open the burger example** to see how a project is set up. It opens **Example setup - plant-based burger** on **1 · Set up**. Its values are illustrative and it has no results; it shows calculations (Hydration water as 2.2 × the textured proteins, Remaining water as the rest), pre-mixes, a process setting, records and a formulation total.
+
+To see real results, choose **Try the yogurt pilot**. It opens **Yogurt pilot - Round 6 to score** on **4 · Review**: a real yogurt-style pilot with 15 formulations scored and Round 6 made, waiting for its results. The pilot's data is public.
 
 1. Go to **2 · Make a round** and open **Or upload results from a file**.
 2. Choose **Browse files** and open **Round 6 results (pilot).xlsx**: it is already in your **FoodOptimizer** folder. Or choose **Download the pilot's Round 6 results**, then upload that file.
@@ -28,8 +30,6 @@ Choose **Open the yogurt pilot**. It opens **Yogurt pilot - Round 6 to score** o
 5. Under **What next?**, choose **Start Round 7** to have the app suggest Round 7, or **See the pilot's Rounds 7–10** to open **Yogurt pilot - all 10 Rounds**: what the pilot made next.
 
 To try it again, choose **Manage project → Start this sample over**. Your version is kept in **Saved copies**.
-
-To see how a project is set up, choose **Open the burger example**. It opens **Example setup - plant-based burger** on **1 · Set up**. Its values are illustrative and it has no results; it shows calculations (Hydration water as 2.2 × the textured proteins, Remaining water as the rest), pre-mixes, a process setting, records and a formulation total.
 
 For your own project, generate formulations in **Make a round** and download the workbook. Use **Round overview** for the plan and **Results** for measurements; a Round with pre-mixes also has a **Preparation** sheet. Upload the completed workbook, review the imported values, and save the results. Editing the workbook alone does not update the app. You can also enter measurements directly in the app.
 

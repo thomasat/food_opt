@@ -227,17 +227,21 @@ def test_restore_burger_archives_then_writes_the_shipped_copy(store):
 #  The app
 # ------------------------------------------------------------------ #
 
-def test_welcome_offers_both_with_their_captions_yogurt_primary(at):
+def test_welcome_offers_both_with_their_captions_burger_primary(at):
+    # Owner, 2026-10-19: the burger example is the default, the yogurt
+    # pilot the option beside it, burger first.
     assert not at.exception
     buttons = {b.label: b for b in at.main.button}
-    yogurt = buttons["Open the yogurt pilot"]
+    yogurt = buttons["Try the yogurt pilot"]
     example = buttons["Open the burger example"]
-    assert yogurt.proto.type == "primary"
-    assert example.proto.type == "secondary"
+    assert example.proto.type == "primary"
+    assert yogurt.proto.type == "secondary"
+    order = [b.label for b in at.main.button]
+    assert order.index("Open the burger example") < order.index("Try the yogurt pilot"), order
     captions = [c.value for c in at.main.caption]
     assert "Real tasting data; shows results and the Review." in captions
     assert "Illustrative values; shows calculations and pre-mixes." in captions
-    assert wording.OPEN_YOGURT_LABEL == "Open the yogurt pilot"
+    assert wording.OPEN_YOGURT_LABEL == "Try the yogurt pilot"
     assert wording.SEE_EXAMPLE_SETUP_LABEL == "Open the burger example"
     assert "Try the sample project" not in buttons
     # The template stays, as a quiet link-style download.
@@ -291,7 +295,7 @@ def test_the_example_setups_review_says_no_results_and_opens_the_yogurt(at, tmp_
     assert not at.exception
     review = at.tabs[3]
     assert "No results: this example shows set-up only." in [c.value for c in review.caption]
-    [button] = [b for b in review.button if b.label == "Open the yogurt pilot"]
+    [button] = [b for b in review.button if b.label == "Try the yogurt pilot"]
     assert button.proto.type == "secondary"
     # AppTest sends no tab with a click: the tab is set again, as
     # tests/test_sample_buttons.py does for See what happened next.
@@ -310,7 +314,7 @@ def test_manage_project_has_a_samples_group_with_both(at):
     [manage] = [e for e in at.sidebar.expander if e.label == wording.MANAGE_PROJECT]
     assert "**Samples**" in [m.value for m in manage.markdown]
     labels = [b.label for b in manage.button]
-    assert "Open the yogurt pilot" in labels and "Open the burger example" in labels
+    assert "Try the yogurt pilot" in labels and "Open the burger example" in labels
     captions = [c.value for c in manage.caption]
     assert "Real tasting data; shows results and the Review." in captions
     assert "Illustrative values; shows calculations and pre-mixes." in captions
@@ -369,7 +373,7 @@ def test_launching_and_reopening_the_burger_land_on_set_up(tmp_path, monkeypatch
 
 
 def test_the_burger_never_enters_the_yogurt_demo_flow(at, tmp_path):
-    """Open the yogurt pilot, start it over, See what happened next: no step
+    """Try the yogurt pilot, start it over, See what happened next: no step
     writes, lists or opens the example setup."""
     _click(at.main, wording.OPEN_YOGURT_LABEL)
     at.run()
@@ -446,7 +450,7 @@ def test_a_used_example_drops_no_results_and_shows_the_normal_review(
     assert "no results" not in captions["Example setup; illustrative values."].proto.help.lower()
     review = at.tabs[3]
     assert wording.BURGER_NO_RESULTS not in [c.value for c in review.caption]
-    assert "Open the yogurt pilot" not in [b.label for b in review.button]
+    assert "Try the yogurt pilot" not in [b.label for b in review.button]
     if state == "round":
         # The normal no-results Review, with its foot back to the open Round.
         assert wording.INSIGHTS_NONE in [c.value for c in review.caption]

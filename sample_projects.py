@@ -56,7 +56,7 @@ def _shipped_path(name):
 
 
 def available():
-    """The yogurt pilot's files are all here (Open the yogurt pilot)."""
+    """The yogurt pilot's files are all here (Try the yogurt pilot)."""
     return ROUND6_RESULTS.is_file() and all(
         _shipped_path(n).is_file() for n in YOGURT_NAMES)
 

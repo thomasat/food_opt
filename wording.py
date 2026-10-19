@@ -193,7 +193,7 @@ OPEN_PROJECT_LABEL = "Open project"
 # project's Samples group alike. The yogurt pilot is the demo: real results,
 # opened on 4 · Review. The example setup is how to set a project up:
 # illustrative values, no results, opened on 1 · Set up.
-OPEN_YOGURT_LABEL = "Open the yogurt pilot"
+OPEN_YOGURT_LABEL = "Try the yogurt pilot"
 OPEN_YOGURT_CAPTION = "Real tasting data; shows results and the Review."
 OPEN_YOGURT_HELP = (
     "A real yogurt-style pilot: 15 formulations scored, Round 6 made and "

@@ -9774,7 +9774,7 @@ def _sample_file(tmp_path, name=sample_projects.ROUND6):
 def test_an_older_sample_on_disk_is_opened_as_it_stands_never_rebuilt(
         tmp_path, monkeypatch):
     """A Mac that met an earlier version has that version's sample on disk.
-    Open the yogurt pilot opens whatever is on disk: only Start this
+    Try the yogurt pilot opens whatever is on disk: only Start this
     sample over puts the shipped copy back."""
     monkeypatch.chdir(tmp_path)
     old = FoodOptimizer(sample_projects.ROUND6)
@@ -9839,7 +9839,7 @@ def test_a_sample_with_an_open_batch_is_left_exactly_as_it_is(
         tmp_path, monkeypatch):
     """Nothing is scored and nothing was ticked Not scored, but a batch is on
     someone's bench and the formulations in it have been numbered. That is
-    work: Open the yogurt pilot opens it as it is."""
+    work: Try the yogurt pilot opens it as it is."""
     monkeypatch.chdir(tmp_path)
     old = FoodOptimizer(sample_projects.ROUND6)
     old.add_ingredient("Oat flour", 0, 100)
