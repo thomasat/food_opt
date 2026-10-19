@@ -101,7 +101,7 @@ def _every_chart(opt):
     best = opt.best_index()
     start = insights.start_recipe(opt, best if best is not None else 0)
 
-    charts = [ui_insights.progress_chart(opt)]
+    charts = [ui_insights.improving_chart(opt)]
 
     track = ui_insights.measured_vs_predicted_chart(opt, checks)
     if track is not None:
@@ -158,20 +158,22 @@ def test_progress_chart_keeps_the_axis_titles_and_a_gap(tmp_path, monkeypatch):
     opt = _patty(rows=2)
     _tell(opt, 3, 1, drop=("Cook loss",))
     _tell(opt, 4, 2)
-    spec = ui_insights.progress_chart(opt).to_dict()
-    # Same shape as the retired st.line_chart: one panel, Formulation on x,
-    # Overall score on y, and a waiting formulation leaves a gap in the
-    # Overall-score series (it never appears in Best so far's own gap:
-    # opt.best_so_far() repeats the value before it).
+    spec = ui_insights.improving_chart(opt).to_dict()
+    # One panel, Formulation on x, Overall score on y, and a waiting
+    # formulation leaves a gap in the Overall-score dots (it never appears
+    # in Best so far's own series: opt.best_so_far() repeats the value
+    # before it).
     text = json.dumps(spec)
     assert wording.FORMULATION_CAP in text
     assert wording.OVERALL_SCORE_COLUMN in text
     assert wording.BEST_SO_FAR_COLUMN in text
-    [rows] = spec["datasets"].values()
-    scores = [row[wording.OVERALL_SCORE_COLUMN] for row in rows]
-    bests = [row[wording.BEST_SO_FAR_COLUMN] for row in rows]
-    assert None in scores
-    assert None not in bests
+    datasets = list(spec["datasets"].values())
+    dots = [row[wording.FORMULATION_CAP] for rows in datasets for row in rows
+            if wording.OVERALL_SCORE_COLUMN in row]
+    steps = [row["x"] for rows in datasets for row in rows
+             if "v" in row and "text" in row and "avg" not in row]
+    assert dots and sorted(dots) == [1, 2, 4]      # Formulation 3 is waiting: no dot
+    assert steps == [1, 2, 3, 4]                   # Best so far repeats through the wait
 
 
 def _app():

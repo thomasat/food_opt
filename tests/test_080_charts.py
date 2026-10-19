@@ -75,15 +75,30 @@ def test_formulation_ticks_are_whole_and_never_repeat():
     assert ui_insights.formulation_ticks([]) == []
 
 
+def _leaves(spec):
+    for layer in spec["layer"]:
+        if "layer" in layer:
+            yield from _leaves(layer)
+        else:
+            yield layer
+
+
 def test_the_progress_chart_fits_the_scores():
+    """The Best so far chart: the score axis is not zero-based and its domain
+    holds every score; the Formulation axis lists whole numbers, one per
+    formulation."""
     opt = _patty(rows=6)
-    spec = ui_insights.progress_chart(opt).to_dict()
-    score_line, dots, best_line = spec["layer"]
-    assert score_line["encoding"]["y"]["scale"] == {"zero": False}
-    assert best_line["encoding"]["y"]["scale"] == {"zero": False}
-    assert score_line["encoding"]["x"]["axis"]["values"] == [1, 2, 3, 4, 5, 6]
-    three = ui_insights.progress_chart(_patty(rows=3)).to_dict()
-    assert three["layer"][0]["encoding"]["x"]["axis"]["values"] == [1, 2, 3]
+    spec = ui_insights.improving_chart(opt).to_dict()
+    leaves = list(_leaves(spec))
+    scale = next(l for l in leaves if l["mark"]["type"] == "line")["encoding"]["y"]["scale"]
+    assert scale["zero"] is False
+    scores = [float(y) for y in opt.Y_history]
+    assert scale["domain"][0] <= min(scores) and scale["domain"][1] >= max(scores)
+    dots = [l for l in leaves if l["mark"]["type"] == "point" and "x" in l["encoding"]]
+    assert dots[0]["encoding"]["x"]["axis"]["values"] == [1, 2, 3, 4, 5, 6]
+    three = ui_insights.improving_chart(_patty(rows=3)).to_dict()
+    dots = [l for l in _leaves(three) if l["mark"]["type"] == "point" and "x" in l["encoding"]]
+    assert dots[0]["encoding"]["x"]["axis"]["values"] == [1, 2, 3]
 
 
 def test_the_progress_caption_says_a_flat_stretch_proves_nothing():

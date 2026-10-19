@@ -31,12 +31,22 @@ def _layers(spec):
     return spec.get("layer", [spec])
 
 
-def _assert_tooltips_clean(spec):
+def _flat_layers(spec):
+    """Every leaf layer, however deeply layered (the Best so far chart nests
+    its Round lines under the plot)."""
+    out = []
     for layer in _layers(spec):
+        out += _flat_layers(layer) if "layer" in layer else [layer]
+    return out
+
+
+def _assert_tooltips_clean(spec):
+    for layer in _flat_layers(spec):
         mark = layer["mark"] if isinstance(layer["mark"], dict) else {"type": layer["mark"]}
         tip = layer.get("encoding", {}).get("tooltip")
-        if mark.get("tooltip") is False:
-            continue
+        enc = layer.get("encoding", {})
+        if mark.get("tooltip") is False or not ({"x", "y", "theta"} & set(enc)):
+            continue                 # decoration, or a legend-only layer (no position)
         assert tip, f"{mark['type']} layer shows raw encoding fields"
         for t in tip if isinstance(tip, list) else [tip]:
             assert t.get("title"), t
@@ -165,16 +175,21 @@ def test_the_progress_chart_tooltips_are_titled_and_read_one_decimal():
     carries none; each score reads one decimal, each Formulation a whole
     number."""
     from tests.test_best_candidates import _upgrade_like
-    spec = ui_insights.progress_chart(_upgrade_like()).to_dict()
+    spec = ui_insights.improving_chart(_upgrade_like()).to_dict()
     _assert_tooltips_clean(spec)
-    tips = [t for layer in _layers(spec)
+    tips = [t for layer in _flat_layers(spec)
             for t in layer.get("encoding", {}).get("tooltip", [])]
     assert tips
     for t in tips:
-        if t["field"] in (wording.OVERALL_SCORE_COLUMN, wording.BEST_SO_FAR_COLUMN):
+        assert t.get("title"), t
+        if t["field"] == wording.OVERALL_SCORE_COLUMN:
             assert t["format"] == ".1f", t
-        elif t["field"] in ("round", "bo"):          # review plots: Round, BO term
-            assert t["title"] in (wording.ROUND_CAP, wording.PLOT_BO), t
+        elif t["field"] == "x":                      # Best so far's step line
+            assert t["title"] == wording.FORMULATION_CAP and t["format"] == "d", t
+        elif t["field"] in ("text", "round", "bo"):  # preformatted one-decimal text, Round, BO term
+            assert t["title"] in (wording.BEST_SO_FAR_COLUMN, wording.STORY_ROUND_AVERAGE,
+                                  wording.ROUND_CAP, wording.PLOT_BO,
+                                  wording.PLOT_BO_MODEL_FREE), t
         else:
             assert t["title"] == wording.FORMULATION_CAP and t["format"] == "d", t
 

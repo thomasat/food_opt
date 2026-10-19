@@ -82,35 +82,6 @@ def _path_spec(opt, name="Oil"):
     return p, _spec(ui_insights.path_chart(opt, p, insights.path_predictions(opt, fitted, p)))
 
 
-def test_path_chart_marks_stay_in_their_own_panel():
-    opt = _burger(rounds=3)
-    p, spec = _path_spec(opt)
-    layers = _layers_by_panel(spec)
-    labels = [ui_insights.panel_label(opt, n) for n in ui_insights.path_panels(opt)]
-    firm = ui_insights.panel_label(opt, "Firmness")
-    # Target: Firmness's panel only, once; the Overall score panel has none.
-    [(mark, panels)] = layers["target"]
-    assert list(panels) == [firm] and [r["target"] for r in panels[firm]] == [6.0]
-    assert mark["strokeDash"] == [4, 3]
-    # Start marker: once per panel.
-    [(_, starts)] = layers["start"]
-    assert sorted(starts) == sorted(labels)
-    assert all([r["x"] for r in v] == [p.start_amount] for v in starts.values())
-    # Grey: exactly this chart's untested stretches, once in each panel.
-    want = insights.untested_runs(p, insights.tested_near(opt, p))
-    assert want                                   # this fixture has some
-    # The band and its two edges (spec 2026-10-01 D1), each once per panel.
-    assert [m["type"] for m, _ in layers["grey"]] == ["rect", "rule", "rule"]
-    for _, grey in layers["grey"]:
-        assert sorted(grey) == sorted(labels)
-        for v in grey.values():
-            assert sorted((r["x"], r["x2"]) for r in v) == sorted(want)
-    # The curve: one point per amount in each panel, for band and line alike.
-    for _, by in layers["curve"]:
-        assert sorted(by) == sorted(labels)
-        assert all(len(v) == len(p.amounts) for v in by.values())
-
-
 @pytest.mark.skip(reason=REVIEW_FOUR)
 def test_path_chart_without_targets_has_no_target_layer():
     opt = _burger(rounds=3)
@@ -212,10 +183,12 @@ def test_progress_chart_moved_from_results(insights_scored):
     labels = [e.label for e in at.expander]
     assert "Progress chart" not in labels and wording.FOLD_PROGRESS_CHART not in labels
     assert not any(c.value == wording.progress_caption_2() for c in at.caption)
-    at = _app()
-    at.session_state[ui_insights.PROGRESS_KEY] = True     # drawn only while open
-    at = _open_insights(at)
-    assert any(c.value == wording.progress_caption_2() for c in at.tabs[3].caption)
+    at = _open_insights(_app())
+    # It lives on the Review as "Best so far", under its own caption.
+    tab = at.tabs[3]
+    caption, _help = ui_insights.score_caption(insights_scored, ui_insights.round_view(insights_scored))
+    assert any(wording.PANEL_SCORE_TITLE in m.value for m in tab.markdown)
+    assert any(c.value == caption for c in tab.caption)
 
 
 def test_insights_not_computed_while_another_tab_is_open(insights_scored, monkeypatch):
@@ -229,20 +202,21 @@ def test_insights_not_computed_while_another_tab_is_open(insights_scored, monkey
     assert ui_insights.CACHE_KEY not in at.session_state
 
 
-def test_insights_computed_once_then_cached(insights_scored, monkeypatch):
-    # Both counted: fitted_models has its own FITTED_KEY cache, so counting
-    # only fit_all would pass even if _computed's own CACHE_KEY cache (the
-    # checks) never hit and recomputed check_rounds every rerun.
+def test_the_review_fits_nothing_on_any_run(insights_scored, monkeypatch):
+    # Review v3 draws from the measurements alone: it neither fits a model
+    # nor checks Rounds, on the first run or on a rerun, and keeps no checks.
     fit_calls, check_calls = [], []
     real_fit, real_check = insights.fit_all, insights.check_rounds
     monkeypatch.setattr(insights, "fit_all", lambda opt: fit_calls.append(1) or real_fit(opt))
     monkeypatch.setattr(insights, "check_rounds",
                         lambda opt, **kw: check_calls.append(1) or real_check(opt, **kw))
     at = _open_insights(_app())
-    assert fit_calls == [1] and check_calls == [1] and ui_insights.CACHE_KEY in at.session_state
+    assert not at.exception
+    assert fit_calls == [] and check_calls == []
+    assert ui_insights.CACHE_KEY not in at.session_state
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
     at.run()
-    assert fit_calls == [1] and check_calls == [1]
+    assert fit_calls == [] and check_calls == []
 
 
 def test_no_scored_formulation_one_line(burger):

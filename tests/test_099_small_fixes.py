@@ -50,19 +50,6 @@ def _install(name):
 
 
 # ------------------------------------------------------------------ #
-#  1. The Why map's reference line (refresh item 6; spec-review I6/I7)
-# ------------------------------------------------------------------ #
-
-def test_the_map_caption_names_the_line_only_when_it_is_drawn():
-    with_line = wording.why_chart_caption("3,000")
-    assert with_line.endswith("; dashed line, Best so far (predicted Repeat).")
-    without = wording.why_chart_caption("3,000", line=False)
-    assert without.endswith("labelled, this Round's suggestions.")
-    for line in (with_line, without):
-        assert line.count(". ") == 0 and "grey rings, tested formulations" in line
-
-
-# ------------------------------------------------------------------ #
 #  2. "Regression to the mean" only in Method and details (item 7)
 # ------------------------------------------------------------------ #
 

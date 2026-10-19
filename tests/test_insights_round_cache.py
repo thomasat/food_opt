@@ -189,35 +189,29 @@ def _progress_steps(monkeypatch):
     return steps, spins
 
 
-def test_one_progress_bar_while_the_models_and_rounds_are_worked_out(insights_scored,
-                                                                      monkeypatch):
+def test_the_review_fits_nothing_and_draws_no_progress_bar(insights_scored, monkeypatch):
+    """Review v3 draws from the measurements alone: no model is fitted, so
+    no progress bar or spinner is shown while the tab opens (the bar of the
+    old Insights tab is gone)."""
     steps, spins = _progress_steps(monkeypatch)
+    fits = []
+    real = insights.fit
+    monkeypatch.setattr(insights, "fit", lambda *a, **k: fits.append(1) or real(*a, **k))
     at = _open_insights(_app())
     assert not at.exception
-    # The fit, then Round 3 (6 rows before it), rising, one line throughout.
-    assert [v for v, _ in steps] == sorted(v for v, _ in steps)
-    assert len(steps) == 2 and steps[0][0] == 0.0
-    # One line with its count, as the workers' line reads (Plan A review C I-1).
-    assert [t for _, t in steps] == [wording.insights_progress(0, 1)] * 2
+    assert steps == [] and fits == []
     assert not [t for t in spins if t.startswith("Checking")]
-    # The predicted best's search runs under the same bar: no second
-    # indicator after it (V28, Plan A review C M-2).
     assert spins.count(wording.INSIGHTS_WORKING) == 0
-    assert ui_insights.ROUNDS_KEY in at.session_state
-    steps.clear()
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
     at.run()
-    assert steps == []                                      # kept: nothing to show
+    assert steps == [] and fits == []
 
 
-def test_the_bar_reads_the_same_on_a_process_only_project(ferment_scored, monkeypatch):
+def test_a_process_only_project_shows_no_bar_either(ferment_scored, monkeypatch):
     steps, _ = _progress_steps(monkeypatch)
     at = _open_insights(_app())
     assert not at.exception
-    assert [t for _, t in steps] == [wording.insights_progress(0, 2),
-                                     wording.insights_progress(0, 2),
-                                     wording.insights_progress(1, 2)]
-    assert len(steps) == 3                                  # the fit, Rounds 3 and 4
+    assert steps == []
 
 
 def test_the_round_checks_are_dropped_on_project_switch(insights_scored):

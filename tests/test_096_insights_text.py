@@ -200,20 +200,6 @@ def test_line_a_still_ranks_its_effects(tabs):
                for t in said)
 
 
-# ------------------------------------------------------------------ #
-#  Measured against predicted and the other lines with their basis
-# ------------------------------------------------------------------ #
-
-
-def test_measured_against_predicted_is_drawn_only_while_open(tabs):
-    fold = next(e for e in tabs[demo.LINE_A].tabs[3].expander
-                if e.label == wording.FOLD_MEASURED_CHART)
-    assert not fold.caption
-    at = _open(demo.LINE_A, ui_insights.EACH_KEY)
-    fold = next(e for e in at.tabs[3].expander if e.label == wording.FOLD_MEASURED_CHART)
-    assert [c.value for c in fold.caption] == [wording.MVP_CAPTION]
-
-
 def test_the_correlated_pair_carries_its_r(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     from tests.test_spread_fixes import _three
