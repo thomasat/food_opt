@@ -142,20 +142,6 @@ def _preview(opt, plan, name):
         st.caption(wording.calculated_range_caption(f"{low:.2f}", f"{high:.2f}", unit))
 
 
-def apply_calculation(opt, frame, index, text):
-    """One row given a calculation, checked before anything is staged.
-
-    Hands back `(errors, candidate)`: the candidate grid when the project
-    can take it, and None with the refusals when it cannot. A function
-    rather than a branch inside the dialog, because the dialog is redrawn
-    from scratch on every rerun and what it decided has to survive that.
-    """
-    candidate = frame.copy()
-    candidate.at[index, wording.FORMULA_LABEL] = canonical_calculation(text)
-    errors, _ = _validate(opt, candidate)
-    return (errors, None) if errors else ([], candidate)
-
-
 def _stage(frame, name=""):
     from ui_helpers import ING_GRID_KEY, park_grid, rekey_grid
     park_grid(ING_GRID_KEY, frame)

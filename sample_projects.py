@@ -172,11 +172,6 @@ def ensure(storage, names=YOGURT_NAMES):
     return written
 
 
-def ensure_burger(storage):
-    """The example setup alone: the yogurt pilot is never written by it."""
-    return ensure(storage, (BURGER,))
-
-
 def restore(name, storage):
     """Start this sample over: keep the current file as a copy, then put the
     shipped one back. Returns the copy's name, or None if there was no file.

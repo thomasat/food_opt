@@ -54,20 +54,6 @@ def flash(kind, message, sticky=False, place=None):
     st.session_state.setdefault(_FLASH_KEY, []).append((kind, message, bool(sticky), place))
 
 
-def app_rerun():
-    """st.rerun() for a rerun the app makes itself, not the user (the
-    Insights poller, as a fit lands): marked for one run, so render_flash
-    keeps the sticky messages on it whatever else that run reads."""
-    st.session_state[APP_RERUN_KEY] = True
-    st.rerun()
-
-
-def clear_sticky():
-    """Take the sticky messages down: an action of the user's own has
-    happened since (go_to_tab, a handler that saves without a flash)."""
-    st.session_state.pop(_STICKY_KEY, None)
-
-
 def _shown_tab():
     """The tab this run draws: a move go_to_tab asked for lands on it."""
     return st.session_state.get("_pending_tab") or st.session_state.get("main_tab")
@@ -492,22 +478,6 @@ def bounds_caution(opt, name, value, scale=1.0):
     a formulation they mean to make. Both teach the model more than a blank.
     """
     return opt.bounds_caution(name, value, scale)
-
-
-def amount_format(opt, frame):
-    """How each column of the batch table is written out: two decimals for the
-    amounts and the total, because that is the precision a balance works to,
-    and fmt_setting for a process setting, because a cook temperature is
-    neither an amount nor 180.00 nor 188.494. The column header already
-    carries the setting's unit, so only the number is formatted here."""
-    settings = {opt._amount_column(v['name']) for v in opt.variables
-                if v.get('category') == 'process'}
-    # A total across several units is already written out ("10.00 g · 40.00
-    # ml"); formatting a string as a number would raise.
-    skip = {wording.FORMULATION_CAP, wording.NOTE} | {
-        c for c in frame.columns if frame[c].dtype == object}
-    return {c: (fmt_setting if c in settings else "{:.2f}")
-            for c in frame.columns if c not in skip}
 
 
 def table_height(n_rows, max_rows=12):

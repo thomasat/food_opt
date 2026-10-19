@@ -1,7 +1,6 @@
 """The Insights tab. Builders here return Altair charts from computed facts
 and never call Streamlit; render() at the bottom is the only Streamlit code."""
 import collections
-import contextlib
 import dataclasses
 import html
 import math
@@ -13,15 +12,13 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-import bo_views
 import insights
-import insights_cache
-import insights_jobs
 import sample_projects
 import wording
 from food_bo import fmt_setting, join_unit
-from ui_helpers import (SCROLL_KEY, TAB_BATCH, app_rerun, confirmation_open, go_to_tab,
-                        open_rows, readiness)
+from ui_helpers import (
+    SCROLL_KEY, TAB_BATCH, confirmation_open, go_to_tab, open_rows, readiness,
+)
 
 # Text drawn on a chart (labels, the band's name): at least 4.5:1 against
 # the page in each theme. No single grey reaches that on both white and
@@ -226,15 +223,6 @@ START_KEY = "insights_start"
 SPREAD_KEY = "insights_spread_on"
 STAND_SECTION = "insights_stand"
 HOW_KEY = "insights_how_fold"
-# The "Predicted above Best so far" outline: Okabe-Ito orange, which holds
-# its contrast on white and on Streamlit's dark background (review M14).
-_OUTLINE_LIGHT = "#B35C00"     # about 4.6:1 on white (T56 m4)
-_OUTLINE_DARK = "#E69F00"      # on Streamlit's dark background
-
-
-def outline_colour():
-    """The Predicted above Best so far outline for the reader's theme."""
-    return _OUTLINE_DARK if muted() == _MUTED_DARK else _OUTLINE_LIGHT
 
 
 # Direction against a target (Results, the score fold, Review's strip) or
@@ -263,117 +251,6 @@ def direction_key_html(head, above, below, tail="", which=None):
     return f"{html.escape(head)} {key}" if head else key
 
 
-def fitted_models(opt, working=wording.INSIGHTS_WORKING, bar=None):
-    """insights.fit_all for this project's data, fitted once per data_key.
-    None when the fit failed. With `bar` (Insights' one progress bar) the
-    fit is its first step instead of a spinner of its own."""
-    key = insights.data_key(opt)
-    hit = st.session_state.get(FITTED_KEY)
-    if hit and hit[0] == key:
-        return hit[1]
-    if bar is not None:
-        order = _checked(opt)
-        done = len(_done_already(opt))
-        bar.progress(done / (len(order) + 1),
-                     text=_say(opt, wording.insights_progress(done, len(order))))
-    quiet = bar is not None or working is None
-    with (contextlib.nullcontext() if quiet else st.spinner(working)), \
-            insights.memo_in_use(memo(opt)):
-        try:
-            # Through the module attribute, so a test can stand in for the fit.
-            value = insights.fit_all(opt)
-        except Exception:
-            value = None
-    st.session_state[FITTED_KEY] = (key, value)
-    return value
-
-
-def _checked(opt):
-    """The Rounds that get a check, in order: the count on the one line."""
-    return [r for r, first in insights.round_order(opt) if first >= insights.MIN_ROWS]
-
-
-def _done_already(opt):
-    """The checked Rounds counted done before anything is fitted here
-    (spec 2026-10-01 C1, review I11; 04 M-1): those whose checks are kept,
-    and those whose models are all in the memo — the workers' own count
-    (insights_jobs.rounds_done) — so the line never starts at 0 for a
-    project already checked, nor goes back when the workers fail."""
-    keys = insights.round_keys(opt)
-    kept = st.session_state.get(ROUNDS_KEY, {})
-    mem = memo(opt)
-    models = {}
-    for s in _plan(opt):
-        if s.stage != insights_jobs.NOW:
-            models.setdefault(s.stage, []).append(s.key in mem)
-    return {r for r in _checked(opt)
-            if keys.get(r) in kept or (r in models and all(models[r]))}
-
-
-def _stepper(opt, bar):
-    """check_rounds' `checking`: moves the one progress bar on as each Round
-    is checked (0.8.0 review fixes §6, §9 I11), with the count the workers'
-    line shows (Plan A review C I-1): "3 of 9 Rounds checked…". A Round
-    already done counts from the start (C1), so the count never goes back."""
-    order = _checked(opt)
-    done = _done_already(opt)
-
-    @contextlib.contextmanager
-    def checking(r, last):
-        bar.progress(min(1.0, (len(done) + 1) / (len(order) + 1)),
-                     text=_say(opt, wording.insights_progress(len(done), len(order))))
-        yield
-        if r in order:
-            done.add(r)
-    return checking
-
-
-def _cached(opt):
-    """_computed's value for this project's data when it is already worked
-    out, else None."""
-    hit = st.session_state.get(CACHE_KEY)
-    return hit[1] if hit and hit[0] == insights.data_key(opt) else None
-
-
-def cached_checks(opt):
-    """The Round-by-Round checks for this project's data when they are
-    already worked out — by this tab, or from the workers' models (at
-    least every Round's Overall score and the verdict's Rounds) — else ().
-    Results and Make a round read them here and never fit for them."""
-    return checks_for(opt, "trust") or ()
-
-
-def _computed(opt, bar=None, quiet=False):
-    """The fitted models and the Round-by-Round checks, once per data_key.
-    `bar`, a slot under the header, shows one progress bar while they are
-    worked out; without it (a test, or a caller with no slot) a slot of
-    its own; `quiet`: none at all (the models are in: nothing is fitted)."""
-    hit = _cached(opt)
-    if hit is not None:
-        return hit
-    key = insights.data_key(opt)
-    bar = None if quiet else (bar if bar is not None else st.empty())
-    fitted = fitted_models(opt, working=None) if quiet else fitted_models(opt, bar=bar)
-    if fitted is None:
-        value = _FAILED
-    else:
-        rounds = st.session_state.setdefault(ROUNDS_KEY, {})
-        checking = None if quiet else _stepper(opt, bar)
-        try:
-            with insights.memo_in_use(memo(opt)):
-                checks = insights.check_rounds(opt, cache=rounds, checking=checking)
-            value = {"fitted": fitted, "checks": checks}
-        except Exception:
-            # Cached like a success, under the same key: one line on the
-            # tab instead of a traceback, and not tried again every rerun.
-            value = _FAILED
-    st.session_state[CACHE_KEY] = (key, value)
-    return value
-
-
-_FAILED = {"failed": True}
-
-
 # ------------------------------------------------------------------ #
 #  0.8.0 speed (spec 2026-09-30 §10; review B2, I1, I15): the models
 #  are fitted in worker processes as soon as a project opens or its data
@@ -395,281 +272,6 @@ PARTIAL_KEY = "_insights_partial"
 SAVED_KEY = "_insights_saved"
 # What the screen drew last, for the poller to compare with.
 SEEN_KEY = "_insights_seen"
-# How often a screen waiting for the workers looks again (seconds).
-POLL_SECS = 0.5
-# (data_key, Rounds done) on the progress line Insights drew last while
-# filling in: the poller reruns the page when a Round lands (C1).
-PROGRESS_SEEN_KEY = "_insights_progress_seen"
-# The parts of the Insights tab (app._insights_stages): the only screen
-# with the progress line.
-_INSIGHTS_STAGES = ("stand", "all")
-
-
-def memo(opt):
-    """This project's fitted models, read from beside the project (with
-    its Round checks, predicted best and next Round's expected
-    improvement) the first time it is asked for."""
-    hit = st.session_state.get(MEMO_KEY)
-    if hit is None or hit[0] != opt.project_name:
-        saved = insights_cache.load(opt.project_name)
-        st.session_state[MEMO_KEY] = (opt.project_name, saved.memo)
-        rounds = st.session_state.setdefault(ROUNDS_KEY, {})
-        for key, checks in saved.rounds.items():
-            rounds.setdefault(key, checks)
-        if saved.best is not None and BEST_KEY not in st.session_state:
-            st.session_state[BEST_KEY] = saved.best
-        # The next Round's expected improvement (C1): latest_gain takes it
-        # when its key is still this setup's, instead of searching again.
-        if saved.gain is not None:
-            st.session_state[NEXT_GAIN_KEY] = saved.gain
-    return st.session_state[MEMO_KEY][1]
-
-
-def _plan(opt):
-    key = insights.data_key(opt)
-    hit = st.session_state.get(PLAN_KEY)
-    if hit is None or hit[0] != key:
-        hit = (key, insights_jobs.plan(opt))
-        st.session_state[PLAN_KEY] = hit
-    return hit[1]
-
-
-def start(opt):
-    """Called by app.py on every run with a project open: the background
-    fits for this project's data — started after it opens and after
-    anything that changes its data (Save results, Move to Not scored, a
-    waiting value entered), and nothing when they are running or done.
-    Returns the Job while fits are in flight, else None (no workers, too
-    few formulations, or everything is in)."""
-    if opt is None or opt.complete_count() < insights.MIN_ROWS or not insights_jobs.workers_on():
-        return None
-    mem, specs = memo(opt), _plan(opt)
-    if insights_jobs.ready(specs, mem):
-        save(opt)
-        return None
-    pool = insights_jobs.pool()        # started only when there is something to fit
-    if pool is None:
-        return None
-    job = insights_jobs.job_for(opt, pool, mem, specs)
-    if job.poll(mem):
-        save(opt)
-    return None if job.failed else job
-
-
-def waiting(opt, stage):
-    """True while the workers are still fitting what `stage` needs
-    (insights_jobs.stage_specs); False once it is in, and always without
-    workers — the screen then fits it here, as before."""
-    if start(opt) is None:
-        return False
-    specs = insights_jobs.stage_specs(opt, _plan(opt), stage)
-    return not insights_jobs.ready(specs, memo(opt))
-
-
-def _partial_checks(opt, stage):
-    """The checks `stage` needs, from the fitted models alone; None until
-    they are all in. When the verdict's Rounds came out short of plan (a fit
-    failed), the verdict could read other Rounds: then every check, once
-    everything is in."""
-    specs = insights_jobs.stage_specs(opt, _plan(opt), stage)
-    mem = memo(opt)
-    if not insights_jobs.ready(specs, mem):
-        return None
-    data = insights.data_key(opt)
-    parts = st.session_state.setdefault(PARTIAL_KEY, {})
-    if (data, stage) not in parts:
-        for gone in [k for k in parts if k[0] != data]:
-            del parts[gone]
-        rounds = st.session_state.setdefault(ROUNDS_KEY, {})
-        with insights.memo_in_use(mem):
-            checks = insights.check_rounds(opt, cache=rounds, only=insights_jobs.only_pairs(specs))
-            if stage != "column" and not insights_jobs.settled(opt, checks):
-                if not insights_jobs.ready(_plan(opt), mem):
-                    return None
-                checks = insights.check_rounds(opt, cache=rounds)
-        parts[(data, stage)] = checks
-    return parts[(data, stage)]
-
-
-def checks_for(opt, stage):
-    """This tab's checks when worked out, else the part `stage` needs from
-    the fitted models, else None. Never fits anything."""
-    hit = _cached(opt)
-    if hit is not None and not hit.get("failed"):
-        return hit["checks"]
-    return _partial_checks(opt, stage)
-
-
-def save(opt):
-    """Write what is worked out for this project's data beside the project:
-    its fitted models, its Round checks, its predicted best and the next
-    Round's expected improvement (C1), pruned to
-    what this data uses. Once per state; a failed write only means the next
-    open fits again."""
-    mem = memo(opt)
-    specs = _plan(opt)
-    keys = set(insights.round_keys(opt).values())
-    rounds = {k: v for k, v in st.session_state.get(ROUNDS_KEY, {}).items() if k in keys}
-    best = st.session_state.get(BEST_KEY)
-    best = best if best and best[0] == insights.setup_key(opt) else None
-    gain = st.session_state.get(NEXT_GAIN_KEY)
-    gain = gain if gain and gain[0] == bo_views.next_gain_key(opt) else None
-    kept = {s.key: mem[s.key] for s in specs if s.key in mem}
-    mark = (insights.data_key(opt), len(kept), tuple(sorted(rounds)), best is not None,
-            None if gain is None else gain[0])
-    if st.session_state.get(SAVED_KEY) == mark:
-        return
-    try:
-        insights_cache.save(opt.project_name, insights_cache.Saved(kept, rounds, best, gain))
-    except Exception:
-        pass
-    st.session_state[SAVED_KEY] = mark
-
-
-def warm_best(opt):
-    """The predicted best (a 0.7 s search in this process), as soon as the
-    Overall score's models are in from the workers, so answer 2 need not
-    wait for it. In a script run of this session, never beside ask()
-    (review B2); once per setup_key. Nothing without workers."""
-    if opt is None or opt.complete_count() < insights.MIN_ROWS or not insights_jobs.workers_on():
-        return
-    hit = st.session_state.get(BEST_KEY)
-    if (hit and hit[0] == insights.setup_key(opt)) or not _in_memo(opt, "column"):
-        return
-    checks = _partial_checks(opt, "column")
-    with insights.memo_in_use(memo(opt)):
-        score = insights.fit(opt, insights.SCORE, list(range(len(opt.Y_history))))
-    if checks is None or score.model is None:
-        return
-    _predicted_best(opt, {insights.SCORE: score}, checks, spinner=False)
-    save(opt)
-
-
-def warm_gain(opt):
-    """§3.2's next-Round figure (ask()'s own first-pick search, about 1.5 s
-    at 60 x 4) worked out after the page is drawn, so neither Insights nor
-    Make a round's E3 waits on it (final review I-1). Once per _gain_key;
-    only with no Round open; nothing while another run of this app is
-    already working it out (it never waits for that run)."""
-    if opt is None or opt.pending_batch or opt.complete_count() < insights.MIN_ROWS:
-        return
-    hit = st.session_state.get(GAIN_KEY)
-    if hit and hit[0] == _gain_key(opt):
-        return
-    latest_gain(opt, wait=False)
-
-
-def _seen(opt, stages):
-    return tuple(not waiting(opt, stage) for stage in stages)
-
-
-def _in_memo(opt, stage):
-    """Whether every model `stage` needs is in the memo — fitted, not merely
-    no longer waited for (a failed pool stops the waiting too)."""
-    return insights_jobs.ready(insights_jobs.stage_specs(opt, _plan(opt), stage), memo(opt))
-
-
-def _catch_up(opt):
-    """Work out here, from the workers' models, what the tab would otherwise
-    work out when it is opened: the predicted best once the Overall score's
-    models are in the memo, then every check once all of them are —
-    conditioning only, about a second in all — and write it beside the
-    project. Never a fit: when the workers fail, what is missing is fitted
-    by the screen that shows it, behind its own indicator (Plan A review C
-    I-1). Only with workers; in a script run of this session.
-
-    The next Round's expected improvement (warm_gain, about 1.5 s at
-    60 x 4) needs no display model: it is worked out at once, while the
-    workers are still fitting the Overall score's models — time this
-    process would only wait — so the predicted best and the first answers
-    never queue behind it (answer-key refresh item 2: 5.0 s to the first
-    answer right after launch at 60 x 4)."""
-    if not insights_jobs.workers_on():
-        return
-    if _in_memo(opt, "column"):
-        warm_best(opt)
-    warm_gain(opt)
-    if _in_memo(opt, "all") and _cached(opt) is None:
-        _computed(opt, quiet=True)
-        save(opt)
-
-
-def _in_flight(opt):
-    """Whether the workers are still fitting this project's data."""
-    return start(opt) is not None
-
-
-def keep_up(opt, stages=()):
-    """app.py, after the page is drawn, on every run with a project open:
-    catch up with the workers now, and while they are still fitting (or
-    something is left to catch up), look again every POLL_SECS in a
-    fragment of its own — which reruns only itself, so no other tab is
-    disturbed — and rerun the page the moment one more part of the open
-    screen (`stages`, the parts it draws) is in: each part is drawn once,
-    final. Nothing without workers."""
-    if opt is None or opt.complete_count() < insights.MIN_ROWS:
-        return
-    drawn = st.session_state.pop(SEEN_KEY, None)
-    if not insights_jobs.workers_on():
-        # The workers were given up on while the page was drawn with a part
-        # still waiting for them: draw it again, fitted here behind the
-        # screen's own indicator (Plan A review C I-1). Once: drawing()
-        # marks nothing without workers.
-        if drawn is not None and not all(drawn):
-            app_rerun()
-        return
-    _catch_up(opt)
-    now = _seen(opt, stages)
-    st.session_state[SEEN_KEY] = now
-    if drawn is not None and len(drawn) == len(now) and drawn != now:
-        # A part landed while the page was being drawn (drawing() marked
-        # what it was drawn from), or the workers failed and it is now
-        # fitted here: one more run shows it instead of keeping the older
-        # state until the next click.
-        app_rerun()
-    if _in_flight(opt):
-        _poller(opt, tuple(stages))
-
-
-def drawing(opt, stages=()):
-    """app.py, before the page is drawn: which parts of the open screen
-    (`stages`) are in, so keep_up can tell when one landed while the page
-    was drawn — after Save results the last fits often land in that
-    moment, and nothing else would rerun the page."""
-    if opt is None or opt.complete_count() < insights.MIN_ROWS or not insights_jobs.workers_on():
-        return
-    st.session_state[SEEN_KEY] = _seen(opt, stages)
-
-
-def _poll_step(opt, stages):
-    """One look by the poller: catch up, then whether to rerun the page —
-    when a part of the open screen landed, or when nothing is in flight any
-    more, so the fragment (which only a full run stops calling) stops and
-    no screen polls once everything is in (Plan A review C I-3)."""
-    _catch_up(opt)
-    return (not _in_flight(opt) or _seen(opt, stages) != st.session_state.get(SEEN_KEY)
-            or _count_moved(opt, stages))
-
-
-def _count_moved(opt, stages):
-    """Whether Insights' progress line, drawn while filling in, is behind
-    the Rounds the workers have returned (C1: it moves per Round returned,
-    not only when a part of the screen lands; 01 F2)."""
-    drawn = st.session_state.get(PROGRESS_SEEN_KEY)
-    if drawn is None or not all(s in stages for s in _INSIGHTS_STAGES):
-        return False
-    if drawn[0] != insights.data_key(opt):
-        return False
-    return insights_jobs.rounds_done(opt, _plan(opt), memo(opt))[0] != drawn[1]
-
-
-@st.fragment(run_every=POLL_SECS)
-def _poller(opt, stages):
-    # The app's own rerun, not the user's: a sticky flash stays (review I10).
-    # Layout study: never while a Replay steps (a full run would stop it);
-    # the next look, POLL_SECS on, reruns the page instead.
-    if _poll_step(opt, stages) and not replaying():
-        app_rerun()
 
 
 def _say(opt, text):
@@ -1713,20 +1315,6 @@ def _mark_key(entries, y_px, size=150):
 # ------------------------------------------------------------------ #
 
 
-def range_text(low, high, fmt=None):
-    """"70–85"; "-1.25 to 0.4" when a bound is negative, so a minus sign is
-    never read as part of the dash."""
-    fmt = fmt or _num
-    sep = " to " if low < 0 or high < 0 else "–"
-    return f"{fmt(low)}{sep}{fmt(high)}"
-
-
-def score_text(p, top=100.0):
-    """An Overall-score prediction: whole numbers, "78 (70–85)"; never 100
-    (review learned): "≥ 99 (95–100)"."""
-    return capped_range(p, top, 0)
-
-
 def _num(value):
     """A number for the tab, never in scientific notation: 0 decimals from
     100, 1 from 10, otherwise up to 2 significant decimals with no trailing
@@ -1793,136 +1381,6 @@ def formulation_ticks(numbers):
     lo, hi = min(numbers), max(numbers)
     step = max(1, math.ceil((hi - lo + 1) / _MAX_TICKS))
     return list(range(lo, hi + 1, step))
-
-
-def _predicted_best(opt, fitted, checks=(), spinner=True):
-    """insights.predicted_best, once per setup_key (the checks follow from
-    the data it covers). A failure is cached as such and shows one line.
-    `spinner` False while the tab's one progress line is showing (V28)."""
-    key = insights.setup_key(opt)
-    hit = st.session_state.get(BEST_KEY)
-    if hit and hit[0] == key:
-        return hit[1]
-    with (st.spinner(wording.INSIGHTS_WORKING) if spinner else contextlib.nullcontext()):
-        try:
-            value = insights.predicted_best(opt, fitted, checks)
-        except Exception:
-            value = _FAILED
-    st.session_state[BEST_KEY] = (key, value)
-    return value
-
-
-# (key, bo_views.RoundGain or None): §3.2's figure for this data, open Round
-# and generation record, worked out once (fix round 1, C1: Progress, Next
-# step and Make a round's E3 read the same number).
-GAIN_KEY = "_insights_gain"
-# (bo_views.next_gain_key, bo_views.RoundGain): the next Round's figure as
-# it is written beside the project (spec 2026-10-01 C1, review I11), read
-# back by memo() on a reopen so it is neither fitted nor searched for again.
-NEXT_GAIN_KEY = "_insights_next_gain"
-
-
-def _gain_key(opt):
-    """What the figure on screen depends on: the setup, the acquisition,
-    the open Round and its record, and (no Round open) the seed the next
-    Generate uses and robust, which move without the data (review I11)."""
-    record = (getattr(opt, "round_generation", None) or {}).get(opt.pending_batch_no)
-    return insights._digest({"setup": insights.setup_key(opt),
-                             "acquisition": bo_views.acquisition(opt),
-                             "open": opt.pending_batch, "record": record,
-                             "seed": int(opt.next_formulation_no),
-                             "robust": bool(getattr(opt, "robust", False))})
-
-
-def _gain_needs_no_fit(opt, mem):
-    """Whether the open Round's figure needs no display-model fit: a cold
-    Round, an exact one (one default fit of the suggestion model, as the
-    Why fold makes), or a recomputed one whose display model is in the
-    memo. With no Round open the figure needs the pool: never here."""
-    r = opt.pending_batch_no if opt.pending_batch else None
-    if r is None:
-        return False
-    gen = bo_views.generation(opt, r)
-    if gen.regime != "warm" or gen.exact:
-        return True
-    use = [i for i in gen.rows if insights.measured(opt, insights.SCORE, i) is not None]
-    return insights.model_key(opt, insights.SCORE, use) in mem
-
-
-# _gain_key -> threading.Event, set once that figure is stored: a page
-# rerun while an earlier run of the session still works the figure out
-# (Streamlit lets the earlier run finish in its own thread) waits for it,
-# or skips it, instead of a second search queued behind the first on
-# RNG_LOCK (answer-key refresh item 2: 3.8 s in the second run).
-_GAIN_RUNS = {}
-_GAIN_RUNS_LOCK = threading.Lock()
-
-
-def latest_gain(opt, fit=True, wait=True):
-    """§3.2's figure once per _gain_key (the data, the open Round and its
-    record): the open Round's own (bo_views.latest_gain); with no Round
-    open, the next Round's from today's rows (bo_views.next_gain under
-    bo_views.next_model, the default fit ask() makes, final review I-1),
-    worked out here under the lock, unless it was saved beside the project
-    or worked out by another session (C1). `fit`
-    False (Make a round's E3): only what is already worked out; None, not
-    stored, otherwise. While another run works the same figure out:
-    `wait` (a screen that shows it) waits for that run's answer; else None."""
-    key = _gain_key(opt)
-    hit = st.session_state.get(GAIN_KEY)
-    if hit and hit[0] == key:
-        return hit[1]
-    mem = memo(opt)
-    nxt = not (opt.pending_batch and opt.pending_batch_no is not None)
-    if nxt:
-        # Saved beside the project, or worked out by another session (C1):
-        # neither a fit nor a search, nor a wait for another run.
-        known = bo_views.saved_next_gain(opt, st.session_state.get(NEXT_GAIN_KEY))
-        if known is not None:
-            _keep_next_gain(opt, key, known)
-            return known
-    if not fit and not _gain_needs_no_fit(opt, mem):
-        return None
-    with _GAIN_RUNS_LOCK:
-        running = _GAIN_RUNS.get(key)
-        if running is None:
-            _GAIN_RUNS[key] = done = threading.Event()
-    if running is not None:
-        if not wait:
-            return None
-        running.wait()
-        hit = st.session_state.get(GAIN_KEY)
-        if hit and hit[0] == key:
-            return hit[1]
-        # Its write did not land in this session (another session's run, or
-        # one Streamlit had stopped): again here, its search from the cache.
-        return latest_gain(opt, fit, wait)
-    try:
-        try:
-            with insights.memo_in_use(mem):
-                if not nxt:
-                    g = bo_views.latest_gain(opt)
-                else:
-                    g = bo_views.next_gain_for(opt, st.session_state.get(NEXT_GAIN_KEY))
-        except Exception:
-            g = None
-        if nxt and g is not None:
-            _keep_next_gain(opt, key, g)
-        else:
-            st.session_state[GAIN_KEY] = (key, g)
-    finally:
-        # Stored first, then the runs waiting for it are let go.
-        with _GAIN_RUNS_LOCK:
-            _GAIN_RUNS.pop(key, None)
-        done.set()
-    return g
-
-
-def _keep_next_gain(opt, key, g):
-    """The next Round's figure for this session (GAIN_KEY) and for the
-    file beside the project (NEXT_GAIN_KEY, written by save())."""
-    st.session_state[GAIN_KEY] = (key, g)
-    st.session_state[NEXT_GAIN_KEY] = (bo_views.next_gain_key(opt), g)
 
 
 # ------------------------------------------------------------------ #
@@ -2003,10 +1461,6 @@ def _how(opt):
 # ------------------------------------------------------------------ #
 
 
-def _check_round(opt):
-    return opt.pending_batch_no if opt.pending_batch else opt.next_batch_no()
-
-
 HOW_PLACE = "insights_how_place"
 
 
@@ -2026,43 +1480,6 @@ def _short(opt, text):
     """'F18' as the project says it: 'T18' in a study of trials."""
     letter = _say(opt, wording.FORMULATION_CAP)[:1] or "F"
     return re.sub(r"\bF(\d+)\b", rf"{letter}\1", _say(opt, text))
-
-
-def capped(value, top, d=1):
-    """A prediction, never at or past the top of its Range: '≥ 15', and on
-    the Overall score's 0–100 '≥ 99' (review learned, owner: no 100s)."""
-    text = f"{value:.{d}f}"
-    if float(text) >= top - 1e-9:
-        shown = top - 1 if abs(top - 100.0) < 1e-9 else top
-        return f"≥ {shown:g}"
-    return text
-
-
-def capped_range(p, top, d=1):
-    """Review critique (fix 12): a forecast and its 95 % range that never
-    reads a top below its point: '13.5 (11.1–15)'; at the top, the point
-    capped as before and the range ending at the highest possible value:
-    '≥ 99 (93.4–100)' (it read '99.5 (93.4–≥ 99)'). `p` a Prediction or a
-    Check. ' to ' when a bound is negative."""
-    mean = getattr(p, "mean", None)
-    mean = getattr(p, "predicted", 0.0) if mean is None else mean
-    low, high = float(p.low), float(p.high)
-    sep = " to " if low < 0 or high < 0 else "–"
-    # Round-2 fixes (P3 #19): the range's top with the point's decimals.
-    top_text = f"{top:.{d}f}"
-    hi_text = top_text if high >= top - 1e-9 or float(f"{high:.{d}f}") >= top else f"{high:.{d}f}"
-    lo_text = f"{min(low, top):.{d}f}"
-    return f"{capped(min(mean, top), top, d)} ({lo_text}{sep}{hi_text})"
-
-
-def no_forecast(opt, c):
-    """Sceptic review: whether the 95 % range of check (or prediction) `c`
-    covers its result's whole Range — its low within NO_FORECAST_EDGE (1 %)
-    of the Range's width of the Range's low, and its high as close to the
-    Range's high: a range of the whole Range forecasts nothing (Creaminess
-    0.0–15.0 on 0–15). False for a name with no Range."""
-    return bool(getattr(c, "no_forecast", False)) or insights.covers_range(
-        opt, c.name, c.low, c.high)
 
 
 PROGRESS_ROUND_PLACE = "insights_progress_round"   # the section's Replay panel and captions

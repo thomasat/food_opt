@@ -967,34 +967,6 @@ tab_setup, tab_batch, tab_results, tab_insights = st.tabs(
     key="main_tab", on_change="rerun")
 
 _line = _batch_line(_opt)
-# 0.8.0 speed (spec 2026-09-30 §10.3): Insights' models start fitting in the
-# worker processes as soon as a project is open or its data changes —
-# opening it, Save results, Move to Not scored, a waiting value — whichever
-# tab is showing. A worker never shares this process's torch state, so
-# nothing it does can reach ask() (review B2).
-def _insights_stages():
-    """The parts of the open screen that wait for Insights' fits."""
-    if tab_insights.open:
-        # Review v3: measurements only, so nothing on it waits for a fit.
-        return ()
-    if tab_batch.open and open_rows(_opt):
-        # "all" too: after a failed fit in the verdict's Rounds the track
-        # line waits for everything (Plan A review C M-3).
-        return ("column", "trust", "now", "all")
-    if tab_batch.open:
-        # The Generate screen's status line (E3, 04 §3) reads the checks and
-        # the predicted best from what is worked out: they arrive through
-        # the poller, never by fitting here.
-        return ("trust", "stand")
-    return ()
-
-
-try:
-    ui_insights.start(_opt)
-    ui_insights.drawing(_opt, _insights_stages())
-except Exception:   # the screens fit in this process instead, as before
-    pass
-
 with tab_setup:
     # Tab 1 only: tab 2 carries the batch's own heading, and the line sat
     # directly above "Round 1 · make these 3 formulations" saying it again.
@@ -1035,16 +1007,6 @@ if st.session_state.get(REVIEW_DUE_KEY) is not None:
 _scroll_to = st.session_state.pop(SCROLL_KEY, None)
 if _scroll_to:
     st.html(scroll_script(_scroll_to, time.time_ns()), unsafe_allow_javascript=True)
-
-# After the page is drawn, in this same run (review B2): catch up with the
-# workers — the predicted best once the Overall score's models are in, every
-# check once all are — and, while they are still fitting, look again every
-# half second in a fragment of its own, rerunning the page when a part the
-# open tab draws lands (review I15).
-try:
-    ui_insights.keep_up(_opt, _insights_stages())
-except Exception:   # the screens work it out when they are opened, as before
-    pass
 
 # A save that failed during this run must be visible now, not after the next
 # click: form submits do not rerun, and the banner above already rendered.

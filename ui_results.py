@@ -782,15 +782,12 @@ def _best(opt):
     return partial, missing, waiting is None
 
 
-def best_repeats_text(opt, checks=None):
+def best_repeats_text(opt):
     """A6 (review I7): Best so far's Repeats under it, "Repeats of
     Formulation 14: 67.3, 66.3, 75.6. Mean of all: 75.2.", or "". One
     decimal, as every screen shows scores; the mean is taken from
-    the stored scores. A Repeat disagreeing_repeat leaves out of the noise
-    is still listed, marked. Display only: Best so far is still the single
-    highest score (ranking by the mean is an owner decision). `checks`:
-    the Round-by-Round checks, when worked out (Results never checks
-    Rounds itself)."""
+    the stored scores. Display only: Best so far is still the single
+    highest score (ranking by the mean is an owner decision)."""
     best = opt.best_index()
     if best is None:
         return ""
@@ -798,12 +795,8 @@ def best_repeats_text(opt, checks=None):
                   if best in g), None)
     if not group:
         return ""
-    checks = ui_insights.cached_checks(opt) if checks is None else checks
-    flagged = insights.disagreeing_repeat(opt, checks) if checks else None
     others = sorted((i for i in group if i != best), key=lambda i: int(opt.formulation_ids[i]))
-    scores = [wording.repeat_score(wording.score_shown(opt.Y_history[i]),
-                                   disagrees=flagged is not None and flagged.row == i)
-              for i in others]
+    scores = [wording.score_shown(opt.Y_history[i]) for i in others]
     mean = sum(float(opt.Y_history[i]) for i in group) / len(group)
     return wording.best_repeats_line(int(opt.formulation_ids[best]), scores,
                                      wording.score_shown(mean))

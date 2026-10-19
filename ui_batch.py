@@ -22,13 +22,12 @@ import sample_projects
 from food_bo import WORKBOOK_MIME, UploadedWorkbook, uploaded_parts
 from storage import StorageError
 from ui_helpers import (
-    BATCH_SIZE_KEY, SCROLL_KEY, TAB_RESULTS, TAB_SETUP, amount_format, amount_range_placeholder,
-    best_formulation_no,
-    bounds_caution, confirm_action,
-    confirmation_open, flash, flash_waiting, fmt_setting, go_to_tab, goal_line,
-    clear_scale_total, entry_label, join_unit, label_with_unit, number_list, open_rows,
-    park_clear, preserve_tab_forms, readiness, saved_ok, scale_error,
-    table_height, typed_batch_size, unit_after_number,
+    BATCH_SIZE_KEY, SCROLL_KEY, TAB_RESULTS, TAB_SETUP, amount_range_placeholder,
+    best_formulation_no, bounds_caution, confirm_action, confirmation_open, flash,
+    flash_waiting, fmt_setting, go_to_tab, goal_line, clear_scale_total, entry_label,
+    join_unit, label_with_unit, number_list, open_rows, park_clear, preserve_tab_forms,
+    readiness, saved_ok, scale_error, table_height, typed_batch_size,
+    unit_after_number,
 )
 from food_bo import COLD_START_RUNS
 import bo_views
@@ -38,8 +37,6 @@ from ui_helpers import REVIEW_DUE_KEY, ask_tab, review_due
 # Ftue fix C: the Add fold's place and the Repeat link's request; v3: the
 from ui_helpers import ADD_OWN_KEY, ADD_OWN_PLACE
 
-# The batch table's own formatter, under the name tests and older code import.
-_amount_format = amount_format
 
 # Measurements wrap at four per row so a pilot with ten instrument readings
 # still fits on screen.
