@@ -165,3 +165,25 @@ def test_the_check_stays_fast_on_a_long_history(burger):
     start = time.perf_counter()
     _round(burger, 10)
     assert time.perf_counter() - start < 1.0
+
+
+def test_an_unreadable_row_never_stops_generate(tmp_path, monkeypatch):
+    """A blank or a word where an amount belongs (an older or hand-edited
+    file) can match nothing; it is left out of the check."""
+    monkeypatch.chdir(tmp_path)
+    opt = _plain()
+    opt.skipped.append({'formulation': 9, 'batch': 1, 'note': "",
+                        'recipe': {'Flour': None, 'Sugar': "", 'Butter': 5.0}})
+    opt.retired_suggestions = [{'Flour': "x"}]
+    assert len(_round(opt, 3)) == 3
+
+
+def test_a_damaged_retired_section_is_refused_at_the_door(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    state = _plain().export_json()
+    state['retired_suggestions'] = 5
+    with pytest.raises(ValueError):
+        FoodOptimizer.validate_state(state)
+    state['retired_suggestions'] = [[1, 2]]
+    with pytest.raises(ValueError):
+        FoodOptimizer.validate_state(state)

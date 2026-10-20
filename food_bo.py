@@ -8049,9 +8049,21 @@ class FoodOptimizer:
                     recipes.append(self._as_generated(recipe, self.pending_batch_no,
                                                       row.get('formulation')))
         recipes += [dict(r) for r in self._retired() if isinstance(r, dict)]
-        if not recipes:
+        rows = []
+        for recipe in recipes:
+            # A row this build cannot read as numbers (a blank or a word
+            # where an amount belongs, in an older or hand-edited file) can
+            # never match a candidate: it is left out, never allowed to stop
+            # Generate.
+            try:
+                row = np.asarray(self._encode(recipe), dtype=float)
+            except (TypeError, ValueError):
+                continue
+            if np.all(np.isfinite(row)):
+                rows.append(row)
+        if not rows:
             return None
-        return np.asarray([self._encode(r) for r in recipes], dtype=float)
+        return np.vstack(rows)
 
     def _fill_from_repeats(self, repeats, chosen, k):
         """`k` of `repeats` (sequence order): first those that match neither
@@ -13067,6 +13079,8 @@ class FoodOptimizer:
             'notes_history': lambda x: x is None or isinstance(x, str),
             'skipped': _left_out,
             'set_aside': _number,
+            # A suggestion dropped without a record: its amounts, by name.
+            'retired_suggestions': lambda x: isinstance(x, dict),
         }
         for key, ok in identity.items():
             if key not in state:
