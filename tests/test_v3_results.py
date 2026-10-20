@@ -567,6 +567,10 @@ def test_round_results_colour_and_bold_the_direction(round6, monkeypatch, which)
 def test_the_results_key_is_coloured_under_the_table(round6):
     import ui_insights
     html = ui_results.results_key_markup(ui_results.round_results(round6))
-    assert html.startswith("Panel median (n = 5), 0–15.")
+    import re
+    assert re.sub(r"<[^>]+>", "", html).startswith("Panel median (n = 5), 0–15.")
+    # N18: drawn whole (a caption's 60 % dimmed the colours), its plain
+    # words at the caption's 60 %.
+    assert 'class="fo-direction-key"' in html and "opacity: 1" in ui_insights.DIRECTION_KEY_STYLE
     assert f"color: {ui_insights.direction_colour('above')}" in html
     assert ">Above target<" in html and ">Below target<" in html

@@ -546,6 +546,8 @@ def _round_results_section(opt):
     # Under the table, as the key it is (owner mock-up, v3 final cleanup).
     line = results_key_markup(table)
     if line:
+        if table["key"]:
+            st.html(ui_insights.DIRECTION_KEY_STYLE)
         st.caption(line, unsafe_allow_html=True)
     _score_breakdown(opt, table)
 

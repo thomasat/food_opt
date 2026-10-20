@@ -7201,9 +7201,7 @@ def test_the_best_so_far_chart_caption_says_made_once_rated_once(scored):
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
     at.run()
     caps = [c.value for c in at.tabs[3].caption]
-    assert any(c.startswith(f"Each {wording.FORMULATION} made once, rated once")
-               or c.startswith(f"Each dot: one {wording.FORMULATION}, rated once")
-               for c in caps), caps
+    assert wording.REVIEW_SCORE_CAPTION in caps, caps        # S8: one line, every state
 
 
 def test_the_batch_size_help_ties_the_box_to_the_column_that_reads_it(

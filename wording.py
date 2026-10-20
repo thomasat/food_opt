@@ -1908,9 +1908,10 @@ def round_results_column(name, goal, target=None, unit="", scale=None):
     """A measurement's header in every Results table (N7: one format, the
     one the entry boxes use): 'Firmness (/10) · Target 6'; 'Juiciness ·
     Higher is better'. `unit` in the brackets, '/10' included; `scale`
-    (low, high) only when measurements differ in scale."""
+    (low, high) only when measurements differ in scale and the unit does
+    not say it ('/10')."""
     said = []
-    if scale:
+    if scale and not str(unit).startswith("/"):     # '/10' says the scale itself
         said.append(_scale_text(*scale))
     if unit:
         said.append(str(unit))
@@ -4569,12 +4570,16 @@ REPLAY_PLAY = f"Play {ROUND_CAP}s"
 REPLAY_STOP = "Stop"
 REPLAY_BACK = "Back to latest"
 REPLAY_EARLIER = f"Earlier {ROUND_CAP}"
-REPLAY_LATEST = "Latest"
+# N13: said in the control's own label, 'Round 5 of 5 (latest)'; a lone
+# grey "Latest" pill beside it explained nothing.
+REPLAY_LATEST = "latest"
 
 
 def replay_label(round_no, last):
-    """'**Round 4** of 10' (the panel's control)."""
-    return f"**{ROUND_CAP} {round_no}** of {last}"
+    """'**Round 4** of 10' (the panel's control); '**Round 5** of 5
+    (latest)' on the latest."""
+    tail = f" ({REPLAY_LATEST})" if round_no == last else ""
+    return f"**{ROUND_CAP} {round_no}** of {last}{tail}"
 
 
 def replay_to(round_no):
@@ -4639,34 +4644,35 @@ def review_each(n):
     return f"{REVIEW_EACH_FORMULATION} ({n})"
 
 
-def review_best_label(best, names):
-    """The score chart's Best label: 'Best: 98.3 (F16, F17 tied)'."""
-    return f"Best: {best} ({tied_names(names)})"
-
-
 def review_top_line(top):
     """The dotted line at the top score: '100 = every measurement on target'."""
     return f"{top} = every {MEASUREMENT} on target"
 
 
-def review_score_caption(n=None, once=True):
-    """Under the score chart: 'Each formulation made once, rated once by the
-    panel (n = 5).' — the panel's size only when the project records it;
-    with Repeats on file, 'Each dot: one formulation, rated once.'."""
-    size = f" (n = {n})" if n else ""
-    if not once:
-        return f"Each dot: one {FORMULATION}, rated once{size}."
-    return f"Each {FORMULATION} made once, rated once by the panel{size}."
+# Under the score chart, one line in every state (S8): it said "rated once
+# by the panel" of a project with no panel, and changed words once a second
+# Round was in. The panel, where the project records one (the yogurt pilot),
+# is in its "?".
+REVIEW_SCORE_CAPTION = f"Each dot: one {FORMULATION}, measured once."
 
 
-def review_score_help(example=None):
-    """The caption's "?": why small differences may not be real, and what
-    one point off costs, from the project's own best ('Example: Tanginess 4
-    instead of 5 costs 1.7 points.'); no example when every attribute is on
-    target."""
-    text = (f"Tasting the same {FORMULATION} again could give a slightly different score, "
-            "so small differences may not be real.")
-    return f"{text} {example}" if example else text
+def review_score_help(panel_size=None):
+    """The caption's "?": why small differences may not be real, and, for a
+    project that records its panel, how each result was made. The scoring
+    example is the chart title's "?" (review_score_title_help; N14)."""
+    text = (f"Measuring the same {FORMULATION} again could give a slightly "
+            "different score, so small differences may not be real.")
+    if panel_size:
+        text += f" Each result is the median of a panel of {panel_size}."
+    return text
+
+
+def review_score_title_help(definition, example=None):
+    """Best so far's "?": how the score is made (Definitions' first line)
+    and what one unit off costs, from the project's own best ('Example:
+    Tanginess 4 instead of 5 costs 1.7 points.'); no example when every
+    measurement is on target."""
+    return f"{definition} {example}" if example else definition
 
 
 def review_cost_example(name, value, ideal, cost):
@@ -4736,8 +4742,9 @@ def review_amounts_help(count=REVIEW_TOP_COUNT):
 
 
 def review_amounts_linked(n, total):
-    """'The 7 add to 97.7–98.7 g (the allowed total), so amounts are linked.'"""
-    return f"The {n} add to {total} (the allowed total), so amounts are linked."
+    """'These 9 ingredients total 100 g, so they move together.' (S9: "The
+    9" named nothing.)"""
+    return f"These {n} {INGREDIENT}s total {total}, so they move together."
 
 
 REVIEW_ALLOWED = "Allowed, not tried"

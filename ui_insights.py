@@ -239,16 +239,31 @@ def direction_colour(kind, which=None):
     return _DIRECTION[which or theme()][kind]
 
 
+# N18: a caption is drawn at 60 % opacity, which dimmed the key's colours
+# (on the dark page most of all) below the table cells they name. A caption
+# holding a key is drawn whole, and its plain words keep the caption's 60 %.
+_KEY_CLASS = "fo-direction-key"
+DIRECTION_KEY_STYLE = (
+    f'<style>[data-testid="stCaptionContainer"]:has(.{_KEY_CLASS}) {{opacity: 1}}'
+    f' .{_KEY_CLASS} .fo-plain {{opacity: 0.6}}</style>')
+
+
 def direction_key_html(head, above, below, tail="", which=None):
     """A caption's key: `head`, then `above` in the above colour and
     `below` in the below colour, bold, then `tail` — for st.caption with
-    unsafe_allow_html (st.markdown's own colours are named, not tokens)."""
+    unsafe_allow_html (st.markdown's own colours are named, not tokens),
+    after st.html(DIRECTION_KEY_STYLE)."""
     def span(text, kind):
         return (f'<span style="color: {direction_colour(kind, which)}">'
                 f'<strong>{html.escape(text)}</strong></span>')
-    parts = [span(above, "above"), span(below, "below")] + ([html.escape(tail)] if tail else [])
-    key = " · ".join(parts)
-    return f"{html.escape(head)} {key}" if head else key
+
+    def plain(text):
+        return f'<span class="fo-plain">{text}</span>'
+    parts = [span(above, "above"), span(below, "below")] + (
+        [plain(html.escape(tail))] if tail else [])
+    key = plain(" · ").join(parts)
+    body = f"{plain(html.escape(head))} {key}" if head else key
+    return f'<span class="{_KEY_CLASS}">{body}</span>'
 
 
 # ------------------------------------------------------------------ #
@@ -520,10 +535,20 @@ def made_once(opt, view=None):
 
 
 def score_caption(opt, view):
-    """(caption, its "?") under the score chart."""
-    caption = wording.review_score_caption(sample_projects.panel_size(opt),
-                                           once=made_once(opt, view))
-    return _say(opt, caption), _say(opt, wording.review_score_help(cost_example(opt, view)))
+    """(caption, its "?") under the score chart: one line in every state,
+    the panel only in the "?" and only where the project records one."""
+    return (_say(opt, wording.REVIEW_SCORE_CAPTION),
+            _say(opt, wording.review_score_help(sample_projects.panel_size(opt))))
+
+
+def score_title_help(opt, view):
+    """Best so far's "?": how the score is made, with the project's own
+    example of what one unit off costs (N14)."""
+    try:
+        definition = definitions(opt)[0]
+    except Exception:
+        definition = _say(opt, wording.method_definitions()[0])
+    return wording.review_score_title_help(definition, cost_example(opt, view))
 
 
 def scale_span_text(opt):
@@ -598,8 +623,10 @@ def _progress_fragment(opt):
 
 
 def _improving_part(opt, r, view):
-    """Best so far (its title, the chart, its caption and "?")."""
-    st.markdown(f"**{_say(opt, wording.PANEL_SCORE_TITLE)}**")
+    """Best so far (its title and the score's "?", the chart, its caption
+    and "?")."""
+    st.markdown(f"**{_say(opt, wording.PANEL_SCORE_TITLE)}**",
+                help=score_title_help(opt, view))
     try:
         spec = improving_spec(opt, r, height=PANEL_CHART_H)
     except Exception:
@@ -654,9 +681,8 @@ def _amounts_part(opt, view):
 
 PANEL_CHART_H = 250          # px: the score chart's plot in the panel
 _TOP_LANE = 18               # px above the top score for its line's label
-# px over that for the Best label: its own lane, so no Round line, dot or
-# other label ever runs through it (owner, v3 final fixes).
-_BEST_LANE = 20
+# The chart carries no Best label (N12): the headline over it says the best
+# and its formulations in the same words, so its lane is gone too.
 
 
 def improving_spec(opt, r=None, height=None):
@@ -675,10 +701,10 @@ def improving_chart(opt, height=None, upto=None):
     grey dot; the best so far's own dots blue, ties alike at their one
     value), Best so far (an ink step, moving at Round boundaries), each
     Round's average (a light bar), the Rounds named along the top, the top
-    score's dotted line labelled '100 = every attribute on target' and the
-    best labelled 'Best: 98.3 (F16, F17 tied)' in its own lane over the
-    plot (the Round lines stop at the 100 line, under both labels, so
-    nothing runs through it). Model-free; no stop mark, no
+    score's dotted line labelled '100 = every measurement on target' (the
+    Round lines stop at the 100 line, under its label); the best is named
+    by the headline over the chart, not on it (N12). Model-free; no stop
+    mark, no
     zone. `upto`: an earlier Round on view — only what was measured by its
     end (the axes as at the latest). None with nothing to draw."""
     plot_h = height or PANEL_CHART_H
@@ -710,19 +736,29 @@ def improving_chart(opt, height=None, upto=None):
     ceiling = float(opt.utility_ceiling())
     show_top = ceiling >= hi - SCORE_TOL and ceiling - hi <= max(hi - lo, 4.0)
     pad = 0.04 * max(hi - lo, 4.0)
-    bottom = lo - pad
     data_top = (ceiling if show_top else hi) + pad / 2
-    lane = (_TOP_LANE if show_top else 0) + _BEST_LANE
+
+    def step_of(low):
+        span = data_top - low
+        return 5 if span <= 30 else 10 if span <= 60 else 20
+    # N12: the axis starts at a gridline below the lowest dot, with room to
+    # spare, so no dot sits on the x-axis labels (77.8 sat under the 80
+    # line, on them). Again if the lower start widens the step.
+    step = step_of(lo - 2 * pad)
+    bottom = math.floor((lo - 2 * pad) / step) * step
+    if step_of(bottom) != step:
+        step = step_of(bottom)
+        bottom = math.floor((lo - 2 * pad) / step) * step
+    if bottom < 0 <= lo:         # a score is never below 0: no axis there
+        bottom = min(0.0, lo - pad)
+    lane = _TOP_LANE if show_top else _TOP_LANE // 2     # the top dot clear of the edge
     per_px = (data_top - bottom) / max(1, plot_h - lane)
     top = data_top + per_px * lane
-    # The Best label's lane is the topmost; the Round lines stop at the
-    # 100 line (or the data's top without it), below both labels.
-    best_y = data_top + per_px * (lane - _BEST_LANE / 2)
+    # The Round lines stop at the 100 line (or the data's top without it),
+    # below its label.
     rules_top = ceiling if show_top else data_top
     y_scale = alt.Scale(domain=[bottom, top], nice=False, zero=False)
     x_scale = alt.Scale(domain=_x_domain(opt), nice=False)
-    span = data_top - bottom
-    step = 5 if span <= 30 else 10 if span <= 60 else 20
     first = math.ceil(bottom / step) * step
     ticks = [first + step * k for k in range(int((data_top - first) // step) + 1)]
     y_title = _say(opt, score)
@@ -785,15 +821,6 @@ def improving_chart(opt, height=None, upto=None):
         layers.append(alt.Chart(top_dots).mark_point(size=60, filled=True, opacity=1, color=blue,
                                                      stroke=_page(), strokeWidth=1)
                       .encode(x=x, y=y, tooltip=tips))
-        x0 = float(top_dots[formulation].iloc[0])
-        lo_x, hi_x = _x_domain(opt)
-        right = (x0 - lo_x) / ((hi_x - lo_x) or 1.0) > 0.45
-        ldf = pd.DataFrame([{"x": x0, "y": best_y, "text": _say(opt, wording.review_best_label(
-            one_decimal(view.best), _names(opt, view.bests)))}])
-        layers += _halo_text(ldf, alt.X("x:Q", scale=x_scale),
-                             alt.Y("y:Q", scale=y_scale, title=y_title), "text:N", blue,
-                             fontSize=FONT_LABEL, align="right" if right else "left",
-                             dx=4 if right else -4, baseline="middle")
     layers.append(_key_layer([(each, grey, "circle"), (best_name, ink, "stroke"),
                               (avg_name, light, "stroke")]))
     rounds = _round_layer(opt, formulation, list(frame[formulation]), x_scale,
@@ -992,21 +1019,24 @@ def targets_chart(opt, view):
             entries.append((wording.BELOW_TARGET, direction_colour("below"), "circle"))
     if any(r["target"] is None for r in rows):
         entries.append((wording.REVIEW_KEY_NO_TARGET, grey, "circle"))
-    layers.append(_key_layer(entries, width=2))
+    # S5: three to a row; in one row "Best, no target" was cut to "Best, no t".
+    layers.append(_key_layer(entries, width=2, columns=3))
     height = TARGET_STRIP_ROW_H * len(rows) + (0 if axis is not None else 14)
     return readable(alt.layer(*layers).properties(height=height))
 
 
-def _key_layer(entries, width=3, size=110):
+def _key_layer(entries, width=3, size=110, columns=None):
     """A legend alone: [(label, fill, shape[, stroke])] — a "stroke" shape
     is a line in its colour, any other shape filled (outlined in `stroke`
     when given) — drawn from an empty layer with explicit domains: no mark
     on the plot and no position, so it leaves the chart's axes and its
-    marks' own colours alone."""
+    marks' own colours alone. `columns`: entries per row, wrapping the rest
+    onto the next (a narrow chart cut a one-row key off)."""
     labels = [e[0] for e in entries]
     fills = ["transparent" if e[2] == "stroke" else e[1] for e in entries]
     strokes = [e[3] if len(e) > 3 and e[3] else e[1] for e in entries]
     legend = alt.Legend(title=None, orient="bottom", direction="horizontal", labelLimit=0,
+                        **({"columns": columns} if columns else {}),
                         symbolSize=size, symbolStrokeWidth=width, columnPadding=18, offset=12)
 
     def scale(rng):
@@ -1714,7 +1744,8 @@ def _hold(n):
 
 def _replay_bar(opt, rounds, r):
     """◀ Round 4 of 10 ▶ · Replay Rounds (Stop while it plays) · then, at
-    the right, Latest, or Earlier Round and Back to latest."""
+    the right on an earlier Round, Earlier Round and Back to latest (the
+    latest says so in its label: 'Round 5 of 5 (latest)')."""
     last, i = rounds[-1], rounds.index(r)
     playing = replaying(opt)
     with st.container(horizontal=True, vertical_alignment="center", gap="small",
@@ -1740,8 +1771,7 @@ def _replay_bar(opt, rounds, r):
             st.button(wording.REPLAY_BACK, key="insights_replay_latest", icon=":material/undo:",
                       on_click=_on_latest, args=(opt, rounds))
         else:
-            st.markdown(f":gray-badge[{wording.REPLAY_LATEST}]", width="content")
-            _hold(1)
+            _hold(2)       # the latest is said in the label (N13)
 
 
 # ------------------------------------------------------------------ #

@@ -56,6 +56,8 @@ def test_record_chips_name_the_field_only(burger):
     assert wording.custom_record_option("Operator", "formulation", burger) in shown, shown
     assert wording.custom_record_option("Operator", "ingredient", burger) in shown, shown
     assert "Lot numbers in Make a round" in wording.ALSO_RECORD_HELP
+    # ... and the chips are drawn whole, never cut at a fixed width.
+    assert any("st-key-record_fields" in h.proto.body for h in at.get("html"))
 
 
 # ------------------------------------------------------------------ #
@@ -183,8 +185,10 @@ def test_results_words():
     assert wording.runner_up_line(1, "83.2", "2.0") == "Next best: Formulation 1, 83.2 (2.0 lower)."
     assert wording.round_results_column("Firmness", "target", 6, "/10") == \
         "Firmness (/10) · Target 6"
-    assert wording.round_results_column("Cook loss", "min", None, "%") == \
-        "Cook loss (%) · Lower is better"
+    assert wording.round_results_column("Firmness", "target", 6, "/10", (0, 10)) == \
+        "Firmness (/10) · Target 6"
+    assert wording.round_results_column("Cook loss", "min", None, "%", (0, 40)) == \
+        "Cook loss (0–40, %) · Lower is better"
     assert wording.review_top_line("100") == "100 = every measurement on target"
     assert (wording.SCORE_ATTRIBUTE_COLUMN, wording.SCORE_RATING_COLUMN,
             wording.SCORE_TARGET_COLUMN) == ("Measurement", "Measured", "Goal")

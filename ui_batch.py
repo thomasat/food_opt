@@ -1042,6 +1042,7 @@ def _draw_compare(opt, table):
                          table.formulations):
         if no in prefixes:
             tips.append(f"{label.split(' · ')[0]}: {prefixes[no].strip()}")
+    st.html(ui_insights.DIRECTION_KEY_STYLE)
     st.caption(ui_insights.direction_key_html(
         "", say(wording.compare_key_more(table.best_no)),
         say(wording.compare_key_less(table.best_no)), wording.compare_key_plain(pct)),

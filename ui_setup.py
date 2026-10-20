@@ -1348,6 +1348,12 @@ def _targets_source_contents(opt):
             st.rerun()
 
 
+_RECORD_CHIP_STYLE = (
+    "<style>.st-key-record_fields [data-baseweb='tag'],"
+    ".st-key-record_fields [data-baseweb='tag'] span"
+    "{max-width: none; overflow: visible; text-overflow: clip;}</style>")
+
+
 def _record_key(field):
     return f"record_{field}"
 
@@ -1375,6 +1381,9 @@ def _also_record(opt):
             flash("success", wording.RECORDS_UPDATED)
 
     names = [f['name'] for f in definitions]
+    # S13: a chip shows its whole field name; Streamlit cuts a chip at a
+    # fixed width ("Water temperatu…").
+    st.html(_RECORD_CHIP_STYLE)
     st.multiselect(wording.ALSO_RECORD_LABEL, options, key=key,
                    format_func=lambda field: (wording.RECORD_SCOPE_LABELS[field] if field in standard
                        else wording.record_chip(

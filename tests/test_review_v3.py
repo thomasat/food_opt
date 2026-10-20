@@ -145,7 +145,8 @@ def _spec_text(spec):
 
 def test_the_score_chart_names_the_tie_the_top_and_counts_the_dots(r6):
     text = _spec_text(U.improving_chart(r6, height=U.PANEL_CHART_H).to_dict())
-    assert "Best: 98.3 (F16, F17 tied)" in text
+    # N12: the best is the headline's to name, not the chart's.
+    assert "Best: 98.3" not in text
     assert "100 = every measurement on target" in text
     assert "Each formulation (18)" in text
     assert "Round average" in text and wording.BEST_SO_FAR_COLUMN in text
@@ -154,18 +155,25 @@ def test_the_score_chart_names_the_tie_the_top_and_counts_the_dots(r6):
 
 
 def test_the_score_caption_and_its_question_mark(r6):
+    """S8: one caption in every state; the panel only in the "?", and only
+    for the yogurt pilot. N14: the scoring example is the title's "?"."""
     caption, help_ = U.score_caption(r6, U.round_view(r6))
-    assert caption == "Each formulation made once, rated once by the panel (n = 5)."
-    assert help_ == ("Tasting the same formulation again could give a slightly different "
-                     "score, so small differences may not be real. Example: Tanginess 4 instead "
-                     "of 5 costs 1.7 points.")
+    assert caption == "Each dot: one formulation, measured once."
+    assert help_ == ("Measuring the same formulation again could give a slightly different "
+                     "score, so small differences may not be real. Each result is the "
+                     "median of a panel of 5.")
+    title_help = U.score_title_help(r6, U.round_view(r6))
+    assert title_help.startswith("Overall score: 100 = every measurement on target.")
+    assert title_help.endswith("Example: Tanginess 4 instead of 5 costs 1.7 points.")
+    assert "Example" not in help_
 
 
-def test_no_panel_size_on_a_project_that_records_none(tmp_path, monkeypatch):
+def test_no_panel_on_a_project_that_records_none(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     opt = _round6(tmp_path, name="Mine")
-    caption, _ = U.score_caption(opt, U.round_view(opt))
-    assert caption == "Each formulation made once, rated once by the panel."
+    caption, help_ = U.score_caption(opt, U.round_view(opt))
+    assert caption == "Each dot: one formulation, measured once."
+    assert "panel" not in help_
 
 
 def test_no_example_when_every_attribute_is_on_target(r6):
@@ -173,7 +181,7 @@ def test_no_example_when_every_attribute_is_on_target(r6):
     for i in v.bests:
         r6.results_history[i]["Tanginess"] = 5.0
     assert U.cost_example(r6, v) is None
-    assert "Example" not in U.score_caption(r6, v)[1]
+    assert "Example" not in U.score_title_help(r6, v)
 
 
 # ------------------------------------------------------------------ #
@@ -280,7 +288,7 @@ def test_the_amounts_key_and_the_linked_total(r6):
                and "dx" in m["mark"])
     assert tag["mark"]["color"] == U.muted()
     assert U.amounts_linked_text(r6) == (
-        "The 7 add to 97.7–98.7 g (the allowed total), so amounts are linked.")
+        "These 7 ingredients total 97.7–98.7 g, so they move together.")
     assert wording.review_amounts_title(3) == "Amounts in the 3 best formulations"
     assert wording.review_amounts_title(4) == "Amounts in the top 4 formulations"
     assert wording.review_amounts_title(1) == "Amounts in the best formulation"
@@ -436,11 +444,9 @@ def _layers(spec):
     return out
 
 
-def _label_and_rules(opt):
+def _rules_and_y(opt):
     spec = U.improving_chart(opt, height=U.PANEL_CHART_H).to_dict()
     layers = _layers(spec)
-    label = next(rows[0] for node, rows in layers
-                 if rows and str(rows[0].get("text", "")).startswith("Best: "))
     rules = [r for node, rows in layers
              if (node["mark"] if isinstance(node["mark"], str) else node["mark"]["type"]) == "rule"
              and "x" in node.get("encoding", {})
@@ -449,30 +455,33 @@ def _label_and_rules(opt):
     y = next(node["encoding"]["y"]["scale"]["domain"] for node, rows in layers
              if "y" in node.get("encoding", {})
              and "scale" in node["encoding"]["y"] and "domain" in node["encoding"]["y"]["scale"])
-    return label, rules, y
+    return spec, rules, y
 
 
 @pytest.mark.parametrize("which", ["all10", "r6"])
-def test_the_best_label_clears_the_round_lines_and_the_top_line(which, request):
-    """The label sits in its own lane over the plot: above the 100 line's
-    own label, and every Round line stops at the 100 line, so no line or
-    label runs through it (owner, v3 final fixes)."""
+def test_the_round_lines_stop_at_the_top_line_and_no_best_label(which, request):
+    """Every Round line stops at the 100 line, under its label; the best is
+    named by the headline over the chart, not on it (N12)."""
     opt = request.getfixturevalue(which)
-    label, rules, (bottom, top) = _label_and_rules(opt)
-    px = U.PANEL_CHART_H / (top - bottom)
+    spec, rules, (bottom, top) = _rules_and_y(opt)
     ceiling = float(opt.utility_ceiling())
     assert rules, "the Round lines are drawn"
     assert all(r["y1"] <= ceiling + 1e-9 for r in rules)
-    half = U.FONT_LABEL / 2
-    # Clear of '100 = every attribute on target' (its baseline 3 px over the
-    # 100 line, FONT_SMALL high) and inside the plot.
-    assert (label["y"] - ceiling) * px - half >= 3 + U.FONT_SMALL
-    assert (top - label["y"]) * px >= half
+    assert "Best: " not in _spec_text(spec)
+    headline = U.headline_text(opt, U.round_view(opt))
+    assert headline.startswith("Best ")
 
 
-def test_the_best_label_on_the_all10_sample(all10):
-    label, _rules, _y = _label_and_rules(all10)
-    assert label["text"] == "Best: 99.2 (F21)"
+def test_the_lowest_dot_sits_above_a_gridline_clear_of_the_axis(all10):
+    """N12: the axis starts at a gridline below the lowest score, with room."""
+    spec, _rules, (bottom, top) = _rules_and_y(all10)
+    low = min(float(v) for v in all10.Y_history)
+    assert bottom % 5 == 0
+    assert (low - bottom) * U.PANEL_CHART_H / (top - bottom) >= 8      # px clear
+
+
+def test_the_headline_names_the_all10_best(all10):
+    assert U.headline_text(all10, U.round_view(all10)).startswith("Best 99.2: F21")
 
 
 def test_a_tied_top_key_says_its_rule_and_lists_every_name_inline(all10):
