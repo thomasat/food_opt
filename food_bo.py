@@ -1704,6 +1704,7 @@ class FoodOptimizer:
         self.notes_history = []       # the lab's note per scored row, or ""
         self.skipped = []             # generated but never scored: dicts with
                                       # formulation / batch / recipe / note
+        self.retired_suggestions = []  # handed out, dropped without a record
         self.set_aside = []           # numbers of recorded formulations moved
                                       # to Not scored while waiting (0.8.0)
         self.next_formulation_no = 1
@@ -7872,37 +7873,69 @@ class FoodOptimizer:
         past the points it has already issued, so 3 + 2 lands on the same
         five points as 5 in one go, and a regenerate still differs because
         the formulation numbers have moved on."""
-        issued = self._issued_vectors()
+        # A formulation the project already has is never handed out again:
+        # a Round can pass over points its limits reject, so the next
+        # Round's slice can start inside points already issued, and a
+        # regenerate's slice inside the batch it replaced. Those points, and
+        # a second copy of one inside this Round, are passed over; where none
+        # would repeat, every Round is exactly what it was.
+        issued = self._issued_matrix()
+        repeats = []
         for size in self.COLD_START_POOLS:
-            candidates = [rec for rec in self._cold_start_pool(size, bounds_tensor, dim)
-                          if not self._already_issued(rec, issued)]
+            candidates = self._cold_start_pool(size, bounds_tensor, dim)
+            repeats = []      # feasible but already had, in sequence order
+            chosen = []       # this Round's picks, as issued
 
             # Optional screening model
             if self.screening_model is not None:
                 scored = []
                 for rec in candidates:
                     if self._check_constraints(rec):
+                        vector = self._as_issued(rec)
+                        if self._repeats(vector, issued):
+                            repeats.append(rec)
+                            continue
                         try:
                             if hasattr(self.screening_model, 'predict'):
                                 score = self.screening_model.predict([list(rec.values())])[0]
                             else:
                                 score = self.screening_model(rec)
-                            scored.append((score, rec))
+                            scored.append((score, rec, vector))
                         except Exception:
                             pass
                 scored.sort(key=lambda x: x[0], reverse=True)
-                results = [x[1] for x in scored[:n_suggestions]]
+                results = []
+                for _, rec, vector in scored:
+                    if self._repeats(vector, chosen):
+                        repeats.append(rec)
+                        continue
+                    results.append(rec)
+                    chosen.append(vector)
+                    if len(results) >= n_suggestions:
+                        break
             else:
                 # Standard: pick first feasible candidates
                 results = []
                 for candidate in candidates:
-                    if self._check_constraints(candidate):
-                        results.append(candidate)
+                    if not self._check_constraints(candidate):
+                        continue
+                    vector = self._as_issued(candidate)
+                    if self._repeats(vector, issued) or self._repeats(vector, chosen):
+                        repeats.append(candidate)
+                        continue
+                    results.append(candidate)
+                    chosen.append(vector)
                     if len(results) >= n_suggestions:
                         break
 
             if len(results) >= n_suggestions:
                 return results
+
+        # The widest pool still has too few new points (a grid of dial
+        # steps can run out of cells): its feasible repeats fill the Round,
+        # in sequence order, as they did before repeats were passed over.
+        if len(results) + len(repeats) >= n_suggestions:
+            return results + repeats[:n_suggestions - len(results)]
 
         # A wider pool did not fill the batch. With results already in, the
         # model can be asked instead — it is handed the same limits as
@@ -7941,32 +7974,94 @@ class FoodOptimizer:
     # chose differs by far more.
     REPEAT_TOLERANCE = 1e-9
 
-    def _issued_vectors(self):
-        """Every formulation already made or waiting in the open Round,
-        encoded as the search sees it (_encode)."""
-        vectors = [np.asarray(x, dtype=float) for x in self.X_history]
+    def _as_generated(self, recipe, batch_no=None, formulation_no=None):
+        """`recipe` back on the basis it was generated at: at the
+        Formulation total (model_recipe's rule) or, without one, at the sum
+        its Round was generated to (a Round re-sized with Batch size stores
+        its amounts at that size)."""
+        recipe = dict(recipe)
+        if self.has_formulation_total():
+            return self.at_model_total(recipe) if self.off_total(recipe) else recipe
+        made = self._generated_totals().get(batch_no) or {}
+        total = made.get(formulation_no) if isinstance(made, dict) else None
+        if not total:
+            return recipe
+        words = {k: v for k, v in recipe.items() if isinstance(v, str)}
+        scaled = self.scaled_recipe({k: v for k, v in recipe.items()
+                                     if not isinstance(v, str)},
+                                    scale_to=float(total))
+        scaled.update(words)
+        return scaled
+
+    def _retired(self):
+        """retired_suggestions, created for a session object made before it
+        was stored: formulations a Round handed out that left without a
+        record (a regenerate, a discarded Round), on their generated basis."""
+        kept = getattr(self, 'retired_suggestions', None)
+        if not isinstance(kept, list):
+            kept = self.retired_suggestions = []
+        return kept
+
+    def _retire_open_round(self):
+        """Keep the open Round's rows that leave without a record, so the
+        cold start never hands them back (_issued_matrix)."""
+        rows = self.pending_batch or []
+        if not rows:
+            return
+        recorded = {int(n) for n in self.formulation_ids}
+        recorded |= {int(s['formulation']) for s in self.skipped
+                     if isinstance(s, dict) and s.get('formulation') is not None}
+        kept = self._retired()
+        for row in rows:
+            if not isinstance(row, dict) or not isinstance(row.get('recipe'), dict):
+                continue
+            no = row.get('formulation')
+            if no is not None and int(no) in recorded:
+                continue
+            kept.append(self._as_generated(row['recipe'], self.pending_batch_no,
+                                           None if no is None else int(no)))
+
+    def _issued_matrix(self):
+        """Every formulation the project already has, one encoded row each
+        (_encode, today's columns), on the basis it was generated at: made
+        (X_history), Not scored (skipped), waiting in the open Round (and an
+        edited row's original suggestion), or handed out and dropped without
+        a record (retired_suggestions). None when there is none."""
+        recipes = []
+        for i in range(len(self.X_history)):
+            batch = self.batch_history[i] if i < len(self.batch_history) else None
+            no = self.formulation_ids[i] if i < len(self.formulation_ids) else None
+            recipes.append(self._as_generated(self._recorded_recipe(i), batch, no))
+        for row in self.skipped or []:
+            if isinstance(row, dict) and isinstance(row.get('recipe'), dict):
+                recipes.append(self._as_generated(row['recipe'], row.get(ROUND_FIELD),
+                                                  row.get('formulation')))
         for row in self.pending_batch or []:
-            recipe = row.get('recipe', row) if isinstance(row, dict) else row
-            if isinstance(recipe, dict):
-                vectors.append(np.asarray(self._encode(recipe), dtype=float))
-        return vectors
+            if not isinstance(row, dict):
+                continue
+            for recipe in (row.get('recipe', row), row.get('original_recipe')):
+                if isinstance(recipe, dict):
+                    recipes.append(self._as_generated(recipe, self.pending_batch_no,
+                                                      row.get('formulation')))
+        recipes += [dict(r) for r in self._retired() if isinstance(r, dict)]
+        if not recipes:
+            return None
+        return np.asarray([self._encode(r) for r in recipes], dtype=float)
 
-    def _already_issued(self, recipe, issued):
-        """`recipe` is a formulation the project already has (issued).
+    def _as_issued(self, recipe):
+        """`recipe` encoded as ask() would issue it: each setting moved onto
+        its dial's step first, as ask() does after the cold start picks."""
+        return np.asarray(self._encode(self._settings_on_their_step(recipe)), dtype=float)
 
-        The cold start fast-forwards its sequence by the formulations issued
-        so far (_cold_start_pool), but a Round can pass over points its
-        limits reject, so the next Round's slice can start inside points a
-        Round already handed out. Those are skipped here, so a cold-start
-        Round never repeats a formulation; where no limit rejects a point,
-        nothing is skipped and the Round is exactly what it was."""
-        # Compared as it would be issued: ask() moves each setting onto its
-        # dial's step after the cold start picks it, and the history holds
-        # the stepped value.
-        vector = np.asarray(self._encode(self._settings_on_their_step(recipe)), dtype=float)
-        return any(v.shape == vector.shape
-                   and np.allclose(v, vector, rtol=0.0, atol=self.REPEAT_TOLERANCE)
-                   for v in issued)
+    def _repeats(self, vector, rows):
+        """`vector` matches a row of `rows` (a 2-D array, or a list of
+        vectors) to REPEAT_TOLERANCE in every column."""
+        if rows is None or len(rows) == 0:
+            return False
+        rows = np.asarray(rows, dtype=float)
+        if rows.ndim != 2 or rows.shape[1] != vector.shape[0]:
+            return False
+        return bool((np.abs(rows - vector).max(axis=1) <= self.REPEAT_TOLERANCE).any())
 
     def _cold_start_pool(self, size, bounds_tensor, dim):
         """`size` points of this project's ONE Sobol sequence, decoded, and —
@@ -8195,7 +8290,10 @@ class FoodOptimizer:
 
     def _drop_pending_batch(self):
         """Forget the open batch. The numbers it used retire — they are never
-        reissued, so a discarded batch can never be confused with a later one."""
+        reissued, so a discarded batch can never be confused with a later one.
+        Its rows that leave without a record are kept as retired suggestions,
+        so the cold start never hands them back."""
+        self._retire_open_round()
         self.pending_batch = None
         self.result_drafts = {}
         self.pending_batch_no = None
@@ -12804,6 +12902,10 @@ class FoodOptimizer:
         # assumed 1 point saves exactly as before.
         if getattr(self, 'tasting_noise', None) is not None:
             state['tasting_noise'] = float(self.tasting_noise)
+        # Written only when there are some, so a project that never dropped
+        # a suggestion saves exactly as before.
+        if self._retired():
+            state['retired_suggestions'] = [dict(r) for r in self._retired()]
         return json.loads(json.dumps(state, default=_make_serializable))
 
     @staticmethod
@@ -13197,6 +13299,8 @@ class FoodOptimizer:
         self.notes_history = ["" if t is None else str(t)
                               for t in state.get('notes_history', [])]
         self.skipped = [dict(s) for s in state.get('skipped', [])]
+        self.retired_suggestions = [dict(r) for r in state.get('retired_suggestions') or []
+                                    if isinstance(r, dict)]
         # 0.8.0 review fixes: a file written before it has none.
         self.set_aside = sorted({int(n) for n in state.get('set_aside') or []})
         self.next_formulation_no = int(state.get('next_formulation_no', 1) or 1)
