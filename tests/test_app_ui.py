@@ -230,7 +230,7 @@ def test_restore_rejects_wrong_shaped_variables(project_with_history):
     # programmer punctuation, shown to a food scientist whose copy will not
     # open: they go to the log.
     assert [e.value for e in at.error] == [
-        wording.COPY_DAMAGED + wording.RECENT_COPIES_HINT], \
+        wording.copy_refused(None, wording.COPY_DAMAGED)], \
         [e.value for e in at.error]
     assert len(FoodOptimizer("my_project").X_history) == 1
     assert at.session_state["optimizer"].variables[0]["name"] == "Water"
@@ -283,7 +283,8 @@ def test_create_project_rejects_bad_name(tmp_path, monkeypatch):
     at.text_input(key="new_project_name").set_value("bad/name")
     _submit_button(at, "Create project").click()
     at.run()
-    assert any("Up to 64 characters" in e.value for e in at.error)
+    assert [e.value for e in at.error] == [wording.name_not_allowed("bad/name")]
+    assert "“/”" in at.error[0].value
     assert list(tmp_path.glob("*.pkl")) == []
 
 

@@ -160,12 +160,17 @@ def _grid_fresh(key):
     return None
 
 
+# Which copy the restore candidate came from, as the reader knows it (the
+# file chosen, or the Saved copies row clicked): every refusal names it.
+_RESTORE_FILE_KEY = "_restore_candidate_file"
+
+
 def _reset_project_session():
     """Everything a project owns. A key left behind here follows the user into
     the next project — an uploaded sheet offered for import into a project it
     was never meant for, a confirmation already half-clicked, or a half-typed
     ingredient waiting in another project's form."""
-    for k in ("optimizer", "current_batch", "_restore_candidate",
+    for k in ("optimizer", "current_batch", "_restore_candidate", _RESTORE_FILE_KEY,
               "_results_upload", "_results_file_mark", "_import_rows", "_result_draft_seed",
               "_ingredients_loaded", "results_order", "show_amounts",
               "_pending_tab", "_targets_source_open",
@@ -266,6 +271,19 @@ def _open_project(name, create=False, made=False, tab=None, line=None):
                 else wording.project_opened(name))
     flash("success", line)
     st.rerun()
+
+
+def _name_in_use(name, projects):
+    """Create project with a name a file already has though it is not on
+    the list: a project spelled with other capitals (the Mac's folder does
+    not tell them apart), a saved copy, or a saved copy's ending."""
+    same = next((p for p in projects if p.casefold() == name.casefold()), None)
+    if same is not None:
+        return wording.name_taken(same)
+    match = storage_backend.ARCHIVE_SUFFIX_RE.search(name)
+    if match is not None and not STORAGE.exists(name):
+        return wording.name_used_by_copy(name, f"_{match.group(1)}")
+    return wording.name_used_by_copy(name)
 
 
 def _sample_tab(name):
@@ -448,11 +466,12 @@ def _saved_copies(opt):
     uploaded_json = st.file_uploader(wording.OPEN_A_SAVED_COPY, key="restore_json")
     st.caption(wording.OPEN_SAVED_COPY_CAPTION, help=wording.OPEN_SAVED_COPY_HELP)
     if uploaded_json is not None and st.button(wording.CHECK_THIS_COPY):
+        st.session_state[_RESTORE_FILE_KEY] = uploaded_json.name
         try:
             st.session_state["_restore_candidate"] = json.loads(uploaded_json.read())
         except ValueError:
             st.session_state.pop("_restore_candidate", None)
-            st.error(wording.COPY_UNREADABLE)
+            st.error(wording.copy_refused(uploaded_json.name, wording.NOT_A_COPY))
 
 
 # How many of the app's own copies stand on the sidebar itself.
@@ -478,18 +497,22 @@ def _copy_day(when):
 def _safety_copy_row(when, name, reason):
     """One copy: what it was taken before, when, and the door back to it."""
     line, button = st.columns([3, 1])
-    line.caption(wording.safety_copy_line(
-        reason, copy_when(when) if when is not None else ""))
+    label = wording.safety_copy_line(
+        reason, copy_when(when) if when is not None else "")
+    line.caption(label)
     if button.button(wording.OPEN_SAFETY_COPY, key=f"open_copy_{name}"):
         try:
             state = STORAGE.load(name)
-        except storage_backend.StorageError as e:
-            st.error(str(e))
+        except storage_backend.StorageError:
+            # The copy's own file name is machinery; the row is what the
+            # reader clicked.
+            st.error(wording.copy_refused(label, wording.COPY_DAMAGED))
         else:
             if state is None:
-                st.error(wording.COPY_UNREADABLE)
+                st.error(wording.copy_missing(label))
             else:
                 st.session_state["_restore_candidate"] = state
+                st.session_state[_RESTORE_FILE_KEY] = label
                 preserve_tab_forms()
                 st.rerun()
 
@@ -612,17 +635,23 @@ with st.sidebar:
                 if not name:
                     st.error(wording.NAME_EMPTY)
                 elif not _NAME_RE.fullmatch(name):
-                    st.error(wording.NAME_RULE)
+                    st.error(wording.name_not_allowed(name))
                 elif name in existing_projects:
                     st.error(wording.name_taken(name))
                 elif storage_backend.is_archive_name(name) or STORAGE.exists(name):
-                    st.error(wording.NAME_COLLIDES_WITH_ARCHIVE)
+                    st.error(_name_in_use(name, existing_projects))
                 else:
                     park_clear("new_project_name", "")
                     # The fold closes behind the project it just made, so it
                     # does not sit open over an empty box asking again.
                     park_clear(_NEW_PROJECT_FOLD_KEY, False)
                     _open_project(name, create=True)
+                    # Still here: the project was not written, and the
+                    # line above says why. The two clears would land on
+                    # widgets already drawn this run, which Streamlit
+                    # answers with a traceback under that line.
+                    st.session_state.pop("_clear_new_project_name", None)
+                    st.session_state.pop(f"_clear_{_NEW_PROJECT_FOLD_KEY}", None)
 
     if not st.session_state.get("_loaded_project"):
         _new_project_form()
@@ -698,7 +727,9 @@ with st.sidebar:
 
         if getattr(opt, "save_error", None):
             st.error(opt.save_error)
-        else:
+        elif not getattr(opt, "load_error", None):
+            # Never "Saved automatically" beside a file that would not open:
+            # the time is only the damaged file's own.
             # last_saved_at only records saves made in THIS session, so a
             # returning user would see no saved line until their first edit.
             _saved = getattr(opt, "last_saved_at", None) or getattr(
@@ -805,7 +836,8 @@ with st.sidebar:
             try:
                 summary = FoodOptimizer.validate_state(candidate)
             except ValueError as e:
-                st.error(f"{e}{wording.RECENT_COPIES_HINT}")
+                st.error(wording.copy_refused(
+                    st.session_state.get(_RESTORE_FILE_KEY), str(e)))
                 st.session_state.pop("_restore_candidate", None)
             else:
                 # Both halves count the same way — scored and left out — or
@@ -830,7 +862,10 @@ with st.sidebar:
                         # stale check must happen first, against what THIS
                         # session loaded.
                         if getattr(opt.storage, "is_stale", lambda n: False)(opt.project_name):
-                            st.error(storage_backend.LocalStorage._CONFLICT)
+                            # The save banner below, with its Reload
+                            # project: the one way past a file another
+                            # window wrote (it is drawn later this run).
+                            opt.save_error = wording.changed_elsewhere(opt.project_name)
                         else:
                             try:
                                 archived = STORAGE.archive(opt.project_name,
@@ -843,7 +878,9 @@ with st.sidebar:
                             except storage_backend.StorageError as e:
                                 st.error(str(e))
                             except Exception:
-                                st.error(wording.COPY_APPLY_FAILED)
+                                st.error(wording.copy_apply_failed(
+                                    st.session_state.get(_RESTORE_FILE_KEY),
+                                    opt.project_name))
                                 st.session_state.pop("_restore_candidate", None)
                             else:
                                 if new_opt.save_error:
@@ -936,7 +973,8 @@ if opt is None:
 # hard-resets (both stay available in the sidebar).
 if getattr(st.session_state.optimizer, "load_error", None):
     st.error(st.session_state.optimizer.load_error)
-    st.info(wording.project_load_error_info())
+    st.info(wording.project_load_error_info(
+        sample=sample_projects.is_sample(st.session_state.optimizer.project_name)))
     st.stop()
 
 _save_banner_shown = False

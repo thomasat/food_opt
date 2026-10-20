@@ -74,6 +74,26 @@ COPY_KEPT = ("A copy is saved first. To bring it back, use Saved copies "
              "in the sidebar.")
 
 NAME_RULE = "Up to 64 characters. Start with a letter or a number."
+# The characters a project name may hold after its first (app._NAME_RE).
+_NAME_EXTRA = " _.-"
+
+
+def name_not_allowed(name):
+    """Create project with a name the rule refuses: which part breaks it and
+    the fix, worked out from the name typed (the rule alone named no
+    problem: "bad/name" was told it was "Up to 64 characters")."""
+    if len(name) > 64:
+        return f"Shorten the name to 64 characters; it has {len(name)}."
+    def ok(c):
+        return c.isascii() and (c.isalnum() or c in _NAME_EXTRA)
+    if not (name[0].isascii() and name[0].isalnum()):
+        return "Start the name with a letter or a number."
+    bad = "".join(dict.fromkeys(c for c in name if not ok(c)))
+    if bad:
+        shown = " ".join(f"“{c}”" for c in bad)
+        return (f"Take {shown} out of the name. Use letters, numbers, "
+                "spaces, . - or _.")
+    return NAME_RULE
 # Create project with nothing in the box: the rule above names no problem.
 NAME_EMPTY = "Type a project name first."
 
@@ -183,11 +203,19 @@ CREATE_PROJECT = "Create project"
 
 
 def name_taken(name):
-    return f"A project named {name} already exists. Open it below."
+    """Create project with the name of a project on the list. "Open it
+    below" pointed down from a fold that sits under Open project."""
+    return (f"A project named {name} already exists. Open it from "
+            f"{OPEN_PROJECT_LABEL}, or choose another name.")
 
 
-NAME_COLLIDES_WITH_ARCHIVE = ("That name is already used by a project or an "
-                              "archived copy. Choose another.")
+def name_used_by_copy(name, suffix=None):
+    """Create project with a name a saved copy wears, or one ending the way
+    a saved copy's name ends (`suffix`, e.g. "_deleted")."""
+    if suffix:
+        return (f"Names ending in {suffix} are kept for saved copies. "
+                "Choose another name.")
+    return f"A saved copy is already named {name}. Choose another name."
 
 OPEN_PROJECT_LABEL = "Open project"
 
@@ -412,13 +440,33 @@ COPY_FROM_A_NEWER_VERSION = (
     "This copy was made with a newer version of Food Optimizer. Update the "
     "app, then try again.")
 
-COPY_UNREADABLE = (
-    "This file could not be read as a Food Optimizer copy. "
-    "If you have another copy, try that one; recent copies are "
-    "saved in your FoodOptimizer folder."
-)
-RECENT_COPIES_HINT = (" Recent copies of your own projects are saved in "
-                      "your FoodOptimizer folder.")
+
+
+def _copy_subject(file):
+    """The copy a refusal is about, as the reader knows it: the file they
+    chose, or the row in Saved copies they clicked."""
+    return f"**{file}**" if file else "This copy"
+
+
+def copy_refused(file, reason):
+    """Open a saved copy, refused: which file, that it will not open, and
+    what to do. `reason` is what FoodOptimizer.validate_state raised (one of
+    the constants above, or COPY_TWO_BALANCE_ROWS); anything else reads as
+    damaged, which is what the reader can act on."""
+    subject = _copy_subject(file)
+    if reason == NOT_A_COPY:
+        return f"{subject} is not a Food Optimizer copy. Choose another file."
+    if reason == COPY_FROM_A_NEWER_VERSION:
+        return (f"{subject} is from a newer Food Optimizer. Update the app, "
+                "then open it again.")
+    return (f"{subject} is damaged and can't be opened. Try another copy "
+            "from your FoodOptimizer folder.")
+
+
+def copy_missing(file):
+    """A row in Saved copies whose file has gone from the folder."""
+    return (f"{_copy_subject(file)} is no longer in your FoodOptimizer "
+            "folder. Choose another copy.")
 
 
 def open_saved_copy_warning(name, holds, project_name, held, open_text=""):
@@ -432,8 +480,12 @@ def open_saved_copy_warning(name, holds, project_name, held, open_text=""):
 
 
 YES_REPLACE = "Yes, replace"
-COPY_APPLY_FAILED = ("This copy could not be applied. Your current "
-                     "project was not changed.")
+
+
+def copy_apply_failed(file, project_name):
+    """Yes, replace, when the copy passed the check but would not load."""
+    return (f"{_copy_subject(file)} could not be opened, and {project_name} "
+            "is unchanged. Try another copy.")
 
 
 def restored_flash(count_text, project_name, archived=None):
@@ -524,12 +576,12 @@ DOWNLOAD_TEMPLATE = "Download ingredients template (Excel)"
 # ------------------------------------------------------------------ #
 # Load-error / save-error banners, and the discarded-batch notice.
 # ------------------------------------------------------------------ #
-def project_load_error_info():
-    return (
-        f"This project file is damaged and cannot be edited. In the sidebar, use {OPEN_A_SAVED_COPY} "
-        f"to restore a copy, or {MANAGE_PROJECT} › {START_OVER_LABEL} to clear its contents. "
-        "The damaged file is copied first."
-    )
+def project_load_error_info(sample=False):
+    """Under a project that will not open: the two ways on, by the names the
+    sidebar gives them (a sample is started over, not cleared)."""
+    start_over = START_SAMPLE_OVER_LABEL if sample else START_OVER_LABEL
+    return (f"In the sidebar, use {MANAGE_PROJECT} › {OPEN_A_SAVED_COPY} or "
+            f"{start_over}. The damaged file is copied first.")
 
 
 SAVE_ERROR_WARNING = ("**Your last change was not saved.** Save a "
@@ -599,6 +651,12 @@ def project_opened(name):
 # The two samples, as their success line names them (not by file name).
 YOGURT_SAMPLE_NAME = "the yogurt pilot"
 BURGER_SAMPLE_NAME = "the burger example"
+
+
+def sample_unreadable(name):
+    """A sample the app ships, gone or damaged inside the app itself."""
+    return (f"The app's file for {name} is missing or damaged. Download "
+            "Food Optimizer again to replace it.")
 
 
 def sample_opened(what, added=0, files=0):
@@ -3183,12 +3241,67 @@ def off_by_low(size_text):
 
 # Opening a project. Both reach the screen through FoodOptimizer.load_error,
 # which app.py prints as it stands.
-PROJECT_NOT_FOUND = ("This project could not be found. It may have been "
-                     "renamed or archived.")
-PROJECT_FILE_DAMAGED = (
-    f"This project file is damaged and could not be opened. If you saved a "
-    f"copy, use {OPEN_A_SAVED_COPY} in the sidebar; otherwise look in your "
-    "FoodOptimizer folder for a recent copy.")
+# Each names the file, so the reader can find it in the folder; what to do
+# is project_load_error_info's line, which app.py prints under it.
+def project_not_found(name):
+    return (f"**{name}.pkl** is no longer in your FoodOptimizer folder. It "
+            "may have been renamed or deleted.")
+
+
+def project_file_damaged(name):
+    return f"**{name}.pkl** is damaged and can't be opened."
+
+
+def project_file_unreadable(name):
+    """storage.LocalStorage.load: the bytes are not a project, which is a
+    damaged file or one an early version wrote (a pickle)."""
+    return (f"**{name}.pkl** can't be opened: it is damaged or from an "
+            "early version of Food Optimizer.")
+
+
+def project_file_locked(name):
+    """storage.LocalStorage.load: the file is there but will not be read."""
+    return (f"**{name}.pkl** could not be read. Close any other program "
+            "using it, then open the project again.")
+
+
+# Saving, and the copy taken before a change, refused by the disk. `cause`
+# is storage.disk_cause's word for what the disk said.
+_DISK_TROUBLE = {
+    'full': ("the disk is full", "Free up space, then try again."),
+    'read_only': ("the FoodOptimizer folder is read-only",
+                  "Allow changes to it in Finder, then try again."),
+    'in_use': ("another program is using its file",
+               "Close that program, then try again."),
+}
+_DISK_OTHER = ("the file could not be written", "Try again.")
+
+
+def not_saved(name, cause=None):
+    """'Oat cookie was not saved: the disk is full. Free up space, then try
+    again.' — the save banner's red line."""
+    what, fix = _DISK_TROUBLE.get(cause, _DISK_OTHER)
+    return f"{name} was not saved: {what}. {fix}"
+
+
+def nothing_changed(name, cause=None):
+    """The copy taken before a change (or the rename that deletes or clears
+    a project) was refused, so the change was never made."""
+    what, fix = _DISK_TROUBLE.get(cause, _DISK_OTHER)
+    return f"Nothing changed in {name}: {what}. {fix}"
+
+
+def copy_not_deleted(cause=None):
+    what, fix = _DISK_TROUBLE.get(cause, _DISK_OTHER)
+    if cause == 'in_use':
+        what = "another program is using it"
+    return f"An old copy could not be deleted: {what}. {fix}"
+
+
+def changed_elsewhere(name):
+    """The save banner's red line when another window wrote the file first;
+    SAVE_ERROR_WARNING under it says what to do."""
+    return f"{name} was changed in another window."
 
 
 # ------------------------------------------------------------------ #
@@ -4162,7 +4275,8 @@ WORKBOOK_ACTUALS_ARE_NUMBERS = (
 
 TAB_INSIGHTS = "4 · Review"
 SEE_WHAT_HAPPENED_NEXT = "See the pilot's Rounds 7–10"
-INSIGHTS_NONE = "The review appears once formulations are scored."
+# Where the Review's first score comes from, and the tab that takes it.
+INSIGHTS_NONE = f"Score a {FORMULATION} in {TAB_RESULTS} to see the Review."
 
 
 def _contiguous(rounds):
