@@ -20,11 +20,12 @@ st.set_page_config(page_title=wording.APP_TITLE, layout="wide",
                       if os.environ.get("FOOD_OPT_SIDEBAR") == "collapsed" else {}))
 # Only the first run of a session pays for the imports; every rerun after it
 # has them in memory, and a line promising a wait that is already over would
-# flicker on every click.
-_starting = None
+# flicker on every click. The slot itself is made on EVERY run, empty after
+# the first: an element only the first run drew shifted every element below
+# it by one on the second, and the browser closed every fold it had open.
+_starting = st.empty()
 if "_imports_warmed" not in st.session_state:
     st.session_state["_imports_warmed"] = True
-    _starting = st.empty()
     _starting.info(wording.STARTING_APP)
 
 import json                                   # noqa: E402
@@ -56,8 +57,7 @@ from ui_helpers import (                      # noqa: E402
     copy_when, render_flash, reset_grids, saved_line, saved_ok, take_clear,
 )
 
-if _starting is not None:
-    _starting.empty()   # the app itself is what the window shows from here on
+_starting.empty()   # the app itself is what the window shows from here on
 
 STORAGE = storage_backend.LocalStorage()
 

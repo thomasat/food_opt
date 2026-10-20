@@ -10037,6 +10037,33 @@ def test_the_starting_line_is_gone_once_the_app_has_drawn(tmp_path, monkeypatch)
         [i.value for i in at.info]
 
 
+def _expander_paths(node, path=()):
+    """Every fold on the page, by where the browser places it."""
+    found = []
+    if type(node).__name__ == "Expander":
+        found.append((path, node.label))
+    for k, child in (getattr(node, "children", None) or {}).items():
+        found.extend(_expander_paths(child, path + (k,)))
+    return found
+
+
+def test_the_first_rerun_after_a_page_load_keeps_every_fold_where_it_was(burger):
+    """The starting line's slot was made on the first run of a session only,
+    so the second run drew every element one place higher and the browser
+    closed every fold the user had opened on 1 · Set up. Each fold sits at
+    the same place on runs 1, 2 and 3."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    first = _expander_paths(at._tree.main)
+    labels = [label for _, label in first]
+    assert wording.MORE_SETTINGS_EXPANDER in labels, labels
+    assert wording.ADVANCED_EXPANDER in labels, labels
+    for _ in range(2):
+        at.run()
+        assert not at.exception
+        assert _expander_paths(at._tree.main) == first
+
+
 def _click_sample(at, where=None):
     _submit_button(where or at.sidebar, wording.OPEN_YOGURT_LABEL).click()
     at.run()
