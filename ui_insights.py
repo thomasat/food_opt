@@ -706,7 +706,12 @@ def improving_chart(opt, height=None, upto=None):
     by the headline over the chart, not on it (N12). Model-free; no stop
     mark, no
     zone. `upto`: an earlier Round on view — only what was measured by its
-    end (the axes as at the latest). None with nothing to draw."""
+    end (the axes as at the latest). None with nothing to draw.
+
+    Plotted by place in the order made (1, 2, 3, …), labelled with the real
+    numbers: a discarded Round's numbers retire, so F1–F3 then F7–F9 sit
+    side by side with no empty slots (final walk). The score axis labels a
+    tick at or above the highest dot; the 100 line shows when near."""
     plot_h = height or PANEL_CHART_H
     frame = progress_frame(opt).reset_index()
     if frame.empty:
@@ -719,6 +724,8 @@ def improving_chart(opt, height=None, upto=None):
         return None
     n = len(frame)
     rounds_of = [_round_of(opt, i) if i < len(opt.batch_history) else None for i in range(n)]
+    places = list(range(1, n + 1))
+    frame["place"] = places
     pool, bests = set(opt.best_candidates()), set(view.bests)
     frame["full"] = [i in pool for i in range(n)]
     frame["best"] = [i in bests for i in range(n)]
@@ -734,7 +741,8 @@ def improving_chart(opt, height=None, upto=None):
     shown = frame[frame[score].notna()]
     lo, hi = min(values), max(values)
     ceiling = float(opt.utility_ceiling())
-    show_top = ceiling >= hi - SCORE_TOL and ceiling - hi <= max(hi - lo, 4.0)
+    under_top = ceiling >= hi - SCORE_TOL
+    show_top = under_top and ceiling - hi <= max(hi - lo, 4.0)
     pad = 0.04 * max(hi - lo, 4.0)
     data_top = (ceiling if show_top else hi) + pad / 2
 
@@ -743,12 +751,19 @@ def improving_chart(opt, height=None, upto=None):
         return 5 if span <= 30 else 10 if span <= 60 else 20
     # N12: the axis starts at a gridline below the lowest dot, with room to
     # spare, so no dot sits on the x-axis labels (77.8 sat under the 80
-    # line, on them). Again if the lower start widens the step.
+    # line, on them). The top: a labelled tick at or above the highest dot
+    # (88.4 sat over the top label, 85, in the final walk), or the 100 line
+    # when that tick would reach it. Again while a wider span widens the step.
     step = step_of(lo - 2 * pad)
-    bottom = math.floor((lo - 2 * pad) / step) * step
-    if step_of(bottom) != step:
-        step = step_of(bottom)
+    for _ in range(4):
         bottom = math.floor((lo - 2 * pad) / step) * step
+        if not show_top:
+            tick_top = math.ceil((hi - 1e-9) / step) * step
+            show_top = under_top and tick_top >= ceiling - 1e-9
+            data_top = ceiling + pad / 2 if show_top else max(hi + pad / 2, tick_top)
+        if step_of(bottom) == step:
+            break
+        step = step_of(bottom)
     # A score is never below 0, so no gridline step under it: the axis
     # starts at 0, or a pad under the lowest dot when that dot is within
     # a pad of 0 (just below 0 then, so the dot is clear of the axis).
@@ -761,14 +776,18 @@ def improving_chart(opt, height=None, upto=None):
     # below its label.
     rules_top = ceiling if show_top else data_top
     y_scale = alt.Scale(domain=[bottom, top], nice=False, zero=False)
-    x_scale = alt.Scale(domain=_x_domain(opt), nice=False)
+    x_scale = alt.Scale(domain=_x_domain(places), nice=False)
     first = math.ceil(bottom / step) * step
-    ticks = [first + step * k for k in range(int((data_top - first) // step) + 1)]
+    ticks = [first + step * k for k in range(int((data_top - first + 1e-9) // step) + 1)]
     y_title = _say(opt, score)
     y = alt.Y(f"{score}:Q", title=y_title, scale=y_scale, axis=alt.Axis(values=ticks))
-    x = alt.X(f"{formulation}:Q", title=_say(opt, wording.Q2_X_TITLE), scale=x_scale,
-              axis=alt.Axis(format="d", values=formulation_ticks(frame[formulation]),
-                            grid=False))
+    numbers = [int(v) for v in frame[formulation]]
+    x_ticks = formulation_ticks(places)
+    names = ({} if numbers == places else
+             {"labelExpr": " : ".join(f"datum.value == {p} ? '{numbers[p - 1]}'"
+                                      for p in x_ticks) + " : ''"})
+    x = alt.X("place:Q", title=_say(opt, wording.Q2_X_TITLE), scale=x_scale,
+              axis=alt.Axis(format="d", values=x_ticks, grid=False, **names))
     grey, _ = mark("neutral")
     ink, _ = mark("bar_latest")
     light, _ = _TRIED_GREYS[theme()]
@@ -782,7 +801,7 @@ def improving_chart(opt, height=None, upto=None):
             alt.Tooltip(f"{score}:Q", title=y_title, format=".1f"), bo_tip()]
     layers = []
     if show_top:
-        tdf = pd.DataFrame([{"y": ceiling, "x": _x_domain(opt)[1],
+        tdf = pd.DataFrame([{"y": ceiling, "x": _x_domain(places)[1],
                              "text": _say(opt, wording.review_top_line(f"{ceiling:g}"))}])
         layers.append(alt.Chart(tdf).mark_rule(color=grey, strokeDash=[2, 3], strokeWidth=1,
                                                tooltip=False)
@@ -793,9 +812,13 @@ def improving_chart(opt, height=None, upto=None):
                                                                        title=y_title),
                               text="text:N"))
     if avgs:
-        adf = pd.DataFrame([{"x0": a - 0.4, "x1": b + 0.4, "avg": m, "what": avg_name,
-                             "round": wording.round_tick(r), "text": one_decimal(m)}
-                            for r, a, b, m, _n in avgs])
+        def span(r):
+            mine = [k + 1 for k in range(n) if rounds_of[k] == r and k in pool]
+            return min(mine), max(mine)
+        adf = pd.DataFrame([{"x0": span(r)[0] - 0.4, "x1": span(r)[1] + 0.4, "avg": m,
+                             "what": avg_name, "round": wording.round_tick(r),
+                             "text": one_decimal(m)}
+                            for r, _a, _b, m, _n in avgs])
         layers.append(alt.Chart(adf).mark_rule(strokeWidth=4, color=light).encode(
             x=alt.X("x0:Q", scale=x_scale), x2="x1:Q",
             y=alt.Y("avg:Q", scale=y_scale, title=y_title),
@@ -805,12 +828,13 @@ def improving_chart(opt, height=None, upto=None):
     # raised it (final-v3 chart).
     steps = frame[frame[best_col].notna()]
     if not steps.empty:
-        bdf = pd.DataFrame({"x": steps[formulation].astype(float), "v": steps[best_col],
+        bdf = pd.DataFrame({"x": steps["place"].astype(float), "no": steps[formulation],
+                            "v": steps[best_col],
                             "text": [one_decimal(v) for v in steps[best_col]]})
         layers.append(alt.Chart(bdf).mark_line(strokeWidth=2.5, color=ink,
                                                interpolate="step-after").encode(
             x=alt.X("x:Q", scale=x_scale), y=alt.Y("v:Q", scale=y_scale, title=y_title),
-            tooltip=[alt.Tooltip("x:Q", title=_say(opt, wording.FORMULATION_CAP), format="d"),
+            tooltip=[alt.Tooltip("no:Q", title=_say(opt, wording.FORMULATION_CAP), format="d"),
                      alt.Tooltip("text:N", title=best_name)]))
     dots = shown.assign(what=each)
     layers.append(alt.Chart(dots[~dots["best"]]).mark_point(size=40, strokeWidth=1.3, opacity=1,
@@ -826,7 +850,7 @@ def improving_chart(opt, height=None, upto=None):
                       .encode(x=x, y=y, tooltip=tips))
     layers.append(_key_layer([(each, grey, "circle"), (best_name, ink, "stroke"),
                               (avg_name, light, "stroke")]))
-    rounds = _round_layer(opt, formulation, list(frame[formulation]), x_scale,
+    rounds = _round_layer(opt, "place", places, x_scale,
                           y=(alt.Y("y0:Q", scale=y_scale, title=y_title), bottom, rules_top))
     body = alt.layer(*layers)
     chart = alt.layer(rounds, body).resolve_axis(x="independent") if rounds else body
@@ -1807,9 +1831,11 @@ def round_averages(opt):
     return [(r, a, b, sum(v) / len(v), len(v)) for r, (a, b, v) in sorted(groups.items())]
 
 
-def _x_domain(opt):
-    numbers = [int(n) for n in opt.formulation_ids]
-    return [min(numbers) - 0.7, max(numbers) + 0.7] if numbers else [0, 1]
+def _x_domain(places):
+    """The score chart's x range: its places in the order made (1, 2, …),
+    with room either side."""
+    places = [int(n) for n in places]
+    return [min(places) - 0.7, max(places) + 0.7] if places else [0, 1]
 
 
 def _round_layer(opt, frame_x, numbers, scale, y=None):
