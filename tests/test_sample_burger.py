@@ -154,7 +154,7 @@ def test_the_burger_shows_every_set_up_feature(store):
     shares = {o["name"]: round(o["weight"]) for o in opt.objectives}
     assert shares == {"Firmness": 45, "Juiciness": 35, "Cook loss": 20}
     # The fat limit, the solids limit, the records and the texts.
-    assert [(c["metric"].lower(), c.get("max")) for c in opt.constraints] == [("fat per 100 g", 16)]
+    assert [(c["metric"], c.get("max")) for c in opt.constraints] == [("Fat (g per 100 g)", 16)]
     solids = [qc for qc in opt.quantity_constraints if qc.get("source") is None]
     assert [(sorted(q["ingredients"]), q["min"], q["max"]) for q in solids] == [
         (sorted(_builder().SOLIDS), 36.0, 43.0)]
@@ -458,3 +458,91 @@ def test_a_used_example_drops_no_results_and_shows_the_normal_review(
         assert wording.INSIGHTS_NONE in [c.value for c in review.caption]
         foot = next(b for b in review.button if b.key == "insights_foot")
         assert foot.label == wording.back_to_batch_label(1, 3)
+
+
+# ------------------------------------------------------------------ #
+#  S11: the example's property names carry their units
+# ------------------------------------------------------------------ #
+
+_UNIT_NAMES = ["Fat (g per 100 g)", "Sodium (mg per 100 g)",
+               "Water (g per 100 g)", "Cost per 100 g"]
+_OLD_NAMES = {"Fat (g per 100 g)": "Fat per 100 g",
+              "Sodium (mg per 100 g)": "Sodium per 100 g",
+              "Water (g per 100 g)": "Water per 100 g"}
+
+
+def _unitless_build():
+    """The example as e06f3b2 shipped it: the same project, its property
+    names without their units ("Fat per 100 g")."""
+    text = json.dumps(sp.shipped_state(sp.BURGER))
+    for new, old in _OLD_NAMES.items():
+        text = text.replace(f'"{new}"', f'"{old}"')
+    return json.loads(text)
+
+
+def test_the_burger_properties_say_their_units(store):
+    """In the example's own data, not a display map: the grid's head and
+    the limit picker read the names as stored."""
+    opt = _burger(store)
+    assert set(opt.properties()) == set(_UNIT_NAMES)
+    assert set(opt.grid_properties()) == set(_UNIT_NAMES)
+    # Cost names no currency: the example has none.
+    assert not any(c in "".join(opt.properties()) for c in "$€£")
+    text = SHIPPED.read_text()
+    for old in _OLD_NAMES.values():
+        assert f'"{old}"' not in text, old
+    # The fat limit still reads the fat figures, under the new name.
+    [limit] = opt.constraints
+    assert limit["metric"] == "Fat (g per 100 g)" and limit["max"] == 16
+    assert opt.ingredients_without_property("Fat (g per 100 g)") == []
+
+
+def test_the_unitless_burger_is_known_and_this_one_is_not():
+    assert sp.fingerprint(_unitless_build()) in sp._SUPERSEDED[sp.BURGER]
+    assert sp.fingerprint(sp.shipped_state(sp.BURGER)) not in sp._SUPERSEDED[sp.BURGER]
+
+
+def test_refresh_gives_an_untouched_burger_the_unit_names(store):
+    store.save(sp.BURGER, _unitless_build())
+    assert sp.refresh(store) == [sp.BURGER]
+    assert store.load(sp.BURGER) == sp.shipped_state(sp.BURGER)
+    assert sp.refresh(store) == []                  # once only
+    # A refresh writes no sample that was not on disk.
+    assert sorted(store.list_projects()) == [sp.BURGER]
+
+
+def test_ensure_gives_an_untouched_burger_the_unit_names(store):
+    store.save(sp.BURGER, _unitless_build())
+    assert sp.ensure(store, (sp.BURGER,)) == [sp.BURGER]
+    assert store.load(sp.BURGER) == sp.shipped_state(sp.BURGER)
+
+
+def test_a_changed_unitless_burger_is_kept(store):
+    state = _unitless_build()
+    state["formulation_total"] = 250.0
+    store.save(sp.BURGER, state)
+    assert sp.refresh(store) == []
+    assert sp.ensure(store, (sp.BURGER,)) == []
+    assert store.load(sp.BURGER)["formulation_total"] == 250.0
+
+
+def test_opening_the_burger_leaves_its_file_as_shipped(at, tmp_path):
+    """The refresh can only recognise an untouched copy if opening one
+    writes nothing to it."""
+    _click(at.main, wording.SEE_EXAMPLE_SETUP_LABEL)
+    at.run()
+    at.run()
+    assert not at.exception
+    assert json.loads((tmp_path / f"{sp.BURGER}.pkl").read_text()) == sp.shipped_state(sp.BURGER)
+
+
+def test_an_old_burger_on_disk_launches_with_the_unit_names(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    storage_backend.LocalStorage().save(sp.BURGER, _unitless_build())
+    app = AppTest.from_file(APP, default_timeout=180)
+    app.run()
+    assert not app.exception
+    assert app.session_state["_loaded_project"] == sp.BURGER
+    texts = [t.value for t in app.text]
+    assert "Fat (g per 100 g): at most 16" in texts, texts
+    assert set(app.selectbox(key="prop_metric").options) == set(_UNIT_NAMES)

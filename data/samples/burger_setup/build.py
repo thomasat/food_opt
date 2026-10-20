@@ -86,7 +86,10 @@ def setup(opt):
     opt.add_objective('Cook loss', 1, goal='min', min_val=0, max_val=40, unit='%')
     opt.set_shares({'Firmness': 45, 'Juiciness': 35, 'Cook loss': 20})
     opt.set_formulation_total(100)
-    opt.add_constraint('Fat per 100 g', max_val=16)
+    # The property names carry their units (S11): "Sodium (mg per 100 g)",
+    # not a bare 900 the reader has to guess the unit of. Cost has no
+    # currency: the example names none.
+    opt.add_constraint('Fat (g per 100 g)', max_val=16)
     opt.add_chosen_quantity_constraint(SOLIDS, min_val=36, max_val=43)
     # 150 g, not the 100 g floor: at exactly 100 g a pre-mix page prints
     # Amount (g) and Composition (%) as the same column twice.
