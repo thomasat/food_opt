@@ -1390,6 +1390,13 @@ SHARE_HELP = 'This measurement’s contribution to the overall score. Changing o
 SHARES_REBALANCED_CAPTION = "Shares adjusted to add up to 100 %."
 
 
+def shares_scaled(pairs_text):
+    """'Shares scaled to add up to 100 %: Crunch 66.7, Sweetness 33.3.' —
+    every share typed, none adding to 100, so all of them moved: the line
+    names what each one is now."""
+    return f"Shares scaled to add up to 100 %: {pairs_text}."
+
+
 def share_adjusted_to(name, share_text):
     """'Juiciness adjusted to 30 %' — one row that gave way."""
     return f"{name} adjusted to {share_text}"
@@ -1496,6 +1503,12 @@ def share_not_above_zero(value):
 
 
 NAME_ON_TWO_ROWS = "Another row has this name; rename one of them."
+
+
+def name_on_two_rows(name):
+    """'Butter is on two rows; rename or delete one.' — two rows of the
+    ingredients grid typed with one name, neither of them a saved row."""
+    return f"{name} is on two rows; rename or delete one."
 
 
 def formulations_contain_none_of(names_text):

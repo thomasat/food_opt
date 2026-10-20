@@ -1413,6 +1413,8 @@ def test_limit_fields_start_blank_and_there_is_no_maximum_tick_box(burger):
 
 
 def test_a_new_limit_says_past_formulations_are_kept(burger):
+    burger.tell({"Pea protein": 20.0, "Methylcellulose": 2.0},
+                {"Juiciness": 7.0, "Firmness": 6.0})
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     at.multiselect(key="qty_pick").select("Pea protein")
@@ -1422,6 +1424,21 @@ def test_a_new_limit_says_past_formulations_are_kept(burger):
     at.run()
     assert not at.exception
     assert any(wording.LIMIT_KEPT in s.value for s in at.success), [s.value for s in at.success]
+
+
+def test_a_new_limit_on_a_project_with_nothing_made_says_only_that(burger):
+    """E2E walk #12: "Formulations already made are kept" with none made."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.multiselect(key="qty_pick").select("Pea protein")
+    at.run()
+    at.number_input(key="qc_one").set_value(400.0)
+    _submit_button(at, "Add ingredient limit").click()
+    at.run()
+    assert not at.exception
+    said = [s.value for s in at.success]
+    assert "Limit added on Pea protein." in said, said
+    assert not any(wording.LIMIT_KEPT in s for s in said), said
 
 
 def test_a_limit_that_excludes_everything_made_so_far_warns(burger):
@@ -5355,7 +5372,8 @@ def test_adding_a_property_limit_lists_it_and_keeps_what_was_made(with_propertie
     _submit_button(at, "Add property limit").click()
     at.run()
     assert not at.exception
-    assert any(s.value == (wording.limit_added_on("Fat per 100 g") + " " + wording.LIMIT_KEPT)
+    # Nothing made yet, so nothing is said to be kept (e2e walk #12).
+    assert any(s.value == wording.limit_added_on("Fat per 100 g")
                for s in at.success), \
         [s.value for s in at.success]
     assert any(t.value == "Fat per 100 g: at most 20" for t in at.text), \

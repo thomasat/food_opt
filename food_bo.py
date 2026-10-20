@@ -1080,10 +1080,17 @@ def _duplicate_name_errors(rows):
             continue
         blamed, other = (twin, spec) if _row_moved(twin[1]) and not _row_moved(
             spec) else ((row_no, spec), twin[1])
-        errors.append((blamed[0],
-                       _name_taken_message(other['name'], blamed[1]['category'])
-                       if other['name'] == blamed[1]['name']
-                       else wording.name_differs_only_by_case(other['name'])))
+        if other['name'] != blamed[1]['name']:
+            message = wording.name_differs_only_by_case(other['name'])
+        elif _row_moved(other):
+            # Neither row is a saved one under this name: "already the name
+            # of an ingredient" pointed at an ingredient the project does
+            # not have yet.
+            message = wording.name_on_two_rows(other['name'])
+        else:
+            message = _name_taken_message(other['name'],
+                                          blamed[1]['category'])
+        errors.append((blamed[0], message))
     return errors
 
 
@@ -12650,11 +12657,16 @@ class FoodOptimizer:
                             if name not in moved
                             and abs(final.get(name, 0.0)
                                     - was_showing.get(name, 0.0)) >= 0.5]
+                # Every share typed and none left to give way: all of them
+                # moved, so the line says what each one is now.
+                scaled = ", ".join(
+                    f"{name} {final.get(name, 0.0):.1f}".removesuffix(".0")
+                    for name in typed)
                 messages.append(("info",
                                  wording.shares_rebalanced(
                                      number_list(gave_way))
                                  if gave_way
-                                 else wording.SHARES_REBALANCED_CAPTION))
+                                 else wording.shares_scaled(scaled)))
             # A share moved is a row saved: without this a save that changed
             # nothing but the column of shares had no green line at all, and
             # the sentences that ride on it — the rescore, the best moving,

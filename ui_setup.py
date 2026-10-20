@@ -144,7 +144,9 @@ def _nothing_made_fits(opt):
 def _report_limit(opt, sentence):
     if not saved_ok(opt):
         return
-    flash("success", f"{sentence} {wording.LIMIT_KEPT}")
+    # "Formulations already made are kept" only where there are some.
+    made = bool(opt.recipe_history or opt.skipped or opt.pending_batch)
+    flash("success", f"{sentence} {wording.LIMIT_KEPT}" if made else sentence)
     if _nothing_made_fits(opt):
         flash("warning", wording.NO_FORMULATION_FITS_LIMIT)
     st.rerun()

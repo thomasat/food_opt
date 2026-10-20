@@ -3889,7 +3889,9 @@ class TestTheGridFixesRoundOne:
         frame = _add(opt.ingredient_grid_frame(), **_ing_row("Oil", high=5.0))
         frame = _add(frame, **_ing_row("Oil", high=6.0))
         errors, _ = opt.apply_ingredient_grid(frame)
-        assert errors == [(5, _name_taken_message("Oil", 'ingredient'))]
+        assert errors == [(5, wording.name_on_two_rows("Oil"))]
+        assert wording.name_on_two_rows("Oil") == (
+            "Oil is on two rows; rename or delete one.")
 
     # ---- a name freed in the same save is free ----------------------- #
 
