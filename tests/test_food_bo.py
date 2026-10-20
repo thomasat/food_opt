@@ -1627,6 +1627,10 @@ class TestARegeneratedBatchIsADifferentBatch:
         whole.next_formulation_no = 1
         whole.pending_batch = None
         whole.pending_batch_no = None
+        # Reopening the file and adding an ingredient discarded split's open
+        # Round, whose rows the cold start now remembers (retired
+        # suggestions): a clean project has none.
+        whole.retired_suggestions = []
         whole.ask(n_suggestions=5)
         assert self._amounts(whole) == split_five
 
@@ -1666,6 +1670,7 @@ class TestARegeneratedBatchIsADifferentBatch:
         first = self._amounts(opt)
         opt.set_pending_batch(None)
         after_discard = int(opt.next_formulation_no)
+        retired_after_discard = [dict(r) for r in opt._retired()]
 
         reloaded = FoodOptimizer("reseed_reload")
         assert int(reloaded.next_formulation_no) == after_discard
@@ -1677,6 +1682,8 @@ class TestARegeneratedBatchIsADifferentBatch:
         # exactly, rather than wandering.
         reloaded.set_pending_batch(None)
         reloaded.next_formulation_no = after_discard
+        # The same state includes what had been discarded by then.
+        reloaded.retired_suggestions = [dict(r) for r in retired_after_discard]
         reloaded.save()
         again = FoodOptimizer("reseed_reload")
         again.ask(n_suggestions=3)
@@ -1691,6 +1698,7 @@ class TestARegeneratedBatchIsADifferentBatch:
         first = self._amounts(opt)
         opt.set_pending_batch(None)
         opt.next_formulation_no = 1          # wind back: the same state again
+        opt.retired_suggestions = []         # (nothing had been discarded then)
         opt.ask(n_suggestions=3)
         assert self._amounts(opt) == first
 

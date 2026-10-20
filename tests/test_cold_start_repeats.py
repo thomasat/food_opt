@@ -110,10 +110,12 @@ def test_a_stepped_grid_has_no_repeat_inside_a_round_and_never_fails(tmp_path, m
     r1 = _round(opt, 5)
     assert len(_keys(r1)) == 5
     opt.set_pending_batch(None)
-    # Only 4 cells are left of 9; asking for 5 still answers, the last one
-    # a repeat, as before repeats were passed over.
+    # Only 4 cells are left of 9; asking for 5 still answers: the 4 new
+    # cells, then one repeat that is not already in this Round.
     r2 = _round(opt, 5)
     assert len(r2) == 5
+    assert len(_keys(r2)) == 5
+    assert len(_keys(r2) - _keys(r1)) == 4
 
 
 def _plain():

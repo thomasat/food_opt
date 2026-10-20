@@ -7931,22 +7931,27 @@ class FoodOptimizer:
             if len(results) >= n_suggestions:
                 return results
 
-        # The widest pool still has too few new points (a grid of dial
-        # steps can run out of cells): its feasible repeats fill the Round,
-        # in sequence order, as they did before repeats were passed over.
-        if len(results) + len(repeats) >= n_suggestions:
-            return results + repeats[:n_suggestions - len(results)]
-
-        # A wider pool did not fill the batch. With results already in, the
-        # model can be asked instead — it is handed the same limits as
-        # inequalities and solves them rather than sampling for them.
+        # A wider pool did not fill the batch with new points. With results
+        # already in, the model can be asked instead — it is handed the same
+        # limits as inequalities and solves them rather than sampling for
+        # them — and its picks are brought onto the total as the warm
+        # regime's are.
         if self.complete_count():
             try:
-                chosen = self._ask_optimize(n_suggestions, bounds_tensor, dim)
+                picked = self._ask_optimize(n_suggestions, bounds_tensor, dim)
             except Exception:
-                chosen = []
-            if chosen:
-                return chosen
+                picked = []
+            if picked:
+                if self.has_formulation_total():
+                    picked = [self._snapped_if_it_still_fits(rec) for rec in picked]
+                return picked
+        # Nothing new is left (a grid of dial steps can run out of cells):
+        # the widest pool's feasible repeats fill the Round, in sequence
+        # order — first those not already in this Round, then the rest — as
+        # they did before repeats were passed over.
+        if len(results) + len(repeats) >= n_suggestions:
+            return results + self._fill_from_repeats(
+                repeats, chosen, n_suggestions - len(results))
         if results:
             return results
 
@@ -8047,6 +8052,20 @@ class FoodOptimizer:
         if not recipes:
             return None
         return np.asarray([self._encode(r) for r in recipes], dtype=float)
+
+    def _fill_from_repeats(self, repeats, chosen, k):
+        """`k` of `repeats` (sequence order): first those that match neither
+        this Round's picks (`chosen`) nor each other, then the rest."""
+        seen = list(chosen)
+        first, rest = [], []
+        for rec in repeats:
+            vector = self._as_issued(rec)
+            if self._repeats(vector, seen):
+                rest.append(rec)
+            else:
+                first.append(rec)
+                seen.append(vector)
+        return (first + rest)[:k]
 
     def _as_issued(self, recipe):
         """`recipe` encoded as ask() would issue it: each setting moved onto
