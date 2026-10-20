@@ -5417,6 +5417,12 @@ def _limits_settings(at):
                 if e.label == wording.INGREDIENT_LIMITS_EXPANDER)
 
 
+def _properties_settings(at):
+    """The properties grid's own fold, directly under the limits (S11)."""
+    return next(e for e in _tab1(at).expander
+                if e.label == wording.INGREDIENT_PROPERTIES_EXPANDER)
+
+
 def _advanced(at):
     """Tab 1's bottom tier, by name."""
     return next(e for e in _tab1(at).expander
@@ -5503,11 +5509,13 @@ def test_ingredients_and_settings_are_one_section_for_both_types(burger):
     # another, and a tab that folded the optional half away twice made the
     # reader open two things to reach one.
     # The Calculation help popover folds its syntax details away inside
-    # itself; the tab's own tiers are the three after it.
+    # itself; the tab's own tiers are the ones after it (S11: the
+    # properties grid has its own fold under the limits).
     labels = [e.label for e in _tab1(at).expander]
     assert labels == [wording.CALCULATION_SYNTAX_LABEL,
                       wording.MORE_SETTINGS_EXPANDER,
-                      wording.INGREDIENT_LIMITS_EXPANDER, "Advanced"], labels
+                      wording.INGREDIENT_LIMITS_EXPANDER,
+                      wording.INGREDIENT_PROPERTIES_EXPANDER, "Advanced"], labels
 
 
 def test_the_ingredients_grid_is_the_first_thing_on_the_tab(burger):
@@ -6442,6 +6450,7 @@ def test_the_tab_reads_in_one_order(burger):
         wording.MEASUREMENTS_HEADER,
         wording.MORE_SETTINGS_EXPANDER,
         wording.INGREDIENT_LIMITS_EXPANDER,
+        wording.INGREDIENT_PROPERTIES_EXPANDER,
         wording.ADVANCED_EXPANDER,
     ], _tab_outline(at, 0)
     assert _tab_primaries(at, 0) == [wording.NEXT_MAKE_A_ROUND]
@@ -6461,10 +6470,15 @@ def test_more_settings_holds_the_four_optional_things_in_order(burger):
     limits = _limits_settings(at)
     assert not limits.proto.expanded
     headings = [m.value for m in limits.markdown if m.value.startswith("**")]
-    assert headings == [wording.LIMITS_HEADING,
-                        wording.FINISHED_PRODUCT_LIMIT_HEADING,
-                        wording.LIMIT_ON_CHOSEN_INGREDIENTS_HEADING,
-                        wording.PROPERTIES_HEADING], headings
+    # S11: no inner "Limits (optional)" under the fold of nearly that name,
+    # and the properties grid is in a fold of its own.
+    assert headings == [wording.FINISHED_PRODUCT_LIMIT_HEADING,
+                        wording.LIMIT_ON_CHOSEN_INGREDIENTS_HEADING], headings
+    assert not limits.dataframe
+    props = _properties_settings(at)
+    assert not props.proto.expanded
+    assert not [m.value for m in props.markdown if m.value.startswith("**")]
+    assert len(props.dataframe) == 1                          # the properties grid
     # The note about where the targets came from sits between the box and
     # the limits, and it is the only button above them.
     assert wording.ADD_TARGETS_SOURCE_BUTTON in [b.label for b in fold.button]
@@ -6481,7 +6495,7 @@ def test_more_settings_holds_the_four_optional_things_in_order(burger):
 
 def test_nothing_else_is_on_the_tab(burger):
     """Spec 1.5 says "nothing else": every element tab 1 draws at its top
-    level is one of the five the order test names."""
+    level is one of the six the order test names."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     kinds = [e.__class__.__name__ for e in _tab1(at).children.values()]
@@ -6489,7 +6503,9 @@ def test_nothing_else_is_on_the_tab(burger):
     # fold, the two tiers, the dividers and the foot's own button — and no
     # second section, no add form, no control row.
     assert kinds.count("Subheader") == 2
-    assert kinds.count("Expander") == 3  # calculation help sits inside its grid caption block
+    # More settings, the limits, the properties (S11: a fold of its own)
+    # and Advanced; calculation help sits inside its grid caption block.
+    assert kinds.count("Expander") == 4
     assert "Markdown" not in kinds, kinds
 
 
@@ -6625,7 +6641,7 @@ def test_the_properties_grid_keeps_the_tab_one_lit_button(burger):
     # ...and the line that says nothing is written while typing is still
     # there, so an edit in hand is not a silent one.
     assert wording.unsaved_grid_caption(wording.PROPERTIES_NAME) in [
-        c.value for c in _limits_settings(at).caption]
+        c.value for c in _properties_settings(at).caption]
 
 
 def test_a_property_is_deleted_from_a_picker_and_one_question(burger):
@@ -6720,6 +6736,176 @@ def test_deleting_a_property_asks_first_keeps_a_copy_and_takes_its_limit(
     assert (tmp_path / "burger_pre_delete.pkl").exists()
     assert any("Sodium per 100 g deleted. Deleted with it: 1 limit." in s.value
                for s in at.success), [s.value for s in at.success]
+
+
+def _delete_property_popover(at):
+    return next(p for p in _properties_settings(at).get("popover")
+                if p.proto.popover.label == wording.DELETE_PROPERTY_POPOVER)
+
+
+def test_s11_a_property_is_deleted_from_a_small_popover_under_the_grid(burger):
+    """S11: the picker and its Delete live in `Delete a property`, under the
+    grid, stacked — the Delete is not in a column beside the picker, where
+    "Delete Sodium (mg per 100 g)" wrapped a word to a line. The question
+    is asked inside it, survives the rerun its arming causes, and its Yes
+    still deletes."""
+    burger.add_property("Sodium (mg per 100 g)")
+    burger.add_property("Cost per 100 g")
+    burger.add_constraint("Sodium (mg per 100 g)", max_val=450)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert wording.DELETE_PROPERTY_POPOVER == "Delete a property"
+    pop = _delete_property_popover(at)
+    assert [s.key for s in pop.selectbox] == ["prop_delete"]
+    assert [b.label for b in pop.button] == [
+        wording.delete_button(at.selectbox(key="prop_delete").value)]
+    # Stacked: no columns inside it until the question is up.
+    assert not pop.columns
+    # The picker and its Delete are nowhere else on the tab.
+    assert [s for s in _limits_settings(at).selectbox if s.key == "prop_delete"] == []
+    at.selectbox(key="prop_delete").set_value("Sodium (mg per 100 g)")
+    at.run()
+    next(b for b in _delete_property_popover(at).button
+         if b.key == "rm_prop_Sodium (mg per 100 g)__btn").click()
+    at.run()
+    assert not at.exception
+    pop = _delete_property_popover(at)
+    assert [w.value for w in pop.warning] == [wording.delete_property_warning(
+        "Sodium (mg per 100 g)", "1 limit")]
+    assert _tab_primaries(at, 0) == [wording.YES_DELETE], _tab_primaries(at, 0)
+    # An unrelated rerun keeps the question up, in the popover.
+    at.run()
+    pop = _delete_property_popover(at)
+    assert [w.value for w in pop.warning], "the armed question was lost"
+    assert _properties_settings(at).proto.expanded is True
+    next(b for b in pop.button
+         if b.key == "rm_prop_Sodium (mg per 100 g)__yes").click()
+    at.run()
+    assert not at.exception
+    saved = FoodOptimizer("burger")
+    assert saved.properties() == ["Cost per 100 g"]
+    assert saved.constraints == []
+
+
+def test_s11_a_project_with_no_property_gets_the_fold_with_its_new_box(burger):
+    """No properties: the fold is still there, holding New property and
+    nothing to delete; the limit builder above points at it."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    props = _properties_settings(at)
+    assert [t.key for t in props.text_input] == ["prop_new"]
+    assert not props.dataframe
+    assert not list(props.get("popover"))
+    assert wording.NO_PROPERTIES_YET_CAPTION in [
+        c.value for c in _limits_settings(at).caption]
+    assert "Ingredient properties" in wording.NO_PROPERTIES_YET_CAPTION
+    assert len(wording.NO_PROPERTIES_YET_CAPTION.split()) <= 8
+
+
+def test_s11_the_properties_fold_stays_open_while_work_is_in_hand(burger):
+    """Like the limits fold (_limit_half_written), the fold is drawn open
+    once there is work in it — a name typed into New property, an unsaved
+    edit in its grid, `Delete a property` open, a delete waiting on its Yes
+    — and then stays drawn open for the session: an `expanded` that turned
+    back to False shut the fold under the reader's hand on Cancel and on
+    the Save itself."""
+    burger.add_property("Cost")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert _properties_settings(at).proto.expanded is False
+    # A name typed opens it; it is not the limits fold's business any more.
+    _prop_name_box(at).set_value("Salt")
+    at.run()
+    assert _properties_settings(at).proto.expanded is True
+    assert _limits_settings(at).proto.expanded is False
+    _prop_name_box(at).set_value("")
+    at.run()
+    assert _properties_settings(at).proto.expanded is True
+    # An unsaved edit, then its Save: still open.
+    # (AppTest forgets a grid's record each run; the browser resends it.)
+    _grid_edits(at, PROP_GRID, edited={0: {"Cost": 3.5}})
+    at.run()
+    next(b for b in at.button if b.key == "save_properties").click()
+    _grid_edits(at, PROP_GRID, edited={0: {"Cost": 3.5}})
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("burger").has_property_value("Pea protein", "Cost")
+    assert _properties_settings(at).proto.expanded is True
+
+
+@pytest.mark.parametrize("start", ["edit", "arm", "popover"])
+def test_s11_each_kind_of_work_opens_the_properties_fold(burger, start):
+    burger.add_property("Cost")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    assert _properties_settings(at).proto.expanded is False
+    if start == "edit":
+        _grid_edits(at, PROP_GRID, edited={0: {"Cost": 3.5}})
+        at.run()
+        _grid_edits(at, PROP_GRID, edited={0: {"Cost": 3.5}})
+    elif start == "arm":
+        # Open on the very run the arming click arrives.
+        next(b for b in at.button if b.key == "rm_prop_Cost__btn").click()
+    else:
+        at.session_state["prop_delete_popover"] = True
+    at.run()
+    assert not at.exception
+    assert _properties_settings(at).proto.expanded is True
+
+
+def test_s11_shutting_the_delete_popover_cancels_its_question(monkeypatch):
+    """Clicking away from `Delete a property` shuts it; a question left
+    armed inside would sit unseen while every coloured button on the tab
+    stays grey behind it. So shutting it is a Cancel."""
+    import ui_helpers
+    import ui_setup
+    state = {ui_helpers.ARMED_KEY: "rm_prop_Cost",
+             "rm_prop_Cost__pending": True, "prop_delete_popover": False}
+    monkeypatch.setattr(ui_setup.st, "session_state", state)
+    ui_setup._delete_popover_toggled()
+    assert ui_helpers.ARMED_KEY not in state and "rm_prop_Cost__pending" not in state
+    # Opening it, or another question armed elsewhere, is left alone.
+    for open_, armed in ((True, "rm_prop_Cost"), (False, "rm_constr_0")):
+        state = {ui_helpers.ARMED_KEY: armed, f"{armed}__pending": True,
+                 "prop_delete_popover": open_}
+        monkeypatch.setattr(ui_setup.st, "session_state", state)
+        ui_setup._delete_popover_toggled()
+        assert state[ui_helpers.ARMED_KEY] == armed
+
+
+def test_s11_a_landed_property_delete_shuts_its_popover(burger):
+    burger.add_property("Cost")
+    burger.add_property("Fat (g per 100 g)")
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.session_state["prop_delete_popover"] = True
+    at.run()
+    next(b for b in at.button if b.key == "rm_prop_Cost__btn").click()
+    at.run()
+    next(b for b in at.button if b.key == "rm_prop_Cost__yes").click()
+    at.run()
+    assert not at.exception
+    assert FoodOptimizer("burger").properties() == ["Fat (g per 100 g)"]
+    assert at.session_state["prop_delete_popover"] is False
+    assert _properties_settings(at).proto.expanded is True
+
+
+def test_s11_a_limit_is_deleted_from_one_line_and_its_question_names_it(burger):
+    """Each limit's Delete sits on the line beside it, saying `Delete this
+    limit`; the question that follows names the limit it takes out."""
+    burger.add_property("Fat (g per 100 g)")
+    burger.add_constraint("Fat (g per 100 g)", max_val=16)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    limits = _limits_settings(at)
+    assert [t.value for t in limits.text if t.value.startswith(
+        "Fat (g per 100 g): at most 16")], [t.value for t in limits.text]
+    [delete] = [b for b in limits.button if b.label == wording.DELETE_THIS_LIMIT]
+    delete.click()
+    at.run()
+    assert [w.value for w in _limits_settings(at).warning] == [
+        wording.delete_limit_warning("Fat (g per 100 g)")]
+    assert "Fat (g per 100 g)" in wording.delete_limit_warning("Fat (g per 100 g)")
 
 
 def test_deleting_an_ingredient_turns_over_the_properties_grid(burger):

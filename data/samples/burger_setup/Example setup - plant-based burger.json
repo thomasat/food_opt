@@ -270,108 +270,108 @@
   },
   "ingredient_properties": {
     "Textured pea protein": {
-      "Fat per 100 g": 6.0,
-      "Sodium per 100 g": 30.0,
-      "Water per 100 g": 8.0,
+      "Fat (g per 100 g)": 6.0,
+      "Sodium (mg per 100 g)": 30.0,
+      "Water (g per 100 g)": 8.0,
       "Cost per 100 g": 0.38
     },
     "Textured soy protein": {
-      "Fat per 100 g": 6.0,
-      "Sodium per 100 g": 20.0,
-      "Water per 100 g": 8.0,
+      "Fat (g per 100 g)": 6.0,
+      "Sodium (mg per 100 g)": 20.0,
+      "Water (g per 100 g)": 8.0,
       "Cost per 100 g": 0.22
     },
     "Hydration water": {
-      "Fat per 100 g": 0.0,
-      "Sodium per 100 g": 0.0,
-      "Water per 100 g": 100.0,
+      "Fat (g per 100 g)": 0.0,
+      "Sodium (mg per 100 g)": 0.0,
+      "Water (g per 100 g)": 100.0,
       "Cost per 100 g": 0.0
     },
     "Remaining water": {
-      "Fat per 100 g": 0.0,
-      "Sodium per 100 g": 0.0,
-      "Water per 100 g": 100.0,
+      "Fat (g per 100 g)": 0.0,
+      "Sodium (mg per 100 g)": 0.0,
+      "Water (g per 100 g)": 100.0,
       "Cost per 100 g": 0.0
     },
     "Dry blend": {},
     "Pea protein isolate": {
-      "Fat per 100 g": 8.0,
-      "Sodium per 100 g": 900.0,
-      "Water per 100 g": 6.0,
+      "Fat (g per 100 g)": 8.0,
+      "Sodium (mg per 100 g)": 900.0,
+      "Water (g per 100 g)": 6.0,
       "Cost per 100 g": 0.48
     },
     "Potato starch": {
-      "Fat per 100 g": 0.1,
-      "Sodium per 100 g": 10.0,
-      "Water per 100 g": 18.0,
+      "Fat (g per 100 g)": 0.1,
+      "Sodium (mg per 100 g)": 10.0,
+      "Water (g per 100 g)": 18.0,
       "Cost per 100 g": 0.11
     },
     "Methylcellulose": {
-      "Fat per 100 g": 0.0,
-      "Sodium per 100 g": 5.0,
-      "Water per 100 g": 5.0,
+      "Fat (g per 100 g)": 0.0,
+      "Sodium (mg per 100 g)": 5.0,
+      "Water (g per 100 g)": 5.0,
       "Cost per 100 g": 1.35
     },
     "Wheat gluten": {
-      "Fat per 100 g": 1.9,
-      "Sodium per 100 g": 30.0,
-      "Water per 100 g": 8.0,
+      "Fat (g per 100 g)": 1.9,
+      "Sodium (mg per 100 g)": 30.0,
+      "Water (g per 100 g)": 8.0,
       "Cost per 100 g": 0.19
     },
     "Seasoning blend": {},
     "Salt": {
-      "Fat per 100 g": 0.0,
-      "Sodium per 100 g": 39300.0,
-      "Water per 100 g": 0.0,
+      "Fat (g per 100 g)": 0.0,
+      "Sodium (mg per 100 g)": 39300.0,
+      "Water (g per 100 g)": 0.0,
       "Cost per 100 g": 0.02
     },
     "Onion powder": {
-      "Fat per 100 g": 1.0,
-      "Sodium per 100 g": 73.0,
-      "Water per 100 g": 5.0,
+      "Fat (g per 100 g)": 1.0,
+      "Sodium (mg per 100 g)": 73.0,
+      "Water (g per 100 g)": 5.0,
       "Cost per 100 g": 0.58
     },
     "Yeast extract": {
-      "Fat per 100 g": 0.5,
-      "Sodium per 100 g": 3500.0,
-      "Water per 100 g": 5.0,
+      "Fat (g per 100 g)": 0.5,
+      "Sodium (mg per 100 g)": 3500.0,
+      "Water (g per 100 g)": 5.0,
       "Cost per 100 g": 0.9
     },
     "Natural beef-type flavour": {
-      "Fat per 100 g": 2.0,
-      "Sodium per 100 g": 2000.0,
-      "Water per 100 g": 3.0,
+      "Fat (g per 100 g)": 2.0,
+      "Sodium (mg per 100 g)": 2000.0,
+      "Water (g per 100 g)": 3.0,
       "Cost per 100 g": 2.4
     },
     "Beet juice powder": {
-      "Fat per 100 g": 0.5,
-      "Sodium per 100 g": 250.0,
-      "Water per 100 g": 5.0,
+      "Fat (g per 100 g)": 0.5,
+      "Sodium (mg per 100 g)": 250.0,
+      "Water (g per 100 g)": 5.0,
       "Cost per 100 g": 1.1
     },
     "Fats and oils": {},
     "Coconut oil": {
-      "Fat per 100 g": 99.0,
-      "Sodium per 100 g": 0.0,
-      "Water per 100 g": 0.0,
+      "Fat (g per 100 g)": 99.0,
+      "Sodium (mg per 100 g)": 0.0,
+      "Water (g per 100 g)": 0.0,
       "Cost per 100 g": 0.24
     },
     "Sunflower oil": {
-      "Fat per 100 g": 100.0,
-      "Sodium per 100 g": 0.0,
-      "Water per 100 g": 0.0,
+      "Fat (g per 100 g)": 100.0,
+      "Sodium (mg per 100 g)": 0.0,
+      "Water (g per 100 g)": 0.0,
       "Cost per 100 g": 0.15
     }
   },
   "property_names": [
-    "Fat per 100 g",
-    "Sodium per 100 g",
-    "Water per 100 g",
+    "Fat (g per 100 g)",
+    "Sodium (mg per 100 g)",
+    "Water (g per 100 g)",
     "Cost per 100 g"
   ],
   "constraints": [
     {
-      "metric": "Fat per 100 g",
+      "metric": "Fat (g per 100 g)",
       "min": null,
       "max": 16.0,
       "basis": "per_100"

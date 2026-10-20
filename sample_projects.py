@@ -52,6 +52,10 @@ _SUPERSEDED = {
             "d6cd35236c4c2ff0d0a9aa78bcba8e9b0cfef1524b35a4e9d168bc05e887f94e",
             "6684ce3ed9328bc29ea80da1c0ffa75af0cbb7e98c7782a2f4bed69488d8d82b",
             "77a7bef9d04291636e15bddc93cf5bbbe8793e48a5abd703171dd4b4d1c2d19e"},
+    # The example setup before its property names carried their units (S11:
+    # "Fat per 100 g" is now "Fat (g per 100 g)"): 3b18307, and e06f3b2.
+    BURGER: {"cb7c801bfed30aa06efead6223b8b1dfa916655b2b202942005264521041f925",
+             "9e5c90a949bd2416ccdd47a7e816f01020a88ebd82fd28663394d07f5b0c918c"},
 }
 
 
@@ -166,12 +170,13 @@ def _superseded(storage, name):
 
 
 def refresh(storage):
-    """Put the current yogurt pilot in place of a copy an earlier build
-    wrote and nobody changed (_SUPERSEDED); run once per session at launch.
-    Returns the names replaced. A copy that differs in anything is left
-    exactly as it is."""
+    """Put the current samples (the yogurt pilot and the example setup) in
+    place of a copy an earlier build wrote and nobody changed (_SUPERSEDED);
+    run once per session at launch. Returns the names replaced. A copy that
+    differs in anything is left exactly as it is; a sample not on disk is
+    not written."""
     replaced = []
-    for name in YOGURT_NAMES:
+    for name in NAMES:
         if _superseded(storage, name):
             storage.save(name, shipped_state(name))
             replaced.append(name)
