@@ -991,13 +991,20 @@ def compare_frames(opt, table, which="light"):
     return cells, css
 
 
+def pilot_engine_picks(opt):
+    """Whether the open Round is the yogurt pilot's engine picks: what
+    CHOSEN_IN_PILOT says under its title."""
+    return (sample_projects.is_yogurt(opt.project_name)
+            and any(sample_projects.ENGINE_PICK in str(r.get('note') or "")
+                    for r in opt.pending_batch or []))
+
+
 def _improve_caption(opt, table):
     """The caption under the Round title, and the pilot's engine line."""
     say = lambda text: ui_insights._short(opt, text)
     rows = opt.pending_batch or []
     suggested = any(not r.get('note') for r in rows)
-    picked = (sample_projects.is_yogurt(opt.project_name)
-            and any(sample_projects.ENGINE_PICK in str(r.get('note') or "") for r in rows))
+    picked = pilot_engine_picks(opt)
     if table.best_no is None:
         if suggested:
             st.caption(say(wording.COVER_CAPTION), help=say(wording.HOW_CHOSEN_2))
@@ -1212,7 +1219,9 @@ def _batch_size_control(opt, unit, typed, scale_to, sized, refusal=""):
         min_value=0.0, step=1.0, placeholder=wording.BATCH_SIZE_PLACEHOLDER,
         key=_BATCH_SIZE_KEY,
         disabled=bool(st.session_state.get(f"edit_round_{opt.project_name}_{opt.pending_batch_no}")),
-        help=wording.batch_size_help(unit),
+        # Empty, it sizes nothing, so its "?" says what empty does.
+        help=(wording.batch_size_help(unit) if typed is not None
+              else wording.BATCH_SIZE_EMPTY_HELP),
     )
     line = _previous_size_line(opt)
     if line:
@@ -1928,7 +1937,9 @@ def render(opt, storage, tab_open=False):
     # opened; a generated row has none. With no generated row in it there is
     # no Generate control anywhere on this screen, and this is the button
     # that gets one back — so the line sits directly above it.
-    if rows and all(r.get('note') for r in rows):
+    # Not under the pilot's engine picks: the title already says the engine
+    # chose them, and "entered formulations" would say the opposite.
+    if rows and all(r.get('note') for r in rows) and not pilot_engine_picks(opt):
         st.caption(wording.for_project(opt, own_round_caption(rows)))
     numbers = [r['formulation'] for r in rows]
     regenerate = confirm_action(

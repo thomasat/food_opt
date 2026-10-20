@@ -1185,14 +1185,18 @@ def _total_text(opt, lo, hi):
 
 
 def amounts_linked_text(opt):
-    """'The 7 add to 97.7–98.7 g (the allowed total), so amounts are
-    linked.' — from the project's own limit on the total of every varying
-    ingredient (an Ingredient total or the Formulation total); None
-    without one."""
-    names = {v['name'] for v in opt.varying_variables() if insights._is_ingredient(v)
-             and v.get('type', 'continuous') == 'continuous'}
+    """'These 7 ingredients total 97.7–98.7 g, so they move together.' —
+    from the project's own limit on the total of every varying ingredient
+    (an Ingredient total or the Formulation total); None without one. When
+    the chart also draws a process setting (a varying continuous one), the
+    line says settings are not in the total."""
+    continuous = [v for v in opt.varying_variables()
+                  if v.get('type', 'continuous') == 'continuous']
+    names = {v['name'] for v in continuous if insights._is_ingredient(v)}
     if len(names) < 2:
         return None
+    settings = any(not insights._is_ingredient(v)
+                   and float(v['bounds'][1]) > float(v['bounds'][0]) for v in continuous)
     for qc in getattr(opt, 'quantity_constraints', []) or []:
         if not names <= set(qc.get('ingredients') or ()):
             continue
@@ -1205,7 +1209,8 @@ def amounts_linked_text(opt):
         else:
             continue
         n = len(qc.get('ingredients') or ())
-        return _say(opt, wording.review_amounts_linked(n, _total_text(opt, lo, hi)))
+        return _say(opt, wording.review_amounts_linked(n, _total_text(opt, lo, hi),
+                                                       settings))
     return None
 
 

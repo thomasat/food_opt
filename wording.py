@@ -74,6 +74,8 @@ COPY_KEPT = ("A copy is saved first. To bring it back, use Saved copies "
              "in the sidebar.")
 
 NAME_RULE = "Up to 64 characters. Start with a letter or a number."
+# Create project with nothing in the box: the rule above names no problem.
+NAME_EMPTY = "Type a project name first."
 
 
 # ------------------------------------------------------------------ #
@@ -320,7 +322,7 @@ SAFETY_COPY_REASONS = {
     'pre_correction': "Before correcting a recorded formulation",
     'pre_delete': "Before a deletion",
     'pre_restore': "Before opening a saved copy",
-    'sample_reset': "Before Start this sample over",
+    'sample_reset': "Before Start this example over",
     'archived': "Before clearing project contents",
     'deleted': "Before deleting the project",
     # Two labels no version writes any more; a folder that met an earlier
@@ -448,7 +450,7 @@ YES_START_OVER = "Yes, clear contents"
 
 # A sample's Start over: the shipped file goes back, the reader's own version
 # is kept as a copy.
-START_SAMPLE_OVER_LABEL = "Start this sample over"
+START_SAMPLE_OVER_LABEL = "Start this example over"
 YES_START_SAMPLE_OVER = "Yes, start over"
 
 
@@ -458,7 +460,7 @@ def start_sample_over_warning(name):
 
 
 def sample_restored(name):
-    """The status after Start this sample over: the one line it shows."""
+    """The status after Start this example over: the one line it shows."""
     return f"{name} is back as shipped. Your version is in Saved copies."
 
 
@@ -599,13 +601,20 @@ YOGURT_SAMPLE_NAME = "the yogurt pilot"
 BURGER_SAMPLE_NAME = "the burger example"
 
 
-def sample_opened(what, added=0):
+def sample_opened(what, added=0, files=0):
     """'Opened the yogurt pilot (2 projects added).' — `added` is how many
-    sample projects this click wrote into the project list; none is left
-    unsaid ('Opened the burger example.')."""
-    if not added:
+    sample projects this click wrote into the project list, `files` how
+    many results files it wrote beside them (S4: 'Opened the yogurt pilot
+    (2 projects, 1 results file added).'); none is left unsaid ('Opened the
+    burger example.')."""
+    parts = []
+    if added:
+        parts.append(f"{added} project{'s' if added != 1 else ''}")
+    if files:
+        parts.append(f"{files} results file{'s' if files != 1 else ''}")
+    if not parts:
         return f"Opened {what}."
-    return f"Opened {what} ({added} project{'s' if added != 1 else ''} added)."
+    return f"Opened {what} ({', '.join(parts)} added)."
 
 
 def batch_line_open(no, n):
@@ -856,8 +865,8 @@ def compare_row_header(unit=None):
 
 
 # The Round table's key (owner, v3 final cleanup; it replaced the bracketed
-# change and the grey shading): 'More than F10 · Less than F10 · plain:
-# within 5 % of its range', the first two in the direction colours.
+# change and the grey shading): 'More than F10 · Less than F10 · Plain:
+# changed under 5 % of its range', the first two in the direction colours.
 def compare_key_more(no):
     return f"More than {short_no(no)}"
 
@@ -867,7 +876,9 @@ def compare_key_less(no):
 
 
 def compare_key_plain(pct):
-    return f"plain: within {pct:g} % of its range"
+    """N15: a plain cell moved less than `pct` % of its row's allowed range
+    (Lowest–Highest) from Best so far (ui_batch.direction_of)."""
+    return f"Plain: changed under {pct:g} % of its range"
 
 
 def compare_key_help(no, pct, row="ingredient"):
@@ -938,6 +949,8 @@ def batch_size_help(unit=""):
     return (f"Every {FORMULATION} in this {ROUND_CAP} adds up to this. Change "
             "it and the amounts are recalculated at that size; the "
             f"table's {total_column(unit)} shows it.")
+# The same box's "?" while it is empty: nothing adds up to an empty box.
+BATCH_SIZE_EMPTY_HELP = f"Leave empty to keep each {FORMULATION}'s own total."
 # An example, not a description: the help above already says what the box is
 # for.
 BATCH_SIZE_PLACEHOLDER = "e.g. 100"
@@ -1138,6 +1151,18 @@ def upload_partial_flash(parsed_n, total_n, batch_no, left_n):
 # ------------------------------------------------------------------ #
 KIND_INGREDIENT = "Ingredient"
 KIND_SETTING = "Process setting"
+
+
+def setting_unit_hint(rows):
+    """N16: under the ingredients grid, for rows typed Ingredient whose Unit
+    is a time or a temperature. `rows` is [(name, unit)]. One row: 'Mixing
+    time is in min: set Type to Process setting?'. Nothing is changed
+    for the reader; it only asks."""
+    if len(rows) == 1:
+        name, unit = rows[0]
+        return f"{name} is in {unit}: set Type to {KIND_SETTING}?"
+    names = ", ".join(name for name, _ in rows)
+    return f"{names}: time or temperature units. Set Type to {KIND_SETTING}?"
 
 GOAL_LABELS = {
     "max": "Prefer higher values",
@@ -4741,9 +4766,13 @@ def review_amounts_help(count=REVIEW_TOP_COUNT):
             "the range tried; blue, the range in the top ones; the marks, the best so far.")
 
 
-def review_amounts_linked(n, total):
+def review_amounts_linked(n, total, settings=False):
     """'These 9 ingredients total 100 g, so they move together.' (S9: "The
-    9" named nothing.)"""
+    9" named nothing.) With process settings drawn in the same chart, which
+    are in no total: 'These 9 ingredients total 100 g; settings are
+    separate.' (≤10 words; final walk shot 10)."""
+    if settings:
+        return f"These {n} {INGREDIENT}s total {total}; settings are separate."
     return f"These {n} {INGREDIENT}s total {total}, so they move together."
 
 

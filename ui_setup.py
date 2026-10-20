@@ -156,6 +156,29 @@ def _report_limit(opt, sentence):
 KIND_INGREDIENT = wording.KIND_INGREDIENT
 KIND_SETTING = wording.KIND_SETTING
 
+# Units that measure a time or a temperature, lower-cased: a row in one of
+# them is almost always a process setting (N16).
+_SETTING_UNITS = frozenset({
+    "s", "sec", "secs", "second", "seconds", "min", "mins", "minute", "minutes",
+    "h", "hr", "hrs", "hour", "hours",
+    "°c", "°f", "℃", "℉", "c", "f", "k", "degc", "degf", "deg c", "deg f"})
+
+
+def setting_unit_rows(frame):
+    """[(name, unit)] for each named row typed Ingredient whose Unit is a
+    time or a temperature (N16), in the grid's order."""
+    if frame is None or wording.UNIT_LABEL not in frame.columns:
+        return []
+    rows = []
+    for _, row in frame.iterrows():
+        name = str(row.get(wording.NAME_LABEL) or "").strip()
+        unit = str(row.get(wording.UNIT_LABEL) or "").strip()
+        kind = row.get(wording.TYPE_LABEL)
+        kind = KIND_INGREDIENT if kind is None or kind != kind else str(kind)
+        if name and kind == KIND_INGREDIENT and unit.lower() in _SETTING_UNITS:
+            rows.append((name, unit))
+    return rows
+
 
 def _unscaled_tail(opt, before):
     """The sentence a unit change owes the open round when it has just split
@@ -607,6 +630,11 @@ def _variables(opt, storage):
         int(no): str(edited.loc[no, wording.NAME_LABEL] or "").strip()
         for no in edited.index
         if wording.NAME_LABEL in edited.columns})
+    # A time or a temperature typed as an Ingredient (N16): asked, never
+    # changed for the reader.
+    setting_rows = setting_unit_rows(edited)
+    if setting_rows:
+        st.caption(wording.setting_unit_hint(setting_rows))
     # Every rule shows its consequence in numbers: one line per row that is
     # worked out, saying what the other rows' allowed amounts leave it. The
     # project's own rows, not the edited frame's — it is what has been

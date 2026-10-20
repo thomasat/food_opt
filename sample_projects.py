@@ -136,6 +136,19 @@ def _write_round6_results(storage, overwrite):
     return target.is_file()
 
 
+def round6_results_on_disk(storage):
+    """Whether the Round 6 results file is beside the projects: asked
+    before and after opening the pilot, so its success line counts the file
+    only when that click wrote it (S4)."""
+    folder = getattr(storage, "folder", None)
+    if folder is None:
+        return False
+    try:
+        return (Path(folder()) / ROUND6_RESULTS_FILE_NAME).is_file()
+    except OSError:
+        return False
+
+
 def fingerprint(state):
     """A project state's identity, whatever its file's indentation."""
     return hashlib.sha256(json.dumps(state, sort_keys=True).encode()).hexdigest()

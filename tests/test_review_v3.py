@@ -296,6 +296,22 @@ def test_the_amounts_key_and_the_linked_total(r6):
         "Top: the 3 highest Overall scores so far (ties included). Each row")
 
 
+def test_linked_line_says_settings_are_not_in_the_total(r6, monkeypatch):
+    """Final walk shot 10: the amounts chart also draws a process setting,
+    which is in no total, so the line says so (≤10 words)."""
+    setting = {'name': 'Mixing time', 'bounds': [1.0, 10.0], 'category': 'process',
+               'type': 'continuous', 'unit': 'min'}
+    rows = r6.varying_variables() + [setting]
+    monkeypatch.setattr(r6, "varying_variables", lambda: rows)
+    line = U.amounts_linked_text(r6)
+    assert line == "These 7 ingredients total 97.7–98.7 g; settings are separate."
+    assert len(line.split()) <= 10
+    # A setting held at one value is not drawn, so it changes nothing.
+    setting['bounds'] = [5.0, 5.0]
+    assert U.amounts_linked_text(r6) == (
+        "These 7 ingredients total 97.7–98.7 g, so they move together.")
+
+
 def test_no_linked_line_without_a_total(r6):
     r6.quantity_constraints = []
     assert U.amounts_linked_text(r6) is None

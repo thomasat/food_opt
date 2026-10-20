@@ -287,6 +287,20 @@ def test_create_project_rejects_bad_name(tmp_path, monkeypatch):
     assert list(tmp_path.glob("*.pkl")) == []
 
 
+@pytest.mark.parametrize("typed", ["", "   "])
+def test_create_project_with_no_name_asks_for_one(tmp_path, monkeypatch, typed):
+    """An empty box broke no rule the 64-character line names (final walk
+    shot 36): it says what is missing instead."""
+    monkeypatch.chdir(tmp_path)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.text_input(key="new_project_name").set_value(typed)
+    _submit_button(at, "Create project").click()
+    at.run()
+    assert [e.value for e in at.error] == [wording.NAME_EMPTY]
+    assert list(tmp_path.glob("*.pkl")) == []
+
+
 def test_create_project_writes_file_and_opens_it(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
@@ -4255,17 +4269,21 @@ def test_a_project_with_no_properties_still_offers_to_name_one(burger):
 
 
 def test_the_sample_project_says_what_it_added(tmp_path, monkeypatch):
-    """S4: the first click writes two projects into the list, and the
-    success line says so: 'Opened the yogurt pilot (2 projects added).'"""
+    """S4: the first click writes two projects into the list and the Round 6
+    results file beside them, and the success line says so: 'Opened the
+    yogurt pilot (2 projects, 1 results file added).'"""
     monkeypatch.chdir(tmp_path)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     _submit_button(at.main, wording.OPEN_YOGURT_LABEL).click()
     at.run()
     assert not at.exception
+    assert (tmp_path / sample_projects.ROUND6_RESULTS_FILE_NAME).is_file()
+    assert wording.sample_opened(wording.YOGURT_SAMPLE_NAME, 2, 1) == \
+        "Opened the yogurt pilot (2 projects, 1 results file added)."
     assert wording.sample_opened(wording.YOGURT_SAMPLE_NAME, 2) == \
         "Opened the yogurt pilot (2 projects added)."
-    assert any(s.value == wording.sample_opened(wording.YOGURT_SAMPLE_NAME, 2)
+    assert any(s.value == wording.sample_opened(wording.YOGURT_SAMPLE_NAME, 2, 1)
                for s in at.success), [s.value for s in at.success]
     # Clicking it again opens the sample as it stands: nothing is added, and
     # it never claims the sample was put back, because nothing was.
@@ -5123,6 +5141,23 @@ def test_creating_a_project_renames_the_sidebar_box_and_greys_open(burger):
     assert at.session_state["_loaded_project"] == "Probe proj"
     assert at.sidebar.selectbox(key="project_select").value == "Probe proj"
     assert [b.label for b in at.sidebar.button if b.proto.type == "primary"] == []
+
+
+def test_creating_a_project_from_the_fold_closes_the_fold(burger):
+    """The fold stayed open over an empty box after a create (final walk
+    shot 21), and a second Create there read as an error about the project
+    just made."""
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["new_project_fold"] = True
+    at.run()
+    at.sidebar.text_input(key="new_project_name").set_value("Probe proj")
+    next(b for b in at.sidebar.button if b.label == wording.CREATE_PROJECT).click()
+    at.run()
+    assert not at.exception
+    assert at.session_state["_loaded_project"] == "Probe proj"
+    assert at.session_state["new_project_fold"] is False
+    assert not at.sidebar.error, [e.value for e in at.sidebar.error]
+    assert [w.value for w in at.warning] == []
 
 
 def test_a_checked_backup_is_an_armed_confirmation(scored):
@@ -7210,6 +7245,13 @@ def test_the_batch_size_help_ties_the_box_to_the_column_that_reads_it(
     see it, in the one word that shipped meaning two things last cycle."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
+    # Empty, nothing adds up to it (final walk shot 28): the "?" says what
+    # an empty box does.
+    assert at.number_input(key="scale_total").help == (
+        "Leave empty to keep each formulation's own total.")
+    at.number_input(key="scale_total").set_value(40.0)
+    at.run()
+    assert not at.exception
     assert at.number_input(key="scale_total").help == (
         "Every formulation in this Round adds up to this. Change it and the "
         "amounts are recalculated at that size; the table's Total (g) "
@@ -7705,11 +7747,14 @@ def test_the_batch_size_box_asks_what_one_formulation_weighs(open_batch):
     # to come. This one is the round on screen.
     assert box.label == "Batch size (g)"
     assert box.proto.placeholder == "e.g. 100"
-    assert box.help == ("Every formulation in this Round adds up to this. "
-                        "Change it and the amounts are recalculated at "
-                        "that size; the table's Total (g) shows it.")
+    # Empty, its "?" says what empty does (final walk shot 28).
+    assert box.help == wording.BATCH_SIZE_EMPTY_HELP
     box.set_value(25.0)
     at.run()
+    assert at.number_input(key="scale_total").help == (
+        "Every formulation in this Round adds up to this. "
+        "Change it and the amounts are recalculated at "
+        "that size; the table's Total (g) shows it.")
     # One line about what the sheets hold, and it is the only line about the
     # size: the round is made to 25 g, the two ingredients reach it, and
     # nothing is outside what the project allows.
@@ -9835,8 +9880,9 @@ def test_an_older_sample_on_disk_is_opened_as_it_stands_never_rebuilt(
     assert [v["name"] for v in kept.variables] == ["Oat flour"]
     assert [o["name"] for o in kept.objectives] == ["Taste"]
     assert _sample_file(tmp_path).read_text() == before
-    # Only the all-10 project was missing, so only it is said to be added.
-    assert any(s.value == wording.sample_opened(wording.YOGURT_SAMPLE_NAME, 1)
+    # Only the all-10 project (and the results file) was missing, so only
+    # they are said to be added.
+    assert any(s.value == wording.sample_opened(wording.YOGURT_SAMPLE_NAME, 1, 1)
                for s in at.success), [s.value for s in at.success]
 
 
