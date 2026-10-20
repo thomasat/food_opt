@@ -331,7 +331,10 @@ status "Starting the app|"
   --server.address=127.0.0.1 \
   --server.port="$PORT" \
   --browser.gatherUsageStats=false \
-  --client.toolbarMode=minimal &
+  --client.toolbarMode=minimal \
+  --client.showErrorDetails=none &
+# showErrorDetails=none: an unexpected error shows Streamlit's short generic
+# line in the window, never a traceback; the details still go to the log.
 SERVER_PID=$!
 # Atomic write so the wrapper never reads a half-written port line.
 printf '%s %s\n' "$PORT" "$SERVER_PID" > "$PORT_FILE.tmp" && mv -f "$PORT_FILE.tmp" "$PORT_FILE"

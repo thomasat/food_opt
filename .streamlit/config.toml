@@ -1,0 +1,8 @@
+# Applies when the app is run from the repo root (streamlit run app.py).
+# The packaged desktop app passes the same settings as flags in
+# desktop/launcher.sh (it runs from ~/FoodOptimizer, so this file is not read there).
+[browser]
+gatherUsageStats = false
+
+[server]
+address = "127.0.0.1"

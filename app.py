@@ -6,30 +6,41 @@
 # each element as it is produced, so the two light imports, the page config
 # and the placeholder come FIRST, and the heavy ones after: the line is on
 # screen for the whole import and is cleared at _starting.empty() below.
+import os
+
 import streamlit as st
 
 import wording
 
 # Must be the first Streamlit call of the run — before the placeholder.
-st.set_page_config(page_title=wording.APP_TITLE, layout="wide")
+# FOOD_OPT_SIDEBAR=collapsed opens the window with the sidebar folded, for a
+# presenter's screen; unset (or anything else), Streamlit's default stands.
+st.set_page_config(page_title=wording.APP_TITLE, layout="wide",
+                   **({"initial_sidebar_state": "collapsed"}
+                      if os.environ.get("FOOD_OPT_SIDEBAR") == "collapsed" else {}))
 # Only the first run of a session pays for the imports; every rerun after it
 # has them in memory, and a line promising a wait that is already over would
-# flicker on every click.
-_starting = None
+# flicker on every click. The slot itself is made on EVERY run, empty after
+# the first: an element only the first run drew shifted every element below
+# it by one on the second, and the browser closed every fold it had open.
+_starting = st.empty()
 if "_imports_warmed" not in st.session_state:
     st.session_state["_imports_warmed"] = True
-    _starting = st.empty()
     _starting.info(wording.STARTING_APP)
 
 import json                                   # noqa: E402
-import os                                     # noqa: E402
 import re as _re                              # noqa: E402
+import time                                   # noqa: E402
 from datetime import datetime, timedelta                 # noqa: E402
 
 import pandas as pd                           # noqa: E402
 
+import custom_records                         # noqa: E402
+import insights                               # noqa: E402
+import sample_projects                        # noqa: E402
 import storage as storage_backend             # noqa: E402
 import ui_batch                               # noqa: E402
+import ui_insights                            # noqa: E402
 import ui_results                             # noqa: E402
 import ui_setup                               # noqa: E402
 from food_bo import (                         # noqa: E402
@@ -37,20 +48,20 @@ from food_bo import (                         # noqa: E402
     ingredients_template_workbook,
 )
 from ui_helpers import (                      # noqa: E402
-    ARMED_KEY, TAB_BATCH, TAB_RESULTS, TAB_SETUP, clear_selection,
+    ARMED_KEY, INSIGHTS_OPENED_KEY, REVIEW_DOT_STYLE, REVIEW_DUE_KEY, SCROLL_KEY,
+    TAB_BATCH, TAB_RESULTS, TAB_SETUP,
+    clear_selection, scroll_script,
     confirm_action, confirmation_open, drain_clears,
     flash, landing_tab,
     open_rows, other_confirmation, park_clear, plural, preserve_tab_forms,
     copy_when, render_flash, reset_grids, saved_line, saved_ok, take_clear,
 )
 
-if _starting is not None:
-    _starting.empty()   # the app itself is what the window shows from here on
+_starting.empty()   # the app itself is what the window shows from here on
 
 STORAGE = storage_backend.LocalStorage()
 
-_SAMPLE_CSV = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "data", "sample_ingredients.csv")
+_TEMPLATE_CSV = str(sample_projects.TEMPLATE_CSV)
 
 st.title(wording.APP_TITLE)
 # The container the flash messages live in. The sidebar below runs later and
@@ -59,6 +70,8 @@ st.title(wording.APP_TITLE)
 _FLASH_BOX = render_flash()
 
 _NAME_RE = _re.compile(r"[A-Za-z0-9][A-Za-z0-9 _.\-]{0,63}")
+# The sidebar's New project fold: keyed, so a create can close it.
+_NEW_PROJECT_FOLD_KEY = "new_project_fold"
 
 
 # Half-typed set-up and batch entries belong to the project they were typed
@@ -122,9 +135,19 @@ _FORM_EMPTIES_TO_NONE = ("correct_formulation", "delete_whole_batch",
 # before this), one per amount in tab 3's correction row
 # (correct_amount_<no>_<name>), and one per amount and measurement in tab 3's
 # typed-in past formulation (past_<name> and past_m_<name>; past_note is
-# named in _FORM_FRESH and parked first). Properties are a grid now, and a
-# grid's key is turned over rather than parked.
-_PER_NAME_BOX_PREFIXES = ("own_", "correct_amount_", "past_")
+# named in _FORM_FRESH and parked first), and one per missing measurement
+# under a formulation that waits for results (missing_<no>_<name>: a value
+# typed there and not saved would sit behind a lit Save in the next project;
+# final review I-3). Properties are a grid now, and a grid's key is turned
+# over rather than parked.
+_PER_NAME_BOX_PREFIXES = ("own_", "correct_amount_", "past_", "missing_")
+
+
+def _on_shared_host():
+    """Streamlit Community Cloud mounts the repo at /mount/src: every visitor
+    there shares one disk, so nothing is reopened for them and no visitor's
+    last-opened project is written for the next one."""
+    return os.path.isdir("/mount/src")
 
 
 def _grid_fresh(key):
@@ -137,15 +160,25 @@ def _grid_fresh(key):
     return None
 
 
+# Which copy the restore candidate came from, as the reader knows it (the
+# file chosen, or the Saved copies row clicked): every refusal names it.
+_RESTORE_FILE_KEY = "_restore_candidate_file"
+
+
 def _reset_project_session():
     """Everything a project owns. A key left behind here follows the user into
     the next project — an uploaded sheet offered for import into a project it
     was never meant for, a confirmation already half-clicked, or a half-typed
     ingredient waiting in another project's form."""
-    for k in ("optimizer", "current_batch", "_restore_candidate",
+    for k in ("optimizer", "current_batch", "_restore_candidate", _RESTORE_FILE_KEY,
               "_results_upload", "_results_file_mark", "_import_rows", "_result_draft_seed",
               "_ingredients_loaded", "results_order", "show_amounts",
               "_pending_tab", "_targets_source_open",
+              # Where the next move lands, and the data Insights was last
+              # opened with (spec 2026-09-30-bo-views §5).
+              SCROLL_KEY, INSIGHTS_OPENED_KEY,
+              # The Round due a Review (review guide).
+              REVIEW_DUE_KEY,
               # The Method box: a project's own text, and one left behind
               # would be written over the next project's on its first save.
               ui_setup._METHOD_BOX,
@@ -162,7 +195,26 @@ def _reset_project_session():
               # and the blank was written back over the project's total.
               ui_setup._SEEDED_FORMULATION_TOTAL,
               ui_setup._SHOWN_FORMULATION_TOTAL,
-              ARMED_KEY):
+              # Insights: the models fitted to THIS project, and its two
+              # boxes, which name this project's rows and formulations.
+              ui_insights.CACHE_KEY, ui_insights.CHOICE_KEY, ui_insights.START_KEY,
+              # Each Round's checks, kept so a new result refits one Round.
+              ui_insights.ROUNDS_KEY,
+              # Wave B: the fitted models Make a round shares with Insights,
+              # and the formulation predicted to score highest.
+              ui_insights.FITTED_KEY, ui_insights.BEST_KEY,
+              # Wave C: the More charts picks and the triangle's grid.
+              ui_insights.PAIR_KEY, ui_insights.THREE_KEY, ui_insights.MIXTURE_KEY,
+              # Review fixes: what Compare all ranks by.
+              ui_insights.SPREAD_KEY,
+              # 0.8.0 speed: the fitted models read from beside the project,
+              # what they are for, and what was drawn and written from them.
+              ui_insights.MEMO_KEY, ui_insights.PLAN_KEY, ui_insights.PARTIAL_KEY,
+              ui_insights.SAVED_KEY, ui_insights.SEEN_KEY,
+              ARMED_KEY,
+              # Records for Round's latest-Round mark (S10): a Round picked
+              # by hand in one project is not carried into the next.
+              custom_records.HISTORY_ROUND_LATEST_KEY):
         st.session_state.pop(k, None)
     # Every pending grid edit, every grid's refused-save errors and whatever
     # each grid's deletion question was armed over: none of it belongs to
@@ -187,12 +239,12 @@ def _reset_project_session():
             st.session_state.pop(k, None)
 
 
-def _open_project(name, create=False, made=False, rebuilt=False):
+def _open_project(name, create=False, made=False, tab=None, line=None):
     """Open a project. `create` makes an empty one first; `made` says the
-    project was built a moment ago by another handler (the sample), so the
-    user is told it was created rather than opened; `rebuilt` says the
-    sample was put back the way it started, throwing away edits the reader
-    had made to it."""
+    project was built a moment ago by another handler, so the user is told
+    it was created rather than opened; `line`, when given, is the success
+    line instead (a sample's). `tab`, when given, is where it opens instead
+    of where the landing rule would put it."""
     if create:
         new_opt = FoodOptimizer(name, storage=STORAGE)
         new_opt.set_amount_unit("g")     # the default unit for a new project
@@ -202,81 +254,117 @@ def _open_project(name, create=False, made=False, rebuilt=False):
     _reset_project_session()
     st.session_state["_loaded_project"] = name
     st.session_state["_land_on_open"] = True
+    # What a fresh session reopens (S4): the project opened, not the file
+    # written last.
+    # Not on a shared host: one visitor's project would reopen for the next.
+    if not _on_shared_host():
+        getattr(STORAGE, "remember_opened", lambda n: None)(name)
+    if tab:
+        # The landing rule runs first; this overrides it on the same run.
+        st.session_state["_pending_tab"] = tab
     # Parked, not popped: the box is mounted in the browser and would post the
     # previous project's name straight back, leaving the sidebar naming one
     # project, the box another, and Open lit over the project just abandoned.
     clear_selection("project_select")
-    if rebuilt:
-        line = wording.sample_project_rebuilt(name)
-    elif create or made:
-        line = wording.project_created(name)
-    else:
-        line = wording.project_opened(name)
+    if line is None:
+        line = (wording.project_created(name) if create or made
+                else wording.project_opened(name))
     flash("success", line)
     st.rerun()
 
 
-class _FreshStart:
-    """A storage backend that reports every project as new.
-
-    Building the sample needs a blank project under the sample's own name,
-    and FoodOptimizer reads the file whenever the name it is given already
-    exists. This stands in for the real backend just long enough to skip that
-    read; _build_sample_project swaps the real one back in before the first
-    save, so the sample is written where it belongs — over whatever that name
-    held.
-    """
-    persist_empty_on_init = False   # nothing is written until the build starts
-    persist_after_load = True
-
-    def exists(self, name):
-        return False
+def _name_in_use(name, projects):
+    """Create project with a name a file already has though it is not on
+    the list: a project spelled with other capitals (the Mac's folder does
+    not tell them apart), a saved copy, or a saved copy's ending."""
+    same = next((p for p in projects if p.casefold() == name.casefold()), None)
+    if same is not None:
+        return wording.name_taken(same)
+    match = storage_backend.ARCHIVE_SUFFIX_RE.search(name)
+    if match is not None and not STORAGE.exists(name):
+        return wording.name_used_by_copy(name, f"_{match.group(1)}")
+    return wording.name_used_by_copy(name)
 
 
-def _build_sample_project(name, kind="Burger formulation"):
-    """Build the guided example; existing projects with work are preserved by the caller."""
-    import sample_projects
-    return sample_projects.build(kind, name, _FreshStart(), STORAGE)
+def _sample_tab(name):
+    """Where a sample opens: the yogurt pilot on 4 · Review, where a demo
+    starts; the example setup on 1 · Set up, which is what it shows."""
+    return wording.TAB_INSIGHTS if sample_projects.is_yogurt(name) else TAB_SETUP
 
 
-def _open_sample_project(kind="Burger formulation"):
-    """Open the sample, building it first unless there is one worth keeping.
-
-    A Mac that met an earlier version has that version's sample on disk, and
-    reopening it unchanged is how someone ends up with a sample that has no
-    formulation total and batches that come out at different weights. So a
-    sample nobody has used yet is rebuilt as the current one. The moment it
-    holds any work of the user's it is their project, and it is opened
-    exactly as it stands.
-    """
-    import sample_projects
-    _name = sample_projects.NAMES[kind]
-    _existing = None
-    if STORAGE.exists(_name):
-        _existing = FoodOptimizer(_name, storage=STORAGE)
-        # Used, or unreadable: either way this is not ours to rewrite. Used
-        # means more than a recorded result — an open batch is on someone's
-        # bench, and a formulation number already issued says a batch was
-        # made and then deleted, which is still their history. A damaged file
-        # reports itself on the page it opens onto.
-        if (_existing.load_error or _existing.X_history or _existing.skipped
-                or _existing.pending_batch or _existing.next_formulation_no > 1):
-            _open_project(_name)
-            return
+def _open_sample(name=sample_projects.ROUND6):
+    """Open a sample on its own tab (_sample_tab), writing whichever of its
+    own set is missing: the yogurt pilot's two projects, or the example
+    setup alone — opening one never writes the other. A sample already on
+    disk is opened exactly as it stands (unless an earlier build wrote it
+    and it is unchanged: sample_projects.refresh): Start this sample over
+    is the only thing that puts back one the reader changed."""
+    names = ((name,) if not sample_projects.is_yogurt(name)
+             else sample_projects.YOGURT_NAMES)
+    # The Round 6 results file is written beside the projects too; the line
+    # counts it only when this click is what put it there (S4).
+    had_file = sample_projects.round6_results_on_disk(STORAGE)
     try:
-        _sample = _build_sample_project(_name, kind)
-    except ValueError as e:
-        st.error(wording.sample_project_failed(e))
+        written = sample_projects.ensure(STORAGE, names)
+    except (OSError, storage_backend.StorageError) as e:
+        st.error(str(e))
+        return
+    new_files = int(sample_projects.ROUND6 in names and not had_file
+                    and sample_projects.round6_results_on_disk(STORAGE))
+    # The yogurt pilot says what it added to the project list (two projects
+    # at once); the burger example is the one project it opens. The all-10
+    # sample is opened from inside the Round 6 one (See what happened next),
+    # by its own name.
+    if name == sample_projects.ALL10:
+        line = wording.project_opened(name)
+    elif sample_projects.is_yogurt(name):
+        line = wording.sample_opened(wording.YOGURT_SAMPLE_NAME, len(written),
+                                     new_files)
     else:
-        if _sample.save_error:
-            st.error(_sample.save_error)
-        else:
-            # "Created" only the first time. A sample that WAS on disk is
-            # being rebuilt, which throws away whatever the reader typed
-            # into it — rules, amounts, a changed Highest — and the line
-            # says so rather than calling it an open.
-            _open_project(_name, made=_existing is None,
-                          rebuilt=_existing is not None)
+        line = wording.sample_opened(wording.BURGER_SAMPLE_NAME)
+    _open_project(name, tab=_sample_tab(name), line=line)
+
+
+def _sidebar_samples():
+    """Manage project's Samples group: the welcome screen's two ways into
+    the samples, with the same labels, both secondary; the captions are
+    left to the welcome screen and each button's "?"."""
+    if sample_projects.burger_available():
+        if st.button(wording.SEE_EXAMPLE_SETUP_LABEL, key="sample_burger_sidebar",
+                     help=wording.BURGER_PROVENANCE_HELP):
+            _open_sample(sample_projects.BURGER)
+    if sample_projects.available():
+        if st.button(wording.OPEN_YOGURT_LABEL, key="sample_project_sidebar",
+                     help=wording.OPEN_YOGURT_HELP):
+            _open_sample(sample_projects.ROUND6)
+
+
+# Once per session, before any project is opened: a sample (yogurt pilot or burger example) copy an
+# earlier build wrote and nobody changed is replaced by the current one
+# (sample_projects.refresh); a changed copy is left as it is. Replacing a
+# copy gives its file a new modified time, so the project the reader last
+# worked in is found first (_recent_at_launch) and is the one that reopens.
+if not st.session_state.get("_samples_refreshed"):
+    st.session_state["_samples_refreshed"] = True
+    try:
+        st.session_state["_recent_at_launch"] = getattr(
+            STORAGE, "most_recent_project", lambda: None)()
+    except Exception:
+        pass                     # the sidebar asks again below
+    try:
+        sample_projects.refresh(STORAGE)
+    except Exception:            # a damaged shipped file too: launch goes on
+        pass                     # the old copy still opens; Start this sample over replaces it
+
+
+# A sample can ask, from inside a tab, for another sample to be opened on
+# the next run: True is the Round 6 sample's See what happened next (the
+# all-10 sample); a name is that sample (the example setup's Open the
+# yogurt pilot). It is answered here, before the sidebar draws the project
+# that asked.
+_open_next = st.session_state.pop(sample_projects.OPEN_NEXT_KEY, False)
+if _open_next:
+    _open_sample(sample_projects.ALL10 if _open_next is True else _open_next)
 
 
 def _safety_copies(opt):
@@ -343,6 +431,141 @@ def _safety_copies(opt):
         _delete_old_copies(ordered[_COPIES_RETAIN_NEWEST:])
 
 
+def _saved_copies(opt):
+    """Save a copy, the copies the app kept, and Open a saved copy: inside
+    Manage project since 0.8.0 (spec 2026-09-30 §5)."""
+    st.markdown(wording.SAVED_COPIES_HEADING)
+    st.caption(wording.SAVED_COPIES_CAPTION, help=wording.SAVED_COPIES_HELP)
+
+    if getattr(opt, "load_error", None):
+        # Never offer a "copy" of a project that failed to load — it
+        # would be an empty file wearing the project's name.
+        st.caption(wording.COPY_UNAVAILABLE)
+    else:
+        _copy_name = (f"{opt.project_name} copy "
+                      f"{datetime.now():%Y-%m-%d}.json")
+        st.download_button(
+            wording.SAVE_A_COPY,
+            data=json.dumps(opt.export_json(), indent=2),
+            file_name=_copy_name,
+            mime="application/json",
+            # A download is the one action in the app that leaves no
+            # mark: the reader clicked and nothing moved. The click sets
+            # a flag and the line below shows on the next run, because
+            # this one has already handed the browser the file.
+            on_click=lambda name=_copy_name: st.session_state.__setitem__(
+                "_copy_downloaded", name),
+        )
+        _downloaded = st.session_state.pop("_copy_downloaded", None)
+        if _downloaded:
+            st.caption(wording.copy_downloaded(_downloaded))
+
+    _safety_copies(opt)
+
+    # Any file name: what is inside decides, not the extension.
+    uploaded_json = st.file_uploader(wording.OPEN_A_SAVED_COPY, key="restore_json")
+    st.caption(wording.OPEN_SAVED_COPY_CAPTION, help=wording.OPEN_SAVED_COPY_HELP)
+    if uploaded_json is not None and st.button(wording.CHECK_THIS_COPY):
+        st.session_state[_RESTORE_FILE_KEY] = uploaded_json.name
+        try:
+            st.session_state["_restore_candidate"] = json.loads(uploaded_json.read())
+        except ValueError:
+            st.session_state.pop("_restore_candidate", None)
+            st.error(wording.copy_refused(uploaded_json.name, wording.NOT_A_COPY))
+    _restore_question(opt)
+
+
+def _restore_question(opt):
+    """Open a saved copy's answer — the refusal of a file that is not a
+    copy of a project, or the question Yes, replace / Cancel — directly
+    under the control that asked it. Drawn after the fold it landed below
+    Delete this project, off the screen of a laptop."""
+    candidate = st.session_state.get("_restore_candidate")
+    if candidate is not None:
+        try:
+            summary = FoodOptimizer.validate_state(candidate)
+        except ValueError as e:
+            st.error(wording.copy_refused(
+                st.session_state.get(_RESTORE_FILE_KEY), str(e)))
+            st.session_state.pop("_restore_candidate", None)
+        else:
+            # Both halves count the same way — scored and left out — or
+            # replacing a project with its own saved copy reads as losing
+            # one. A settings-only project is named by its settings: "0
+            # ingredients" alone described a fully set-up project as empty.
+            _holds = [plural(summary['formulations'], wording.FORMULATION),
+                      plural(summary['ingredients'], wording.INGREDIENT)]
+            if summary['settings']:
+                _holds.append(plural(summary['settings'], wording.PROCESS_SETTING))
+            st.warning(wording.open_saved_copy_warning(
+                summary['name'], _holds, opt.project_name,
+                plural(_held(opt), wording.FORMULATION),
+                _open_round_text(opt, candidate)))
+            rc1, rc2 = st.columns(2)
+            with rc1:
+                # A confirmation is the one thing to do while it is on
+                # screen, so it is lit — like every confirm_action.
+                if st.button(wording.YES_REPLACE, type="primary",
+                             width="stretch"):
+                    # Constructing FoodOptimizer below would re-stamp the
+                    # shared _seen entry from the current file, so the
+                    # stale check must happen first, against what THIS
+                    # session loaded.
+                    if getattr(opt.storage, "is_stale", lambda n: False)(opt.project_name):
+                        # The save banner below, with its Reload
+                        # project: the one way past a file another
+                        # window wrote (it is drawn later this run).
+                        opt.save_error = wording.changed_elsewhere(opt.project_name)
+                    else:
+                        try:
+                            archived = STORAGE.archive(opt.project_name,
+                                                       "pre_restore", copy=True)
+                            state = dict(candidate)
+                            state['project_name'] = opt.project_name
+                            new_opt = FoodOptimizer(opt.project_name, storage=opt.storage)
+                            new_opt.import_json(state)
+                            new_opt.save()
+                        except storage_backend.StorageError as e:
+                            st.error(str(e))
+                        except Exception:
+                            st.error(wording.copy_apply_failed(
+                                st.session_state.get(_RESTORE_FILE_KEY),
+                                opt.project_name))
+                            st.session_state.pop("_restore_candidate", None)
+                        else:
+                            if new_opt.save_error:
+                                st.error(new_opt.save_error)
+                            else:
+                                # Every row on tab 1 belongs to a
+                                # different project from this run on.
+                                # A data editor's record is positional,
+                                # so a Lowest typed against Water here
+                                # would land on whatever the copy puts
+                                # in row 0.
+                                _reset_project_session()
+                                st.session_state.optimizer = new_opt
+                                st.session_state.pop("_restore_candidate", None)
+                                st.session_state.pop("current_batch", None)
+                                # Counted exactly as the preview above
+                                # counts it — scored and not-scored
+                                # alike.
+                                # A flash that counted only the scored
+                                # rows reported restoring fewer
+                                # formulations than the file had just
+                                # put back.
+                                flash("success", wording.restored_flash(
+                                    plural(_held(new_opt), wording.FORMULATION),
+                                    new_opt.project_name, archived))
+                                st.rerun()
+            with rc2:
+                if st.button(wording.CANCEL, width="stretch", key="restore_cancel"):
+                    st.session_state.pop("_restore_candidate", None)
+                    # This rerun never reaches the tabs; without this the
+                    # forms on them would come back empty.
+                    preserve_tab_forms()
+                    st.rerun()
+
+
 # How many of the app's own copies stand on the sidebar itself.
 _COPIES_SHOWN = 1
 _COPIES_RETAIN_NEWEST = 3
@@ -366,18 +589,22 @@ def _copy_day(when):
 def _safety_copy_row(when, name, reason):
     """One copy: what it was taken before, when, and the door back to it."""
     line, button = st.columns([3, 1])
-    line.caption(wording.safety_copy_line(
-        reason, copy_when(when) if when is not None else ""))
+    label = wording.safety_copy_line(
+        reason, copy_when(when) if when is not None else "")
+    line.caption(label)
     if button.button(wording.OPEN_SAFETY_COPY, key=f"open_copy_{name}"):
         try:
             state = STORAGE.load(name)
-        except storage_backend.StorageError as e:
-            st.error(str(e))
+        except storage_backend.StorageError:
+            # The copy's own file name is machinery; the row is what the
+            # reader clicked.
+            st.error(wording.copy_refused(label, wording.COPY_DAMAGED))
         else:
             if state is None:
-                st.error(wording.COPY_UNREADABLE)
+                st.error(wording.copy_missing(label))
             else:
                 st.session_state["_restore_candidate"] = state
+                st.session_state[_RESTORE_FILE_KEY] = label
                 preserve_tab_forms()
                 st.rerun()
 
@@ -428,6 +655,56 @@ def _held(opt):
     return len(opt.X_history) + len(opt.skipped)
 
 
+def _same_open_round(opt, candidate):
+    """True when the copy holds the very Round that is open: its number,
+    its formulations with their amounts, and the results typed into them.
+    Replacing the project with it loses nothing of that Round."""
+    if not isinstance(candidate, dict):
+        return False
+    # Both sides as a saved copy writes them, so a key that is a number in
+    # memory and a string in the file compares as the same key.
+    keys = ('pending_batch_no', 'pending_batch', 'result_drafts')
+    try:
+        mine = opt.export_json()
+        theirs = json.loads(json.dumps(
+            {k: candidate.get(k) for k in keys}, default=str))
+    except (TypeError, ValueError):
+        return False
+    return all(_rounded(mine.get(k) or None) == _rounded(theirs.get(k) or None)
+               for k in keys)
+
+
+def _rounded(value):
+    """A saved state with every number to six decimals: an amount scaled
+    and scaled back is 40.00000000000001, and is still 40."""
+    if isinstance(value, float):
+        return round(value, 6)
+    if isinstance(value, dict):
+        return {k: _rounded(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_rounded(v) for v in value]
+    return value
+
+
+def _open_round_text(opt, candidate=None):
+    """What replacing the project loses that the counts above it do not
+    say (0.8.0 e2e fixes B3, review I10; 02 I7): the open Round, its rows
+    and the results typed into it, or ''. A result is typed once any of a
+    formulation's measurements is (its draft, kept as it is typed).
+    Nothing when the copy holds that same Round (`candidate`)."""
+    if not opt.pending_batch:
+        return ""
+    if candidate is not None and _same_open_round(opt, candidate):
+        return ""
+    rows = open_rows(opt)
+    numbers = {int(r['formulation']) for r in rows}
+    typed = sum(1 for n, d in (opt.result_drafts or {}).items()
+                if int(n) in numbers
+                and any(v is not None for v in (d.get('results') or {}).values()))
+    return wording.for_project(opt, wording.open_round_lost(
+        opt.pending_batch_no, len(rows), typed))
+
+
 def _batch_line(opt):
     """The one line under the title on tabs 1 and 2 once a batch exists."""
     if opt.pending_batch:
@@ -454,33 +731,56 @@ with st.sidebar:
     # Returning users land where they left off; new users get the welcome
     # panel. Never auto-open on a shared host (Streamlit Community Cloud
     # mounts the repo at /mount/src): every visitor there shares one disk.
-    _shared_host = os.path.isdir("/mount/src")
+    _shared_host = _on_shared_host()
+    # Found before the launch-time sample refresh, and good for this run only.
+    _recent = st.session_state.pop("_recent_at_launch", None)
     if ("_loaded_project" not in st.session_state and existing_projects
             and not _shared_host):
-        _recent = getattr(STORAGE, "most_recent_project", lambda: None)()
+        # The project the reader last opened; else the newest file.
+        _recent = getattr(STORAGE, "last_opened", lambda: None)() or _recent
+        if _recent not in existing_projects:
+            _recent = getattr(STORAGE, "most_recent_project", lambda: None)()
         st.session_state["_loaded_project"] = _recent or existing_projects[0]
         st.session_state["_land_on_open"] = True
 
-    # Assigned before the box is created, which is the one moment Streamlit
-    # allows it: clear_on_submit does not reach a form whose handler ends in
-    # st.rerun(), so the name of the project just created stayed in the box.
-    take_clear("new_project_name", fresh="")
-    with st.form("new_project_form", clear_on_submit=True):
-        new_name = st.text_input(wording.NEW_PROJECT_NAME_LABEL, key="new_project_name",
-                                 placeholder=wording.NEW_PROJECT_PLACEHOLDER)
-        # Grey: the sidebar never competes with the tab's one lit button, and
-        # this one is on screen long before there is a name to create.
-        if st.form_submit_button(wording.CREATE_PROJECT):
-            name = new_name.strip()
-            if not _NAME_RE.fullmatch(name):
-                st.error(wording.NAME_RULE)
-            elif name in existing_projects:
-                st.error(wording.name_taken(name))
-            elif storage_backend.is_archive_name(name) or STORAGE.exists(name):
-                st.error(wording.NAME_COLLIDES_WITH_ARCHIVE)
-            else:
-                park_clear("new_project_name", "")
-                _open_project(name, create=True)
+    def _new_project_form():
+        """The New project box: open at the top of the sidebar while no
+        project is open (the welcome screen's step 1 points to it); in a
+        fold under Open project once one is."""
+        # Assigned before the box is created, which is the one moment Streamlit
+        # allows it: clear_on_submit does not reach a form whose handler ends in
+        # st.rerun(), so the name of the project just created stayed in the box.
+        take_clear("new_project_name", fresh="")
+        with st.form("new_project_form", clear_on_submit=True):
+            new_name = st.text_input(wording.NEW_PROJECT_NAME_LABEL, key="new_project_name",
+                                     placeholder=wording.NEW_PROJECT_PLACEHOLDER)
+            # Grey: the sidebar never competes with the tab's one lit button, and
+            # this one is on screen long before there is a name to create.
+            if st.form_submit_button(wording.CREATE_PROJECT):
+                name = new_name.strip()
+                if not name:
+                    st.error(wording.NAME_EMPTY)
+                elif not _NAME_RE.fullmatch(name):
+                    st.error(wording.name_not_allowed(name))
+                elif name in existing_projects:
+                    st.error(wording.name_taken(name))
+                elif storage_backend.is_archive_name(name) or STORAGE.exists(name):
+                    st.error(_name_in_use(name, existing_projects))
+                else:
+                    park_clear("new_project_name", "")
+                    # The fold closes behind the project it just made, so it
+                    # does not sit open over an empty box asking again.
+                    park_clear(_NEW_PROJECT_FOLD_KEY, False)
+                    _open_project(name, create=True)
+                    # Still here: the project was not written, and the
+                    # line above says why. The two clears would land on
+                    # widgets already drawn this run, which Streamlit
+                    # answers with a traceback under that line.
+                    st.session_state.pop("_clear_new_project_name", None)
+                    st.session_state.pop(f"_clear_{_NEW_PROJECT_FOLD_KEY}", None)
+
+    if not st.session_state.get("_loaded_project"):
+        _new_project_form()
 
     if existing_projects:
         _active = st.session_state.get("_loaded_project")
@@ -506,14 +806,11 @@ with st.sidebar:
         # still be coloured on the very run that puts a "Yes, reset" beside it.
         _open_slot = st.container()
 
-    # On a first run the welcome panel already offers the sample, so the
-    # sidebar shows it only once at least one project exists.
-    if existing_projects and os.path.exists(_SAMPLE_CSV):
-        if st.button(
-            wording.TRY_SAMPLE_LABEL, key="sample_project_sidebar",
-            help=wording.TRY_SAMPLE_HELP,
-        ):
-            _open_sample_project()
+    if st.session_state.get("_loaded_project"):
+        take_clear(_NEW_PROJECT_FOLD_KEY)
+        with st.expander(wording.NEW_PROJECT_FOLD, key=_NEW_PROJECT_FOLD_KEY,
+                         on_change="rerun"):
+            _new_project_form()
 
     project_name = st.session_state.get("_loaded_project")
     if project_name is None:
@@ -536,10 +833,27 @@ with st.sidebar:
 
         st.divider()
         st.subheader(opt.project_name)
+        if sample_projects.is_yogurt(opt.project_name):
+            # The project's own count, so a Round scored here counts too:
+            # the number the pilot shipped with stayed 15 after Round 6.
+            st.caption(wording.sample_provenance_caption(len(opt.Y_history)),
+                       help=(wording.SAMPLE_PROVENANCE_HELP
+                             if opt.project_name == sample_projects.ROUND6
+                             else wording.SAMPLE_PROVENANCE_HELP_ALL10))
+        elif sample_projects.is_sample(opt.project_name):
+            # "No results" only while it is true (untouched_example).
+            if sample_projects.untouched_example(opt):
+                st.caption(wording.BURGER_PROVENANCE_CAPTION,
+                           help=wording.BURGER_PROVENANCE_HELP)
+            else:
+                st.caption(wording.BURGER_PROVENANCE_CAPTION_USED,
+                           help=wording.BURGER_PROVENANCE_HELP_USED)
 
         if getattr(opt, "save_error", None):
             st.error(opt.save_error)
-        else:
+        elif not getattr(opt, "load_error", None):
+            # Never "Saved automatically" beside a file that would not open:
+            # the time is only the damaged file's own.
             # last_saved_at only records saves made in THIS session, so a
             # returning user would see no saved line until their first edit.
             _saved = getattr(opt, "last_saved_at", None) or getattr(
@@ -547,155 +861,72 @@ with st.sidebar:
             if _saved is not None:
                 st.caption(saved_line(_saved))
 
-        st.markdown(wording.SAVED_COPIES_HEADING)
-        st.caption(wording.SAVED_COPIES_CAPTION)
-
-        if getattr(opt, "load_error", None):
-            # Never offer a "copy" of a project that failed to load — it
-            # would be an empty file wearing the project's name.
-            st.caption(wording.COPY_UNAVAILABLE)
-        else:
-            _copy_name = (f"{opt.project_name} copy "
-                          f"{datetime.now():%Y-%m-%d}.json")
-            st.download_button(
-                wording.SAVE_A_COPY,
-                data=json.dumps(opt.export_json(), indent=2),
-                file_name=_copy_name,
-                mime="application/json",
-                # A download is the one action in the app that leaves no
-                # mark: the reader clicked and nothing moved. The click sets
-                # a flag and the line below shows on the next run, because
-                # this one has already handed the browser the file.
-                on_click=lambda name=_copy_name: st.session_state.__setitem__(
-                    "_copy_downloaded", name),
-            )
-            _downloaded = st.session_state.pop("_copy_downloaded", None)
-            if _downloaded:
-                st.caption(wording.copy_downloaded(_downloaded))
-
-        _safety_copies(opt)
-
-        # Any file name: what is inside decides, not the extension.
-        uploaded_json = st.file_uploader(wording.OPEN_A_SAVED_COPY, key="restore_json")
-        st.caption(wording.OPEN_SAVED_COPY_CAPTION)
-        if uploaded_json is not None and st.button(wording.CHECK_THIS_COPY):
-            try:
-                st.session_state["_restore_candidate"] = json.loads(uploaded_json.read())
-            except ValueError:
-                st.session_state.pop("_restore_candidate", None)
-                st.error(wording.COPY_UNREADABLE)
-
-        candidate = st.session_state.get("_restore_candidate")
-        if candidate is not None:
-            try:
-                summary = FoodOptimizer.validate_state(candidate)
-            except ValueError as e:
-                st.error(f"{e}{wording.RECENT_COPIES_HINT}")
-                st.session_state.pop("_restore_candidate", None)
-            else:
-                # Both halves count the same way — scored and left out — or
-                # replacing a project with its own saved copy reads as losing
-                # one. A settings-only project is named by its settings: "0
-                # ingredients" alone described a fully set-up project as empty.
-                _holds = [plural(summary['formulations'], wording.FORMULATION),
-                          plural(summary['ingredients'], wording.INGREDIENT)]
-                if summary['settings']:
-                    _holds.append(plural(summary['settings'], wording.PROCESS_SETTING))
-                st.warning(wording.open_saved_copy_warning(
-                    summary['name'], _holds, opt.project_name,
-                    plural(_held(opt), wording.FORMULATION)))
-                rc1, rc2 = st.columns(2)
-                with rc1:
-                    # A confirmation is the one thing to do while it is on
-                    # screen, so it is lit — like every confirm_action.
-                    if st.button(wording.YES_REPLACE, type="primary",
-                                 use_container_width=True):
-                        # Constructing FoodOptimizer below would re-stamp the
-                        # shared _seen entry from the current file, so the
-                        # stale check must happen first, against what THIS
-                        # session loaded.
-                        if getattr(opt.storage, "is_stale", lambda n: False)(opt.project_name):
-                            st.error(storage_backend.LocalStorage._CONFLICT)
-                        else:
-                            try:
-                                archived = STORAGE.archive(opt.project_name,
-                                                           "pre_restore", copy=True)
-                                state = dict(candidate)
-                                state['project_name'] = opt.project_name
-                                new_opt = FoodOptimizer(opt.project_name, storage=opt.storage)
-                                new_opt.import_json(state)
-                                new_opt.save()
-                            except storage_backend.StorageError as e:
-                                st.error(str(e))
-                            except Exception:
-                                st.error(wording.COPY_APPLY_FAILED)
-                                st.session_state.pop("_restore_candidate", None)
-                            else:
-                                if new_opt.save_error:
-                                    st.error(new_opt.save_error)
-                                else:
-                                    # Every row on tab 1 belongs to a
-                                    # different project from this run on.
-                                    # A data editor's record is positional,
-                                    # so a Lowest typed against Water here
-                                    # would land on whatever the copy puts
-                                    # in row 0.
-                                    _reset_project_session()
-                                    st.session_state.optimizer = new_opt
-                                    st.session_state.pop("_restore_candidate", None)
-                                    st.session_state.pop("current_batch", None)
-                                    # Counted exactly as the preview above
-                                    # counts it — scored and not-scored
-                                    # alike.
-                                    # A flash that counted only the scored
-                                    # rows reported restoring fewer
-                                    # formulations than the file had just
-                                    # put back.
-                                    flash("success", wording.restored_flash(
-                                        plural(_held(new_opt), wording.FORMULATION),
-                                        new_opt.project_name, archived))
-                                    st.rerun()
-                with rc2:
-                    if st.button(wording.CANCEL, use_container_width=True, key="restore_cancel"):
-                        st.session_state.pop("_restore_candidate", None)
-                        # This rerun never reaches the tabs; without this the
-                        # forms on them would come back empty.
-                        preserve_tab_forms()
-                        st.rerun()
-
         with st.expander(wording.MANAGE_PROJECT):
-            if confirm_action(
-                "hard_reset", wording.START_OVER_LABEL,
-                (wording.start_over_warning(opt.project_name)
-                 if not _held(opt) else
-                 wording.start_over_warning(
-                     opt.project_name, plural(_held(opt), wording.FORMULATION))),
-                confirm_label=wording.YES_START_OVER,
-                disabled=other_confirmation("hard_reset"),
-                preserve=True,
-            ):
-                _target = opt.project_name
-                try:
-                    archived = STORAGE.archive(_target, "archived", copy=False)
-                except storage_backend.StorageError as e:
-                    st.error(str(e))
-                else:
-                    # Archiving renames the file away, so the emptied project
-                    # has to be written back under its own name. Without this
-                    # the project vanished from Open project, the sidebar
-                    # still named it, and Open lit up over a project that was
-                    # no longer on disk.
-                    _fresh = FoodOptimizer(_target, storage=STORAGE)
-                    _fresh.save()
-                    if _fresh.save_error:
-                        st.error(_fresh.save_error)
+            # Saved copies and the sample, in the one fold (spec 2026-09-30
+            # §5, audit V21): the sidebar itself is the projects, the
+            # project's name and when it was saved.
+            _saved_copies(opt)
+            if sample_projects.available() or sample_projects.burger_available():
+                st.markdown(wording.SAMPLES_HEADING)
+                _sidebar_samples()
+            st.divider()
+            if sample_projects.is_sample(opt.project_name):
+                # A sample goes back to how it shipped rather than to empty:
+                # an emptied sample is no longer the pilot it says it is.
+                if confirm_action(
+                    "restore_sample", wording.START_SAMPLE_OVER_LABEL,
+                    wording.start_sample_over_warning(opt.project_name),
+                    confirm_label=wording.YES_START_SAMPLE_OVER,
+                    disabled=other_confirmation("restore_sample"),
+                    preserve=True,
+                ):
+                    _target = opt.project_name
+                    try:
+                        sample_projects.restore(_target, STORAGE)
+                    except (OSError, storage_backend.StorageError) as e:
+                        st.error(str(e))
                     else:
-                        if archived:
-                            flash("info", wording.copy_saved_as(archived))
                         _reset_project_session()
+                        # One line: what happened and where the reader's
+                        # version went (Saved copies lists it by reason).
+                        flash("success", wording.sample_restored(_target))
                         st.session_state["_loaded_project"] = _target
                         st.session_state["_land_on_open"] = True
+                        st.session_state["_pending_tab"] = _sample_tab(_target)
                         st.rerun()
+            else:
+                if confirm_action(
+                    "hard_reset", wording.START_OVER_LABEL,
+                    (wording.start_over_warning(opt.project_name)
+                     if not _held(opt) else
+                     wording.start_over_warning(
+                         opt.project_name, plural(_held(opt), wording.FORMULATION))),
+                    confirm_label=wording.YES_START_OVER,
+                    disabled=other_confirmation("hard_reset"),
+                    preserve=True,
+                ):
+                    _target = opt.project_name
+                    try:
+                        archived = STORAGE.archive(_target, "archived", copy=False)
+                    except storage_backend.StorageError as e:
+                        st.error(str(e))
+                    else:
+                        # Archiving renames the file away, so the emptied project
+                        # has to be written back under its own name. Without this
+                        # the project vanished from Open project, the sidebar
+                        # still named it, and Open lit up over a project that was
+                        # no longer on disk.
+                        _fresh = FoodOptimizer(_target, storage=STORAGE)
+                        _fresh.save()
+                        if _fresh.save_error:
+                            st.error(_fresh.save_error)
+                        else:
+                            if archived:
+                                flash("info", wording.copy_saved_as(archived))
+                            _reset_project_session()
+                            st.session_state["_loaded_project"] = _target
+                            st.session_state["_land_on_open"] = True
+                            st.rerun()
 
             # Same shape as Start this project over, but the project leaves the
             # list. The
@@ -722,18 +953,16 @@ with st.sidebar:
                     clear_selection("project_select")   # parked: see above
                     st.rerun()
 
-
     if existing_projects:
         with _open_slot:
-            # Lit only while it would do something, and only while nothing else
-            # is lit: an armed confirmation's Yes is the one coloured button in
+            # Shown only while it would do something (a greyed Open under the
+            # open project read as broken), and lit only while nothing else
+            # is: an armed confirmation's Yes is the one coloured button in
             # the sidebar until it is answered.
-            if st.button(
+            if _switching and st.button(
                 wording.OPEN_BUTTON,
-                type=("primary" if _switching and not confirmation_open()
-                      else "secondary"),
-                disabled=not _switching,
-            ) and _switching:
+                type=("secondary" if confirmation_open() else "primary"),
+            ):
                 _open_project(selected)
 
 
@@ -746,19 +975,33 @@ render_flash(_FLASH_BOX)
 # ================================================================== #
 
 if opt is None:
+    # The two examples first, the burger lit (owner, 2026-10-19); your own
+    # project second, with its steps and the ingredients template as a quiet
+    # link. The columns keep both buttons side by side and their captions
+    # on one or two lines.
+    st.caption(wording.WELCOME_TAGLINE)
     st.markdown(wording.WELCOME_HEADER)
-    st.markdown(wording.welcome_steps())
-    wc1, wc2 = st.columns(2)
+    wc1, wc2, _ = st.columns([1.3, 1.3, 1])
     with wc1:
-        if os.path.exists(_SAMPLE_CSV) and st.button(wording.TRY_SAMPLE_LABEL, type="primary"):
-            _open_sample_project()
+        if sample_projects.burger_available():
+            if st.button(wording.SEE_EXAMPLE_SETUP_LABEL, type="primary",
+                         help=wording.BURGER_PROVENANCE_HELP):
+                _open_sample(sample_projects.BURGER)
+            st.caption(wording.SEE_EXAMPLE_SETUP_CAPTION)
     with wc2:
-        if os.path.exists(_SAMPLE_CSV):
-            st.download_button(
-                wording.DOWNLOAD_TEMPLATE,
-                data=ingredients_template_workbook(_SAMPLE_CSV),
-                file_name=wording.INGREDIENTS_TEMPLATE_FILE_NAME,
-                mime=WORKBOOK_MIME)
+        if sample_projects.available():
+            if st.button(wording.OPEN_YOGURT_LABEL,
+                         help=wording.OPEN_YOGURT_HELP):
+                _open_sample(sample_projects.ROUND6)
+            st.caption(wording.OPEN_YOGURT_CAPTION)
+    st.markdown(wording.WELCOME_OWN_HEADER)
+    st.markdown(wording.welcome_steps())
+    if os.path.exists(_TEMPLATE_CSV):
+        st.download_button(
+            wording.DOWNLOAD_TEMPLATE,
+            data=ingredients_template_workbook(_TEMPLATE_CSV),
+            file_name=wording.INGREDIENTS_TEMPLATE_FILE_NAME,
+            mime=WORKBOOK_MIME, type="tertiary")
     st.stop()
 
 
@@ -767,7 +1010,8 @@ if opt is None:
 # hard-resets (both stay available in the sidebar).
 if getattr(st.session_state.optimizer, "load_error", None):
     st.error(st.session_state.optimizer.load_error)
-    st.info(wording.project_load_error_info())
+    st.info(wording.project_load_error_info(
+        sample=sample_projects.is_sample(st.session_state.optimizer.project_name)))
     st.stop()
 
 _save_banner_shown = False
@@ -781,10 +1025,10 @@ if getattr(st.session_state.optimizer, "save_error", None):
         st.download_button(wording.SAVE_COPY_NOW,
                            data=json.dumps(_err_opt.export_json(), indent=2),
                            file_name=f"{_err_opt.project_name} copy {datetime.now():%Y-%m-%d}.json",
-                           mime="application/json", use_container_width=True,
+                           mime="application/json", width="stretch",
                            key="download_after_save_error")
     with b2:
-        if st.button(wording.RELOAD_PROJECT, key="reload_after_save_error", use_container_width=True):
+        if st.button(wording.RELOAD_PROJECT, key="reload_after_save_error", width="stretch"):
             st.session_state.pop("optimizer", None)
             st.session_state.pop("current_batch", None)
             flash("info", wording.PROJECT_RELOADED)
@@ -824,9 +1068,13 @@ if getattr(_opt, "pending_batch", None):
 # (the other six are go_to_tab's callers: Next: make a round, Back to set up,
 # Save results, Save uploaded results, Start the next round, Change a
 # measurement or an ingredient), and it fires only on the run that follows
-# opening a project.
+# opening a project. The two samples land on 4 · Review once they hold
+# results, where a demo starts; every other project follows the rule as
+# landing_tab states it.
 if st.session_state.pop("_land_on_open", False):
     st.session_state["main_tab"] = landing_tab(_opt)
+    # Opening a project lands at the top of its tab too (T47 review minor 7).
+    st.session_state[SCROLL_KEY] = "top"
 
 # A move asked for on the previous run by go_to_tab. Both this and the landing
 # rule above must land BEFORE st.tabs: the widget reads its key from session
@@ -835,16 +1083,27 @@ if st.session_state.pop("_land_on_open", False):
 if "_pending_tab" in st.session_state:
     st.session_state["main_tab"] = st.session_state.pop("_pending_tab")
 
+# Review guide: opening 4 · Review (its tab, or "Review Round N") sees the
+# Round's Review; Results' lit button and the tab's dot step back. Here,
+# before the tabs: Results is drawn before Review on this same run.
+if st.session_state.get("main_tab") == wording.TAB_INSIGHTS:
+    st.session_state.pop(REVIEW_DUE_KEY, None)
+
 # Everything a project switch parked is assigned here: the previous run's
 # widgets are gone and this run's tab widgets do not exist yet, which is the
 # one moment Streamlit lets a widget's value be set.
 drain_clears({"var_unit": _opt.amount_unit})
 
-tab_setup, tab_batch, tab_results = st.tabs(
-    [TAB_SETUP, TAB_BATCH, TAB_RESULTS], key="main_tab", on_change="rerun")
+# Insights is the fourth tab and not numbered: it is a view of the loop, not
+# a step in it. No step of the loop moves the user there, and landing_tab
+# names it only for the two samples; opening or starting a sample over, and
+# links the user clicks, open it (ui_helpers.link, spec
+# 2026-09-30-bo-views §5).
+tab_setup, tab_batch, tab_results, tab_insights = st.tabs(
+    [TAB_SETUP, TAB_BATCH, TAB_RESULTS, wording.TAB_INSIGHTS],
+    key="main_tab", on_change="rerun")
 
 _line = _batch_line(_opt)
-
 with tab_setup:
     # Tab 1 only: tab 2 carries the batch's own heading, and the line sat
     # directly above "Round 1 · make these 3 formulations" saying it again.
@@ -853,10 +1112,38 @@ with tab_setup:
     ui_setup.render(_opt, STORAGE)
 
 with tab_batch:
-    ui_batch.render(_opt, STORAGE)
+    # Its predictions are worked out only while it is open: a hidden tab
+    # never fits a model (a result saved on Results changes the data).
+    ui_batch.render(_opt, STORAGE, tab_open=tab_batch.open)
 
 with tab_results:
     ui_results.render(_opt, STORAGE)
+
+with tab_insights:
+    # Worked out only while open: its models are fitted on demand, and a
+    # project that never opens the tab never pays for them.
+    if tab_insights.open:
+        ui_insights.render(_opt)
+        # Make a round's E3 link is not offered again for this data (04 §3).
+        st.session_state[INSIGHTS_OPENED_KEY] = insights.data_key(_opt)
+    else:
+        # Layout study: leaving the Review puts Are we improving? back on
+        # the latest Round (an earlier Round never waits on another tab).
+        ui_insights.leave_review()
+
+# Review guide: a dot on the fourth tab while a Round is due a Review. Drawn
+# by CSS on the tab's button, never in its label: the tabs widget keys its
+# value by label, and a label that changed would lose the open tab.
+if st.session_state.get(REVIEW_DUE_KEY) is not None:
+    st.html(REVIEW_DOT_STYLE)
+
+# Where a move between tabs lands (ui_helpers.SCROLL_KEY; 04 §5): once,
+# after every tab is drawn, in one slot at the foot, so no element is ever
+# added above the tabs. The script runs in the page (st.html runs it
+# unsandboxed) and retries while Insights fills in.
+_scroll_to = st.session_state.pop(SCROLL_KEY, None)
+if _scroll_to:
+    st.html(scroll_script(_scroll_to, time.time_ns()), unsafe_allow_javascript=True)
 
 # A save that failed during this run must be visible now, not after the next
 # click: form submits do not rerun, and the banner above already rendered.

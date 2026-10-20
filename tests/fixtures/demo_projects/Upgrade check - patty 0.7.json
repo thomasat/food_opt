@@ -1,0 +1,311 @@
+{
+  "project_name": "Upgrade check - patty 0.7",
+  "variables": [
+    {
+      "name": "Textured pea protein",
+      "type": "continuous",
+      "bounds": [
+        12.0,
+        20.0
+      ],
+      "category": "ingredient",
+      "vendor": "",
+      "sku": "",
+      "formula": "",
+      "balance": false
+    },
+    {
+      "name": "Methylcellulose",
+      "type": "continuous",
+      "bounds": [
+        1.0,
+        3.0
+      ],
+      "category": "ingredient",
+      "vendor": "",
+      "sku": "",
+      "formula": "",
+      "balance": false
+    },
+    {
+      "name": "Coconut oil",
+      "type": "continuous",
+      "bounds": [
+        3.0,
+        9.0
+      ],
+      "category": "ingredient",
+      "vendor": "",
+      "sku": "",
+      "formula": "",
+      "balance": false
+    },
+    {
+      "name": "Water",
+      "type": "continuous",
+      "bounds": [
+        0.0,
+        100.0
+      ],
+      "category": "ingredient",
+      "vendor": "",
+      "sku": "",
+      "formula": "",
+      "balance": true
+    }
+  ],
+  "objectives": [
+    {
+      "name": "Firmness",
+      "weight": 40.0,
+      "goal": "target",
+      "target": 6.0,
+      "min_val": 0.0,
+      "max_val": 10.0,
+      "unit": "/10"
+    },
+    {
+      "name": "Juiciness",
+      "weight": 35.0,
+      "goal": "target",
+      "target": 7.0,
+      "min_val": 0.0,
+      "max_val": 10.0,
+      "unit": "/10"
+    },
+    {
+      "name": "Cook loss",
+      "weight": 25.0,
+      "goal": "min",
+      "target": null,
+      "min_val": 0.0,
+      "max_val": 40.0,
+      "unit": "%"
+    }
+  ],
+  "premixes": {},
+  "ingredient_properties": {},
+  "property_names": [],
+  "constraints": [],
+  "quantity_constraints": [
+    {
+      "ingredients": [
+        "Textured pea protein",
+        "Methylcellulose",
+        "Coconut oil",
+        "Water"
+      ],
+      "min": 99.5,
+      "max": 100.49999999999999,
+      "source": "formulation_total"
+    }
+  ],
+  "robust": false,
+  "X_history": [
+    [
+      13.0,
+      1.5,
+      4.0
+    ],
+    [
+      19.0,
+      2.5,
+      8.0
+    ],
+    [
+      16.0,
+      2.0,
+      6.0
+    ],
+    [
+      17.0,
+      2.2,
+      7.0
+    ],
+    [
+      15.0,
+      1.8,
+      7.5
+    ],
+    [
+      16.5,
+      2.4,
+      7.2
+    ],
+    [
+      18.0,
+      2.6,
+      6.5
+    ],
+    [
+      16.0,
+      2.2,
+      7.8
+    ]
+  ],
+  "Y_history": [
+    59.7,
+    69.05000000000001,
+    71.80000000000001,
+    73.1,
+    72.25,
+    90.5,
+    86.53750000000001,
+    73.9
+  ],
+  "recipe_history": [
+    {
+      "Textured pea protein": 13,
+      "Methylcellulose": 1.5,
+      "Coconut oil": 4,
+      "Water": 81.5
+    },
+    {
+      "Textured pea protein": 19,
+      "Methylcellulose": 2.5,
+      "Coconut oil": 8,
+      "Water": 70.5
+    },
+    {
+      "Textured pea protein": 16,
+      "Methylcellulose": 2.0,
+      "Coconut oil": 6,
+      "Water": 76.0
+    },
+    {
+      "Textured pea protein": 17,
+      "Methylcellulose": 2.2,
+      "Coconut oil": 7,
+      "Water": 73.8
+    },
+    {
+      "Textured pea protein": 15,
+      "Methylcellulose": 1.8,
+      "Coconut oil": 7.5,
+      "Water": 75.7
+    },
+    {
+      "Textured pea protein": 16.5,
+      "Methylcellulose": 2.4,
+      "Coconut oil": 7.2,
+      "Water": 73.89999999999999
+    },
+    {
+      "Textured pea protein": 18,
+      "Methylcellulose": 2.6,
+      "Coconut oil": 6.5,
+      "Water": 72.9
+    },
+    {
+      "Textured pea protein": 16,
+      "Methylcellulose": 2.2,
+      "Coconut oil": 7.8,
+      "Water": 74.0
+    }
+  ],
+  "results_history": [
+    {
+      "Firmness": 4.1,
+      "Juiciness": 4.8
+    },
+    {
+      "Firmness": 7.4,
+      "Juiciness": 6.9
+    },
+    {
+      "Firmness": 5.9,
+      "Juiciness": 6.2
+    },
+    {
+      "Firmness": 6.3,
+      "Juiciness": 6.8
+    },
+    {
+      "Firmness": 5.4,
+      "Juiciness": 7.1
+    },
+    {
+      "Firmness": 6.1,
+      "Juiciness": 6.9,
+      "Cook loss": 14.0
+    },
+    {
+      "Firmness": 6.8,
+      "Juiciness": 6.3,
+      "Cook loss": 12.5
+    },
+    {
+      "Firmness": 5.9,
+      "Juiciness": 7.2
+    }
+  ],
+  "timestamps_history": [
+    "2026-09-29T18:58:28.877912+00:00",
+    "2026-09-29T18:58:28.878109+00:00",
+    "2026-09-29T18:58:28.878297+00:00",
+    "2026-09-29T18:58:28.878490+00:00",
+    "2026-09-29T18:58:28.878678+00:00",
+    "2026-09-29T18:58:28.879360+00:00",
+    "2026-09-29T18:58:28.879590+00:00",
+    "2026-09-29T18:58:28.879844+00:00"
+  ],
+  "formulation_ids": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+  ],
+  "batch_history": [
+    1,
+    1,
+    1,
+    2,
+    2,
+    3,
+    3,
+    3
+  ],
+  "notes_history": [
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "Cook loss test booked for next week"
+  ],
+  "skipped": [],
+  "next_formulation_no": 9,
+  "next_batch_number": 4,
+  "sobol_seed": null,
+  "pending_batch_no": null,
+  "pending_batch_created": null,
+  "pending_batch_discarded": [],
+  "pending_batch_total": null,
+  "formulation_total": 100.0,
+  "lots": {},
+  "batch_totals": {},
+  "amount_unit": "g",
+  "targets_source": "",
+  "bench_records": {},
+  "custom_records": {
+    "fields": [],
+    "values": {}
+  },
+  "recorded_fields": {
+    "vendor": false,
+    "sku": false,
+    "lot": false,
+    "actual": false
+  },
+  "method": "",
+  "pending_batch": null,
+  "result_drafts": {},
+  "bo_config": null,
+  "CLASS_VERSION": 15
+}

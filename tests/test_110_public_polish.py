@@ -1,0 +1,246 @@
+"""Public-release polish (0.8.0 walk, S2–S14 and N1–N19): the behaviour
+each fix changed, and the exact words the owner chose."""
+from streamlit.testing.v1 import AppTest
+
+import custom_records
+import ui_setup
+import wording
+from food_bo import FoodOptimizer
+from tests.test_app_ui import APP_PATH, burger, open_batch, scored  # noqa: F401
+from ui_helpers import table_height
+
+
+def _app(project=None, tab=None):
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    if project:
+        at.session_state["_loaded_project"] = project
+    at.run()
+    if tab:
+        at.session_state["main_tab"] = tab
+        at.run()
+    return at
+
+
+# ------------------------------------------------------------------ #
+#  S2: a new project's grids open about six rows tall, and grow
+# ------------------------------------------------------------------ #
+
+def test_an_empty_grid_opens_six_rows_tall_and_grows_with_saved_rows():
+    assert ui_setup.GRID_MIN_ROWS == 6
+    assert ui_setup.grid_height(0) == table_height(6)
+    assert ui_setup.grid_height(3) == table_height(6)
+    # Room for the blank row being typed, and one more.
+    assert ui_setup.grid_height(10) == table_height(12)
+    assert ui_setup.grid_height(10) > ui_setup.grid_height(5)
+    assert ui_setup.grid_height(50) == table_height(20, max_rows=20)
+
+
+# ------------------------------------------------------------------ #
+#  S13: Additional records' chips name the field only
+# ------------------------------------------------------------------ #
+
+def test_record_chips_name_the_field_only(burger):
+    custom_records.add_field(burger, "Raw weight (g)", "formulation")
+    custom_records.add_field(burger, "Operator", "formulation")
+    custom_records.add_field(burger, "Operator", "ingredient")
+    at = _app("burger", wording.TAB_SETUP)
+    assert not at.exception
+    box = at.multiselect(key="record_fields")
+    shown = list(box.options)          # as the dropdown and chips write them
+    assert "Lot numbers" in shown, shown
+    assert "Vendor" in shown and "SKU" in shown, shown
+    assert "Raw weight (g)" in shown, shown
+    assert not any("Enter in" in o or "Ingredients table" in o for o in shown), shown
+    # A name the project has for both scopes keeps its scope, or the two
+    # chips would read the same.
+    assert wording.custom_record_option("Operator", "formulation", burger) in shown, shown
+    assert wording.custom_record_option("Operator", "ingredient", burger) in shown, shown
+    assert "Lot numbers in Make a round" in wording.ALSO_RECORD_HELP
+    # ... and the chips are drawn whole, never cut at a fixed width.
+    assert any("st-key-record_fields" in h.proto.body for h in at.get("html"))
+
+
+# ------------------------------------------------------------------ #
+#  N19: the planned-amounts option says its sentence once
+# ------------------------------------------------------------------ #
+
+def test_record_changes_option_says_its_help_once(burger):
+    at = _app("burger", wording.TAB_SETUP)
+    assert burger.records("actual")
+    assert wording.ACTUAL_RECORD_HELP not in [c.value for c in at.caption]
+    assert at.checkbox(key="record_actual").help == wording.ACTUAL_RECORD_HELP
+
+
+# ------------------------------------------------------------------ #
+#  S6: the line under the download lists the sheets the file has
+# ------------------------------------------------------------------ #
+
+def _premix_round(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("premix round", robust=False)
+    opt.set_amount_unit("g")
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_objective("Taste", 1, goal="max", min_val=0, max_val=10)
+    opt.add_premix("Dry blend", "portioned")
+    opt.set_premix_parts("Dry blend", [{"name": "Flour", "share": 60, "unit": "g"},
+                                       {"name": "Salt", "share": 40, "unit": "g"}])
+    opt.add_ingredient("Dry blend", 10, 60)
+    opt.set_pending_batch([{"Water": 60, "Dry blend": 30},
+                           {"Water": 40, "Dry blend": 50}], batch_no=1)
+    opt._snapshot_premixes(1)
+    opt.save()
+    return opt
+
+
+def test_the_sheets_line_names_preparation_when_the_file_has_it(tmp_path, monkeypatch):
+    import io
+
+    import openpyxl
+    opt = _premix_round(tmp_path, monkeypatch)
+    names = openpyxl.load_workbook(io.BytesIO(
+        opt.workbook_bytes(opt.pending_batch, None, print_pack=False))).sheetnames
+    assert wording.PREPARATION_SHEET in names
+    at = _app(opt.project_name, wording.TAB_BATCH)
+    assert not at.exception
+    captions = [c.value for c in at.tabs[1].caption]
+    assert "Sheets: Round overview · Preparation · Results" in captions, captions
+    assert wording.workbook_sheets() not in captions
+
+
+def test_the_sheets_line_names_two_sheets_without_premixes(open_batch):
+    at = _app(None, wording.TAB_BATCH)
+    captions = [c.value for c in at.tabs[1].caption]
+    assert wording.workbook_sheets() == "Sheets: Round overview · Results"
+    assert wording.workbook_sheets() in captions, captions
+
+
+# ------------------------------------------------------------------ #
+#  S14, N10, N11, N17: Make a round's words
+# ------------------------------------------------------------------ #
+
+def test_make_a_round_words():
+    assert wording.NO_BATCH_SIZE_OF_ITS_OWN == "Optional: scale every formulation to one batch size."
+    assert wording.first_formulations_caption(5) == "First 5 formulations explore the allowed amounts."
+    assert wording.ADD_OWN_NO_BATCH_CAPTION == "Generate first to see suggestions too."
+    assert wording.SHEET_RETURN_PATH == (
+        "Then upload this file in the app: 2 · Make a round → Or upload results from a file.")
+    # N9: Round capitalised on every label that names one.
+    for label in (wording.ADD_OWN_EXPANDER, wording.GENERATE_DIFFERENT_BATCH,
+                  wording.START_NEXT_BATCH, wording.PREPARATION_SHEET_TITLE,
+                  wording.MAKE_FOR_ROUND_HEADING, wording.ROUND_TOTAL_COLUMN,
+                  wording.DOWNLOAD_BATCH_SHEETS, wording.WHOLE_BATCH_LABEL):
+        assert " round" not in label, label
+    assert wording.TAB_BATCH_NAME == "Make a round"     # the tab keeps its name
+
+
+# ------------------------------------------------------------------ #
+#  S10: Records for Round opens on the latest Round
+# ------------------------------------------------------------------ #
+
+def test_records_for_round_follows_the_latest_round(burger):
+    custom_records.add_field(burger, "Operator", "formulation")
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 6.0, "Firmness": 6.0}, formulation_no=1, batch_no=1)
+    at = _app("burger", wording.TAB_RESULTS)
+    assert not at.exception
+    box = at.selectbox(key="custom_history_round")
+    assert box.label == "Records for Round"
+    assert box.value == 1
+    # Round 2 is recorded while the box is on screen: it moves to Round 2.
+    FoodOptimizer("burger").tell({"Pea protein": 12.0, "Methylcellulose": 2.0},
+                                 {"Juiciness": 7.0, "Firmness": 5.0},
+                                 formulation_no=2, batch_no=2)
+    at.session_state.optimizer = FoodOptimizer("burger")
+    at.run()
+    assert at.selectbox(key="custom_history_round").value == 2
+    # A Round picked by hand stays picked.
+    at.selectbox(key="custom_history_round").set_value(1)
+    at.run()
+    at.run()
+    assert at.selectbox(key="custom_history_round").value == 1
+    # Another project whose latest Round is also 2 opens on its own latest
+    # Round, not on the Round picked by hand in this one.
+    second = FoodOptimizer("second")
+    second.set_amount_unit("g")
+    second.add_ingredient("Pea protein", 0, 25)
+    second.add_objective("Juiciness", 1.0, goal="target", target=7,
+                         min_val=0, max_val=10, unit="/10")
+    custom_records.add_field(second, "Operator", "formulation")
+    for no in (1, 2):
+        second.tell({"Pea protein": 5.0 * no}, {"Juiciness": 5.0 + no},
+                    formulation_no=no, batch_no=no)
+    at.run()                        # the sidebar lists the new project
+    at.sidebar.selectbox(key="project_select").select("second")
+    at.run()
+    next(b for b in at.sidebar.button if b.label == "Open").click()
+    at.run()
+    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.run()
+    assert not at.exception
+    assert at.session_state["optimizer"].project_name == "second"
+    assert at.selectbox(key="custom_history_round").value == 2
+    # The box's own state can outlive a switch (it is on screen in both
+    # projects): Round 1 picked here does not follow into "burger", whose
+    # latest Round is also 2.
+    at.selectbox(key="custom_history_round").set_value(1)
+    at.run()
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["optimizer"] = FoodOptimizer("burger")
+    at.run()
+    assert not at.exception
+    assert at.selectbox(key="custom_history_round").value == 2
+
+
+# ------------------------------------------------------------------ #
+#  N8: no % column when it would repeat Amount
+# ------------------------------------------------------------------ #
+
+def test_the_percent_column_is_left_out_at_100_g(burger):
+    import ui_results
+    assert ui_results._percent_repeats_amount(
+        burger, {"Pea protein": 90.0, "Methylcellulose": 10.0})
+    assert not ui_results._percent_repeats_amount(
+        burger, {"Pea protein": 20.0, "Methylcellulose": 2.0})
+    burger.tell({"Pea protein": 20.0, "Methylcellulose": 2.0},
+                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1, batch_no=1)
+    at = _app("burger", wording.TAB_RESULTS)
+    table = next(t.value for t in at.table if wording.AMOUNT_COLUMN in t.value.columns)
+    assert wording.RESULT_PERCENT_COLUMN in table.columns      # 22 g: it says something
+    assert table[wording.RESULT_PERCENT_COLUMN].tolist()[:2] == ['90.91', '9.09']
+
+
+# ------------------------------------------------------------------ #
+#  S7, N6, N7: Results' words
+# ------------------------------------------------------------------ #
+
+def test_results_words():
+    assert wording.runner_up_line(1, "83.2", "2.0") == "Next best: Formulation 1, 83.2 (2.0 lower)."
+    assert wording.round_results_column("Firmness", "target", 6, "/10") == \
+        "Firmness (/10) · Target 6"
+    assert wording.round_results_column("Firmness", "target", 6, "/10", (0, 10)) == \
+        "Firmness (/10) · Target 6"
+    assert wording.round_results_column("Cook loss", "min", None, "%", (0, 40)) == \
+        "Cook loss (0–40, %) · Lower is better"
+    assert wording.review_top_line("100") == "100 = every measurement on target"
+    assert (wording.SCORE_ATTRIBUTE_COLUMN, wording.SCORE_RATING_COLUMN,
+            wording.SCORE_TARGET_COLUMN) == ("Measurement", "Measured", "Goal")
+    for text in (wording.score_point_line(), wording.score_point_line(15),
+                 *wording.method_definitions(span=None)):
+        assert not any(w in text.lower() for w in ("attribute", "rating", "range")), text
+
+
+# ------------------------------------------------------------------ #
+#  All formulations: the Overall score is never scrolled away
+# ------------------------------------------------------------------ #
+
+def test_all_formulations_shows_the_overall_score_after_the_formulation(burger):
+    """Each measurement is headed in full ('Cook loss (0–40, %) · Lower is
+    better'), so the table scrolls sideways; the Overall score sits right
+    after the Formulation so it is always in view."""
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 6.0, "Firmness": 6.0}, formulation_no=1, batch_no=1)
+    at = _app("burger", wording.TAB_RESULTS)
+    assert not at.exception
+    [order] = [list(d.proto.column_order) for d in at.dataframe
+               if "Best so far" in list(d.proto.column_order)]
+    assert order.index(wording.OVERALL_SCORE_COLUMN) == order.index(wording.FORMULATION_CAP) + 1, order

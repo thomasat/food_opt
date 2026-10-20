@@ -197,8 +197,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         let viewItem = NSMenuItem(); main.addItem(viewItem)
         let viewMenu = NSMenu(title: "View")
+        // Cmd+= is what people press; a "+" key equivalent only matches
+        // Cmd+Shift+=. Keep the visible "+" item and add a hidden "=" twin
+        // (allowsKeyEquivalentWhenHidden, macOS 13+) so both shortcuts zoom.
         viewMenu.addItem(NSMenuItem(title: "Bigger Text",
             action: #selector(zoomIn), keyEquivalent: "+"))
+        let zoomInEquals = NSMenuItem(title: "Bigger Text",
+            action: #selector(zoomIn), keyEquivalent: "=")
+        zoomInEquals.isHidden = true
+        zoomInEquals.allowsKeyEquivalentWhenHidden = true
+        viewMenu.addItem(zoomInEquals)
         viewMenu.addItem(NSMenuItem(title: "Smaller Text",
             action: #selector(zoomOut), keyEquivalent: "-"))
         viewMenu.addItem(NSMenuItem(title: "Actual Size",
@@ -631,7 +639,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         do { try p.run() } catch {
             showStatus("The app could not start",
-                       "Please contact us and mention: launcher failed to run.")
+                       "Part of the app is missing. Download Food Optimizer "
+                       + "again and replace this copy.")
             return
         }
         launcher = p
@@ -716,22 +725,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         switch code {
         case 2:
             showStatus("This Mac is not supported",
-                       "Food Optimizer needs a Mac with an Apple chip (2020 or "
-                       + "newer) running macOS 13 or later. Please contact us for help.")
+                       "Food Optimizer needs a Mac with an Apple chip "
+                       + "and macOS 13 or later.")
         case 3:
             showStatus("Setup needs the internet, just this once",
-                       "The first time it opens, Food Optimizer downloads about "
-                       + "1 GB. Please connect to the internet, "
-                       + "then click Try again. After that, no internet is "
-                       + "needed. If you are connected but this message keeps "
-                       + "coming back (some office networks block downloads), "
-                       + "reach out to the Food Intelligence Lab.",
+                       "The first launch downloads about 1 GB. Connect to "
+                       + "the internet, then click Try again.",
                        retry: true)
         case 4:
             showStatus("Not enough free space to set up",
-                       "Food Optimizer needs about 6 GB of free space the first "
-                       + "time it opens. Please free up some space, then click "
-                       + "Try again.",
+                       "Setup needs about 6 GB free on this Mac. Free up "
+                       + "space, then click Try again.",
                        retry: true)
         default:
             showCouldNotStartStatus()
@@ -928,9 +932,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                         if self.healthStrikes >= 3 {
                             self.watchTimer?.invalidate()
                             self.showStatus("Food Optimizer stopped unexpectedly",
-                                "Your projects are saved. Please click Try again. "
-                                + "If this keeps happening, reach out to the "
-                                + "Food Intelligence Lab.",
+                                "Your projects are saved. Click Try again.",
                                 retry: true)
                         }
                     }
@@ -1076,8 +1078,7 @@ extension AppDelegate: WKNavigationDelegate, WKDownloadDelegate {
         guard code != NSURLErrorCancelled, loaded else { return }
         watchTimer?.invalidate()
         showStatus("Food Optimizer stopped unexpectedly",
-                   "Your projects are saved. Please click Try again. If this "
-                   + "keeps happening, reach out to the Food Intelligence Lab.",
+                   "Your projects are saved. Click Try again.",
                    retry: true)
     }
 
@@ -1122,8 +1123,8 @@ extension AppDelegate: WKNavigationDelegate, WKDownloadDelegate {
         let alert = NSAlert()
         alert.messageText = "The file could not be saved"
         alert.informativeText =
-            "Something interrupted the save. Please try again and pick a "
-            + "different folder — your FoodOptimizer folder always works."
+            "Try again and pick another folder, such as your "
+            + "FoodOptimizer folder."
         alert.beginSheetModal(for: window)
     }
 }

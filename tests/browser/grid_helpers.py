@@ -32,11 +32,27 @@ def ensure_round(p):
                      exact=True).count():
         return
     tab(p, SET_UP_TAB)
-    click(p, "Generate formulations")
+    click(p, "Next: Make a round")          # Set up's foot (spec 2026-09-30 §5)
     generate = next(x for x in labels(p)
                     if x.startswith("Generate") and "different" not in x)
     click(p, generate, wait=10)
     tab(p, ROUND_TAB)
+
+
+# Insights for a first-time user (spec 2026-10-01 rev. 2, review I17,
+# R-I17): the first-screen pins open at 1280 × 800, not the suite's usual
+# 1280 × 860 (open_sample's default). 02's measure: the app title and the
+# tab bar take the first 227 px, leaving the tab 573 px of the 800.
+FIRST_SCREEN = {"width": 1280, "height": 800}
+
+
+def above_the_fold(locator, viewport=FIRST_SCREEN):
+    """True when the element is drawn and its whole box ends inside the
+    first screen: its bottom at or above the viewport's height, in page
+    coordinates with the page unscrolled. A button half under the fold is
+    not above it."""
+    box = locator.bounding_box()
+    return box is not None and box["y"] + box["height"] <= viewport["height"]
 
 
 def open_sample(pw, viewport=None):
@@ -48,8 +64,8 @@ def open_sample(pw, viewport=None):
         accept_downloads=True).new_page()
     page.goto(URL, wait_until="domcontentloaded")
     settle(page, 5)
-    if "Try the sample project" in labels(page):
-        click(page, "Try the sample project", wait=6)
+    if "Try the yogurt pilot" in labels(page):
+        click(page, "Try the yogurt pilot", wait=6)
     assert not page.locator('[data-testid="stException"]').count()
     return browser, page
 rows = []

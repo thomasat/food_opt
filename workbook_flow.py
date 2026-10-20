@@ -62,6 +62,7 @@ def restore_metadata(book):
     if METADATA_SHEET not in book.sheetnames:
         return
     metadata = book[METADATA_SHEET]
+    gone = None
     try:
         if metadata['A1'].value != METADATA_VERSION:
             raise ValueError
@@ -75,6 +76,8 @@ def restore_metadata(book):
                     or not all(isinstance(v, str) for v in record)):
                 raise ValueError
             title, address, text = record
+            if title != METADATA_SHEET and title not in book.sheetnames:
+                gone = title    # a sheet deleted by hand: say which one
             if (title == METADATA_SHEET or title not in book.sheetnames
                     or (title, address) in seen
                     or not text.startswith(_METADATA_PREFIXES)):
@@ -85,6 +88,8 @@ def restore_metadata(book):
             cell.comment = Comment(text, 'Food Opt')
             seen.add((title, address))
     except (ValueError, TypeError, KeyError, AttributeError):
+        if gone is not None:
+            raise ValueError(wording.workbook_sheet_gone(gone)) from None
         raise ValueError(_METADATA_ERROR) from None
     book.remove(metadata)
 
@@ -167,7 +172,11 @@ def compact(book, opt, rows, note=""):
     overview = result.active
     overview.title = OVERVIEW
     copy_cells(source, overview, last=split - 1)
-    navigation = wording.SHEET_NAVIGATION
+    # The Preparation sheet only when the Round has (portioned) pre-mixes:
+    # an empty sheet saying "No pre-mixes are required" was one more tab to
+    # open for nothing.
+    premixes = list(opt._premix_sheet_names([r['formulation'] for r in rows]).values())
+    navigation = wording.sheet_navigation(bool(premixes))
     # The line that says these amounts were re-sized survives the fold: it
     # is the first thing the bench needs and the navigation replaces the
     # banner it was written into.
@@ -179,17 +188,16 @@ def compact(book, opt, rows, note=""):
             if cell.value == wording.PREMIX_LOT_ON_ITS_PAGE:
                 cell.value = wording.PREMIX_LOT_ON_PREPARATION
                 sheet_link(cell, PREPARATION)
-    preparation = result.create_sheet(PREPARATION)
-    preparation['A1'] = wording.PREPARATION_SHEET_TITLE
-    preparation['A2'] = navigation + wording.PREPARATION_SHEET_INTRO
-    start = 4
-    for title in opt._premix_sheet_names([r['formulation'] for r in rows]).values():
-        page = book[title]
-        copy_cells(page, preparation, start=start)
-        preparation.cell(start, 1).comment = Comment(PREP + title, 'Food Opt')
-        start += page.max_row + 3
-    if start == 4:
-        preparation['A4'] = wording.PREPARATION_SHEET_EMPTY
+    if premixes:
+        preparation = result.create_sheet(PREPARATION)
+        preparation['A1'] = wording.PREPARATION_SHEET_TITLE
+        preparation['A2'] = navigation + wording.PREPARATION_SHEET_INTRO
+        start = 4
+        for title in premixes:
+            page = book[title]
+            copy_cells(page, preparation, start=start)
+            preparation.cell(start, 1).comment = Comment(PREP + title, 'Food Opt')
+            start += page.max_row + 3
     measured = result.create_sheet(RESULTS)
     measured['A1'] = wording.RESULTS_SHEET_TITLE
     measured['A2'] = navigation + wording.RESULTS_SHEET_INTRO
@@ -231,7 +239,8 @@ def compact(book, opt, rows, note=""):
     separate_formulations(measured, formulation_columns, measured.max_row)
     for sheet in result:
         linkrow = sheet.max_row + 3
-        for c, title in enumerate((OVERVIEW, PREPARATION, RESULTS), 1):
+        tabs = (OVERVIEW, PREPARATION, RESULTS) if premixes else (OVERVIEW, RESULTS)
+        for c, title in enumerate(tabs, 1):
             # Results hides percentage columns: never put navigation in one.
             column = 1 if c == 1 else (2 * c - 2 if sheet == measured else c)
             cell = sheet.cell(linkrow, column, title)
@@ -300,32 +309,43 @@ def prepare_import(source, opt, batch_no):
             cell = book[title][address]
             value = cached[title][address].value
             if value is None and not cell.protection.locked:
-                raise ValueError(wording.WORKBOOK_FORMULA_ERROR)
+                raise ValueError(wording.workbook_calculation_without_value(
+                    title, address))
             cell.value = value
     marker = next((cell.comment.text[len(MARKER):] for sheet in book
                    for cell in [sheet['A1']] if cell.comment and cell.comment.text.startswith(MARKER)), None)
     if marker:
         issued = json.loads(marker)
         if issued['round'] != batch_no:
-            raise ValueError(wording.WORKBOOK_WRONG_ROUND)
+            raise ValueError(wording.workbook_wrong_round(issued['round'],
+                                                          batch_no))
         for row in opt.pending_batch or []:
             old = issued['recipes'].get(str(row['formulation']))
             if old is not None:
                 current = {n: round(float(v), 8) for n, v in opt.shown_recipe(row, opt.open_round_size())[0].items()}
                 if old != current:
-                    raise ValueError(wording.WORKBOOK_ROUND_CHANGED)
+                    raise ValueError(wording.workbook_formulation_changed(
+                        row['formulation']))
     if OVERVIEW not in book.sheetnames:
         out = io.BytesIO(); book.save(out); out.seek(0)
         return out
-    if not marker or RESULTS not in book.sheetnames or PREPARATION not in book.sheetnames:
-        raise ValueError(wording.WORKBOOK_MISSING_SHEET)
+    # Preparation is there only when the Round has pre-mixes; a workbook
+    # downloaded before v3 carries an empty one, which reads as none.
+    if not marker:
+        raise ValueError(wording.WORKBOOK_METADATA_ERROR)
+    if RESULTS not in book.sheetnames:
+        raise ValueError(wording.workbook_sheet_gone(RESULTS))
     original = Workbook()
     summary = original.active
     summary.title = wording.batch_sheet_name(batch_no)
     copy_cells(book[OVERVIEW], summary)
     measurements = book[RESULTS]
-    if any(c.data_type == 'f' for row in measurements for c in row if not c.protection.locked):
-        raise ValueError(wording.WORKBOOK_RESULTS_ARE_NUMBERS)
+    typed_calculation = next((c for row in measurements for c in row
+                              if c.data_type == 'f' and not c.protection.locked),
+                             None)
+    if typed_calculation is not None:
+        raise ValueError(wording.workbook_results_calculation(
+            typed_calculation.coordinate))
     # Copy only the measurement block, leaving the optional Actual matrix out.
     actual = next((c.row for row in measurements for c in row
                    if c.column == 1 and c.value == wording.ACTUAL_SHEET_HEADING), None)
@@ -347,10 +367,11 @@ def prepare_import(source, opt, batch_no):
                     value = measurements.cell(source_row, cell.column).value
                     if value is not None:
                         if measurements.cell(source_row, cell.column).data_type == 'f':
-                            raise ValueError(wording.WORKBOOK_ACTUALS_ARE_NUMBERS)
+                            raise ValueError(wording.workbook_actual_calculation(
+                                number, var['name']))
                         page.cell(i, 3, value)
-    prep = book[PREPARATION]
-    starts = [(c.row, c.comment.text[len(PREP):]) for row in prep for c in row
+    prep = book[PREPARATION] if PREPARATION in book.sheetnames else None
+    starts = [(c.row, c.comment.text[len(PREP):]) for row in (prep or ()) for c in row
               if c.comment and c.comment.text.startswith(PREP)]
     for i, (start, title) in enumerate(starts):
         end = starts[i + 1][0] - 1 if i + 1 < len(starts) else prep.max_row

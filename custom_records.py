@@ -69,10 +69,11 @@ def add_field(opt, name, scope):
     if not name or len(name) > 80 or scope not in SCOPES:
         raise ValueError(wording.CUSTOM_FIELD_INVALID)
     if name.casefold() in {str(v).casefold() for v in wording.RECORD_FIELD_LABELS.values()}:
-        raise ValueError(wording.CUSTOM_FIELD_BUILTIN)
+        raise ValueError(wording.custom_field_builtin(name))
     data = copy.deepcopy(state(opt))
     if any(f['name'].casefold() == name.casefold() and f['scope'] == scope for f in data['fields']):
-        raise ValueError(wording.CUSTOM_FIELD_EXISTS)
+        raise ValueError(wording.custom_field_exists(
+            name, wording.CUSTOM_SCOPE_NAMES[scope]))
     key = uuid.uuid4().hex
     data['fields'].append({'id': key, 'name': name, 'scope': scope, 'enabled': True})
     opt.custom_records = data
@@ -162,7 +163,7 @@ def export_frame(opt):
                 for key, value in entries.items():
                     if value:
                         f = definitions[key]
-                        rows.append({wording.ROUND_CAP: int(number), wording.CUSTOM_SCOPE_LABEL: wording.CUSTOM_SCOPE_NAMES[scope],
+                        rows.append({wording.ROUND_CAP: int(number), wording.CUSTOM_SCOPE_LABEL: wording.for_project(opt, wording.CUSTOM_SCOPE_NAMES[scope]),
                                      wording.CUSTOM_SUBJECT: subject, wording.CUSTOM_FIELD_NAME: f['name'],
                                      wording.CUSTOM_VALUE: value})
     return pd.DataFrame(rows)
@@ -179,7 +180,7 @@ def append_workbook(book, opt, rows, print_pack):
         definitions = fields(opt, scope)
         if not definitions or not subjects:
             continue
-        cell = sheet.cell(r, 1, wording.CUSTOM_SECTION_NAMES[scope]); cell.font = Font(bold=True)
+        cell = sheet.cell(r, 1, wording.for_project(opt, wording.CUSTOM_SECTION_NAMES[scope])); cell.font = Font(bold=True)
         r += 1
         sheet.cell(r, 1, wording.CUSTOM_SHEET_HELP)
         r += 1
@@ -204,6 +205,14 @@ def append_workbook(book, opt, rows, print_pack):
             r += 1
         r += 2
     sheet.print_area = f'A1:{get_column_letter(sheet.max_column)}{sheet.max_row}'
+
+
+def _subject_text(opt, scope, subject):
+    """'Formulation 4' for a formulation's record, the name for an
+    ingredient's."""
+    if scope == 'formulation':
+        return wording.for_project(opt, f"{wording.FORMULATION_CAP} {subject}")
+    return subject
 
 
 def read_workbook(source, opt, round_no):
@@ -235,16 +244,22 @@ def read_workbook(source, opt, round_no):
                         or known[meta['field']]['scope'] != meta['scope']
                         or meta.get('subject') not in allowed[meta['scope']]):
                     raise ValueError(wording.CUSTOM_WORKBOOK_CHANGED)
+                # Which field, for which row, in every refusal below.
+                field = known[meta['field']]['name']
+                subject = _subject_text(opt, meta['scope'], meta['subject'])
                 if cell.data_type == 'f':
-                    raise ValueError(wording.CUSTOM_TEXT_ONLY)
+                    raise ValueError(wording.custom_record_calculation(
+                        field, subject))
                 value = '' if cell.value is None else str(cell.value).strip()
                 if not value:
                     continue  # empty imported cells never erase an existing record
                 if len(value) > 2000:
-                    raise ValueError(wording.CUSTOM_VALUES_INVALID)
+                    raise ValueError(wording.custom_record_too_long(
+                        field, subject))
                 key = (meta['scope'], meta['subject'], meta['field'])
                 if key in seen and seen[key] != value:
-                    raise ValueError(wording.CUSTOM_WORKBOOK_CONFLICT)
+                    raise ValueError(wording.custom_record_conflict(
+                        field, subject))
                 seen[key] = value
     entries = [(*key, value) for key, value in seen.items()]
     if hasattr(source, 'seek'):
@@ -256,9 +271,10 @@ def setup(opt):
     import streamlit as st
     from ui_helpers import saved_ok
     with st.popover(wording.CUSTOM_ADD_LABEL):
-        st.caption(wording.CUSTOM_FIELD_HELP)
+        st.caption(wording.for_project(opt, wording.CUSTOM_FIELD_HELP))
         name = st.text_input(wording.CUSTOM_FIELD_NAME, key='custom_field_name', max_chars=80)
-        scope = st.selectbox(wording.CUSTOM_SCOPE_LABEL, SCOPES, format_func=wording.CUSTOM_SCOPE_NAMES.get,
+        scope = st.selectbox(wording.CUSTOM_SCOPE_LABEL, SCOPES,
+                             format_func=lambda s: wording.for_project(opt, wording.CUSTOM_SCOPE_NAMES[s]),
                              key='custom_field_scope')
         if st.button(wording.CUSTOM_ADD_BUTTON, key='custom_field_add'):
             try:
@@ -277,7 +293,18 @@ def editor(opt, round_no, formulation_numbers, prefix='round'):
     if (not fields(opt) and not opt.records('lot')) or round_no is None:
         return
     if opt.records('lot'):
-        st.markdown(f"**{wording.LOT_ENTRY_HEADING}**")
+        # In a fold of its own (spec 2026-09-30 §3, audit V14): it was open
+        # by default under every Round's table.
+        _lots(opt, round_no, prefix)
+    if not fields(opt):
+        return
+    _custom_fields(opt, round_no, formulation_numbers, prefix)
+
+
+def _lots(opt, round_no, prefix):
+    import streamlit as st
+    from ui_helpers import saved_ok
+    with st.expander(wording.LOT_ENTRY_HEADING):
         st.caption(wording.LOT_ENTRY_HELP)
         stored_lots = opt.lots.get(int(round_no), {})
         lot_frame = pd.DataFrame([{wording.CUSTOM_INGREDIENT_LABEL: n, wording.LOT_COLUMN: stored_lots.get(n, '')}
@@ -287,15 +314,18 @@ def editor(opt, round_no, formulation_numbers, prefix='round'):
             edited_lots = st.data_editor(lot_frame, hide_index=True, disabled=[wording.CUSTOM_INGREDIENT_LABEL],
                 key=f'custom_lots_{opt.project_name}_{round_no}_{prefix}_{mark}',
                 column_config={wording.LOT_COLUMN: st.column_config.TextColumn(wording.LOT_COLUMN, max_chars=2000)},
-                use_container_width=True)
+                width="stretch", placeholder="")
             updates = {row[wording.CUSTOM_INGREDIENT_LABEL]: ('' if pd.isna(row[wording.LOT_COLUMN]) else str(row[wording.LOT_COLUMN]).strip())
                        for _, row in edited_lots.iterrows()}
             if any(stored_lots.get(n, '') != v for n, v in updates.items()):
                 opt.store_lots(round_no, updates)
                 if saved_ok(opt):
                     st.rerun()
-    if not fields(opt):
-        return
+
+
+def _custom_fields(opt, round_no, formulation_numbers, prefix):
+    import streamlit as st
+    from ui_helpers import saved_ok
     with st.expander(wording.CUSTOM_RECORDS_HEADING):
         st.caption(wording.CUSTOM_AUTOSAVE_HELP)
         for scope, subjects in [('formulation', list(map(str, formulation_numbers))),
@@ -303,7 +333,7 @@ def editor(opt, round_no, formulation_numbers, prefix='round'):
             definitions = fields(opt, scope)
             if not definitions or not subjects:
                 continue
-            st.markdown(wording.CUSTOM_SECTION_NAMES[scope])
+            st.markdown(wording.for_project(opt, wording.CUSTOM_SECTION_NAMES[scope]))
             label = wording.for_project(opt, wording.FORMULATION_CAP) if scope == 'formulation' else wording.CUSTOM_INGREDIENT_LABEL
             frame = pd.DataFrame([{label: subject, **{f['id']: values(opt, round_no, scope, subject).get(f['id'], '')
                                                      for f in definitions}} for subject in subjects])
@@ -311,11 +341,15 @@ def editor(opt, round_no, formulation_numbers, prefix='round'):
             key = f'custom_values_{opt.project_name}_{round_no}_{prefix}_{scope}_{mark}'
             edited = st.data_editor(frame, hide_index=True, num_rows='fixed', disabled=[label], key=key,
                                     column_config={f['id']: st.column_config.TextColumn(f['name'], max_chars=2000)
-                                                   for f in definitions}, use_container_width=True)
+                                                   for f in definitions}, width="stretch", placeholder="")
             entries = [(scope, str(row[label]), f['id'], '' if pd.isna(row[f['id']]) else str(row[f['id']]))
                        for _, row in edited.iterrows() for f in definitions]
             if save_values(opt, round_no, entries) and saved_ok(opt):
                 st.rerun()
+
+
+HISTORY_ROUND_KEY = 'custom_history_round'
+HISTORY_ROUND_LATEST_KEY = 'custom_history_round_latest'
 
 
 def history(opt):
@@ -327,9 +361,19 @@ def history(opt):
                     | {int(r['batch']) for r in opt.skipped if r.get('batch') is not None}, reverse=True)
     if not rounds:
         return
-    number = st.selectbox(wording.CUSTOM_ROUND_LABEL, rounds, key='custom_history_round')
+    # The latest Round first, and again whenever a newer one is recorded
+    # (S10): the box kept the Round it opened on, so Round 1 stayed chosen
+    # after Round 2 was saved. A Round picked by hand stays picked until then.
+    # The mark is the project's own as well: a Round picked by hand in one
+    # project was kept in the next one whose latest Round was the same.
+    key, seen = HISTORY_ROUND_KEY, HISTORY_ROUND_LATEST_KEY
+    latest = (opt.project_name, rounds[0])
+    if st.session_state.get(seen) != latest or st.session_state.get(key) not in rounds:
+        st.session_state[key] = rounds[0]
+        st.session_state[seen] = latest
+    number = st.selectbox(wording.CUSTOM_ROUND_LABEL, rounds, key=key)
     numbers = [int(n) for n, b in zip(opt.formulation_ids, opt.batch_history) if b == number]
     numbers += [int(r['formulation']) for r in opt.skipped if r.get('batch') == number]
     editor(opt, number, numbers, prefix='history')
     if not frame.empty:
-        st.dataframe(frame, hide_index=True)
+        st.dataframe(frame, hide_index=True, placeholder="")

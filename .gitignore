@@ -1,9 +1,14 @@
 __pycache__/
 *.pyc
 *.pkl
+.last_opened
+.insights/
 .pytest_cache/
 docs/
 .DS_Store
 .streamlit/secrets.toml
 .claude/*
 !.claude/settings.json
+# Try the sample copies the Round 6 results file into the projects folder
+# (the cwd when running from source).
+/Round 6 results (pilot).xlsx

@@ -594,10 +594,42 @@ _FIXED_SPAN_FLOOR = 1e-9
 # against a formulation made before the project existed.
 NO_BATCH = object()
 CLOSE_TO_THE_BEST = 0.15
+# A suggestion farther than this from every formulation recorded before its
+# Round explores (0.8.0 e2e fixes A2, review I3): twice the near cut, so
+# the three roles are three, and "balanced" is not left empty by one cut
+# used twice. Both cuts are compared with _ROLE_EPS, insights' own _EPS.
+FAR_FROM_TESTED = 2 * CLOSE_TO_THE_BEST
+_ROLE_EPS = 1e-9
 # How many process settings one what-is-it-trying line names, on its own so
 # that a project of eight settings does not bury the amounts under them. The
 # ingredients have their own count, which vs_best_text takes as an argument.
 SETTINGS_SHOWN = 3
+
+
+def limit_slack(value):
+    """How far an amount may sit past a limit on several rows and still
+    meet it: _check_constraints' relative slack, which a sum reached the
+    long way round (a share at a time) needs. The limit's shown number
+    (limit_number) is held to the same slack, so the two cannot disagree."""
+    return 1e-6 * (1.0 + abs(float(value)))
+
+
+def limit_number(value):
+    """A limit's number as the screens and sheets write it: to at most 2
+    decimals, as the tables show amounts ('98.7', '0.65'), when that short
+    number is one the limit check itself accepts (limit_slack); otherwise
+    the 'g' form (the yogurt pilot's 98.69051 reads 98.6905: 98.69 is
+    0.0005 off, past the check's slack, and a batch adding to it would be
+    told it broke the limit it appears to meet), with more digits only
+    when even that is too far off."""
+    value = float(value)
+    candidates = [f"{value:.2f}".rstrip("0").rstrip(".")]
+    candidates += [f"{value:.{digits}g}" for digits in range(6, 18)]
+    for text in candidates:
+        text = "0" if text == "-0" else text
+        if abs(float(text) - value) <= limit_slack(float(text)):
+            return text
+    return repr(value)
 
 
 def join_unit(text, unit):
@@ -693,6 +725,23 @@ def outside_message(name, value, low, high, unit, what, tail=""):
             + f" is outside {what} of "
             + join_unit(reach, unit)
             + "." + tail)
+
+
+def scale_outside_message(name, value, low, high, unit):
+    """'Crunch 12 is outside 0–10. Fix it, or raise Scale maximum in Set
+    up.' —
+    a result typed outside its measurement's scale (Scale minimum to Scale
+    maximum). The unit rides after both numbers ('12 N is outside 0–20 N');
+    a "/"-style unit, or one that is a word for a score ('score', 'points'),
+    is left off: '12 score' does not read."""
+    unit = unit_after_number(unit)
+    if unit.strip().lower() in wording.SCORE_WORD_UNITS:
+        unit = ""
+    reach = (f"{float(low):g}" if float(low) == float(high)
+             else f"{float(low):g}–{float(high):g}")
+    return wording.outside_scale(name, join_unit(f"{float(value):g}", unit),
+                                 join_unit(reach, unit),
+                                 above=float(value) > float(high))
 
 
 def local_date(ts):
@@ -802,6 +851,35 @@ def _file_text(row, column, present=True):
     return str(value).strip()
 
 
+def _file_formula(row, present=True):
+    """A Calculation cell of an ingredient file, as the grid reads it, with
+    the spellings a bench writes for Fill to total read as '= rest' (0.8.0
+    e2e fixes B1, review I9): "Fill to total" in any case was refused as
+    "Start a calculation with =." Anything else is the cell as typed."""
+    text = _file_text(row, wording.FORMULA_LABEL, present)
+    if text.lower() in wording.FILL_TO_TOTAL_IMPORT_ALIASES:
+        return f"= {wording.REST_TOKEN}"
+    return text
+
+
+def _refuse_file_limits(name, row):
+    """Refuse, by name, an ordinary row of an ingredient file whose Lowest
+    or Highest would load as NaN (03 I8: a blank cell, or an Excel '= rest'
+    read as its missing cached value, loaded silently with no limits), and
+    one that holds a spreadsheet formula with no value saved (a file
+    written by a script). The row's own words, never "row 7"."""
+    labels = {'Min': wording.LOWEST_LABEL, 'Max': wording.HIGHEST_LABEL}
+    blank = []
+    for column, label in labels.items():
+        value = row.get(column)
+        if isinstance(value, str) and value.strip().startswith('='):
+            raise ValueError(wording.import_spreadsheet_formula(name, label, value.strip()))
+        if _cell(row, column) is None or (isinstance(value, str) and not value.strip()):
+            blank.append(label)
+    if blank:
+        raise ValueError(wording.import_limits_not_numbers(name, tuple(blank)))
+
+
 def _file_range(row):
     """(Lowest, Highest) for a row of an ingredient file that carries a
     formula: the two cells when both hold numbers, and (0, 0) when either is
@@ -836,6 +914,31 @@ def _range_from_cells(row):
             else:
                 high, high_ok = None, True
     return low, high, (low_ok and high_ok)
+
+
+def _number_cells_refusal(row, columns, values=None):
+    """The refusal for number cells that are empty or hold text, naming the
+    cells (wording.cells_need_numbers). Message only: whether the row is
+    refused is decided by the caller. `values` are what the caller read the
+    cells as, where it has already filled a blank in (a calculation rubbed
+    out hands the row back its old amounts); a cell is blank when its
+    value is None."""
+    blank, typed = [], []
+    for i, column in enumerate(columns):
+        value, ok = _number_cell(row, column)
+        text = _text_cell(row, column)
+        if not ok and text not in _APP_RANGE_WORDS:
+            typed.append((column, text))
+        elif (value if values is None else values[i]) is None:
+            blank.append(column)
+    return wording.cells_need_numbers(blank, typed)
+
+
+_RANGE_CELLS = (wording.LOWEST_LABEL, wording.HIGHEST_LABEL)
+# What the app itself writes into the Lowest and Highest cells of a row
+# that is calculated: read as no number, never quoted back as one.
+_APP_RANGE_WORDS = (wording.WORKED_OUT, wording.CALCULATED_RANGE,
+                    wording.OLD_CALCULATED_LABEL, wording.OLD_CALCULATED_RANGE)
 
 
 def grid_signature(frame):
@@ -967,6 +1070,12 @@ def _proposed_variable(spec):
     return var
 
 
+def _kind_label(var):
+    """The Type cell's word for a row: Ingredient or Process setting."""
+    return (wording.KIND_SETTING if var.get('category', 'ingredient') == 'process'
+            else wording.KIND_INGREDIENT)
+
+
 def _duplicate_name_errors(rows):
     """Two rows of one grid wearing one name, blamed on the row that MOVED.
 
@@ -988,10 +1097,17 @@ def _duplicate_name_errors(rows):
             continue
         blamed, other = (twin, spec) if _row_moved(twin[1]) and not _row_moved(
             spec) else ((row_no, spec), twin[1])
-        errors.append((blamed[0],
-                       _name_taken_message(other['name'], blamed[1]['category'])
-                       if other['name'] == blamed[1]['name']
-                       else wording.name_differs_only_by_case(other['name'])))
+        if other['name'] != blamed[1]['name']:
+            message = wording.name_differs_only_by_case(other['name'])
+        elif _row_moved(other):
+            # Neither row is a saved one under this name: "already the name
+            # of an ingredient" pointed at an ingredient the project does
+            # not have yet.
+            message = wording.name_on_two_rows(other['name'])
+        else:
+            message = _name_taken_message(other['name'],
+                                          blamed[1]['category'])
+        errors.append((blamed[0], message))
     return errors
 
 
@@ -1104,6 +1220,12 @@ def _what_moved(before, after):
                                               after[6:9]):
         moved.add('other')
     return moved
+
+
+# A share on the grid is shown and typed to one decimal: anything closer
+# to what was shown than this is the same share handed back, not a typed
+# one (final review M-7).
+SHARE_TOLERANCE = 0.005
 
 
 def _shares_moved(typed, final):
@@ -1514,14 +1636,73 @@ def _build_covar(cfg, dim):
     return ScaleKernel(base)
 
 
+def _generated_totals_from(raw):
+    """batch_generated_totals from a saved file: {round: {formulation: sum}},
+    anything malformed left out."""
+    out = {}
+    for k, row in (raw or {}).items() if isinstance(raw, dict) else ():
+        try:
+            sums = {int(n): float(t) for n, t in (row or {}).items()}
+            # Infinity or NaN is a damaged entry too (T1 review M1).
+            out[int(k)] = {n: t for n, t in sums.items() if math.isfinite(t)}
+        except (TypeError, ValueError, AttributeError, OverflowError):
+            continue
+    return out
+
+
+def _generation_records_from(raw):
+    """round_generation from a saved file: {round: record}, anything
+    malformed left out."""
+    out = {}
+    for k, record in (raw or {}).items() if isinstance(raw, dict) else ():
+        try:
+            # Lists, not anything iterable: "123" is not rows 1, 2, 3; and a
+            # damaged picks drops the whole record (final review M-4).
+            picks = record.get("picks")
+            if not isinstance(record["rows"], list) or (
+                    picks is not None and not isinstance(picks, list)):
+                raise TypeError("rows and picks are lists")
+            rec = {"seed": int(record["seed"]),
+                   "rows": [int(n) for n in record["rows"]],
+                   "n": int(record["n"]), "regime": str(record["regime"]),
+                   "key": str(record.get("key") or "")}
+            # The numbers ask() issued (T3 I-2), kept when there are any.
+            if picks:
+                rec["picks"] = [int(n) for n in picks]
+            out[int(k)] = rec
+        # int(float('inf')) raises OverflowError: a damaged entry, dropped,
+        # never a reason to refuse the copy (T1 review M1).
+        except (TypeError, ValueError, KeyError, AttributeError, OverflowError):
+            continue
+    return out
+
+
+def valid_tasting_noise(value):
+    """Final demo (B5): a saved tasting noise as a positive number of
+    points, else None (the assumed 1 point): an older file has none, and a
+    damaged value never stops a project opening."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    return v if math.isfinite(v) and v > 0 else None
+
+
 class FoodOptimizer:
-    CLASS_VERSION = 15  # bump when adding methods/attrs to force session refresh
+    CLASS_VERSION = 17  # bump when adding methods/attrs to force session refresh
 
     # How far a suggested formulation may sit from the total it was asked
     # for. A total is an equality, and an equality is not something a
     # continuous search can be held to exactly; half a percent is narrower
     # than any bench scale and wide enough that the search always has room.
     FORMULATION_TOTAL_TOLERANCE = 0.005
+    # 0.8.0 BO views (spec 2026-09-30-bo-views §1, review B1): a recorded
+    # formulation whose ingredients add up to more than this share off the
+    # Formulation total is learned AT the total. Twice the band, so a row
+    # the snap left at the band's edge (a float of 99.4999999) never counts.
+    MODEL_TOTAL_MARGIN = 2 * FORMULATION_TOTAL_TOLERANCE
 
     # How many space-filling points the opening looks at before it gives up
     # and asks the model. A batch that cannot be filled from the first pool
@@ -1560,6 +1741,10 @@ class FoodOptimizer:
         self.quantity_constraints = []
         self.screening_model = None
         self.bo_config = None  # None => library defaults; dict => expert-chosen (arm 3)
+        # Final demo (B5): the Overall score's tasting noise SD the Review
+        # judges by while Repeats give under 3 df; None = the assumed 1 point.
+        # Review-side only: suggestions never read it.
+        self.tasting_noise = None
 
         self.X_history = []
         self.Y_history = []
@@ -1574,6 +1759,9 @@ class FoodOptimizer:
         self.notes_history = []       # the lab's note per scored row, or ""
         self.skipped = []             # generated but never scored: dicts with
                                       # formulation / batch / recipe / note
+        self.retired_suggestions = []  # handed out, dropped without a record
+        self.set_aside = []           # numbers of recorded formulations moved
+                                      # to Not scored while waiting (0.8.0)
         self.next_formulation_no = 1
         # The same rule for batches: a batch number is permanent. Deriving it
         # from the batches still on file handed batch 2's number to the next
@@ -1608,6 +1796,13 @@ class FoodOptimizer:
         # was lost the moment the batch closed.
         self.pending_batch_total = None
         self.batch_totals = {}        # batch number -> the total it was made to
+        # 0.8.0 BO views, display metadata only (review B1, B4): the sum
+        # each formulation of a Round had before the Batch size box first
+        # re-sized it (round -> {formulation: sum}), and how each Round was
+        # generated (round -> {"seed", "rows", "n", "regime", "key"}).
+        # Neither is read by ask().
+        self.batch_generated_totals = {}
+        self.round_generation = {}
         # Lot numbers written on the sheets and read back: round number ->
         # {ingredient: the lot it was weighed from}. Empty until a sheet
         # comes back carrying them.
@@ -1744,7 +1939,7 @@ class FoodOptimizer:
         # formulation. Only Lowest ABOVE Highest is a range with nothing in
         # it, and that is what is refused.
         if float(min_val) > float(max_val):
-            raise ValueError(LOWEST_ABOVE_HIGHEST_ERROR)
+            raise ValueError(wording.lowest_above_highest(min_val, max_val))
         for v in self.variables:
             if v['name'].lower() == name.lower() and v.get('category', 'ingredient') != category:
                 other = v.get('category', 'ingredient')
@@ -1981,7 +2176,8 @@ class FoodOptimizer:
                     in {wording.PREMIX_MADE_AS_BOUGHT_IN.lower(), wording.OLD_SINGLE_MODE}):
                 made_as = ""
             if made_as and group:
-                raise ValueError(wording.PREMIX_INSIDE_PREMIX)
+                raise ValueError(wording.file_row_premix_in_premix(row_no,
+                                                                   name))
             # One name, one thing — with the one exception a pre-mix makes:
             # the same water may be a part of the dry blend and of the wet
             # one, so a name is repeated only across DIFFERENT pre-mixes.
@@ -1991,7 +2187,8 @@ class FoodOptimizer:
             taken.add(key)
             share, readable = _number_cell(row, wording.PREMIX_SHARE_LABEL)
             if not readable:
-                raise ValueError(wording.PART_SHARE_ERROR)
+                raise ValueError(wording.file_row_share_not_a_number(
+                    row_no, _text_cell(row, wording.PREMIX_SHARE_LABEL)))
             props = {}
             for col in prop_cols:
                 try:
@@ -2010,8 +2207,7 @@ class FoodOptimizer:
                 'made_as': made_as, 'share': 0.0 if share is None else share,
                 # A formula is data a bench can bring in a file: the cell
                 # is read exactly as the grid's own is.
-                'formula': _file_text(row, wording.FORMULA_LABEL,
-                                      present[wording.FORMULA_LABEL]),
+                'formula': _file_formula(row, present[wording.FORMULA_LABEL]),
                 'unit': unit, 'props': props, 'cells': row})
         return rows
 
@@ -2084,10 +2280,19 @@ class FoodOptimizer:
             # row with none.
             min_val, max_val = _file_range(row)
         else:
+            _refuse_file_limits(name, row)
             try:
                 min_val, max_val = float(row['Min']), float(row['Max'])
             except (ValueError, TypeError):
-                raise ValueError(wording.file_amounts_not_numbers(name))
+                typed = []
+                for column, label in (('Min', wording.LOWEST_LABEL),
+                                      ('Max', wording.HIGHEST_LABEL)):
+                    try:
+                        float(row[column])
+                    except (ValueError, TypeError):
+                        typed.append((label, _file_text(row, column)))
+                raise ValueError(wording.file_amounts_not_numbers(name,
+                                                                  typed))
             if min_val > max_val:
                 raise ValueError(wording.file_lowest_above_highest(
                     name, min_val, max_val))
@@ -2138,13 +2343,22 @@ class FoodOptimizer:
         for var in self.variables:
             if not var.get('formula'):
                 continue
-            form = parse_formula(var['formula'],
-                                 [v['name'] for v in self.variables], True)
+            # Every refusal about one row's calculation is said against
+            # that row by name: a file has no grid row for the reader to be
+            # looking at.
+            try:
+                form = parse_formula(var['formula'],
+                                     [v['name'] for v in self.variables], True)
+            except FormulaError as e:
+                raise FormulaError(wording.named_row_error(var['name'],
+                                                           str(e)))
             if var['name'] in form.names():
-                raise ValueError(wording.RULE_USES_ITS_OWN_ROW)
+                raise ValueError(wording.named_row_error(
+                    var['name'], wording.RULE_USES_ITS_OWN_ROW))
             trouble = self._rule_names_a_setting(form)
             if trouble:
-                raise ValueError(trouble)
+                raise ValueError(wording.named_row_error(var['name'],
+                                                         trouble))
         self._formula_order()
 
     def add_process_parameter(self, name, min_val, max_val, baseline=None,
@@ -2281,7 +2495,7 @@ class FoodOptimizer:
         min_val = float(min_val) if min_val is not None else 0.0
         max_val = float(max_val) if max_val is not None else 10.0
         if min_val >= max_val:
-            raise ValueError(RANGE_ENDS_ERROR)
+            raise ValueError(wording.scale_ends_error(min_val, max_val))
         if goal == 'target':
             if target is None:
                 raise ValueError(TARGET_REQUIRED_ERROR)
@@ -2291,12 +2505,22 @@ class FoodOptimizer:
                                                          max_val))
         else:
             target = None
-        replaced = any(obj['name'] == name for obj in self.objectives)
+        old = next((obj for obj in self.objectives if obj['name'] == name),
+                   None)
+        replaced = old is not None
+        # Which formulations this measurement does NOT apply to: the ones
+        # already recorded when it was added — they could never have been
+        # measured for it. A replace is the same measurement and keeps its
+        # list; a new name (a delete then a re-add included) starts from the
+        # history as it is now. Open-round rows not yet recorded and Not
+        # scored rows are not in the history, so it applies to them.
+        not_for = (list(old.get('not_for') or []) if replaced
+                   else sorted({int(n) for n in self.formulation_ids}))
         self.objectives = [obj for obj in self.objectives if obj['name'] != name]
         self.objectives.append({
             'name': name, 'weight': weight, 'goal': goal,
             'target': target, 'min_val': min_val, 'max_val': max_val,
-            'unit': str(unit or "").strip(),
+            'unit': str(unit or "").strip(), 'not_for': not_for,
         })
         self._recompute_utilities()
         self.save()
@@ -2883,7 +3107,7 @@ class FoodOptimizer:
         min_val = float(merged.get('min_val', 0.0))
         max_val = float(merged.get('max_val', 10.0))
         if min_val >= max_val:
-            raise ValueError(RANGE_ENDS_ERROR)
+            raise ValueError(wording.scale_ends_error(min_val, max_val))
         goal = merged.get('goal', 'max')
         if goal == 'target':
             if merged.get('target') is None:
@@ -2950,35 +3174,43 @@ class FoodOptimizer:
         return float(obj['weight']) / total if total else 0.0
 
     def share_percents(self):
-        """Every measurement's share of the score as whole percents that add
-        up to 100, keyed by name.
+        """Every measurement's share of the score in percent, to one
+        decimal, adding up to 100, keyed by name.
+
+        One decimal, as stored (0.8.0 e2e fixes D5, review M11; 03 M1):
+        whole percents showed 50 / 30 / 20 while 50.4 / 29.6 / 20 was
+        stored, and typing 50 over the 50 shown was not seen as a change.
 
         Largest remainder, not one round() each: three equally important
-        measurements are 33.33 % apiece, and rounding them one at a time put
-        "33 %" three times in a column headed Share of score — a column the
-        reader adds up. The odd point goes to the measurement the screens
-        list first, so the table reads top-heavy rather than arbitrarily."""
+        measurements are 33.333 % apiece, and rounding them one at a time
+        put "33.3 %" three times in a column headed Share of score — a
+        column the reader adds up. The odd tenth goes to the measurement
+        the screens list first, so the table reads top-heavy rather than
+        arbitrarily."""
         ordered = self.measurements_by_importance()
         if not ordered:
             return {}
-        exact = [100 * self.share_of_score(o['name']) for o in ordered]
-        whole = [int(v) for v in exact]          # floor: every share is >= 0
-        left = 100 - sum(whole)
+        exact = [1000 * self.share_of_score(o['name']) for o in ordered]
+        # Floor in tenths (every share is >= 0); the 1e-6 keeps 50.4 stored
+        # from reading as 503.999… tenths.
+        tenths = [int(math.floor(v + 1e-6)) for v in exact]
+        left = 1000 - sum(tenths)
         # Biggest fraction first; a tie goes to the one listed first.
         order = sorted(range(len(ordered)),
-                       key=lambda i: (-(exact[i] - whole[i]), i))
+                       key=lambda i: (-(exact[i] - tenths[i]), i))
         for i in order[:max(0, left)]:
-            whole[i] += 1
-        return {o['name']: whole[i] for i, o in enumerate(ordered)}
+            tenths[i] += 1
+        return {o['name']: tenths[i] / 10 for i, o in enumerate(ordered)}
 
     def share_text(self, name):
-        """'60 %' — this measurement's share of the score, as a whole
-        percent."""
+        """'60 %', '50.4 %' — this measurement's share of the score as
+        stored, to one decimal, a whole share without its '.0'."""
         shares = self.share_percents()
         if name not in shares:
             # Keeps share_of_score's own refusal for an unknown name.
             self.share_of_score(name)
-        return join_unit(f"{shares[name]:d}", "%")
+        text = f"{shares[name]:.1f}"
+        return join_unit(text[:-2] if text.endswith(".0") else text, "%")
 
     def score_function_line(self):
         """The one line under the measurements grid that writes the score
@@ -3018,7 +3250,7 @@ class FoodOptimizer:
 
     def set_records(self, field, on):
         """Turn one optional field on or off. Written only on a change, as
-        every other box in More settings is.
+        every other box in Preparation and records is.
 
         Nothing already recorded is thrown away: a vendor typed before the
         box was turned off is still on the row, and turning it back on shows
@@ -3102,11 +3334,20 @@ class FoodOptimizer:
             is_target = obj['goal'] == 'target'
             goal = goal_text(obj)
             raw = results.get(obj['name'])
-            if raw is None:
+            if raw is None and not self.applies(obj, index):
+                # Added after this formulation was recorded: never expected
+                # of it, so it is not "not measured" either.
                 rows.append({'name': name, 'goal': goal,
-                             'measured': wording.NOT_MEASURED,
-                             'off_by': (wording.NOT_MEASURED if is_target
-                                        else "—")})
+                             'measured': "—", 'off_by': "—"})
+                continue
+            if raw is None:
+                # A result still to come reads "waiting"; one that will never
+                # come (moved to Not scored) reads "not measured" (spec
+                # 2026-09-30 §4).
+                word = (wording.NOT_MEASURED if self.is_set_aside(index)
+                        else wording.MEASURED_WAITING)
+                rows.append({'name': name, 'goal': goal, 'measured': word,
+                             'off_by': word if is_target else "—"})
                 continue
             val = float(raw)
             measured = join_unit(f"{val:g}", unit)
@@ -3126,16 +3367,20 @@ class FoodOptimizer:
         return rows
 
     def _variable_deltas(self, recipe, ref_recipe, category=None, floor=0.005):
-        """Every change from ref_recipe to recipe — largest first, as
-        (name, change) pairs. `category` keeps to the ingredients or to the
-        process settings; None takes both. A change smaller than `floor` is
-        left out, and so is a held variable: it is held at one value in
-        every new formulation, so it cannot be a change this batch made;
-        naming it as the biggest one pointed at the row nobody moved.
+        """Every change from ref_recipe to recipe, as (name, change) pairs,
+        the largest share of its own Lowest-Highest span first (0.8.0 e2e
+        fixes B2, review M3): amounts and settings ranked together, so a
+        Baking temperature +10.7 °C (27 % of its span) comes before Rolled
+        oats −0.67 g (03 I6). bo_views._differences ranks the Why fold's
+        Largest differences by this same rule.
 
-        Amounts and settings are asked for separately wherever they are
-        written out, because they are not comparable numbers: reporting a
-        cook temperature as "+198.65 g" priced an oven in grams.
+        Only the varying rows: a held row is at one value in every new
+        formulation, so it cannot be a change this Round made, and a
+        calculated row (Fill to total among them) is the other rows'
+        difference, not a change of its own (02 M7: "Water +0.01 g").
+        `category` keeps to the ingredients or to the process settings;
+        None takes both. A change smaller than `floor` is left out: below
+        one display step it reads "0.00 g" (03 M6).
 
         A key missing from either side is read as the variable's 'absent'
         value — 0 for an ingredient, its baseline for a process setting —
@@ -3143,14 +3388,15 @@ class FoodOptimizer:
         reported as having moved by the whole of that baseline. A categorical
         variable has no change to subtract and falls out here.
 
-        The sort is stable, so two changes of the same size stay in set-up
-        order rather than swapping between two runs of the same batch."""
-        pairs = []
-        for var in self.variables:
+        Two changes of the same share keep the amounts first — they are
+        weighed out before anything is dialled in — then set-up order, so
+        they never swap between two runs of the same batch."""
+        ranked = []
+        for at, var in enumerate(self.varying_variables()):
             if category is not None and \
                     var.get('category', 'ingredient') != category:
                 continue
-            if not self.has_formula(var) and self.is_fixed(var):
+            if var.get('type', 'continuous') != 'continuous':
                 continue
             name = var['name']
             absent = var.get('_absent_value', 0.0)
@@ -3159,11 +3405,19 @@ class FoodOptimizer:
                          - float(ref_recipe.get(name, absent)))
             except (TypeError, ValueError):
                 continue
-            if abs(delta) < floor:
+            if abs(delta) < floor or abs(delta) < 1e-12:
                 continue
-            pairs.append((name, delta))
-        pairs.sort(key=lambda kv: abs(kv[1]), reverse=True)
-        return pairs
+            setting = var.get('category', 'ingredient') != 'ingredient'
+            ranked.append(((-self._span_share(var, delta), setting, at), name, delta))
+        ranked.sort(key=lambda t: t[0])
+        return [(name, delta) for _, name, delta in ranked]
+
+    @staticmethod
+    def _span_share(var, delta):
+        """|delta| as a share of the row's own Lowest-Highest span (0 for a
+        row with none): the one footing amounts and settings are ranked on."""
+        lo, hi = (float(b) for b in var['bounds'])
+        return abs(float(delta)) / (hi - lo) if hi > lo else 0.0
 
     def best_formulation_no(self):
         """The number of the highest-scoring formulation, or None. Several
@@ -3184,74 +3438,131 @@ class FoodOptimizer:
         measured against. During the cold start it is not: those formulations
         are spread across the allowed amounts rather than stepped away from a
         best, so there is a best-so-far but nothing to compare with."""
-        if len(self.X_history) < COLD_START_RUNS:
+        if self.complete_count() < COLD_START_RUNS:
             return None
         return self._best_recipe_index()
 
-    def vs_best_text(self, recipe, n=3, scale_to=None):
-        """What this formulation changes from the best one so far: the `n`
-        largest amount changes among the ingredients, largest first, then the
-        SETTINGS_SHOWN largest among the process settings — the settings have
-        a count of their own, so widening the amounts does not also lengthen
-        the list of dials. '' while there is no best.
+    def vs_best_text(self, recipe, n=3, scale_to=None, max_changes=None):
+        """What this formulation changes from the best one so far: up to `n`
+        amounts and up to SETTINGS_SHOWN process settings, the largest share
+        of its own span first, amounts and settings ranked together (0.8.0
+        e2e fixes B2, review M3: the cell and the Why fold rank alike, by
+        _variable_deltas). The settings keep a count of their own, so
+        widening the amounts does not also lengthen the list of dials. ''
+        while there is no best.
 
-        Amounts and settings are never ranked against each other — a change
-        of 12 g and a change of 12 °C are not comparable numbers — and the
-        amounts come first because they are weighed out before anything is
-        dialled in. Each number wears its own variable's unit; an amount is
-        written to the two decimals a balance works to and a setting is not,
-        because no oven dial reads 180.00.
+        Each number wears its own variable's unit; an amount is written to
+        the two decimals a balance works to and a setting is not, because no
+        oven dial reads 180.00 (fmt_setting). A change that would read 0 at
+        those decimals is left out.
 
+        The order is read at the Formulation total, where the shares are
+        the project's own, and so are the numbers without `scale_to`;
         `scale_to` rewrites this formulation AND the best one to that total
-        before the two are compared, so a change read beside a scaled table
-        is the difference between two numbers the screen actually shows."""
+        before the numbers are written, so a change read beside a scaled
+        table is the difference between two numbers the screen actually
+        shows.
+
+        `max_changes` keeps only the first that many (spec 2026-09-30 §3,
+        review M14): the screen's table passes 2; the sheet never passes
+        it."""
+        import insights     # insights imports this module
         best = self._best_recipe_index()
         if best is None:
             return ""
-        mine = self.scaled_recipe(recipe, scale_to)
-        ref = self.scaled_recipe(self.recipe_history[best], scale_to)
-        parts = [
-            wording.change_text(name, delta,
-                                fmt_amount(abs(delta), self.unit_of(name)))
-            for name, delta in self._variable_deltas(mine, ref, 'ingredient')[:n]
-        ]
-        parts += [
-            wording.change_text(name, delta,
-                                fmt_setting(abs(delta), self.unit_of(name)))
-            for name, delta
-            in self._variable_deltas(mine, ref, 'process')[:SETTINGS_SHOWN]
-        ]
+        here, there = insights.at_total(self, recipe), insights.start_recipe(self, best)
+        rank = {name: k for k, (name, _) in enumerate(self._variable_deltas(
+            here, there, floor=0.0))}
+        if scale_to is None:
+            # Both at the Formulation total: a row stored at 500 g read
+            # against a best made at 100 g listed five-fold changes (02
+            # Round 3, review I3).
+            mine, ref = here, there
+        else:
+            mine = self.scaled_recipe(recipe, scale_to)
+            ref = self.scaled_recipe(self.recipe_history[best], scale_to)
+        shown = self._variable_deltas(mine, ref)
+        # In the order read at the total; a change only the scaled numbers
+        # show (two rows of different totals rewritten to one) keeps its
+        # place among them as ranked there, after the rest.
+        shown.sort(key=lambda kv: rank.get(kv[0], len(rank)))
+        variables = self._by_name()
+        counts = {'ingredient': n, 'process': SETTINGS_SHOWN}
+        parts = []
+        for name, delta in shown:
+            category = variables[name].get('category', 'ingredient')
+            if counts.get(category, 0) <= 0:
+                continue
+            counts[category] -= 1
+            size = (fmt_amount(abs(delta), self.unit_of(name)) if category == 'ingredient'
+                    else fmt_setting(abs(delta), self.unit_of(name)))
+            parts.append(wording.change_text(name, delta, size))
+        if max_changes is not None:
+            parts = parts[:max_changes]
         return ", ".join(parts)
 
     def suggestion_kind(self, recipe):
-        """Whether this formulation stays near the best one or strikes out:
-        `close to the best` while the largest change is at most
-        CLOSE_TO_THE_BEST of that variable's own allowed range, and
-        `trying something different` otherwise.
+        """suggestion_role for a row of the open Round (or, with none open,
+        of the next one): the first words of its Compared with cell."""
+        return self.suggestion_role(recipe)
 
-        Normalised, because the raw numbers are not comparable: 5 g of salt
-        out of an allowed 0 to 10 g is a bold move, 5 °C out of an allowed
-        20 to 200 °C is not. Until the cold start is over there is nothing to
-        be close to — the formulations are spread out to learn the space —
-        so every row says that instead.
+    def _recorded_before(self, before):
+        """Every formulation recorded before Round `before`, at the
+        Formulation total: scored, waiting, Not scored (kept in the records
+        or never recorded) and the user's own alike. A row with no Round
+        (typed in as a past formulation) counts as earlier. `before` None:
+        every one on file."""
+        import insights     # insights imports this module
+        earlier = lambda r: before is None or r is None or int(r) < int(before)
+        out = [insights.start_recipe(self, i)
+               for i, r in enumerate(self.batch_history[:len(self.X_history)])
+               if earlier(r)]
+        out += [insights.at_total(self, row['recipe']) for row in self.skipped
+                if row.get('recipe') and earlier(row.get(ROUND_FIELD))]
+        return out
 
-        The amounts are the ones the project stores, never a scaled copy: the
-        allowed amounts this is a fraction of are the project's own."""
+    def suggestion_role(self, recipe, before=None):
+        """What a suggestion does, in one of three words (0.8.0 e2e fixes
+        A2, review I3), by a distance rule that never asks the model — so
+        it is shown whatever the Prediction check says, and the Compared
+        with cell and the Why fold's Role column say the same word:
+
+        - `refines the best`: within CLOSE_TO_THE_BEST of Best so far, or
+          of a Repeat of it;
+        - `explores`: more than FAR_FROM_TESTED from every formulation
+          recorded before its Round (`_recorded_before`);
+        - `balanced`: in between.
+
+        The distance is insights.distance: the largest change over the
+        varying rows, each as a share of its own Lowest-Highest span,
+        calculated and Fill-to-total rows left out. Both sides are taken
+        at the Formulation total (insights.at_total), so a Round made at
+        500 g is not read at five times the size of a best made at 100 g
+        (02 Round 3, review I3). A choice (categorical row) that differs
+        is far.
+
+        `before`: the Round the row belongs to; None reads the open Round
+        (or, with none open, the next one). Until the cold start is over
+        there is nothing to compare with, and every row says so."""
+        import insights     # insights imports this module
         best = self._best_to_compare()
         if best is None:
             return wording.SUGGESTION_SPREAD
-        # Every kind of variable at once, and no floor: a move of half a gram
-        # is too small to be worth naming on the sheet but not too small to
-        # decide what this formulation is, if half a gram is what it is
-        # allowed to move at all.
-        deltas = self._variable_deltas(recipe, self.recipe_history[best],
-                                       floor=0.0)
-        spans = {v['name']: float(v['bounds'][1]) - float(v['bounds'][0])
-                 for v in self.variables if v['type'] == 'continuous'}
-        largest = max((abs(delta) / spans[name] for name, delta in deltas
-                       if spans.get(name)), default=0.0)
-        return (wording.SUGGESTION_CLOSE if largest <= CLOSE_TO_THE_BEST
-                else wording.SUGGESTION_DIFFERENT)
+        if before is None and self.pending_batch:
+            before = self.pending_batch_no
+        mine = insights.at_total(self, recipe)
+        near = lambda d: d is not None and d <= CLOSE_TO_THE_BEST + _ROLE_EPS
+        top = insights.start_recipe(self, best)
+        # Best so far's Repeats: the scored rows with its make-up.
+        refs = [top] + [insights.start_recipe(self, i) for i in self.best_candidates()
+                        if i != best and insights._same(
+                            self, insights.start_recipe(self, i), top)]
+        if any(near(insights.distance(self, mine, ref)) for ref in refs):
+            return wording.SUGGESTION_CLOSE
+        far = lambda d: d is None or d > FAR_FROM_TESTED + _ROLE_EPS
+        if all(far(insights.distance(self, mine, r)) for r in self._recorded_before(before)):
+            return wording.SUGGESTION_DIFFERENT
+        return wording.SUGGESTION_BALANCED
 
     def compared_with_column(self):
         """The header of the what-is-it-trying column: the best formulation's
@@ -3261,7 +3572,8 @@ class FoodOptimizer:
             return wording.COMPARED_WITH_ALLOWED
         return wording.compared_with_column(self.best_formulation_no())
 
-    def compared_with_text(self, recipe, scale_to=None, own=False):
+    def compared_with_text(self, recipe, scale_to=None, own=False, prefix="",
+                           max_changes=None, note=None):
         """One cell of the batch table, and the same line on the sheet: what
         kind of formulation this is, and the amounts that carry it.
 
@@ -3274,15 +3586,26 @@ class FoodOptimizer:
         it has no kind: the app describing its own sampling ('spread across
         the allowed amounts') on a row somebody wrote out by hand was the
         app taking credit for their bench standard. The changes from the best
-        still follow — those are a fact about the amounts."""
+        still follow — those are a fact about the amounts.
+
+        `prefix` (Minor 15, 2026-09-29 review) is text stuck onto the front
+        of the cell, screen-only: every caller writing to the workbook (the
+        formulation sheet) leaves it at "", so what is printed never carries
+        it — only ui_batch's on-screen table passes one, for a suggestion
+        near a formulation still waiting for results.
+
+        `max_changes` (screen only, like `prefix`): vs_best_text's."""
         if own:
-            return wording.compared_with_cell(
-                wording.OWN_FORMULATION_KIND,
-                self.vs_best_text(recipe, scale_to=scale_to))
+            # Persona fixes: a row with a note of its own says where it came
+            # from ('Pilot batch 6.1 · EGBO'), not "Your own formulation".
+            return prefix + wording.compared_with_cell(
+                wording.own_source(note),
+                self.vs_best_text(recipe, scale_to=scale_to, max_changes=max_changes))
         kind = self.suggestion_kind(recipe)
         changes = ("" if kind == wording.SUGGESTION_SPREAD
-                   else self.vs_best_text(recipe, scale_to=scale_to))
-        return wording.compared_with_cell(kind, changes)
+                   else self.vs_best_text(recipe, scale_to=scale_to,
+                                          max_changes=max_changes))
+        return prefix + wording.compared_with_cell(kind, changes)
 
     def ingredient_total(self, recipe):
         """The formulation total: process settings are not amounts and are excluded."""
@@ -3435,7 +3758,8 @@ class FoodOptimizer:
     def _recompute_utilities(self):
         for i, results_dict in enumerate(self.results_history):
             if i < len(self.Y_history):
-                self.Y_history[i] = self._compute_utility(results_dict)
+                self.Y_history[i] = self._compute_utility(
+                    results_dict, self._number_at(i))
 
     def utility_ceiling(self):
         """The overall score a formulation that hits every goal would get:
@@ -3443,35 +3767,175 @@ class FoodOptimizer:
         0.5.0 (see set_shares and _rescale_shares_to_100)."""
         return float(sum(obj['weight'] for obj in self.objectives))
 
+    def _results_at(self, index):
+        return (self.results_history[index]
+                if index < len(self.results_history) else {})
+
+    def _number_at(self, index):
+        return (int(self.formulation_ids[index])
+                if index < len(self.formulation_ids) else None)
+
+    @staticmethod
+    def _applies_to(obj, formulation_no, results):
+        """A measurement applies to a formulation unless it was added after
+        that formulation was recorded (its number is in `not_for`) — and a
+        value entered anyway makes it apply: a value only adds information.
+        No number (None) means every measurement applies."""
+        if results.get(obj['name']) is not None:
+            return True
+        return (formulation_no is None
+                or int(formulation_no) not in (obj.get('not_for') or ()))
+
+    def applies(self, obj, index):
+        return self._applies_to(obj, self._number_at(index),
+                                self._results_at(index))
+
+    def waiting_on(self, index):
+        """The measurements this formulation still needs, most important
+        first: the ones that apply to it and have no value yet."""
+        results = self._results_at(index)
+        return [o['name'] for o in self.measurements_by_importance()
+                if results.get(o['name']) is None and self.applies(o, index)]
+
+    def not_expected(self, index):
+        """The measurements added after this formulation was recorded and
+        never entered on it: shown as a dash, never as not measured."""
+        results = self._results_at(index)
+        return [o['name'] for o in self.measurements_by_importance()
+                if results.get(o['name']) is None
+                and not self.applies(o, index)]
+
     def fully_measured(self, index):
-        """True when every measurement the project scores has a number on
-        this formulation's row. A missing measurement contributes zero to
-        the overall score, so a formulation nobody finished measuring
-        competes on a shorter scale than the one beside it."""
-        results = (self.results_history[index]
-                   if index < len(self.results_history) else {})
-        return all(results.get(obj['name']) is not None
-                   for obj in self.objectives)
+        """True when every measurement that applies to this formulation has
+        a number on its row. Only such a formulation teaches the suggestion
+        model, competes for Best so far and trains Insights' Overall-score
+        model: a missing measurement counts as zero in the score, so a
+        formulation nobody finished measuring would be taught as a bad one.
+
+        A row with no value for any current measurement (every one it was
+        measured on has since been deleted) has nothing to be scored on and
+        is never fully measured. With no measurements at all every row is,
+        as it always was."""
+        if not self.objectives:
+            return True
+        results = self._results_at(index)
+        if not any(results.get(o['name']) is not None
+                   for o in self.objectives):
+            return False
+        return not self.waiting_on(index)
+
+    def waiting_rows(self):
+        """Positions of the scored formulations still waiting for results."""
+        return [i for i in range(len(self.Y_history))
+                if not self.fully_measured(i)]
+
+    def complete_count(self):
+        """How many formulations have all their results: what the cold start
+        counts towards COLD_START_RUNS."""
+        return len(self.Y_history) - len(self.waiting_rows())
+
+    def is_set_aside(self, index):
+        """True when this recorded formulation was moved to Not scored while
+        it waited for results (set_aside_formulation). It keeps its row, its
+        Round and its partial values, and is left out exactly like a waiting
+        one: no suggestion model, no Best so far, nothing on Insights. Once
+        it has all its results — the value was entered, or the measurement
+        it lacked was deleted — it is an ordinary formulation again."""
+        no = self._number_at(index)
+        return (no is not None and int(no) in self.set_aside
+                and not self.fully_measured(index))
+
+    def awaited_rows(self):
+        """Positions of the formulations still waiting for results: the
+        rows waiting_rows() leaves out of the model, minus the ones moved to
+        Not scored. What every "waiting for" count on screen counts."""
+        return [i for i in self.waiting_rows() if not self.is_set_aside(i)]
+
+    def set_aside_formulation(self, formulation_no):
+        """Move a recorded formulation that waits for results to Not scored:
+        the sample is gone, or the value will never come. Nothing about the
+        suggestions changes — a waiting row was never in the model — and
+        entering the missing value, or wait_again(), undoes it."""
+        index = self.index_of_formulation(formulation_no)
+        if index is None:
+            raise IndexError("There is no formulation at that position.")
+        if self.fully_measured(index):
+            raise ValueError(wording.formulation_has_all_results(formulation_no))
+        self.set_aside = sorted(set(self.set_aside) | {int(formulation_no)})
+        self.save()
+
+    def wait_again(self, formulation_no):
+        """Undo set_aside_formulation: the formulation waits for its results
+        again."""
+        self.set_aside = [n for n in self.set_aside if n != int(formulation_no)]
+        self.save()
+
+    def _live_set_aside(self):
+        """set_aside with only the numbers that still mean something: a
+        formulation on file that is still short of a result. Everything
+        that takes a row away or completes it — the value entered, the
+        measurement it lacked deleted, the row, its Round or a rewind —
+        reaches save(), which prunes through this; left in, a stale number
+        brought the flag back on a later edit (Task 3 review, M-1)."""
+        live = []
+        for n in self.set_aside:
+            index = self.index_of_formulation(n)
+            if index is not None and not self.fully_measured(index):
+                live.append(int(n))
+        return sorted(set(live))
+
+    def has_every_measurement(self, index):
+        """True when this formulation has a value for every current
+        measurement: fully measured and scored without none of them."""
+        return self.fully_measured(index) and not self.not_expected(index)
+
+    def best_candidates(self):
+        """Positions that may be Best so far, in history order: the
+        formulations with a value for every current measurement. A
+        formulation scored without one (recorded before it was added, or
+        imported without it) keeps its rescaled score and still teaches the
+        suggestions, but its score leaves out a measurement the others were
+        judged on, so it is not compared with them (0.8.0 review: 97.47
+        without Cook loss took the star from 90.50 with it).
+
+        When no formulation has every measurement yet — a measurement was
+        just added — the formulations with all the results that apply to
+        them are compared instead, so the project keeps a Best so far; the
+        screens then say what it is scored without."""
+        full = [i for i in range(len(self.Y_history)) if self.fully_measured(i)]
+        every = [i for i in full if not self.not_expected(i)]
+        return every or full
 
     def best_index(self):
-        """0-based index of the highest-scoring experiment, or None.
+        """0-based index of the highest-scoring formulation among
+        best_candidates(), or None.
 
-        Only formulations with every measurement recorded are compared: a
-        6.2/7.1 against targets of 6/7 scored 78.75 and a 5.4/6.2 scored
-        90.10 and took the star, because nobody had measured its cook loss
-        yet. With none of them finished the field is all of them, so the
-        screen still has a best to name."""
-        if not self.Y_history:
+        Only formulations with all their results are compared: a 6.2/7.1
+        against targets of 6/7 scored 78.75 and a 5.4/6.2 scored 90.10 and
+        took the star, because nobody had measured its cook loss yet. With
+        none of them finished there is no best (0.8.0): the star, the Best
+        so far heading and the Insights facts all used to land on a row
+        whose score reads "waiting for results"."""
+        pool = self.best_candidates()
+        if not pool:
             return None
-        pool = [i for i in range(len(self.Y_history)) if self.fully_measured(i)]
-        return int(max(pool or range(len(self.Y_history)),
-                       key=lambda i: self.Y_history[i]))
+        return int(max(pool, key=lambda i: self.Y_history[i]))
+
+    def best_scored_without(self):
+        """The measurements Best so far is scored without: [] unless no
+        formulation has every measurement yet (see best_candidates)."""
+        best = self.best_index()
+        return [] if best is None else self.not_expected(best)
 
     def best_so_far(self):
-        """Running maximum of the Overall Score, one value per experiment."""
-        out, cur = [], float('-inf')
-        for y in self.Y_history:
-            cur = max(cur, float(y))
+        """Running maximum of the Overall score over best_candidates(), one
+        value per formulation: any other formulation repeats the value before
+        it (None before the first)."""
+        pool = set(self.best_candidates())
+        out, cur = [], None
+        for i, y in enumerate(self.Y_history):
+            if i in pool:
+                cur = float(y) if cur is None else max(cur, float(y))
             out.append(cur)
         return out
 
@@ -3535,30 +3999,39 @@ class FoodOptimizer:
         column renders inconsistently."""
         objs = self.measurements_by_importance()
         best_i = self.best_index()
+        every = {i for i in range(len(self.X_history)) if self.has_every_measurement(i)}
         rows = []
         for i in range(len(self.X_history)):
             results = self.results_history[i] if i < len(self.results_history) else {}
-            unmeasured = [o['name'] for o in objs if o['name'] not in results]
+            complete = self.fully_measured(i)
             ts = self.timestamps_history[i] if i < len(self.timestamps_history) else None
             batch = self.batch_history[i] if i < len(self.batch_history) else None
             row = {
                 wording.BEST_SO_FAR_COLUMN: "★" if i == best_i else "",
                 wording.ROUND_CAP: "" if batch is None else str(int(batch)),
                 "Formulation": int(self.formulation_ids[i]),
+                # Every measurement, then scored without one, then waiting
+                # for results, then Not scored: a rescaled score sorted
+                # among the full ones put an unstarred 97.47 above the star.
+                "_rank": ((0 if i in every else 1) if complete
+                          else 3 if self.is_set_aside(i) else 2),
                 "_score": float(self.Y_history[i]),
                 "_seq": i,
                 "_batch": 0 if batch is None else int(batch),
             }
             for obj in objs:
+                # A blank stays a number (NaN), so the column sorts as
+                # numbers on screen. A measurement that does not apply to
+                # this row is drawn as a dash by the Results table's own
+                # formatting (ui_results), not written into the cell.
                 row[self._measurement_column(obj)] = results.get(obj['name'])
-            # '2.30 · Juiciness not measured', in the separator the rest of
-            # the app reads a list with. The measurement is NAMED: a score
-            # missing one is not the same number as a complete one, and
-            # "partial" made the reader go and find out which.
+            # A formulation still waiting shows what it waits for, never the
+            # lowered number: a missing measurement counts as zero in it.
             row[wording.OVERALL_SCORE_COLUMN] = (
-                f"{float(self.Y_history[i]):.2f}"
-                + (wording.not_measured_tail(number_list(unmeasured))
-                   if unmeasured else ""))
+                wording.score_shown(self.Y_history[i]) if complete
+                else wording.not_scored_missing(number_list(self.waiting_on(i)))
+                if self.is_set_aside(i)
+                else wording.waiting_for(number_list(self.waiting_on(i))))
             row[wording.DATE_RECORDED_COLUMN] = local_date(ts)
             row["Note"] = self.notes_history[i] if i < len(self.notes_history) else ""
             if include_amounts:
@@ -3573,6 +4046,7 @@ class FoodOptimizer:
                 wording.BEST_SO_FAR_COLUMN: "",
                 wording.ROUND_CAP: "" if batch is None else str(int(batch)),
                 "Formulation": int(s['formulation']),
+                "_rank": 3,
                 "_score": float('-inf'),
                 "_seq": len(self.X_history) + k,
                 "_batch": 0 if batch is None else int(batch),
@@ -3596,20 +4070,33 @@ class FoodOptimizer:
         if not rows:
             return pd.DataFrame(columns=columns)
         df = pd.DataFrame(rows)
+        for obj in objs:
+            # A column with no value yet came out `object` (every cell None).
+            column = self._measurement_column(obj)
+            df[column] = df[column].astype(float)
         if order == wording.SORT_NEWEST_FIRST:
             df = df.sort_values("_seq", ascending=False)
         elif order == wording.SORT_BATCH_ORDER:
             df = df.sort_values(["_batch", "Formulation"], ascending=[True, True])
         else:
-            df = df.sort_values(["_score", "_seq"], ascending=[False, True])
+            # Every measurement, scored without one, waiting, Not scored.
+            df = df.sort_values(["_rank", "_score", "_seq"],
+                                ascending=[True, False, True])
         return df[columns].reset_index(drop=True)
 
-    def batch_frame(self, batch, scale_to=None):
+    def batch_frame(self, batch, scale_to=None, near_copies=None, max_changes=None):
         """The open batch as the make-these table: one row per formulation, one
         column per ingredient and setting carrying its own unit, and the total
         of the ingredients — one number while they share a unit, `340.00 g ·
         60.00 ml` when they do not. `scale_to` rewrites it for a different
-        formulation total — display only, the stored row never changes."""
+        formulation total — display only, the stored row never changes.
+
+        `near_copies` (Minor 15, 2026-09-29 review) is {formulation number:
+        prefix text}, off by default: nothing here writes to the workbook,
+        so a caller that never passes it — every one but ui_batch's own
+        on-screen table — gets exactly today's cell, unchanged.
+        `max_changes` is the same kind of argument: the on-screen table's
+        Compared with names at most that many changes (spec 2026-09-30 §3)."""
         total_col = self.total_column()
         # The total closes the amounts you weigh out, so it sits with them,
         # before the settings you dial in — the order the sheet is filled in.
@@ -3639,8 +4126,9 @@ class FoodOptimizer:
             # Rounded in the FRAME, not only in the formatting: the reader
             # met 18.11529942207362 and a Total (g) of 250.00000000000003 on
             # the screen the bench weighs from, and a balance reads to two
-            # decimals. A process setting keeps its own precision — it is
-            # dialled in, not weighed.
+            # decimals. A process setting is dialled in, not weighed, but
+            # no dial reads 141.4638215303421 °C either (03 M3, 02 M2): at
+            # most two decimals, the ones fmt_setting writes.
             for var in ingredients:
                 item[self._amount_column(var['name'], mark=True)] = round(
                     float(recipe.get(var['name'], 0.0)), 2)
@@ -3648,15 +4136,18 @@ class FoodOptimizer:
             if total_col is not None:
                 item[total_col] = self._total_cell(recipe)
             for var in process:
-                item[self._amount_column(var['name'])] = float(
-                    recipe.get(var['name'], 0.0))
+                item[self._amount_column(var['name'])] = round(float(
+                    recipe.get(var['name'], 0.0)), 2)
             if noted:
                 item["Note"] = row.get('note', "")
             if trying is not None:
                 # The stored amounts, with the table's own total handed on:
                 # the changes are then between two numbers the screen shows.
+                prefix = ("" if own or not near_copies
+                          else near_copies.get(row['formulation'], ""))
                 item[trying] = self.compared_with_text(
-                    row['recipe'], scale_to=scale_to, own=own)
+                    row['recipe'], scale_to=scale_to, own=own, prefix=prefix,
+                    max_changes=max_changes, note=row.get('note'))
             rows.append(item)
         columns = (["Formulation"]
                    + [self._amount_column(v['name'], mark=True)
@@ -3727,12 +4218,12 @@ class FoodOptimizer:
                 missing.append(obj['name'])
         if missing:
             raise ValueError(wording.sheet_missing_columns(
-                ", ".join(missing)))
+                number_list(missing), len(missing)))
         note_col = norm.get("note")
         skipped_col = norm.get(wording.NOT_SCORED.lower())
         if len(df) == 0:
             raise ValueError(wording.SHEET_HAS_NO_ROWS)
-        in_batch = ", ".join(str(n) for n in numbers)
+        in_batch = number_list(numbers)
         # Which formulations came back with amounts of their own.
         weighed = {int(k): v for k, v in (weighed or {}).items()}
         parsed, skipped, seen = [], [], set()
@@ -3783,14 +4274,14 @@ class FoodOptimizer:
                     val = float(val)
                 except (TypeError, ValueError):
                     raise ValueError(
-                        wording.formulation_value_not_a_number(number, name))
+                        wording.formulation_value_not_a_number(number, name,
+                                                               val))
                 obj = next(o for o in self.objectives if o['name'] == name)
                 if not (obj['min_val'] <= val <= obj['max_val']):
                     # The same sentence the results grid refuses with.
-                    raise ValueError(outside_message(
+                    raise ValueError(scale_outside_message(
                         wording.formulation_measurement(number, name), val,
-                        obj['min_val'], obj['max_val'], obj.get('unit'),
-                        wording.YOUR_RANGE, wording.WIDEN_RANGE_HINT))
+                        obj['min_val'], obj['max_val'], obj.get('unit')))
                 results[name] = val
             if not results:
                 raise ValueError(
@@ -4461,7 +4952,7 @@ class FoodOptimizer:
         own = bool(row.get('note'))
         column_head = self.compared_with_column()
         cell_text = self.compared_with_text(row['recipe'], scale_to=total,
-                                            own=own)
+                                            own=own, note=row.get('note'))
         # `Spread across the allowed amounts` is the round's search
         # strategy, stated once on the Round sheet; on a formulation page it
         # is a line the operator reads and then has to discard. What belongs
@@ -4668,6 +5159,9 @@ class FoodOptimizer:
         """
         wanted = wording.batch_sheet_name(
             self.pending_batch_no if batch_no is None else batch_no)
+        # The uploaded file's own name, for the refusal that says it is not
+        # a workbook at all.
+        file_name = str(getattr(source, 'name', '') or '')
         import workbook_flow
         try:
             extra_records = custom_records.read_workbook(source, self,
@@ -4680,19 +5174,25 @@ class FoodOptimizer:
         except ValueError:
             raise
         except Exception:
-            raise ValueError(wording.WORKBOOK_UNREADABLE)
+            raise ValueError(wording.workbook_unreadable(file_name))
+        # Where the bench wrote its results: the Results sheet of the
+        # workbook the app hands out, or the Round sheet of a printed pack.
+        # `wanted` is the sheet the reader below is handed, which for the
+        # Results layout is one the uploaded file does not have.
+        compact = wording.OVERVIEW_SHEET in as_uploaded.sheetnames
+        written_on = wording.RESULTS_SHEET if compact else wanted
         try:
             book = pd.ExcelFile(source)
         except Exception:
-            raise ValueError(wording.WORKBOOK_UNREADABLE)
+            raise ValueError(wording.workbook_unreadable(file_name))
         with book:
             if wanted not in book.sheet_names:
-                raise ValueError(wording.workbook_sheet_missing(
-                    wanted, number_list(book.sheet_names)))
+                raise ValueError(wording.workbook_sheet_missing(wanted))
             summary = book.parse(wanted, header=None)
             rows, numbers = self._transpose_batch_sheet(summary, wanted)
             if not numbers:
-                raise ValueError(wording.workbook_no_formulations(wanted))
+                raise ValueError(wording.workbook_no_formulations(
+                    wording.OVERVIEW_SHEET if compact else wanted))
             page_rows = self._read_formulation_sheets(book, numbers)
             merged = {row['Formulation']: dict(row) for row in rows}
             for item in page_rows:
@@ -4748,7 +5248,7 @@ class FoodOptimizer:
                     if record['sheet'] == title and record['label'] == wording.PREMIX_LOT_LABEL:
                         lots[group] = record['value']
         if not rows and not extra_records:
-            raise ValueError(wording.workbook_nothing_filled_in(wanted))
+            raise ValueError(wording.workbook_nothing_filled_in(written_on))
         columns_out = (["Formulation"] + [o['name'] for o in self.objectives]
                        + [wording.NOT_SCORED, wording.NOTE])
         # The rows, and beside them the two things the sheet says that are
@@ -5186,9 +5686,11 @@ class FoodOptimizer:
                 "Formulation": int(self.formulation_ids[i]),
                 wording.ROUND_CAP: "" if batch is None else int(batch),
                 wording.DATE_RECORDED_COLUMN: local_date(ts),
-                # Two decimals, as the screen shows it: a file that says
-                # 2.625 where the table says 2.62 reads as a third number.
-                wording.OVERALL_SCORE_COLUMN: round(float(self.Y_history[i]), 2),
+                # Two decimals: the screen shows one (score_shown), the
+                # file keeps the precision. Blank while it waits for
+                # results, as a Not scored row's is.
+                wording.OVERALL_SCORE_COLUMN: (round(float(self.Y_history[i]), 2)
+                                               if self.fully_measured(i) else ""),
             }
             recipe = self._recorded_recipe(i)
             row.update(self._amount_columns(recipe))
@@ -5196,7 +5698,7 @@ class FoodOptimizer:
                 row[total_col] = self._total_cell(recipe)
             for obj in objs:
                 row[self._measurement_column(obj)] = results.get(obj['name'])
-            row[wording.NOT_SCORED] = ""
+            row[wording.NOT_SCORED] = wording.TICKED_BOX if self.is_set_aside(i) else ""
             row["Note"] = self.notes_history[i] if i < len(self.notes_history) else ""
             rows.append(row)
         for left_out in self.skipped:
@@ -5552,6 +6054,11 @@ class FoodOptimizer:
         typed into the picker below."""
         if qc.get('source') == 'formulation_total':
             return wording.FORMULATION_TOTAL_NAME
+        # A limit written with a name of its own (add_quantity_constraint's
+        # `name`) is called by it: a limit worked out from a project's past
+        # rounds says so where it is listed, not as "All ingredients".
+        if isinstance(qc.get('name'), str) and qc['name'].strip():
+            return qc['name'].strip()
         # A limit on a pre-mix weighed into each formulation is written
         # over its PARTS — they are the rows the search moves — and named
         # for the pre-mix, which is the thing the reader limited.
@@ -5571,10 +6078,11 @@ class FoodOptimizer:
     def _bound_words(min_v, max_v, unit):
         """'at least 10 g and at most 40 g' — the two bound words a range
         limit reads as, in the unit it is written in, joined the way every
-        limit line joins them."""
-        bounds = ([join_unit(wording.at_least(min_v), unit)]
+        limit line joins them. Each number as limit_number writes it: short
+        only where the short number still meets the limit."""
+        bounds = ([join_unit(wording.at_least(limit_number(min_v)), unit)]
                   if min_v is not None else [])
-        bounds += ([join_unit(wording.at_most(max_v), unit)]
+        bounds += ([join_unit(wording.at_most(limit_number(max_v)), unit)]
                    if max_v is not None else [])
         return wording.AND_JOIN.join(bounds)
 
@@ -5788,6 +6296,15 @@ class FoodOptimizer:
         20.32 g when the round was printed at 150 g — and a limit is
         documented as a hard rule. One line, naming the first limit that does
         not hold, in the words the Limits list writes it in."""
+        broken = self._scaled_broken_limit(recipes, total, sized)
+        if not broken:
+            return ""
+        return wording.scaled_limit_caution(self.batch_total_text(total),
+                                            broken)
+
+    def _scaled_broken_limit(self, recipes, total, sized=False):
+        """The first limit these rows break at `total`, in the words the
+        Limits list writes it in, or "" when they all hold."""
         # A limit is written per formulation, exactly as the allowed amounts
         # are, so a bigger lot of the same formula is read against a bigger
         # limit: 36-43 g of solids in a 100 g patty is 90-107.5 g in a 250 g
@@ -5799,18 +6316,15 @@ class FoodOptimizer:
                     continue     # the total is the thing being asked about
                 value = sum(float(recipe.get(n, 0.0))
                             for n in qc['ingredients'])
-                slack = 1e-6 * (1.0 + abs(value))
+                slack = limit_slack(value)
                 low = None if qc['min'] is None else qc['min'] * scale
                 high = None if qc['max'] is None else qc['max'] * scale
                 if ((low is not None and value < low - slack)
                         or (high is not None and value > high + slack)):
-                    return wording.scaled_limit_caution(
-                        self.batch_total_text(total), self.limit_text(qc))
+                    return self.limit_text(qc)
             for constraint in self.constraints:
                 if not self._property_limit_holds(recipe, constraint):
-                    return wording.scaled_limit_caution(
-                        self.batch_total_text(total),
-                        self.property_limit_text(constraint))
+                    return self.property_limit_text(constraint)
         return ""
 
     def _property_limit_holds(self, recipe, constraint):
@@ -5888,7 +6402,7 @@ class FoodOptimizer:
         Per 100 g of formulation, not as a total: a total grew with the batch,
         so the same formulation passed at 100 g and failed at 1 kg."""
         if min_val is not None and max_val is not None and float(min_val) >= float(max_val):
-            raise ValueError(wording.LIMIT_BOUNDS_ORDER_ERROR)
+            raise ValueError(wording.limit_bounds_order(min_val, max_val))
         # An average over the amounts, so the amounts must be in one unit:
         # 25 g of powder and 40 ml of water share no 100 g to be measured per.
         units = self.ingredient_units()
@@ -5951,17 +6465,18 @@ class FoodOptimizer:
                   and self.premixes[n]['mode'] == PREMIX_WEIGHED]
         if groups:
             if len(chosen) != 1:
-                raise ValueError(wording.PREMIX_LIMIT_ON_ITS_OWN)
+                raise ValueError(wording.premix_limit_on_its_own(groups[0]))
             group = groups[0]
             parts = [p['name'] for p in self.premixes[group]['parts']]
             if not parts:
-                raise ValueError(wording.PREMIX_NEEDS_A_PART)
+                raise ValueError(wording.premix_has_no_parts(group))
             return self.add_quantity_constraint(
                 parts, source=premix_limit_source(group), **bounds)
         return self.add_quantity_constraint(chosen, **bounds)
 
     def add_quantity_constraint(self, ingredients, min_val=None, max_val=None,
-                                source=None, exactly=None, percent=None):
+                                source=None, exactly=None, percent=None,
+                                name=None):
         """Add a constraint on the sum of selected ingredient quantities.
         Replaces any existing constraint on the same set of ingredients that
         was written the same way.
@@ -5990,6 +6505,9 @@ class FoodOptimizer:
                 grams they come to today, so a later change of default can
                 rewrite the grams without losing what was actually asked
                 for.
+            name: What the limit is called where it is listed, in place of
+                the ingredients it sums — e.g. a limit inferred from a
+                project's past rounds. None names it by its ingredients.
         """
         # No refusal for Exactly-and-a-range: the Kind picker on screen is
         # one control for one idea and cannot produce the combination, and
@@ -5997,7 +6515,8 @@ class FoodOptimizer:
         # Exactly wins and writes its own band.
         if (exactly is not None and len(ingredients) == 1
                 and premix_named_by(source) is None):
-            raise ValueError(wording.EXACTLY_ONE_INGREDIENT)
+            raise ValueError(wording.exactly_one_ingredient(
+                list(ingredients)[0]))
         # A limit can only change what the search moves. Every row of this
         # one worked out from a rule means the limit has nothing to act on:
         # it was accepted, listed, and then quietly contradicted by the
@@ -6009,7 +6528,7 @@ class FoodOptimizer:
                 number_list(list(ingredients)),
                 many=len(ingredients) != 1))
         if min_val is not None and max_val is not None and float(min_val) >= float(max_val):
-            raise ValueError(wording.LIMIT_BOUNDS_ORDER_ERROR)
+            raise ValueError(wording.limit_bounds_order(min_val, max_val))
         # A limit is a sum, and a sum across units is a number of nothing:
         # 25 g of powder plus 40 ml of water is neither 65 g nor 65 ml.
         if len({self.unit_of(name) for name in ingredients}) > 1:
@@ -6052,6 +6571,8 @@ class FoodOptimizer:
             entry['percent'] = percent_block
         if source is not None:
             entry['source'] = source
+        if name is not None and str(name).strip():
+            entry['name'] = str(name).strip()
         self.quantity_constraints.append(entry)
         if source is None:
             # The batch size's own limit is exempt: set_formulation_total
@@ -6064,7 +6585,7 @@ class FoodOptimizer:
         self.save()
 
     def add_total_mass_constraint(self, min_val=None, max_val=None,
-                                  source=None):
+                                  source=None, name=None):
         """The limit over every ingredient — what the Total of each
         formulation box writes (tagged 'formulation_total'), and what a
         project saved before 0.4.0 may already hold untagged from the days
@@ -6079,7 +6600,7 @@ class FoodOptimizer:
             if v.get('category', 'ingredient') == 'ingredient'
         ]
         self.add_quantity_constraint(all_ingredients, min_val, max_val,
-                                     source=source)
+                                     source=source, name=name)
 
     def remove_quantity_constraint(self, index):
         """Remove a quantity constraint by index. Taking out the one the
@@ -6166,6 +6687,117 @@ class FoodOptimizer:
             return (least, float('inf'))
         return self._achievable_range(
             lambda name: 1.0 if name in names else 0.0)
+
+    def limited_total_reach(self, skip_percent=False):
+        """(lowest, highest) the ingredients can add up to once the Limits
+        hold as well, or None when the limits narrow nothing (and for a
+        project with a Fill to total row, whose reach has no top).
+
+        total_reach is the plain sum of Lowests and Highests, and it is
+        what the reach is called everywhere a limit is not the question.
+        The batch size boxes ask this one second, so that a size the limits
+        put out of reach is refused in the limits' own words rather than
+        accepted and then cautioned against twice. `skip_percent` leaves
+        out the limits written as a % of the default batch size, for the
+        question of a NEW default: they move with it.
+        """
+        if self._balance_row() is not None:
+            return None
+        names = {v['name'] for v in self.variables
+                 if v.get('category', 'ingredient') == 'ingredient'}
+        plain = self.total_reach()
+        limited = self._limited_total_reach(names, skip_percent)
+        if limited is None:
+            return None
+        # Never wider than the allowed amounts alone: limits only take away.
+        low, high = max(plain[0], limited[0]), min(plain[1], limited[1])
+        if abs(low - plain[0]) < 1e-9 and abs(high - plain[1]) < 1e-9:
+            return None
+        return low, high
+
+    def _limited_total_reach(self, names, skip_percent=False):
+        """(lowest, highest) the ingredients `names` can add up to once the
+        Limits hold as well — amount limits on groups of ingredients and
+        property limits — or None when there are none to narrow the plain
+        sum of Lowests and Highests, or no formulation meets them all.
+
+        The sum of Highests said 105 g was the most a project could make
+        while 'Butter + Sugar at most 45 g' held it to 95 g, and a 100 g
+        Round the box had just accepted came back with two cautions. Each
+        limit is a linear form over the rows the search moves (a rule row
+        is written out over them, and its floor of nothing is kept), so the
+        exact answer is one small linear programme each way. The batch
+        size's own limit is left out: the total is the thing being asked
+        about.
+        """
+        limits = [qc for qc in getattr(self, 'quantity_constraints', [])
+                  if qc.get('source') != 'formulation_total'
+                  and not (skip_percent and qc.get('percent'))
+                  and (qc.get('min') is not None or qc.get('max') is not None)]
+        properties = [c for c in self.constraints
+                      if (c.get('min') is not None or c.get('max') is not None)
+                      and not self.ingredients_without_property(c['metric'])]
+        if not limits and not properties:
+            return None
+        from scipy.optimize import linprog
+        columns = [v for v in self.variables
+                   if v['type'] == 'continuous' and not self.has_formula(v)]
+        index = {v['name']: i for i, v in enumerate(columns)}
+        batch = self._batch_size()
+
+        def row(form):
+            coeffs = [0.0] * len(columns)
+            for name, coeff in form.terms.items():
+                if name in index:
+                    coeffs[index[name]] += coeff
+            return coeffs, form.const + form.batch * batch
+
+        a_ub, b_ub = [], []
+
+        def at_least(form, value):          # form >= value
+            coeffs, const = row(form)
+            a_ub.append([-c for c in coeffs])
+            b_ub.append(const - float(value))
+
+        def at_most(form, value):           # form <= value
+            coeffs, const = row(form)
+            a_ub.append(coeffs)
+            b_ub.append(float(value) - const)
+
+        for qc in limits:
+            members = set(qc['ingredients'])
+            form = self._weighted_form(
+                lambda name, members=members: 1.0 if name in members else 0.0)
+            if qc.get('min') is not None:
+                at_least(form, qc['min'])
+            if qc.get('max') is not None:
+                at_most(form, qc['max'])
+        for c in properties:
+            if c.get('min') is not None:
+                at_least(self._weighted_form(
+                    self._property_coeff(c['metric'], c['min'])), 0.0)
+            if c.get('max') is not None:
+                at_most(self._weighted_form(
+                    self._property_coeff(c['metric'], c['max'])), 0.0)
+        for form in self._resolved_forms().values():
+            at_least(form, 0.0)
+        objective, const = row(self._weighted_form(
+            lambda name: 1.0 if name in names else 0.0))
+        bounds = [(float(v['bounds'][0]), float(v['bounds'][1]))
+                  for v in columns]
+        ends = []
+        for sign in (1.0, -1.0):
+            try:
+                answer = linprog([sign * c for c in objective],
+                                 A_ub=a_ub or None, b_ub=b_ub or None,
+                                 bounds=bounds, method='highs')
+            except ValueError:
+                return None
+            if answer.status != 0:
+                return None
+            # To the nanogram: a solver's 94.99999999999 refused a typed 95.
+            ends.append(round(const + sign * float(answer.fun), 9))
+        return ends[0], ends[1]
 
     def _formulation_total_index(self):
         """Where the Total of each formulation box's own limit sits in
@@ -6425,6 +7057,17 @@ class FoodOptimizer:
                 raise ValueError(wording.total_not_reachable_at_least(
                     self.batch_total_text(value),
                     self.batch_total_text(lowest)))
+            # Inside the allowed amounts, and still past what the Limits
+            # let them add up to (the limits written as a % of the default
+            # move with it, so they are not asked).
+            limited = self.limited_total_reach(skip_percent=True)
+            if limited is not None:
+                if value > limited[1] + 1e-9:
+                    raise ValueError(wording.limits_allow_at_most(
+                        self.batch_total_text(limited[1])))
+                if value < limited[0] - 1e-9:
+                    raise ValueError(wording.limits_allow_at_least(
+                        self.batch_total_text(limited[0])))
         else:
             # With a balance row every formulation adds up to the batch size
             # by construction, so the reach is that number at both ends and
@@ -6804,36 +7447,110 @@ class FoodOptimizer:
     #  Utility Scoring
     # ------------------------------------------------------------------ #
 
-    def _compute_utility(self, results_dict):
-        """Compute a weighted utility score from raw results."""
-        total_utility = 0.0
+    def score_parts(self, results_dict, formulation_no=None):
+        """Each measurement's part of the Overall score, in self.objectives
+        order: {'name', 'goal', 'applies', 'rating', 'utility'}. `utility`
+        is the fraction of its share the rating earns (1 on target, losing
+        1/(max - min) per point off), None when the measurement does not
+        apply or has no value. _compute_utility adds these up, and the
+        Results tab's "How the score is worked out" shows them
+        (score_breakdown), so the two can never disagree."""
+        parts = []
         for obj in self.objectives:
+            applies = self._applies_to(obj, formulation_no, results_dict)
             raw_val = results_dict.get(obj['name'])
-            if raw_val is None:
+            utility = None
+            if applies and raw_val is not None:
+                val = float(raw_val)
+
+                min_v = obj.get('min_val', 0.0)
+                max_v = obj.get('max_val', 10.0)
+                rng = max_v - min_v
+                if rng == 0:
+                    rng = 1.0
+
+                norm_val = max(0.0, min(1.0, (val - min_v) / rng))
+
+                if obj['goal'] == 'max':
+                    utility = norm_val
+                elif obj['goal'] == 'min':
+                    utility = 1.0 - norm_val
+                elif obj['goal'] == 'target':
+                    targ_val = obj.get('target', (max_v + min_v) / 2)
+                    norm_targ = (targ_val - min_v) / rng
+                    utility = max(0.0, 1.0 - abs(norm_val - norm_targ))
+                else:
+                    utility = 0.0
+            parts.append({'name': obj['name'], 'goal': obj.get('goal'),
+                          'applies': applies,
+                          'rating': None if raw_val is None else float(raw_val),
+                          'utility': utility})
+        return parts
+
+    def _share_scale(self, parts):
+        """What the shares of the measurements that apply are multiplied
+        by so a formulation scored without some still reads on the full
+        0-100: 1 when all apply, None when none with a share does."""
+        if all(p['applies'] for p in parts):
+            return 1.0
+        share = sum(float(obj['weight']) for obj, p in zip(self.objectives, parts)
+                    if p['applies'])
+        if share <= 0:
+            return None
+        return sum(float(obj['weight']) for obj in self.objectives) / share
+
+    def _compute_utility(self, results_dict, formulation_no=None):
+        """Compute a weighted utility score from raw results.
+
+        `formulation_no` says which measurements apply (see _applies_to).
+        With every one applying — any project with no measurement added
+        partway — the loop below is the whole computation, unchanged. A
+        formulation recorded before a measurement was added is scored on
+        the ones that apply, their shares rescaled to the full score, so it
+        reads on the same 0-100 as every other. Each measurement's part is
+        score_parts'."""
+        parts = self.score_parts(results_dict, formulation_no)
+        total_utility = 0.0
+        for obj, part in zip(self.objectives, parts):
+            if part['utility'] is None:
                 continue
-            val = float(raw_val)
+            total_utility += obj['weight'] * part['utility']
+        if all(p['applies'] for p in parts):
+            return total_utility
+        scale = self._share_scale(parts)
+        if scale is None:
+            return 0.0
+        return total_utility * scale
 
-            min_v = obj.get('min_val', 0.0)
-            max_v = obj.get('max_val', 10.0)
-            rng = max_v - min_v
-            if rng == 0:
-                rng = 1.0
-
-            norm_val = max(0.0, min(1.0, (val - min_v) / rng))
-
-            if obj['goal'] == 'max':
-                utility = norm_val
-            elif obj['goal'] == 'min':
-                utility = 1.0 - norm_val
-            elif obj['goal'] == 'target':
-                targ_val = obj.get('target', (max_v + min_v) / 2)
-                norm_targ = (targ_val - min_v) / rng
-                utility = max(0.0, 1.0 - abs(norm_val - norm_targ))
-            else:
-                utility = 0.0
-
-            total_utility += obj['weight'] * utility
-        return total_utility
+    def score_breakdown(self, index):
+        """How formulation `index`'s Overall score is made up, most
+        important measurement first: one dict per measurement with 'name',
+        'goal', 'rating', 'target' (None unless a Target goal), 'low',
+        'high', 'applies', 'share_of_score' (its share, rescaled as
+        _compute_utility rescales it), 'utility' (score_parts') and
+        'points' (share x the fraction earned; 0 for a value still waiting,
+        None when it does not apply). The points add up to
+        Y_history[index]."""
+        results = self._results_at(index)
+        parts = self.score_parts(results, self._number_at(index))
+        scale = self._share_scale(parts) or 0.0
+        by_name = {}
+        for obj, part in zip(self.objectives, parts):
+            share = float(obj['weight']) * scale if part['applies'] else None
+            by_name[obj['name']] = {
+                'name': obj['name'], 'goal': obj.get('goal'),
+                'rating': part['rating'],
+                'target': (float(obj.get('target', (obj.get('max_val', 10.0)
+                                                    + obj.get('min_val', 0.0)) / 2))
+                           if obj.get('goal') == 'target' else None),
+                'low': float(obj.get('min_val', 0.0)),
+                'high': float(obj.get('max_val', 10.0)),
+                'applies': part['applies'], 'share_of_score': share,
+                'utility': part['utility'],
+                'points': (None if not part['applies']
+                           else 0.0 if part['utility'] is None
+                           else obj['weight'] * part['utility'] * scale)}
+        return [by_name[o['name']] for o in self.measurements_by_importance()]
 
     # ------------------------------------------------------------------ #
     #  History Editing
@@ -6845,7 +7562,10 @@ class FoodOptimizer:
             raise IndexError("There is no formulation at that position.")
         if index < len(self.results_history):
             self.results_history[index] = dict(new_results_dict)
-        self.Y_history[index] = self._compute_utility(new_results_dict)
+        self.Y_history[index] = self._compute_utility(
+            new_results_dict, self._number_at(index))
+        # The missing value arrived: a formulation moved to Not scored is
+        # scored again, with nothing else to click (save() prunes it).
         self.save()
 
     def edit_note(self, index, note):
@@ -7009,7 +7729,11 @@ class FoodOptimizer:
                                               for recipe in self.recipe_history):
                     lo, hi = min(lo, float(absent)), max(hi, float(absent))
                 if hi <= lo:
-                    seen = [float(row[col]) for row in self.X_history
+                    # The rows as the models learn them (review B1): a
+                    # formulation made to another batch size is placed at
+                    # the Formulation total here too.
+                    seen = [float(row[col])
+                            for row in self.model_X(range(len(self.X_history)))
                             if col < len(row)]
                     lo, hi = min([lo] + seen), max([hi] + seen)
                     # A floor, not just "wider than zero": a history that
@@ -7200,7 +7924,7 @@ class FoodOptimizer:
         # never sees.
         for qc in getattr(self, 'quantity_constraints', []):
             total_val = sum(recipe_dict.get(name, 0.0) for name in qc['ingredients'])
-            slack = 1e-6 * (1.0 + abs(float(total_val)))
+            slack = limit_slack(total_val)
             if qc['min'] is not None and total_val < float(qc['min']) - slack:
                 return False
             if qc['max'] is not None and total_val > float(qc['max']) + slack:
@@ -7260,7 +7984,9 @@ class FoodOptimizer:
             dim = bounds_tensor.shape[1]
 
             # Cold start: space-filling Sobol sequence
-            if len(self.X_history) < n_init_random:
+            # Counted in formulations with all their results: one still
+            # waiting teaches the model nothing yet.
+            if self.complete_count() < n_init_random:
                 recipes = self._ask_cold_start(n_suggestions, bounds_tensor, dim)
             else:
                 # Warm: GP-based Bayesian optimization
@@ -7359,46 +8085,85 @@ class FoodOptimizer:
         past the points it has already issued, so 3 + 2 lands on the same
         five points as 5 in one go, and a regenerate still differs because
         the formulation numbers have moved on."""
+        # A formulation the project already has is never handed out again:
+        # a Round can pass over points its limits reject, so the next
+        # Round's slice can start inside points already issued, and a
+        # regenerate's slice inside the batch it replaced. Those points, and
+        # a second copy of one inside this Round, are passed over; where none
+        # would repeat, every Round is exactly what it was.
+        issued = self._issued_matrix()
+        repeats = []
         for size in self.COLD_START_POOLS:
             candidates = self._cold_start_pool(size, bounds_tensor, dim)
+            repeats = []      # feasible but already had, in sequence order
+            chosen = []       # this Round's picks, as issued
 
             # Optional screening model
             if self.screening_model is not None:
                 scored = []
                 for rec in candidates:
                     if self._check_constraints(rec):
+                        vector = self._as_issued(rec)
+                        if self._repeats(vector, issued):
+                            repeats.append(rec)
+                            continue
                         try:
                             if hasattr(self.screening_model, 'predict'):
                                 score = self.screening_model.predict([list(rec.values())])[0]
                             else:
                                 score = self.screening_model(rec)
-                            scored.append((score, rec))
+                            scored.append((score, rec, vector))
                         except Exception:
                             pass
                 scored.sort(key=lambda x: x[0], reverse=True)
-                results = [x[1] for x in scored[:n_suggestions]]
+                results = []
+                for _, rec, vector in scored:
+                    if self._repeats(vector, chosen):
+                        repeats.append(rec)
+                        continue
+                    results.append(rec)
+                    chosen.append(vector)
+                    if len(results) >= n_suggestions:
+                        break
             else:
                 # Standard: pick first feasible candidates
                 results = []
                 for candidate in candidates:
-                    if self._check_constraints(candidate):
-                        results.append(candidate)
+                    if not self._check_constraints(candidate):
+                        continue
+                    vector = self._as_issued(candidate)
+                    if self._repeats(vector, issued) or self._repeats(vector, chosen):
+                        repeats.append(candidate)
+                        continue
+                    results.append(candidate)
+                    chosen.append(vector)
                     if len(results) >= n_suggestions:
                         break
 
             if len(results) >= n_suggestions:
                 return results
 
-        # A wider pool did not fill the batch. With results already in, the
-        # model can be asked instead — it is handed the same limits as
-        # inequalities and solves them rather than sampling for them.
-        if self.X_history:
+        # A wider pool did not fill the batch with new points. With results
+        # already in, the model can be asked instead — it is handed the same
+        # limits as inequalities and solves them rather than sampling for
+        # them — and its picks are brought onto the total as the warm
+        # regime's are.
+        if self.complete_count():
             try:
-                chosen = self._ask_optimize(n_suggestions, bounds_tensor, dim)
+                picked = self._ask_optimize(n_suggestions, bounds_tensor, dim)
             except Exception:
-                chosen = []
-            if chosen:
-                return chosen
+                picked = []
+            if picked:
+                if self.has_formulation_total():
+                    picked = [self._snapped_if_it_still_fits(rec) for rec in picked]
+                return picked
+        # Nothing new is left (a grid of dial steps can run out of cells):
+        # the widest pool's feasible repeats fill the Round, in sequence
+        # order — first those not already in this Round, then the rest — as
+        # they did before repeats were passed over.
+        if len(results) + len(repeats) >= n_suggestions:
+            return results + self._fill_from_repeats(
+                repeats, chosen, n_suggestions - len(results))
         if results:
             return results
 
@@ -7419,6 +8184,147 @@ class FoodOptimizer:
         # screen used to show this one or wording.GENERATE_FAILED depending
         # on which internal step gave up, in two registers.
         raise ValueError(wording.GENERATE_FAILED)
+
+    # Two amounts closer than this are the same point of the sequence: a
+    # repeat is the same Sobol point decoded (and projected) the same way,
+    # so it matches to the last digit; anything a person typed or the model
+    # chose differs by far more.
+    REPEAT_TOLERANCE = 1e-9
+
+    def _as_generated(self, recipe, batch_no=None, formulation_no=None):
+        """`recipe` back on the basis it was generated at: at the
+        Formulation total (model_recipe's rule) or, without one, at the sum
+        its Round was generated to (a Round re-sized with Batch size stores
+        its amounts at that size)."""
+        recipe = dict(recipe)
+        if self.has_formulation_total():
+            return self.at_model_total(recipe) if self.off_total(recipe) else recipe
+        made = self._generated_totals().get(batch_no) or {}
+        total = made.get(formulation_no) if isinstance(made, dict) else None
+        if not total:
+            return recipe
+        words = {k: v for k, v in recipe.items() if isinstance(v, str)}
+        scaled = self.scaled_recipe({k: v for k, v in recipe.items()
+                                     if not isinstance(v, str)},
+                                    scale_to=float(total))
+        scaled.update(words)
+        return scaled
+
+    def _retired(self):
+        """retired_suggestions, created for a session object made before it
+        was stored: formulations a Round handed out that left without a
+        record (a regenerate, a discarded Round), on their generated basis."""
+        kept = getattr(self, 'retired_suggestions', None)
+        if not isinstance(kept, list):
+            kept = self.retired_suggestions = []
+        return kept
+
+    def _retire_open_round(self):
+        """Keep the open Round's rows that leave without a record, so the
+        cold start never hands them back (_issued_matrix)."""
+        rows = self.pending_batch or []
+        if not rows:
+            return
+        recorded = {int(n) for n in self.formulation_ids}
+        recorded |= {int(s['formulation']) for s in self.skipped
+                     if isinstance(s, dict) and s.get('formulation') is not None}
+        kept = self._retired()
+        for row in rows:
+            if not isinstance(row, dict) or not isinstance(row.get('recipe'), dict):
+                continue
+            no = row.get('formulation')
+            try:
+                if no is not None and int(no) in recorded:
+                    continue
+                kept.append(self._as_generated(row['recipe'], self.pending_batch_no,
+                                               None if no is None else int(no)))
+            except self._UNREADABLE:
+                # A row that cannot be read as numbers is not kept: dropping
+                # the Round must never fail over it.
+                continue
+
+    # What a damaged or hand-edited row can raise on the way to numbers: a
+    # blank or a word where an amount belongs, or a row shorter than today's
+    # columns. Such a row can match nothing, so it is left out.
+    _UNREADABLE = (TypeError, ValueError, IndexError, KeyError)
+
+    def _generated_row(self, recipe, batch_no=None, formulation_no=None):
+        """`recipe` on its generated basis (_as_generated), encoded; None when
+        it cannot be read as numbers."""
+        try:
+            row = np.asarray(self._encode(self._as_generated(recipe, batch_no,
+                                                             formulation_no)),
+                             dtype=float)
+        except self._UNREADABLE:
+            return None
+        return row if np.all(np.isfinite(row)) else None
+
+    def _issued_matrix(self):
+        """Every formulation the project already has, one encoded row each
+        (_encode, today's columns), on the basis it was generated at: made
+        (X_history), Not scored (skipped), waiting in the open Round (and an
+        edited row's original suggestion), or handed out and dropped without
+        a record (retired_suggestions). None when there is none. A row that
+        cannot be read as numbers is left out, never allowed to stop
+        Generate."""
+        rows = []
+        for i in range(len(self.X_history)):
+            batch = self.batch_history[i] if i < len(self.batch_history) else None
+            no = self.formulation_ids[i] if i < len(self.formulation_ids) else None
+            try:
+                recipe = self._recorded_recipe(i)
+            except self._UNREADABLE:
+                continue
+            rows.append(self._generated_row(recipe, batch, no))
+        for row in self.skipped or []:
+            if isinstance(row, dict) and isinstance(row.get('recipe'), dict):
+                rows.append(self._generated_row(row['recipe'], row.get(ROUND_FIELD),
+                                                row.get('formulation')))
+        for row in self.pending_batch or []:
+            if not isinstance(row, dict):
+                continue
+            for recipe in (row.get('recipe', row), row.get('original_recipe')):
+                if isinstance(recipe, dict):
+                    rows.append(self._generated_row(recipe, self.pending_batch_no,
+                                                    row.get('formulation')))
+        for recipe in self._retired():
+            if isinstance(recipe, dict):
+                rows.append(self._generated_row(recipe))
+        rows = [r for r in rows if r is not None]
+        if not rows:
+            return None
+        width = rows[-1].shape[0]
+        rows = [r for r in rows if r.shape[0] == width]
+        return np.vstack(rows) if rows else None
+
+    def _fill_from_repeats(self, repeats, chosen, k):
+        """`k` of `repeats` (sequence order): first those that match neither
+        this Round's picks (`chosen`) nor each other, then the rest."""
+        seen = list(chosen)
+        first, rest = [], []
+        for rec in repeats:
+            vector = self._as_issued(rec)
+            if self._repeats(vector, seen):
+                rest.append(rec)
+            else:
+                first.append(rec)
+                seen.append(vector)
+        return (first + rest)[:k]
+
+    def _as_issued(self, recipe):
+        """`recipe` encoded as ask() would issue it: each setting moved onto
+        its dial's step first, as ask() does after the cold start picks."""
+        return np.asarray(self._encode(self._settings_on_their_step(recipe)), dtype=float)
+
+    def _repeats(self, vector, rows):
+        """`vector` matches a row of `rows` (a 2-D array, or a list of
+        vectors) to REPEAT_TOLERANCE in every column."""
+        if rows is None or len(rows) == 0:
+            return False
+        rows = np.asarray(rows, dtype=float)
+        if rows.ndim != 2 or rows.shape[1] != vector.shape[0]:
+            return False
+        return bool((np.abs(rows - vector).max(axis=1) <= self.REPEAT_TOLERANCE).any())
 
     def _cold_start_pool(self, size, bounds_tensor, dim):
         """`size` points of this project's ONE Sobol sequence, decoded, and —
@@ -7451,12 +8357,111 @@ class FoodOptimizer:
                    for rec in candidates)
         return [rec for rec in snapped if rec is not None]
 
+    # ------------------------------------------------------------------ #
+    #  0.8.0 BO views (spec 2026-09-30-bo-views §1; review B1, M2): what
+    #  every model learns a recorded formulation as. One rule, shared by the
+    #  suggestions and Insights; the stored amounts are never changed.
+    # ------------------------------------------------------------------ #
+
+    def off_total(self, recipe):
+        """Whether `recipe`'s ingredients add up to more than
+        MODEL_TOTAL_MARGIN off the Formulation total. False without a
+        total (not rescaled in this wave: review B1) and for a formulation
+        that adds up to nothing."""
+        if not self.has_formulation_total():
+            return False
+        total = float(self.formulation_total)
+        own = self.ingredient_total({k: v for k, v in recipe.items()
+                                     if not isinstance(v, str)})
+        return own > 0 and abs(own - total) > self.MODEL_TOTAL_MARGIN * total
+
+    def _recorded_ingredient_total(self, index):
+        """ingredient_total(_recorded_recipe(index)) without decoding the
+        row: the ingredient columns of X_history plus the recorded formula
+        rows. None when a formula row was not recorded (then the row is
+        decoded after all)."""
+        vector = self.X_history[index]
+        recorded = (self.recipe_history[index]
+                    if index < len(self.recipe_history) else {})
+        total, col = 0.0, 0
+        for var in self.variables:
+            ingredient = var.get('category', 'ingredient') == 'ingredient'
+            if self.has_formula(var):
+                if ingredient:
+                    value = recorded.get(var['name'])
+                    if value is None:
+                        return None
+                    total += float(value)
+                continue
+            if var['type'] == 'continuous':
+                if ingredient:
+                    total += float(vector[col])
+                col += 1
+            elif var['type'] == 'categorical':
+                col += len(var['options'])
+        return total
+
+    def _row_off_total(self, index):
+        if not self.has_formulation_total():
+            return False
+        own = self._recorded_ingredient_total(index)
+        if own is None:
+            return self.off_total(self._recorded_recipe(index))
+        total = float(self.formulation_total)
+        return own > 0 and abs(own - total) > self.MODEL_TOTAL_MARGIN * total
+
+    def model_recipe(self, index):
+        """What the models learn formulation `index` as: its recorded
+        amounts (_recorded_recipe, so a setting added later reads its
+        absent value, review M2), brought to the Formulation total when
+        they are off it (off_total). The factor comes from scaled_recipe
+        (_scale_factor), never total ÷ batch size, so a formula row with a
+        constant lands on the total too. A categorical row's choice is kept
+        as it is. Process settings are never scaled."""
+        recipe = self._recorded_recipe(index)
+        if not self.off_total(recipe):
+            return recipe
+        return self.at_model_total(recipe)
+
+    def at_model_total(self, recipe):
+        """`recipe` brought to the Formulation total by scaled_recipe, a
+        categorical row's choice kept as it is: the one rescaling model_recipe
+        and insights.at_total share (T1 review M2)."""
+        words = {k: v for k, v in recipe.items() if isinstance(v, str)}
+        scaled = self.scaled_recipe({k: v for k, v in recipe.items()
+                                     if not isinstance(v, str)},
+                                    scale_to=float(self.formulation_total))
+        scaled.update(words)
+        return scaled
+
+    def model_X(self, rows):
+        """The encoded rows every model trains on (the one door, review
+        B1): X_history's own row for a formulation on the total (so every
+        project with no off-total row is bit-identical), the encoded
+        model_recipe for one made off it."""
+        return [self._encode(self.model_recipe(i)) if self._row_off_total(i)
+                else self.X_history[i] for i in rows]
+
     def _ask_optimize(self, n_suggestions, bounds_tensor, dim):
         """Generate recipes using a GP + the configured acquisition (default qLogNEI)."""
         torch.manual_seed(self._ask_seed())
 
-        train_X = torch.tensor(self.X_history, dtype=torch.double)
-        train_Y = torch.tensor(self.Y_history, dtype=torch.double).unsqueeze(-1)
+        waiting = set(self.waiting_rows())
+        if not waiting:
+            # model_X: a row made off the Formulation total is learned at
+            # the total (review B1); every other row is X_history's own.
+            train_X = torch.tensor(self.model_X(range(len(self.X_history))),
+                                   dtype=torch.double)
+            train_Y = torch.tensor(self.Y_history, dtype=torch.double).unsqueeze(-1)
+        else:
+            # Only formulations with all their results: a missing
+            # measurement counts as zero in the score, and the model would
+            # learn the formulation as a bad one. qLogNEI's baseline and
+            # qLogEI's best follow from these tensors.
+            keep = [i for i in range(len(self.X_history)) if i not in waiting]
+            train_X = torch.tensor(self.model_X(keep), dtype=torch.double)
+            train_Y = torch.tensor([self.Y_history[i] for i in keep],
+                                   dtype=torch.double).unsqueeze(-1)
         train_X_norm = normalize(train_X, bounds_tensor)
 
         input_tf = Warp(d=dim, indices=list(range(dim))) if self.robust else None
@@ -7516,7 +8521,7 @@ class FoodOptimizer:
             self._retire_batch_no(batch_no)
 
         self.X_history.append(self._encode(recipe_dict))
-        self.Y_history.append(self._compute_utility(kept))
+        self.Y_history.append(self._compute_utility(kept, formulation_no))
         self.recipe_history.append(dict(recipe_dict))
         self.results_history.append(kept)
         self.timestamps_history.append(datetime.now(timezone.utc).isoformat())
@@ -7548,7 +8553,10 @@ class FoodOptimizer:
 
     def _drop_pending_batch(self):
         """Forget the open batch. The numbers it used retire — they are never
-        reissued, so a discarded batch can never be confused with a later one."""
+        reissued, so a discarded batch can never be confused with a later one.
+        Its rows that leave without a record are kept as retired suggestions,
+        so the cold start never hands them back."""
+        self._retire_open_round()
         self.pending_batch = None
         self.result_drafts = {}
         self.pending_batch_no = None
@@ -7708,6 +8716,19 @@ class FoodOptimizer:
         inherit the open batch and write the total that batch is being made
         to against a formulation made before the project existed."""
         self.tell(recipe_dict, results_dict, batch_no=NO_BATCH, note=note)
+        # Past work could not have been measured by this project: a
+        # measurement it has no value for does not apply to it, so it is
+        # scored on what it has instead of waiting for ever.
+        number = int(self.formulation_ids[-1])
+        blank = [obj for obj in self.objectives
+                 if results_dict.get(obj['name']) is None]
+        if blank:
+            for obj in blank:
+                obj['not_for'] = sorted(set(obj.get('not_for') or [])
+                                        | {number})
+            self.Y_history[-1] = self._compute_utility(
+                self.results_history[-1], number)
+            self.save()
 
     def delete_formulation(self, no):
         """Delete one formulation by its global number, scored or left out.
@@ -7764,7 +8785,8 @@ class FoodOptimizer:
         lots = getattr(self, 'lots', None)
         if not isinstance(lots, dict):
             lots = self.lots = {}
-        if not totals and not lots:
+        if (not totals and not lots and not self._generated_totals()
+                and not self.generation_records()):
             return
         live = {int(b) for b in self.batch_history if b is not None}
         live |= {int(s[ROUND_FIELD]) for s in self.skipped
@@ -7775,6 +8797,9 @@ class FoodOptimizer:
             del totals[no]
         for no in [n for n in lots if int(n) not in live]:
             del lots[no]
+        for records in (self._generated_totals(), self.generation_records()):
+            for no in [n for n in records if int(n) not in live]:
+                del records[no]
 
     def last_batch_no(self):
         """The highest batch number in the recorded history. Left-out
@@ -7864,6 +8889,27 @@ class FoodOptimizer:
         # it would have written is not there either.
         self.formulation_total = getattr(self, 'formulation_total', None)
 
+    def _migrate_not_for(self):
+        """A file written before 0.8.0 has no `not_for`, so it is worked out
+        from the first recorded formulation (recording order) that has a
+        value for the measurement: the rows without one recorded BEFORE it
+        are taken as recorded before the measurement was added, and are
+        scored on what they have. A blank after it is a result still to
+        come, and waits — Move to Not scored (set_aside_formulation) sets
+        aside one that never will. With
+        no value anywhere, every recorded row is exempt. A present list is
+        kept, as whole numbers, sorted."""
+        for obj in self.objectives:
+            if 'not_for' in obj:
+                obj['not_for'] = sorted({int(n) for n in obj['not_for'] or []})
+                continue
+            rows = list(zip(self.formulation_ids, self.results_history))
+            first = next((k for k, (_, results) in enumerate(rows)
+                          if results.get(obj['name']) is not None), len(rows))
+            obj['not_for'] = sorted(
+                int(no) for no, results in rows[:first]
+                if results.get(obj['name']) is None)
+
     def _date_pending_batch(self):
         """Stamp the open batch with the day it was opened, once. Both ways a
         batch opens — ask() through set_pending_batch, and a formulation of
@@ -7872,6 +8918,28 @@ class FoodOptimizer:
         row added later never re-dates the batch it joined."""
         if self.pending_batch_created is None:
             self.pending_batch_created = datetime.now().astimezone().strftime("%Y-%m-%d")
+
+    def _generated_totals(self):
+        """batch_generated_totals, created for a session object made before
+        it was stored."""
+        made = getattr(self, 'batch_generated_totals', None)
+        if not isinstance(made, dict):
+            made = self.batch_generated_totals = {}
+        return made
+
+    def generation_records(self):
+        """round_generation, created for a session object made before it
+        was stored: {round: record} (review B4)."""
+        records = getattr(self, 'round_generation', None)
+        if not isinstance(records, dict):
+            records = self.round_generation = {}
+        return records
+
+    def record_generation(self, round_no, record):
+        """Keep how Round `round_no` was generated (review B4): display
+        metadata, written at the Generate call site, never by ask()."""
+        self.generation_records()[int(round_no)] = dict(record)
+        self.save()
 
     def _batch_totals(self):
         """The totals by batch number, created for a session object made
@@ -7926,25 +8994,31 @@ class FoodOptimizer:
                 try:
                     value = float(value)
                 except (TypeError, ValueError):
-                    raise ValueError(wording.edit_number_error(name))
+                    raise ValueError(wording.edit_number_error(
+                        row['formulation'], name))
                 if not math.isfinite(value):
-                    raise ValueError(wording.edit_number_error(name, finite=True))
+                    raise ValueError(wording.edit_number_error(
+                        row['formulation'], name))
                 caution = self.bounds_caution(name, value, factor)
                 if caution:
                     raise ValueError(wording.edit_formulation_error(row['formulation'], caution))
                 recipe[name] = value
             recipe = self.fill_formulas(recipe, size)
-            if any(not math.isfinite(float(v)) or (float(v) < -1e-8 and
-                   variables[n].get('category', 'ingredient') == 'ingredient')
-                   for n, v in recipe.items()):
-                raise ValueError(wording.edit_negative_error(row['formulation']))
+            below = [n for n, v in recipe.items()
+                     if not math.isfinite(float(v)) or (float(v) < -1e-8 and
+                     variables[n].get('category', 'ingredient') == 'ingredient')]
+            if below:
+                raise ValueError(wording.edit_negative_error(
+                    row['formulation'], number_list(below),
+                    self.unit_of(below[0])))
             if size and self.total_mismatch(row['formulation'], recipe, size):
                 raise ValueError(self.total_mismatch(row['formulation'], recipe, size)
                                  + wording.EDIT_BALANCE_HELP)
             candidate = dict(row, recipe=recipe)
-            caution = self.scaled_limit_caution([candidate], size, sized=True)
-            if caution:
-                raise ValueError(caution)
+            broken = self._scaled_broken_limit([candidate], size, sized=True)
+            if broken:
+                raise ValueError(wording.edit_breaks_limit(
+                    row['formulation'], broken))
             if recipe != row['recipe']:
                 row.setdefault('original_recipe', dict(row['recipe']))
                 row['recipe'] = recipe
@@ -7980,8 +9054,8 @@ class FoodOptimizer:
 
         A size of nothing is not a size. None and anything at or below zero
         mean the same thing here — the round has no size of its own — and
-        both leave the amounts alone: the box moved them once and there is no
-        going back to what the model proposed.
+        both leave the amounts alone. Going back to the amounts the Round
+        was generated at is unscale_round's job.
         """
         if not self.pending_batch:
             return          # no round to size; nothing to remember it by
@@ -7990,12 +9064,50 @@ class FoodOptimizer:
             size = None
         rows = self._batch_rows(self.pending_batch)
         if size is not None:
+            # What each formulation added up to before the box first
+            # re-sized it (review B1): metadata only, so a later wave can
+            # learn a project with no Formulation total at its own size.
+            # Per formulation, not per Round (T1 review M4): "Generate a
+            # different batch" keeps the Round's number with new formulation
+            # numbers, and an own formulation can join after a re-size.
+            sums = self._generated_totals().setdefault(int(self.pending_batch_no), {})
+            for row in rows:
+                sums.setdefault(int(row['formulation']), self.ingredient_total(
+                    {k: v for k, v in row['recipe'].items() if not isinstance(v, str)}))
             rows = [self._batch_row(row['formulation'],
                                     self.scaled_recipe(row['recipe'], size),
                                     row.get('note'))
                     for row in rows]
         self.pending_batch = rows
         self.pending_batch_total = size
+        self.save()
+
+    def unscale_round(self):
+        """Take the open Round back to the amounts it was generated at, and
+        to no size of its own: what clearing the Batch size box does.
+
+        Each formulation is made to the total it added up to before the box
+        first moved it (batch_generated_totals, kept per formulation by
+        scale_round). The box's "?" says an empty box keeps each
+        formulation's own total, and a cleared box that left the old size's
+        amounts in place said one thing and did another. A row with no
+        generated total kept — one added after the re-size — stays as it
+        is. Does nothing for a Round the box never sized.
+        """
+        if (not self.pending_batch
+                or getattr(self, 'pending_batch_total', None) is None):
+            return
+        made = self._generated_totals().get(int(self.pending_batch_no), {})
+        rows = []
+        for row in self._batch_rows(self.pending_batch):
+            total = made.get(int(row['formulation']))
+            if total:
+                row = self._batch_row(row['formulation'],
+                                      self.scaled_recipe(row['recipe'], total),
+                                      row.get('note'))
+            rows.append(row)
+        self.pending_batch = rows
+        self.pending_batch_total = None
         self.save()
 
     def set_pending_batch(self, batch_or_none, batch_no=None, discarded=None):
@@ -8366,6 +9478,11 @@ class FoodOptimizer:
         lines = []
         for var in self._formula_rows():
             name = var['name']
+            if var.get('balance') and not self.has_formulation_total():
+                # Nothing to fill to yet (03 M4): "between 0.00 and
+                # −43.00 g" was arithmetic on a size of 0.
+                lines.append(wording.rest_needs_batch_size(name))
+                continue
             try:
                 low, high = self._achievable_range(
                     lambda n, row=name: 1.0 if n == row else 0.0)
@@ -8451,13 +9568,11 @@ class FoodOptimizer:
             return ""
         name = row['name']
         try:
-            low, high = self._achievable_range(
-                lambda n: 1.0 if n == name else 0.0)
+            self._achievable_range(lambda n: 1.0 if n == name else 0.0)
         except (FormulaError, ValueError):
             return ""
-        unit = self._unit_of(row)
-        return wording.rest_row_takes_the_difference(
-            name, f"{max(low, 0.0):.2f}", join_unit(f"{high:.2f}", unit),
+        # The rest row's own range is the grid's caption (polish round).
+        return wording.rest_row_keeps_the_others(
             self.batch_total_text(self.formulation_total))
 
     def balance_row_name(self):
@@ -8631,8 +9746,12 @@ class FoodOptimizer:
             trouble = self._rule_names_a_setting(form)
             if trouble:
                 raise FormulaError(trouble)
-            if form.rest and not self.has_formulation_total():
-                raise FormulaError(wording.FORMULA_NEEDS_BATCH_SIZE)
+            # '= rest' without a default batch size is let in, as the file
+            # door (_check_file_formulas) always let it in (0.8.0 e2e fixes
+            # B1, review I9): a blank project could not reach one without
+            # it — the size is refused until a row fills to it — and the
+            # state is one the app already says what to do about
+            # (worked_out_captions, best_needs_batch_size).
             rest = form.rest
         else:
             rest = formula_is_rest(text)
@@ -8656,8 +9775,11 @@ class FoodOptimizer:
         if not in_grid:
             try:
                 self._formula_order()  # refuses a loop, naming the chain
-                if self._form_reach(self._linear_form(name),
-                                    self._batch_size())[1] < 0:
+                # A Fill-to-total row with no size yet fills nothing; the
+                # size it is given later is asked against it then.
+                waits = rest and not self.has_formulation_total()
+                if not waits and self._form_reach(self._linear_form(name),
+                                                  self._batch_size())[1] < 0:
                     raise ValueError(wording.formula_below_zero(
                         name, self._unit_of(var)))
             except ValueError:
@@ -10311,10 +11433,12 @@ class FoodOptimizer:
             if weighed:
                 low, high, ok = _range_from_cells(row)
                 if not ok or low is None or high is None:
-                    errors.append((row_no, wording.PART_AMOUNTS_REQUIRED))
+                    errors.append((row_no, _number_cells_refusal(
+                        row, _RANGE_CELLS, None if not ok else (low, high))))
                     continue
                 if low > high:
-                    errors.append((row_no, LOWEST_ABOVE_HIGHEST_ERROR))
+                    errors.append((row_no,
+                                   wording.lowest_above_highest(low, high)))
                     continue
                 amounts[cleaned['name']] = (low, high)
             seen.add(cleaned['name'].lower())
@@ -10696,6 +11820,11 @@ class FoodOptimizer:
             for row_no, spec in rows:
                 if not spec['formula']:
                     continue
+                if (formula_is_rest(spec['formula'])
+                        and not self.has_formulation_total()):
+                    # Fill to total with no size yet fills nothing (0.8.0
+                    # e2e fixes B1): the size is asked against it when set.
+                    continue
                 reach = self._form_reach(self._linear_form(spec['name']),
                                          self._batch_size())
                 if reach[1] < 0:
@@ -10877,15 +12006,11 @@ class FoodOptimizer:
             trouble = self._rule_names_a_setting(form, rows=names)
             if trouble:
                 return None, trouble
-            if form.rest and not self.has_formulation_total():
-                # The file door (_check_file_formulas) is deliberately
-                # looser about this one: a file is loaded before a size can
-                # be set at all — there are no ingredients to reach one —
-                # so it lets '= rest' in and the reader sets the size
-                # after. The grid is the other way round: by the time
-                # anyone types in it the project can have a size, and a
-                # rest row without one has nothing to be the rest OF.
-                return None, wording.FORMULA_NEEDS_BATCH_SIZE
+            # '= rest' (Fill to total) without a default batch size is let
+            # in, as the file door lets it in (0.8.0 e2e fixes B1, review
+            # I9). Refusing it here was a loop on a blank project: the size
+            # is refused until a row fills to it (02 C2). The reader sets
+            # the size after; the row's caption says so meanwhile.
         if made_as_was == PREMIX_WEIGHED:
             row = row.copy()
             parts = self.premixes[premix_was]['parts']
@@ -10906,7 +12031,7 @@ class FoodOptimizer:
             low, high = (0.0, 0.0) if kept is None else kept
         else:
             if not range_ok:
-                return None, wording.NUMBER_REQUIRED_ERROR
+                return None, _number_cells_refusal(row, _RANGE_CELLS)
             if kept is not None and self.has_formula(var):
                 # The rule has just been rubbed out, and the two cells still
                 # hold what the app wrote into them — the word in Highest,
@@ -10920,11 +12045,12 @@ class FoodOptimizer:
                         row, wording.HIGHEST_LABEL) in ("", wording.WORKED_OUT, wording.CALCULATED_RANGE, wording.OLD_CALCULATED_LABEL, wording.OLD_CALCULATED_RANGE):
                     high = kept[1]
             if low is None or high is None:
-                return None, wording.NUMBER_REQUIRED_ERROR
+                return None, _number_cells_refusal(row, _RANGE_CELLS,
+                                                   (low, high))
             # Equal is allowed, and is how a row is FIXED at one amount.
             # Only Lowest ABOVE Highest is a range with nothing in it.
             if low > high:
-                return None, LOWEST_ABOVE_HIGHEST_ERROR
+                return None, wording.lowest_above_highest(low, high)
         unit = _text_cell(row, wording.UNIT_LABEL)
         if category == 'ingredient' and not unit:
             # An ingredient's amounts are added up, averaged and printed. A
@@ -10940,12 +12066,12 @@ class FoodOptimizer:
                 wording.VENDOR_LABEL if vendor else wording.SKU_LABEL)
         baseline, baseline_ok = _number_cell(row, wording.BASELINE_LABEL)
         if not baseline_ok:
-            return None, wording.NUMBER_REQUIRED_ERROR
+            return None, _number_cells_refusal(row, (wording.BASELINE_LABEL,))
         if baseline is not None and category == 'ingredient':
             return None, wording.only_a_setting_has(wording.BASELINE_LABEL)
         if (var is not None and self.X_history
                 and var.get('category', 'ingredient') != category):
-            return None, wording.TYPE_LOCKED_ERROR
+            return None, wording.type_locked(_kind_label(var))
         if var is None and category == 'process' and self.X_history and (
                 baseline is None):
             return None, wording.ADD_BASELINE_ERROR
@@ -11005,7 +12131,7 @@ class FoodOptimizer:
         remove_ingredient asks, asked without writing — so the grid can
         refuse the whole save rather than half of it."""
         if self.X_history and len(self.recipe_history) != len(self.X_history):
-            return AMOUNTS_MISSING_DELETE_ERROR
+            return wording.amounts_missing_delete(name)
         trouble = self._formula_reads_refusal(name)
         if trouble:
             return trouble
@@ -11406,7 +12532,7 @@ class FoodOptimizer:
         if var.get('category', 'ingredient') == category:
             return []
         if self.X_history:
-            raise ValueError(wording.TYPE_LOCKED_ERROR)
+            raise ValueError(wording.type_locked(_kind_label(var)))
         var['category'] = category
         if category == 'process':
             var.pop('vendor', None)
@@ -11466,7 +12592,8 @@ class FoodOptimizer:
         typed = {spec['name']: spec['share_of_score'] for _, spec in rows}
         was_called = {spec['name']: spec['id'] or spec['name'] for _, spec in rows}
         moved = {name for name, share in typed.items()
-                 if was_called[name] not in stored or abs(stored[was_called[name]] - share) > 1e-9}
+                 if was_called[name] not in stored
+                 or abs(stored[was_called[name]] - share) > SHARE_TOLERANCE}
         was_showing = {name: float(stored.get(old, 0)) for name, old in was_called.items()}
         weights = self._rebalanced_shares(typed, moved, was_showing)
         # Preserve saved row order for rounding ties, including renamed rows.
@@ -11514,7 +12641,7 @@ class FoodOptimizer:
             # Under the name it is filed under today: a rename moves the
             # results with it, so it recalculates nothing.
             if abs(float(stored.get(spec['id'] or spec['name'], 0))
-                   - float(spec['share_of_score'])) > 1e-9:
+                   - float(spec['share_of_score'])) > SHARE_TOLERANCE:
                 return True
         return False
 
@@ -11536,7 +12663,7 @@ class FoodOptimizer:
                 # the other is asking them to fix a row they never touched.
                 blamed = (twin if _row_moved(twin[1]) and not _row_moved(spec)
                           else (row_no, spec))
-                errors.append((blamed[0], wording.MEASUREMENT_EXISTS_ERROR))
+                errors.append((blamed[0], wording.NAME_ON_TWO_ROWS))
                 continue
             seen[spec['name'].lower()] = (row_no, spec)
             rows.append((row_no, spec))
@@ -11592,20 +12719,26 @@ class FoodOptimizer:
         low, low_ok = _number_cell(row, wording.LOWEST_MEASURABLE_LABEL)
         high, high_ok = _number_cell(row, wording.HIGHEST_MEASURABLE_LABEL)
         if not low_ok or not high_ok or low is None or high is None:
-            return None, wording.NUMBER_REQUIRED_ERROR
+            return None, _number_cells_refusal(
+                row, (wording.LOWEST_MEASURABLE_LABEL,
+                      wording.HIGHEST_MEASURABLE_LABEL))
         if low >= high:
-            return None, RANGE_ENDS_ERROR
+            return None, wording.scale_ends_error(low, high)
         target, target_ok = _number_cell(row, wording.TARGET_LABEL)
         if not target_ok:
-            return None, wording.NUMBER_REQUIRED_ERROR
+            return None, _number_cells_refusal(row, (wording.TARGET_LABEL,))
         if goal == 'target':
             if target is None:
                 return None, TARGET_REQUIRED_ERROR
             if not (low <= target <= high):
                 return None, _target_outside_message(target, low, high)
         share, share_ok = _number_cell(row, wording.SHARE_COLUMN)
-        if not share_ok or share is None or share <= 0:
+        if not share_ok:
+            return None, _number_cells_refusal(row, (wording.SHARE_COLUMN,))
+        if share is None:
             return None, wording.SHARE_REQUIRED_ERROR
+        if share <= 0:
+            return None, wording.share_not_above_zero(share)
         return {
             'obj': obj, 'id': row_id if obj is not None else None,
             'name': name, 'goal': goal,
@@ -11624,6 +12757,12 @@ class FoodOptimizer:
         # which shares the reader moved and for how far the rest give way.
         stored_shares = self.share_percents()
         rescored = self._plan_rescores(plan)
+        # 05 N1: a deleted measurement takes its typed results on the open
+        # Round with it, and only those; said, never silent.
+        lost = {name: sum(name in d.get('results', {})
+                          for d in self.result_drafts.values())
+                for name in deleted}
+        lost = {name: n for name, n in lost.items() if n}
         for name in deleted:
             self.remove_objective(name)
         added, changed = [], []
@@ -11666,14 +12805,23 @@ class FoodOptimizer:
             # those, because there was nothing there to leave alone.
             moved = {name for name, share in typed.items()
                      if was_called[name] not in stored_shares
-                     or abs(stored_shares[was_called[name]] - share) > 1e-9}
+                     or abs(stored_shares[was_called[name]] - share)
+                     > SHARE_TOLERANCE}
             # Keyed by the name each row wears NOW, because that is how
             # `typed` is keyed; a renamed row keeps the share it was
             # showing under its old name.
             was_showing = {name: float(stored_shares.get(old, 0.0))
                            for name, old in was_called.items()}
-            self.set_shares(self._rebalanced_shares(typed, moved,
-                                                    was_showing))
+            # Final review M-7: only a share typed (a row added is one)
+            # writes the column. Written back untouched, the tenths on
+            # screen replaced the weights stored (33.333 each became 33.4 /
+            # 33.3 / 33.3) and every Overall score moved, unannounced, under
+            # the suggestions. A row deleted alone writes nothing either
+            # (last-fix review R-2): remove_objective has already brought
+            # the rest to 100 in proportion, so equal rows stay equal.
+            if moved:
+                self.set_shares(self._rebalanced_shares(typed, moved,
+                                                        was_showing))
             final = self.share_percents()
             if _shares_moved(typed, final):
                 # Named, not counted: the reader typed one number and two
@@ -11685,11 +12833,16 @@ class FoodOptimizer:
                             if name not in moved
                             and abs(final.get(name, 0.0)
                                     - was_showing.get(name, 0.0)) >= 0.5]
+                # Every share typed and none left to give way: all of them
+                # moved, so the line says what each one is now.
+                scaled = ", ".join(
+                    f"{name} {final.get(name, 0.0):.1f}".removesuffix(".0")
+                    for name in typed)
                 messages.append(("info",
                                  wording.shares_rebalanced(
                                      number_list(gave_way))
                                  if gave_way
-                                 else wording.SHARES_REBALANCED_CAPTION))
+                                 else wording.shares_scaled(scaled)))
             # A share moved is a row saved: without this a save that changed
             # nothing but the column of shares had no green line at all, and
             # the sentences that ride on it — the rescore, the best moving,
@@ -11703,6 +12856,10 @@ class FoodOptimizer:
         if deleted:
             messages.append(("success", wording.measurement_deleted(
                 number_list(deleted))))
+        if lost:
+            messages.append(("info", wording.typed_results_deleted(
+                number_list(list(lost)), sum(lost.values()),
+                self.pending_batch_no, many=len(lost) > 1)))
         if rescored and self.Y_history:
             # Said once, on the last green line, whatever mix of edits
             # caused it: a rescore is one thing that happened, not four.
@@ -11850,7 +13007,13 @@ class FoodOptimizer:
         arm). The app appends the 'available to add' pool (full CSV minus active)."""
         if not self.Y_history:
             return "No formulations recorded yet."
-        best_i = int(np.argmax(self.Y_history))
+        # Deliberately the pre-0.8.0-review rule, not best_index(): the
+        # highest score among formulations with all their results, scored-
+        # without ones included. This text feeds the adaptive expert, which
+        # is on the suggestion side, and the owner's rule is that nothing
+        # there changes (review fixes, Task 1, M-3).
+        full = [i for i in range(len(self.Y_history)) if self.fully_measured(i)]
+        best_i = int(max(full, key=lambda i: self.Y_history[i])) if full else None
         active = [v['name'] for v in self.varying_variables()]
         inactive = [
             f"{v['name']} (fixed at {self._fixed_value(v):.3g})"
@@ -11869,8 +13032,11 @@ class FoodOptimizer:
             res = self.results_history[i] if i < len(self.results_history) else {}
             attrs = ", ".join(f"{k}={v:.3g}" for k, v in res.items())
             mark = "*" if i == best_i else " "
+            waiting = self.waiting_on(i)
+            score = (f"score {y:.3f}" if self.fully_measured(i)
+                     else f"waiting for {', '.join(waiting) or 'results'}")
             lines.append(
-                f"{mark} Formulation {self.formulation_ids[i]}: score {y:.3f} | "
+                f"{mark} Formulation {self.formulation_ids[i]}: {score} | "
                 f"{comp} | results: {attrs}"
             )
         return "\n".join(lines)
@@ -11923,6 +13089,7 @@ class FoodOptimizer:
         # Delegates to the storage backend. StorageError (a cloud backend
         # failure) is swallowed into save_error so the user's in-memory work
         # survives; the app shows it as a banner. Local I/O errors propagate.
+        self.set_aside = self._live_set_aside()
         try:
             self.storage.save(self.project_name, self.export_json())
         except StorageError as e:
@@ -11942,12 +13109,12 @@ class FoodOptimizer:
             self.load_error = str(e)
             return False
         if state is None:
-            self.load_error = wording.PROJECT_NOT_FOUND
+            self.load_error = wording.project_not_found(self.project_name)
             return False
         try:
             self.import_json(state)
         except Exception:
-            self.load_error = wording.PROJECT_FILE_DAMAGED
+            self.load_error = wording.project_file_damaged(self.project_name)
             return False
         # Re-save only when the file is behind the current CLASS_VERSION, so an
         # older JSON file is brought up to date once. Up-to-date files are not
@@ -12008,6 +13175,7 @@ class FoodOptimizer:
             'batch_history': self.batch_history,
             'notes_history': self.notes_history,
             'skipped': self.skipped,
+            'set_aside': self._live_set_aside(),
             'next_formulation_no': self.next_formulation_no,
             'next_batch_number': self.next_batch_number,
             'sobol_seed': getattr(self, 'sobol_seed', None),
@@ -12023,6 +13191,12 @@ class FoodOptimizer:
             # was made as generated, which is not the same as no record.
             'batch_totals': {str(k): (None if v is None else float(v))
                              for k, v in self._batch_totals().items()},
+            # 0.8.0 BO views: display metadata (review B1, B4).
+            'batch_generated_totals': {
+                str(k): {str(n): float(t) for n, t in (v or {}).items()}
+                for k, v in self._generated_totals().items()},
+            'round_generation': {str(k): dict(v)
+                                 for k, v in self.generation_records().items()},
             'amount_unit': self.amount_unit,
             'targets_source': getattr(self, 'targets_source', "") or "",
             'bench_records': getattr(self, 'bench_records', {}),
@@ -12035,6 +13209,14 @@ class FoodOptimizer:
             'bo_config': self.bo_config,
             'CLASS_VERSION': self.CLASS_VERSION,
         }
+        # Final demo (B5): written only when set, so a project at the
+        # assumed 1 point saves exactly as before.
+        if getattr(self, 'tasting_noise', None) is not None:
+            state['tasting_noise'] = float(self.tasting_noise)
+        # Written only when there are some, so a project that never dropped
+        # a suggestion saves exactly as before.
+        if self._retired():
+            state['retired_suggestions'] = [dict(r) for r in self._retired()]
         return json.loads(json.dumps(state, default=_make_serializable))
 
     @staticmethod
@@ -12060,6 +13242,16 @@ class FoodOptimizer:
             for item in state[key]:
                 if not isinstance(item, dict) or not isinstance(item.get('name'), str):
                     raise _damaged(f"'{key}' section has the wrong shape")
+        # 0.8.0: the formulations a measurement does not apply to. Absent on
+        # an older file (import_json works it out); present, it is a list of
+        # whole numbers or the copy is refused before anything moves.
+        key = 'objectives'
+        for item in state[key]:
+            not_for = item.get('not_for', [])
+            if not isinstance(not_for, list) or not all(
+                    isinstance(n, int) and not isinstance(n, bool)
+                    for n in not_for):
+                raise _damaged(f"'{key}' section has the wrong shape")
         # A row worked out from the others carries the text as it was typed
         # and, for the one row that takes whatever is left of the batch
         # size, a flag. import_json reads both straight back into the search
@@ -12166,6 +13358,9 @@ class FoodOptimizer:
             # so an older or hand-edited backup with a blank note restores.
             'notes_history': lambda x: x is None or isinstance(x, str),
             'skipped': _left_out,
+            'set_aside': _number,
+            # A suggestion dropped without a record: its amounts, by name.
+            'retired_suggestions': lambda x: isinstance(x, dict),
         }
         for key, ok in identity.items():
             if key not in state:
@@ -12407,6 +13602,7 @@ class FoodOptimizer:
         self.quantity_constraints = state.get('quantity_constraints', [])
         self.robust = state.get('robust', False)
         self.bo_config = validate_bo_config(state.get('bo_config', None))
+        self.tasting_noise = valid_tasting_noise(state.get('tasting_noise'))
         self.recipe_history = state.get('recipe_history', [])
         self.results_history = state.get('results_history', [])
         self.timestamps_history = state.get('timestamps_history', [])
@@ -12416,6 +13612,10 @@ class FoodOptimizer:
         self.notes_history = ["" if t is None else str(t)
                               for t in state.get('notes_history', [])]
         self.skipped = [dict(s) for s in state.get('skipped', [])]
+        self.retired_suggestions = [dict(r) for r in state.get('retired_suggestions') or []
+                                    if isinstance(r, dict)]
+        # 0.8.0 review fixes: a file written before it has none.
+        self.set_aside = sorted({int(n) for n in state.get('set_aside') or []})
         self.next_formulation_no = int(state.get('next_formulation_no', 1) or 1)
         # A file written before batch numbers were stored has none; it is
         # computed from the batches the file holds, in _backfill_identity.
@@ -12438,8 +13638,6 @@ class FoodOptimizer:
         # A file written before this was stored has no key at all; blank is
         # backfilled below in _backfill_identity.
         self.targets_source = str(state.get('targets_source') or "").strip()
-        if self.targets_source == wording.LEGACY_SAMPLE_TARGETS_SOURCE:
-            self.targets_source = wording.SAMPLE_TARGETS_SOURCE
         self.method = str(state.get('method') or "").strip()
         self._backfill_recorded_fields(state)
         self.bench_records = state.get('bench_records', {})
@@ -12465,6 +13663,11 @@ class FoodOptimizer:
                              in (state.get('batch_totals') or {}).items()}
         self.lots = {int(k): {str(i): str(v) for i, v in (row or {}).items()}
                      for k, row in (state.get('lots') or {}).items()}
+        # Display metadata (review B1, B4): a damaged entry is dropped, never
+        # a reason to refuse the copy.
+        self.batch_generated_totals = _generated_totals_from(
+            state.get('batch_generated_totals'))
+        self.round_generation = _generation_records_from(state.get('round_generation'))
         while len(self.timestamps_history) < len(self.results_history):
             self.timestamps_history.append(None)  # pre-feature files/backups
 
@@ -12500,19 +13703,25 @@ class FoodOptimizer:
         else:
             self.X_history = state.get('X_history', [])
 
+        # Identity before the scores: which measurements apply to a row is
+        # read off its formulation number, and a 0.2.x file has none until
+        # _backfill_identity gives it them. And before a 0.2.x pending batch
+        # of bare recipes draws its numbers, or it would reuse numbers the
+        # backfilled history already owns. Order: identity, then the
+        # measurements' not_for, then the scores.
+        self._backfill_identity()
+        self._migrate_not_for()
         if self.results_history and self.objectives:
-            self.Y_history = [self._compute_utility(r) for r in self.results_history]
+            self.Y_history = [self._compute_utility(r, self._number_at(i))
+                              for i, r in enumerate(self.results_history)]
         else:
             self.Y_history = state.get('Y_history', [])
+        self.set_aside = self._live_set_aside()   # a stale number in a hand-edited file
 
         # A successful import means the in-memory state is valid again, so a
         # restore-from-backup clears any earlier damaged-file error.
         self.load_error = None
 
-        # Identity last: the counter must be correct before a 0.2.x pending
-        # batch of bare recipes draws its numbers, or it would reuse numbers
-        # the backfilled history already owns.
-        self._backfill_identity()
         self.pending_batch = self._number_batch(self.pending_batch)
         if self.pending_batch and self.pending_batch_no is None:
             self.pending_batch_no = self._issue_batch_no()

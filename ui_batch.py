@@ -10,24 +10,37 @@ Changed batch sizes and committed measurement drafts are persisted; unchanged
 reruns do not write.
 """
 import hashlib
+import io
 import json
+import zipfile
+from dataclasses import dataclass
+from xml.etree import ElementTree
 
 import pandas as pd
 import streamlit as st
 
 import wording
 import custom_records
+import sample_projects
 from food_bo import WORKBOOK_MIME, UploadedWorkbook, uploaded_parts
 from storage import StorageError
 from ui_helpers import (
-    BATCH_SIZE_KEY, TAB_RESULTS, TAB_SETUP, amount_range_placeholder,
-    best_formulation_no,
-    bounds_caution, confirm_action,
-    confirmation_open, flash, fmt_setting, go_to_tab, goal_line,
-    clear_scale_total, entry_label, join_unit, label_with_unit, number_list, open_rows,
-    park_clear, preserve_tab_forms, readiness, saved_ok, scale_error,
-    table_height, typed_batch_size, unit_after_number,
+    BATCH_SIZE_KEY, SCROLL_KEY, TAB_RESULTS, TAB_SETUP, amount_range_placeholder,
+    blank_amounts_message,
+    best_formulation_no, bounds_caution, confirm_action, confirmation_open, flash,
+    flash_waiting, fmt_setting, go_to_tab, goal_shown, clear_scale_total, entry_label,
+    join_unit, label_with_unit, number_list, open_rows, park_clear, preserve_tab_forms,
+    readiness, saved_ok, scale_error, table_height, typed_batch_size,
+    unit_after_number,
 )
+from food_bo import COLD_START_RUNS
+import bo_views
+import insights
+import ui_insights
+from ui_helpers import REVIEW_DUE_KEY, ask_tab, review_due
+# Ftue fix C: the Add fold's place and the Repeat link's request; v3: the
+from ui_helpers import ADD_OWN_KEY, ADD_OWN_PLACE
+
 
 # Measurements wrap at four per row so a pilot with ten instrument readings
 # still fits on screen.
@@ -72,12 +85,12 @@ def _seed_mark(opt, size):
     project whose new round is number 1 again), and the seed was skipped
     every time.
 
-    An EMPTIED box is not an answer. There is no size of nothing: the round
-    keeps the amounts the box already moved, and clearing the stored size
-    while leaving those amounts would be worse than either. So the box is
-    re-seeded from the round's own size on the next run — it never sits
-    blank over a round that has one, saying nothing about the numbers
-    printed under it."""
+    An EMPTIED box is an answer only for a Round this session's box has
+    sized: it goes back to its generated amounts (unscale_round), as the
+    box's "?" says. Otherwise — a box that opened at the project's default
+    — it is re-seeded from that size on the next run: it never sits blank
+    over a round that has one, saying nothing about the numbers printed
+    under it."""
     return (opt.project_name, opt.pending_batch_no, size)
 
 
@@ -115,6 +128,18 @@ def _seed_batch_size(opt):
     emptied = size is not None and typed_batch_size(opt) is None
     if st.session_state.get(_SEEDED_TOTAL) == mark and not emptied:
         return
+    if (emptied and st.session_state.get(_SEEDED_TOTAL) == mark
+            and getattr(opt, 'pending_batch_total', None) is not None):
+        # The bench cleared a box this session had filled: the Round goes
+        # back to the amounts it was generated at, as the box's "?" says.
+        # Only the project's default (if any) is then put back in it.
+        opt.unscale_round()
+        size = _prefill(opt)
+        mark = _seed_mark(opt, size)
+        if size is None:
+            # Empty, not the 0.00 a cleared box posts back: the "?" beside
+            # it says what an empty box does.
+            st.session_state[_BATCH_SIZE_KEY] = None
     st.session_state[_SEEDED_TOTAL] = mark
     if size is not None:
         st.session_state[_BATCH_SIZE_KEY] = float(size)
@@ -148,11 +173,11 @@ def _previous_size_line(opt):
 
 
 def _unreachable(opt, typed):
-    """Why this size cannot be made, or "" when it can.
+    """Why this size cannot be made, or "" when it can — said as the size to
+    type instead, with what the Round is still made to.
 
-    The same arithmetic Set up's box does, in the same sentences, with the
-    noun of THIS box: a size outside what the allowed amounts add up to has
-    no answer, and no search can find one.
+    The same arithmetic Set up's box does: a size outside what the allowed
+    amounts add up to has no answer, and no search can find one.
 
     A project with a row written = rest has no top at all — that row takes
     whatever is left, so any size the other rows fit inside can be made —
@@ -164,21 +189,28 @@ def _unreachable(opt, typed):
     if typed is None:
         return ""
     lowest, highest = opt.total_reach()
+    stays = opt.batch_total_text(opt.open_round_size())
     if typed > highest:
-        return wording.total_not_reachable_at_most(
-            opt.batch_total_text(typed), opt.batch_total_text(highest),
-            noun=wording.BATCH_SIZE_NOUN)
+        return wording.batch_size_too_big(opt.batch_total_text(highest),
+                                          stays)
     if typed < lowest:
         balance = opt.balance_row_name()
         if balance is not None:
-            return wording.balance_would_go_negative(
-                balance, opt.batch_total_text(typed),
-                opt.batch_total_text(lowest),
-                unit=opt.unit_of(balance),
-                noun=wording.BATCH_SIZE_NOUN)
-        return wording.total_not_reachable_at_least(
-            opt.batch_total_text(typed), opt.batch_total_text(lowest),
-            noun=wording.BATCH_SIZE_NOUN)
+            return wording.batch_size_leaves_rest_below_zero(
+                balance, opt.batch_total_text(lowest),
+                opt.unit_of(balance), stays)
+        return wording.batch_size_too_small(opt.batch_total_text(lowest),
+                                            stays)
+    # Inside the allowed amounts, and still past what the Limits let them
+    # add up to: 'Butter + Sugar at most 45 g' holds 50 + 30 + 25 g to 95 g.
+    limited = opt.limited_total_reach()
+    if limited is not None:
+        if typed > limited[1] + 1e-9:
+            return wording.batch_size_past_limits(
+                opt.batch_total_text(limited[1]), stays)
+        if typed < limited[0] - 1e-9:
+            return wording.batch_size_under_limits(
+                opt.batch_total_text(limited[0]), stays)
     return ""
 
 
@@ -212,8 +244,7 @@ def _apply_batch_size(opt, typed):
         # bench typed with it (a reachable 120 after a refused 150 came back
         # as the old 100), and a box that changes under the hand is worse
         # than one holding a number the line beneath it explains.
-        return trouble + " " + wording.round_stays_at(
-            opt.batch_total_text(opt.open_round_size()))
+        return trouble
     opt.scale_round(typed)
     st.session_state[_SEEDED_TOTAL] = _seed_mark(opt, typed)
     return ""
@@ -236,8 +267,40 @@ def _any_value_typed(opt):
 def _incomplete(missing):
     st.button(wording.GENERATE_FORMULATIONS_DISABLED, disabled=True, key="generate")
     st.caption(missing)
-    if st.button(wording.BACK_TO_SETUP, key="back_to_setup"):
+    # The one button here that does something, so it is the lit one (spec
+    # 2026-09-30 §3, audit V3).
+    lit = not confirmation_open()
+    if st.button(wording.BACK_TO_SETUP, key="back_to_setup",
+                 type="primary" if lit else "secondary", disabled=not lit):
         go_to_tab(TAB_SETUP)
+
+
+def ask_alone(opt, **kwargs):
+    """opt.ask(**kwargs) holding insights.RNG_LOCK: no other tab's Insights
+    step can touch torch's global RNG while a Round is being made (review
+    B2; Plan A review B I-3). The lock is taken here, at the call site,
+    never inside ask().
+
+    The Round's generation is recorded here too (spec 2026-09-30-bo-views
+    §3.4, review B4): the seed, the rows and the regime ask() is about to
+    use, so "Why these suggestions" can rebuild its acquisition exactly,
+    and — once ask() has returned — the formulation numbers it issued, in
+    order, so a pick is known by its number and never by its Note (T3
+    I-2). Display metadata only, written after ask() has made the Round; a
+    failure to record it never stops Generate."""
+    with insights.RNG_LOCK:
+        try:
+            record = bo_views.generation_record(opt, kwargs.get("n_suggestions", 1))
+        except Exception:
+            record = None
+        out = opt.ask(**kwargs)
+    if record is not None and opt.pending_batch_no is not None:
+        try:
+            record["picks"] = [int(row['formulation']) for row in opt.pending_batch or []]
+            opt.record_generation(opt.pending_batch_no, record)
+        except Exception:
+            pass
+    return out
 
 
 def _generate(opt, n, batch_no=None, discarded=None):
@@ -247,8 +310,8 @@ def _generate(opt, n, batch_no=None, discarded=None):
             # retired, and ask() is told both before it opens the batch: a
             # batch renumbered afterwards had already spent the number it was
             # opened with, so the batch AFTER a regenerate skipped one.
-            opt.ask(n_suggestions=int(n), batch_no=batch_no,
-                    discarded=discarded)
+            ask_alone(opt, n_suggestions=int(n), batch_no=batch_no,
+                      discarded=discarded)
         except ValueError as e:
             st.error(str(e))
             return
@@ -264,27 +327,117 @@ def _generate(opt, n, batch_no=None, discarded=None):
     st.rerun()   # a rerun, never a tab move: Generate keeps you here
 
 
-def _no_batch(opt):
+# What the Generate count opens on before anything has been generated.
+_FIRST_COUNT = 3
+_COUNT_SEED = "_how_many_seed"
+
+
+def last_generate_count(opt):
+    """How many formulations the project's latest Generate asked for (its
+    Round's generation record), 1–10; 3 before the first (02 M1)."""
+    records = opt.generation_records()
+    if not records:
+        return _FIRST_COUNT
+    try:
+        n = int(records[max(records)].get("n", _FIRST_COUNT))
+    except (TypeError, ValueError):
+        return _FIRST_COUNT
+    return min(10, max(1, n))
+
+
+def _review_status(opt, due=None, lit=False):
+    """Review guide: one line above the suggestions (or above Generate) in
+    the Review cards' own words — 'Review: Predictions Reliable ·
+    Progress Flat' — and the link "Open Review". Red when a card is (Off,
+    Check panel first). Drawn while the workers fit as "Checking
+    predictions…", so the line is there from the first draw and never moves
+    the lit button under the pointer. True when drawn: its link is then
+    the screen's one link to Review (R-I4), and E2's and E3's sentences
+    keep their place without theirs.
+
+    `due`: a Round part-saved here and not yet reviewed (Save results kept
+    the Round open, so the reader lands back on this screen): the link is
+    then the button "Review Round N", lit (`lit`) until a result is typed,
+    when Save results is the lit one again.
+
+    v3 (owner: no verdicts, no forecasts on Make a round): only the
+    "Review Round N" button is left, while a Round is due its Review; the
+    cards' words line and its "Open Review" link are gone."""
+    if due is None:
+        return False
+    with st.container(horizontal=True, gap="small", vertical_alignment="center",
+                      key="review_status"):
+        st.button(wording.review_round_label(due), key="review_round_batch",
+                  type="primary" if lit else "secondary",
+                  disabled=confirmation_open(), help=wording.REVIEW_ROUND_HELP,
+                  on_click=ask_tab, args=(wording.TAB_INSIGHTS,))
+    return True
+
+
+def _review_lit(opt, due):
+    """Review guide: "Review Round N" is this screen's lit button while the
+    Round is due a Review and nothing is typed, uploaded or armed: the
+    sheets' rule (_downloads), which it then takes over from."""
+    return (due is not None and not _any_value_typed(opt) and not confirmation_open()
+            and not _upload_pending(opt))
+
+
+def _no_batch(opt, tab_open=False):
     # The opening value comes from session state (see app.py's _FORM_FRESH):
     # Streamlit warns on screen when a widget carries both a `value=` and a
     # session-state entry, and a project switch assigns these keys.
     # "how_many", not "batch_size": Batch size is the weight of one
     # formulation, and this box asks how many of them to make.
-    st.session_state.setdefault("how_many", 3)
+    #
+    # 02 M1: it opens on the count the project last generated. The box is
+    # not drawn while a Round is open, so Streamlit forgets it, and it came
+    # back at 3 after every Round. Seeded once per project and latest
+    # Round; a count typed here is the reader's until then.
+    records = opt.generation_records()
+    seed = (opt.project_name, max(records) if records else None)
+    if st.session_state.get(_COUNT_SEED) != seed or "how_many" not in st.session_state:
+        st.session_state["how_many"] = last_generate_count(opt)
+        st.session_state[_COUNT_SEED] = seed
     how_many = st.number_input(wording.for_project(opt, wording.FORMULATIONS_TO_GENERATE), min_value=1,
                                max_value=10, step=1, key="how_many")
     n = int(how_many)
     # While a confirmation is armed its "Yes" is the one coloured button, and
     # answering it is the one thing to do; generating can wait a click.
     lit = not confirmation_open()
+    # v3: no stop rule, so Generate is always the lit button here.
     if st.button(wording.for_project(opt, wording.generate_button_label(n)),
                  type="primary" if lit else "secondary",
                  disabled=not lit, key="generate") and lit:
         _generate(opt, n)
-    # One line for both sides of the fifth formulation, word for word the
-    # How it works bullet. Two captions for the two halves of one rule left
-    # a reader who had only seen one of them thinking there were two.
-    st.caption(wording.for_project(opt, wording.HOW_CHOSEN))
+    # v3: no Next step line here (it read the forecasts); Review's What
+    # next? says what to do.
+    # Only while it is news: before five formulations have results (spec
+    # 2026-09-30 §3, audit V16). Set up › Advanced › How it works keeps it.
+    if opt.complete_count() < COLD_START_RUNS:
+        st.caption(wording.for_project(opt, wording.first_formulations_caption(COLD_START_RUNS)),
+                   help=wording.for_project(opt, wording.HOW_CHOSEN_2))
+    line = _waiting_caption(opt)
+    if line:
+        st.caption(line)
+
+
+def _waiting_caption(opt):
+    """One line while any formulation waits (spec 2026-09-30 §3, audit
+    V17): '2 formulations are waiting for Cook loss (enter it on Results);
+    suggestions may land close to them.', plus why the suggestions still
+    cover the allowed amounts when that is the reason. The measurement is
+    named only when every waiting formulation waits for the same ones;
+    otherwise 'waiting for results'. In the project's own words: trials in
+    a project of process settings alone (final review M-1)."""
+    waiting = opt.awaited_rows()
+    if not waiting:
+        return ""
+    sets = {tuple(opt.waiting_on(i)) for i in waiting}
+    one = next(iter(sets)) if len(sets) == 1 else ()
+    line = wording.waiting_line(len(waiting), number_list(one), len(one) > 1)
+    if opt.complete_count() < COLD_START_RUNS <= len(opt.Y_history):
+        line += " " + wording.still_covering(COLD_START_RUNS)
+    return wording.for_project(opt, line)
 
 
 def _own_key(name):
@@ -315,7 +468,7 @@ def _own_recipe(opt):
     return recipe
 
 
-# What `Start from the best so far` typed into the boxes, and which
+# What `Start from Best so far` typed into the boxes, and which
 # formulation it came from. Kept so the form can say, before Add, that the
 # app's own numbers sit outside today's allowed amounts — and so that being
 # told off for them afterwards is not the first the reader hears of it.
@@ -338,11 +491,27 @@ def _start_from_best(opt, best_no):
     """Fill the boxes from the best formulation so far, and say in the note
     what the row is. Assigning the keys here would raise — the boxes already
     exist on this run — so the values are parked and land before they are
-    drawn on the next one."""
+    drawn on the next one. The amounts are at the Formulation total
+    (insights.start_recipe), the ones the model learned it at: a Best so
+    far made to a 500 g batch size opens at 100 g, not at 500 (spec
+    2026-09-30-bo-views §1, review M1)."""
+    if _fill_from(opt, best_no, park_clear):
+        st.rerun()
+
+
+def _fill_from(opt, best_no, put):
+    """Start from Best so far's filling, shared by its button (`put`:
+    park_clear, then a rerun) and the Repeat link's request (`put`: _put,
+    on the run that draws the boxes). Returns whether anything was
+    filled."""
     index = opt.index_of_formulation(best_no)
     if index is None:
-        return
-    recipe = opt.recipe_history[index]
+        return False
+    # At the total, but only the rows that formulation was recorded with
+    # (T1 review I2): start_recipe decodes every current row.
+    recorded_names = opt.recipe_history[index]
+    recipe = {k: v for k, v in insights.start_recipe(opt, index).items()
+              if k in recorded_names}
     prefilled = {}
     for var in opt.varying_variables():
         # A variable added after that formulation was recorded has no amount
@@ -353,19 +522,22 @@ def _start_from_best(opt, best_no):
         # screen: the boxes opened at 21.738359306488338.
         value = None if recorded is None else round(float(recorded), 2)
         prefilled[var['name']] = value
-        park_clear(_own_key(var['name']), value)
-    park_clear("own_note", wording.repeat_of_formulation(best_no))
+        put(_own_key(var['name']), value)
+    put("own_note", wording.repeat_of_formulation(best_no))
     st.session_state[_PREFILLED_FROM] = int(best_no)
     st.session_state[_PREFILLED_AMOUNTS] = prefilled
-    st.rerun()
+    return True
 
 
 def _add_own(opt):
     recipe = _own_recipe(opt)
     if recipe is None:
         # No rerun: the refusal stays on screen beside the boxes, and what
-        # was typed stays in them to be finished.
-        st.error(wording.ENTER_EVERY_AMOUNT)
+        # was typed stays in them to be finished. It names the boxes still
+        # empty, so nobody hunts down a column of them for the blank one.
+        blank = [var['name'] for var in opt.varying_variables()
+                 if st.session_state.get(_own_key(var['name'])) is None]
+        st.error(blank_amounts_message(opt, blank))
         return
     note = str(st.session_state.get("own_note") or "").strip()
     number = opt.add_to_pending_batch(recipe, note or wording.OWN_FORMULATION_NOTE)
@@ -388,17 +560,21 @@ def _add_own(opt):
 def _own_formulation(opt):
     """`Add a formulation of your own`: the formulation the scientist wants to
     try, added to the batch beside the generated ones. It replaced the Repeat
-    checkbox, which could only ever repeat the best one — `Start from the best
-    so far` does that in one click and leaves the amounts editable.
+    checkbox, which could only ever repeat the best one — `Start from Best so
+    far` does that in one click and leaves the amounts editable.
 
     Both buttons are secondary. One button per tab is the coloured one:
     Generate before a batch is open, Save results once it is.
     """
-    with st.expander(wording.for_project(opt, wording.ADD_OWN_EXPANDER)):
+    # Keyed, in a keyed place (ui_helpers.ADD_OWN_PLACE). Its boxes are
+    # drawn whether it is open or not, as before.
+    with st.container(key=ADD_OWN_PLACE), \
+            st.expander(wording.for_project(opt, wording.ADD_OWN_EXPANDER), key=ADD_OWN_KEY,
+                        on_change="rerun"):
         if not opt.pending_batch:
             # Adding one with nothing open opens the batch, so the order
             # matters: generated formulations can only join it first.
-            st.caption(wording.ADD_OWN_NO_BATCH_CAPTION)
+            st.caption(wording.ADD_OWN_NO_BATCH_CAPTION, help=wording.ADD_OWN_NO_BATCH_HELP)
         for var in opt.varying_variables():
             low, high = (float(b) for b in var['bounds'])
             # No min_value/max_value: clamping would turn a deliberate 30 g
@@ -434,13 +610,13 @@ def _own_formulation(opt):
         else:
             c1, c2 = st.columns(2)
             with c1:
-                if st.button(wording.START_FROM_BEST, key="start_from_best",
-                             disabled=blocked, use_container_width=True):
+                if st.button(wording.START_FROM_BEST_SO_FAR, key="start_from_best",
+                             disabled=blocked, width="stretch"):
                     _start_from_best(opt, best_no)
             with c2:
                 add = st.button(wording.ADD_TO_THIS_BATCH,
                                 key="add_own_formulation", disabled=blocked,
-                                use_container_width=True)
+                                width="stretch")
         if add:
             _add_own(opt)
 
@@ -458,7 +634,7 @@ def _worked_out_boxes(opt):
     worked = [v for v in opt.variables if opt.has_formula(v)]
     if not worked:
         return
-    st.caption(wording.WORKED_OUT_BOXES_CAPTION)
+    st.caption(wording.WORKED_OUT_BOXES_CAPTION, help=wording.WORKED_OUT_BOXES_HELP)
     typed = {var['name']: st.session_state.get(_own_key(var['name']))
              for var in opt.varying_variables()}
     filled = {}
@@ -482,8 +658,8 @@ def _worked_out_boxes(opt):
 
 
 def _prefilled_unchanged(opt):
-    """True while the boxes still hold exactly what Start from the best so
-    far typed into them. A number the reader has since changed is theirs,
+    """True while the boxes still hold exactly what Start from Best so far
+    typed into them. A number the reader has since changed is theirs,
     and the caution on the way in belongs to it."""
     prefilled = st.session_state.get(_PREFILLED_AMOUNTS)
     if not prefilled:
@@ -514,34 +690,425 @@ def _prefilled_caption(opt):
         st.caption(wording.prefilled_outside_caption(no))
 
 
-def _amount_format(opt, frame):
-    """How each column of the batch table is written out: two decimals for the
-    amounts and the total, because that is the precision a balance works to,
-    and fmt_setting for a process setting, because a cook temperature is
-    neither an amount nor 180.00 nor 188.494. The column header already
-    carries the setting's unit, so only the number is formatted here."""
-    settings = {opt._amount_column(v['name']) for v in opt.variables
-                if v.get('category') == 'process'}
-    # A total across several units is already written out ("10.00 g · 40.00
-    # ml"); formatting a string as a number would raise.
-    skip = {wording.FORMULATION_CAP, wording.NOTE} | {
-        c for c in frame.columns if frame[c].dtype == object}
-    return {c: (fmt_setting if c in settings else "{:.2f}")
-            for c in frame.columns if c not in skip}
-
-
 def _title(opt):
     """The batch's own heading, and the notice a regenerate owes the numbers
     it retired. Both are about the batch as a whole, so they come before the
     first step rather than inside it."""
-    st.markdown(wording.make_these(opt.pending_batch_no, len(opt.pending_batch)))
+    # In the project's own words (04 M-3): "Round 4 · Make 3 trials" in a
+    # project of process settings alone.
+    st.markdown(wording.for_project(opt, wording.make_these(
+        opt.pending_batch_no, len(opt.pending_batch))))
     if opt.pending_batch_discarded:
-        st.caption(wording.batch_discarded_caption(
+        st.caption(wording.for_project(opt, wording.batch_discarded_caption(
             number_list(opt.pending_batch_discarded),
-            len(opt.pending_batch_discarded) > 1))
+            len(opt.pending_batch_discarded) > 1)))
 
 
-def _batch_table(opt, scale_to):
+# ------------------------------------------------------------------ #
+#  v3 · the Round table (final-v3/2-make-round.png; wording.md §2): the
+#  rows are the ingredients and settings in Set up's order, the columns
+#  Best so far and then each formulation of the open Round. Each cell is
+#  the amount alone, its number orange when it is more than Best so far's
+#  by DIRECTION_SHARE of the row's allowed range or more, purple when it
+#  is less (owner, v3 final cleanup; it replaced the bracketed change and
+#  the grey shading). No forecasts on this screen (owner, v3): the model
+#  only picks.
+# ------------------------------------------------------------------ #
+
+# A change of at least this share of a row's allowed range (Lowest–Highest)
+# colours the number; _SHARE_TOL keeps 5 % up to float error at 5 %.
+DIRECTION_SHARE = 0.05
+_SHARE_TOL = 1e-9
+# Two Overall scores this close are the same score (ties are named).
+SCORE_TIE = 1e-6
+# Theme-keyed table colours: Best so far's column tint (blue = best so far
+# only). The direction colours are ui_insights.direction_colour's.
+_COMPARE_COLOURS = {
+    "light": {"best": "#e8f0fe"},
+    "dark": {"best": "#1c2a4a"},
+}
+
+
+def direction_of(change, span):
+    """'more' | 'less' when `change` is at least DIRECTION_SHARE of `span`
+    (with _SHARE_TOL), else ''."""
+    if span <= 0 or abs(change) / span < DIRECTION_SHARE - _SHARE_TOL:
+        return ""
+    return "more" if change > 0 else "less"
+
+
+@dataclass
+class CompareCell:
+    text: str            # what the cell says (lines joined by "\n")
+    share: float = 0.0   # |change from Best so far| / allowed range
+    tag: str = ""        # wording.AT_UPPER_LIMIT / AT_LOWER_LIMIT / ""
+    direction: str = ""  # 'more' | 'less' | '' (direction_of)
+
+
+@dataclass
+class RoundCompare:
+    rows: list           # the row labels, the Total last when there is one
+    columns: list        # the column headers, Best so far first when there is one
+    cells: list          # [column][row] CompareCell
+    best_no: int | None  # the best shown (first made on a tie), None in the cold start
+    tied: list           # the other formulations tied with it
+    row_header: str
+    unit: str | None     # the one unit every row shares, else None
+    numbers: list        # [(suggestion k, formulation number)] relabelled columns
+    formulations: list   # the formulation number of each column after Best so far
+    total_row: bool
+
+
+def best_shown(opt):
+    """(index, [tied formulation numbers]) of Best so far as this screen
+    names it: on a tie (scores within SCORE_TIE) the first made, the others
+    named. (None, []) with no best."""
+    best = opt.best_index()
+    if best is None:
+        return None, []
+    top = float(opt.Y_history[best])
+    tied = sorted((int(opt.formulation_ids[i]), i) for i in opt.best_candidates()
+                  if abs(float(opt.Y_history[i]) - top) <= SCORE_TIE)
+    first = tied[0][1] if tied else best
+    return first, [no for no, i in tied if i != first]
+
+
+def _compare_index(opt):
+    """Best so far's index while the Round is compared with it: past the
+    cold start, with its amounts on file. Else None."""
+    if opt._best_to_compare() is None:
+        return None
+    first, _ = best_shown(opt)
+    if first is None or first >= len(opt.recipe_history):
+        return None
+    return first
+
+
+def _total_limit(opt):
+    """(lowest, highest) of the limit over every ingredient (the total), or
+    None. Either end may be None."""
+    if opt.has_formulation_total():
+        # The total typed in Set up, as its own number (limit_text writes it
+        # so), not the band it is enforced as.
+        return float(opt.formulation_total), float(opt.formulation_total)
+    names = {v['name'] for v in opt._ingredients()}
+    for qc in getattr(opt, 'quantity_constraints', None) or []:
+        if names and set(qc.get('ingredients') or []) == names:
+            lo, hi = qc.get('min'), qc.get('max')
+            if qc.get('exactly') is not None and lo is None and hi is None:
+                lo = hi = qc['exactly']
+            if lo is not None or hi is not None:
+                return lo, hi
+    return None
+
+
+def _limit_tag(var, value):
+    """AT_UPPER_LIMIT / AT_LOWER_LIMIT when `value` (at the Formulation
+    total) sits on the row's Highest / Lowest; '' otherwise and for a fixed
+    row."""
+    try:
+        lo, hi = (float(b) for b in var['bounds'])
+        v = float(value)
+    except (KeyError, TypeError, ValueError):
+        return ""
+    span = hi - lo
+    if span <= 0:
+        return ""
+    near = lambda b: abs(v - b) <= max(1e-6 * (1.0 + abs(b)), 1e-4 * span)
+    if near(hi):
+        return wording.AT_UPPER_LIMIT
+    if near(lo):
+        return wording.AT_LOWER_LIMIT
+    return ""
+
+
+def _number(opt, var, value):
+    """An amount to two decimals; a setting as its dial reads (fmt_setting)."""
+    if var.get('category') == 'process':
+        return fmt_setting(value)
+    return f"{float(value):.2f}"
+
+
+def _as_float(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def suggestion_numbers(opt):
+    """{formulation number: k} for the open Round's app suggestions while no
+    row of it is recorded (or set aside): Make a round's table and its record
+    grid call them 'Suggestion 1', 2, 3 in that order. A row of the user's
+    own keeps its number; the workbook, the upload and the records keep
+    every formulation's number. Empty once anything is recorded."""
+    rows = list(opt.pending_batch or [])
+    if not rows or len(open_rows(opt)) != len(rows):
+        return {}
+    out = {}
+    for row in rows:
+        if not row.get('note'):
+            out[int(row['formulation'])] = len(out) + 1
+    return out
+
+
+def _column_label(opt, row, k):
+    """'Suggestion k' for an app suggestion not yet made (k given), else
+    'F16'; with ' · Less-tried area' when the distance rule says it
+    explores."""
+    label = wording.suggestion_column(k) if k else wording.short_no(row['formulation'])
+    try:
+        role = opt.suggestion_role(row['recipe'])
+    except Exception:
+        role = None
+    if role == wording.SUGGESTION_DIFFERENT:
+        label = f"{label} · {wording.LESS_TRIED}"
+    return label
+
+
+def round_compare(opt, scale_to=None):
+    """The open Round's table, worked out (no Streamlit): see RoundCompare.
+    Amounts as the bench weighs them (shown_recipe, at `scale_to`); the
+    change from Best so far, its direction and the limit tags read at the
+    Formulation total, so they never move with the Batch size box."""
+    variables = list(opt.variables)
+    rows = list(opt.pending_batch or [])
+    # One unit down the whole table: in the header, once. Otherwise each
+    # row carries its own ('Bake time (min)').
+    unit = opt.one_amount_unit() if not opt._process_settings() else None
+    labels = ([wording.worked_out_label(v['name']) if opt.has_formula(v) else v['name']
+               for v in variables] if unit else
+              [opt._amount_column(v['name'], mark=True) for v in variables])
+    best = _compare_index(opt)
+    _, tied = best_shown(opt) if best is not None else (None, [])
+    # Suggestions not yet made are numbered 1, 2, 3 on screen (no row of the
+    # Round recorded yet); a row of the user's own keeps its number.
+    shown_as = suggestion_numbers(opt)
+    columns, cells, numbers = [], [], []
+    with_total = opt.has_ingredients()
+    limit = _total_limit(opt) if with_total else None
+    total_label = None
+    if with_total:
+        one = opt.one_amount_unit()
+        if limit is not None and one is not None:
+            total_label = wording.total_row(
+                None if limit[0] is None else f"{float(limit[0]):.2f}",
+                None if limit[1] is None else f"{float(limit[1]):.2f}", one)
+        else:
+            total_label = wording.total_row(unit=one or "")
+
+    def total_cell(recipe):
+        value = opt._total_cell(recipe)
+        return CompareCell(f"{value:.2f}" if isinstance(value, (int, float)) else str(value))
+
+    ref = ref_total = None
+    if best is not None:
+        made = opt._recorded_recipe(best)
+        ref = opt.scaled_recipe(made, scale_to) if scale_to is not None else made
+        ref_total = insights.start_recipe(opt, best)
+        score = float(opt.Y_history[best])
+        columns.append(wording.best_column(int(opt.formulation_ids[best]), f"{score:.1f}"))
+        col = []
+        for v in variables:
+            x = _as_float(ref.get(v['name']))
+            col.append(CompareCell("" if x is None else _number(opt, v, x)))
+        if with_total:
+            col.append(total_cell(ref))
+        cells.append(col)
+    for row in rows:
+        k = shown_as.get(int(row['formulation']))
+        if k:
+            numbers.append((k, int(row['formulation'])))
+        columns.append(_column_label(opt, row, k))
+        shown, _ = opt.shown_recipe(row, scale_to)
+        at_total = insights.at_total(opt, row['recipe'])
+        col = []
+        for v in variables:
+            name = v['name']
+            x = _as_float(shown.get(name))
+            if x is None:
+                col.append(CompareCell(str(shown.get(name, ""))))
+                continue
+            text = _number(opt, v, x)
+            share, way = 0.0, ""
+            if ref is not None:
+                a, b = _as_float(at_total.get(name)), _as_float(ref_total.get(name))
+                try:
+                    lo, hi = (float(e) for e in v['bounds'])
+                except (KeyError, TypeError, ValueError):
+                    lo = hi = 0.0
+                if a is not None and b is not None and hi > lo:
+                    share = abs(a - b) / (hi - lo)
+                    way = direction_of(a - b, hi - lo)
+            tag = _limit_tag(v, at_total.get(name))
+            if tag:
+                text += "\n" + tag
+            col.append(CompareCell(text, share, tag, way))
+        if with_total:
+            col.append(total_cell(shown))
+        cells.append(col)
+    if with_total:
+        labels = labels + [total_label]
+    return RoundCompare(
+        rows=labels, columns=columns, cells=cells,
+        best_no=None if best is None else int(opt.formulation_ids[best]), tied=tied,
+        row_header=wording.compare_row_header(unit), unit=unit, numbers=numbers,
+        formulations=[int(r['formulation']) for r in rows], total_row=with_total)
+
+
+def compare_styles(table, which="light"):
+    """[column][row] CSS for the table in theme `which`: Best so far's
+    column blue; a number with a direction in its colour (more orange, less
+    purple: ui_insights.direction_colour); everything else plain."""
+    tokens = _COMPARE_COLOURS[which]
+    out = []
+    best = table.best_no is not None
+    for c, col in enumerate(table.cells):
+        css = []
+        for r, cell in enumerate(col):
+            parts = ["text-align: center !important"]
+            total = table.total_row and r == len(col) - 1
+            if best and c == 0:
+                parts.append(f"background-color: {tokens['best']}")
+            elif cell.direction and not total:
+                kind = "above" if cell.direction == "more" else "below"
+                parts.append(f"color: {ui_insights.direction_colour(kind, which)}")
+            css.append("; ".join(parts))
+        out.append(css)
+    return out
+
+
+def limit_tag_style(which="light"):
+    """The table style for a cell's limit line (drawn as *at upper limit*):
+    always the theme's muted grey, smaller than the number and upright,
+    whatever colour the number has (owner, v3 final cleanup)."""
+    grey = ui_insights._MUTED_DARK if which == "dark" else ui_insights._MUTED_LIGHT
+    return {"selector": "td em",
+            "props": f"color: {grey} !important; font-size: 0.8em; font-style: normal"}
+
+
+def compare_frames(opt, table, which="light"):
+    """(cells, css): two frames of one shape, the row labels as the index,
+    in the project's own words (Trial, T10 in a study of trials). st.table
+    draws each cell as Markdown: a number with a direction is bold, a limit
+    tag goes on a line of its own (a hard break) in emphasis, which
+    limit_tag_style draws muted and small, and the Total row is bold."""
+    say = lambda text: ui_insights._short(opt, text)
+    last = len(table.rows) - 1 if table.total_row else None
+    bold = lambda text, r: f"**{text}**" if r == last and text else text
+
+    def shown(cell, r):
+        number, _, tag = cell.text.partition("\n")
+        if cell.direction and number and r != last:
+            number = f"**{number}**"
+        text = bold(number, r)
+        return f"{text}  \n*{tag}*" if tag else text
+    index = pd.Index([bold(say(r), k) for k, r in enumerate(table.rows)],
+                     name=say(table.row_header))
+    columns = [say(c) for c in table.columns]
+    cells = pd.DataFrame({c: [shown(cell, r) for r, cell in enumerate(col)]
+                          for c, col in zip(columns, table.cells)}, index=index)
+    css = pd.DataFrame({c: col for c, col in zip(columns, compare_styles(table, which))},
+                       index=index)
+    return cells, css
+
+
+def pilot_engine_picks(opt):
+    """Whether the open Round is the yogurt pilot's engine picks: what
+    CHOSEN_IN_PILOT says under its title."""
+    return (sample_projects.is_yogurt(opt.project_name)
+            and any(sample_projects.ENGINE_PICK in str(r.get('note') or "")
+                    for r in opt.pending_batch or []))
+
+
+def _improve_caption(opt, table):
+    """The caption under the Round title, and the pilot's engine line."""
+    say = lambda text: ui_insights._short(opt, text)
+    rows = opt.pending_batch or []
+    suggested = any(not r.get('note') for r in rows)
+    picked = pilot_engine_picks(opt)
+    if table.best_no is None:
+        if suggested:
+            st.caption(say(wording.COVER_CAPTION), help=say(wording.HOW_CHOSEN_2))
+    elif suggested or picked:
+        nos = sorted([table.best_no] + list(table.tied))
+        st.caption(say(wording.improve_on_caption(nos)),
+                   help=say(wording.improve_on_help(nos)))
+    if picked:
+        st.caption(wording.CHOSEN_IN_PILOT)
+
+
+def _draw_compare(opt, table):
+    """The table, then its key with the rest in the key's "?"."""
+    say = lambda text: ui_insights._short(opt, text)
+    cells, css = compare_frames(opt, table, ui_insights.theme())
+    styled = cells.style.apply(lambda _: css, axis=None).set_table_styles(
+        [{"selector": "thead th", "props": "text-align: center !important"},
+         limit_tag_style(ui_insights.theme())])
+    if table.tied:
+        # The tie in the Best so far column's cells' "?" (st.table draws no
+        # header help); the key's "?" says it too.
+        tip = say(wording.best_tied_help(table.best_no, table.tied))
+        tips = pd.DataFrame("", index=cells.index, columns=cells.columns)
+        tips[cells.columns[0]] = tip
+        styled = styled.set_tooltips(tips)
+    st.table(styled)
+    if table.best_no is None:
+        return
+    row = "ingredient" if opt.has_ingredients() else "setting"
+    pct = DIRECTION_SHARE * 100
+    tips = [wording.compare_key_help(table.best_no, pct, row)]
+    if table.tied:
+        tips.append(wording.best_tied_help(table.best_no, table.tied))
+    if any(wording.LESS_TRIED in c for c in table.columns):
+        from food_bo import FAR_FROM_TESTED
+        tips.append(wording.less_tried_help(round(FAR_FROM_TESTED * 100)))
+    if table.numbers:
+        tips.append(wording.SUGGESTION_NUMBERS_HELP)
+    # Minor 15 (2026-09-29 review): a suggestion that nearly repeats a
+    # formulation still waiting for results, named by its column.
+    prefixes = _near_copy_prefixes(opt, opt.pending_batch)
+    for label, no in zip(table.columns[len(table.columns) - len(table.formulations):],
+                         table.formulations):
+        if no in prefixes:
+            tips.append(f"{label.split(' · ')[0]}: {prefixes[no].strip()}")
+    st.html(ui_insights.DIRECTION_KEY_STYLE)
+    st.caption(ui_insights.direction_key_html(
+        "", say(wording.compare_key_more(table.best_no)),
+        say(wording.compare_key_less(table.best_no)), wording.compare_key_plain(pct)),
+        help=say(" ".join(tips)), unsafe_allow_html=True)
+
+
+def _near_copy_prefixes(opt, batch):
+    """{Formulation number: prefix text} for every suggestion in `batch`
+    that nearly repeats a formulation still waiting for results (Minor 15,
+    2026-09-29 review) — never for the user's own formulations, which carry
+    a note. Screen only: v3 says it in the Round table key's "?"; the
+    workbook never carries it.
+
+    Routed through `wording.for_project`: a process-only study's table calls
+    every row a Trial, and the prefix has to use the same word for the row
+    it names, or a cell reads 'Nearly the same as Formulation 7' beside a
+    table that has never once said Formulation.
+
+    During the cold start there is no Compared with column to prefix at all
+    (batch_frame drops it, COMPARED_WITH_ALLOWED), so nothing here would
+    ever be read; skipped rather than computed and thrown away."""
+    if opt.compared_with_column() == wording.COMPARED_WITH_ALLOWED:
+        return {}
+    prefixes = {}
+    for row in opt._batch_rows(batch):
+        if row.get('note'):
+            continue
+        match = insights.near_copy(opt, row['recipe'])
+        if match is not None:
+            prefixes[row['formulation']] = wording.for_project(
+                opt, wording.near_copy_prefix(
+                    match.formulation, number_list(match.waiting_on)))
+    return prefixes
+
+
+def _batch_table(opt, scale_to, tab_open=False, table=None):
     """The make-these table and the lines it owes the reader.
 
     Nothing is rewritten to make a row add up: a suggestion that could not be
@@ -554,6 +1121,9 @@ def _batch_table(opt, scale_to):
     With no total in force at all, one line says so. The cold read watched a
     batch come out at 73 to 89 g with nothing on the screen to say the 100 g
     rule had stopped applying.
+
+    v3: drawn as round_compare's table (ingredients down, Best so far and
+    the Round across), never with a forecast. Returns (editing, None).
     """
     frame = opt.batch_frame(opt.pending_batch, scale_to=scale_to)
     edit_key = f"edit_round_{opt.project_name}_{opt.pending_batch_no}"
@@ -563,15 +1133,13 @@ def _batch_table(opt, scale_to):
             st.session_state[edit_key] = True
             preserve_tab_forms()
             st.rerun()
-        st.caption(wording.for_project(opt, wording.EDIT_FORMULATIONS_HINT))
-        st.dataframe(frame.style.format(_amount_format(opt, frame)),
-                     column_config={wording.FORMULATION_CAP: st.column_config.Column(
-                         wording.for_project(opt, wording.FORMULATION_CAP))},
-                     hide_index=True, key="batch_table", height=table_height(len(frame)))
+        _draw_compare(opt, table if table is not None else round_compare(opt, scale_to))
     else:
         st.info(wording.for_project(opt, wording.EDIT_FORMULATIONS_ACTIVE), icon=":material/edit:")
         st.caption(wording.EDIT_FORMULATIONS_CAPTION)
         editable_numbers = {row["formulation"] for row in open_rows(opt)}
+        # v3: amounts only; the role words are not on this screen.
+        frame = frame.drop(columns=[opt.compared_with_column()], errors="ignore")
         frame = frame[frame["Formulation"].isin(editable_numbers)].reset_index(drop=True)
         independent = {opt._amount_column(v['name'], mark=True): v['name']
                        for v in opt.variables if not opt.has_formula(v)}
@@ -584,7 +1152,7 @@ def _batch_table(opt, scale_to):
         edited = st.data_editor(frame, hide_index=True, num_rows="fixed",
                                column_config=columns,
                                disabled=[c for c in frame if c not in independent],
-                               key=edit_key + "_grid", use_container_width=True)
+                               key=edit_key + "_grid", width="stretch", placeholder="")
         save, cancel = st.columns(2)
         if save.button("Save changes", key=edit_key + "_save", type="primary"):
             changes = {}
@@ -601,7 +1169,7 @@ def _batch_table(opt, scale_to):
                 if saved_ok(opt):
                     st.session_state[edit_key] = False
                     st.session_state.pop(edit_key + "_grid", None)
-                    flash("success", "Formulations saved. Download a new workbook before preparing this round.")
+                    flash("success", wording.FORMULATIONS_SAVED_NEW_WORKBOOK)
                     preserve_tab_forms()
                     st.rerun()
         if cancel.button("Cancel", key=edit_key + "_cancel"):
@@ -613,22 +1181,27 @@ def _batch_table(opt, scale_to):
     # table, two of them about the size, used to sit with the one that is
     # not in the middle of them.
     if scale_to is None:
-        if opt.has_ingredients():
+        # Only where the Batch size box is offered: with ingredients in
+        # different units there is no box, and NEEDS_ONE_UNIT says why.
+        if opt.has_ingredients() and opt.one_amount_unit() is not None:
             st.caption(wording.NO_BATCH_SIZE_OF_ITS_OWN)
     else:
         for line in opt.total_mismatch_lines(opt.pending_batch, scale_to):
             st.caption(line)
-    # Planned edits and actual bench corrections are distinct actions.
-    if not editing and opt.records("actual"):
-        st.caption(wording.for_project(opt, wording.FORMULATION_CORRECTIONS_CAPTION))
-    # The what-is-it-trying column is not drawn during the cold start (every
-    # cell under it repeated its own header); this is the line that says what
-    # those formulations are instead.
-    if opt.compared_with_column() == wording.COMPARED_WITH_ALLOWED:
-        st.caption(wording.for_project(opt, wording.HOW_CHOSEN))
+    # v3: the cold start's line (HOW_CHOSEN_2) is the "?" of the caption
+    # under the title, and the table's key says what it is compared with.
+    return editing, None
 
 
-    return editing
+def own_round_caption(rows):
+    """Persona fixes 2: a Round of the user's own rows says where they came
+    from — "only your own formulations" only when no row carries a note of
+    its own (the default note the app types does not count); else the
+    entered line that points at the notes."""
+    notes = {str(r.get('note') or "").strip() for r in rows}
+    if notes - {"", wording.OWN_FORMULATION_NOTE}:
+        return wording.ENTERED_ROUND_CAPTION
+    return wording.ONLY_OWN_FORMULATIONS_CAPTION
 
 
 def _scaled_cautions(opt, rows, scale_to, sized):
@@ -670,7 +1243,9 @@ def _batch_size_control(opt, unit, typed, scale_to, sized, refusal=""):
         min_value=0.0, step=1.0, placeholder=wording.BATCH_SIZE_PLACEHOLDER,
         key=_BATCH_SIZE_KEY,
         disabled=bool(st.session_state.get(f"edit_round_{opt.project_name}_{opt.pending_batch_no}")),
-        help=wording.batch_size_help(unit),
+        # Empty, it sizes nothing, so its "?" says what empty does.
+        help=(wording.batch_size_help(unit) if typed is not None
+              else wording.BATCH_SIZE_EMPTY_HELP),
     )
     line = _previous_size_line(opt)
     if line:
@@ -684,6 +1259,23 @@ def _batch_size_control(opt, unit, typed, scale_to, sized, refusal=""):
     # The size is what pushed an amount out of what the project allows, so
     # the line reads under the box that did it.
     _scaled_cautions(opt, opt.pending_batch, scale_to, sized)
+
+
+def _has_preparation_sheet(book):
+    """The workbook offered has a Preparation sheet: read from the file
+    itself, so the line under the download lists the sheets it really has.
+
+    Only the file's sheet list (xl/workbook.xml) is read, and the archive is
+    closed after it: a read-only openpyxl workbook was opened on every rerun
+    and never closed. The bytes differ on each rerun (the file's own
+    timestamps), so there is nothing to keep between reruns."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(book)) as archive:
+            root = ElementTree.fromstring(archive.read("xl/workbook.xml"))
+    except Exception:            # an unreadable file: the two-sheet line stands
+        return False
+    names = {el.get("name") for el in root.iter() if el.tag.endswith("}sheet")}
+    return wording.PREPARATION_SHEET in names
 
 
 def _downloads(opt, scale_to, sized, said_size=False):
@@ -704,23 +1296,27 @@ def _downloads(opt, scale_to, sized, said_size=False):
     rows = opt.pending_batch
     # The sheets are the lit thing until the first result is typed, and they
     # step aside while a confirmation is waiting for an answer.
-    lit = not _any_value_typed(opt) and not confirmation_open()
+    lit = (not _any_value_typed(opt) and not confirmation_open()
+           and not _upload_pending(opt) and review_due(opt) is None)
     print_pack = st.checkbox(wording.for_project(opt, wording.PRINT_PACK_CHECKBOX), key="workbook_print_pack")
-    st.caption(wording.WORKBOOK_WORKFLOW_CAPTION)
-    # The caption follows the box: the file a tick produces has no sheet
-    # called Results, and the line above it went on naming one.
-    st.caption(wording.PRINT_PACK_WORKBOOK_CAPTION if print_pack
-               else wording.COMPACT_WORKBOOK_CAPTION)
+    book = opt.workbook_bytes(rows, scale_to, sized, print_pack=print_pack)
     st.download_button(
         wording.DOWNLOAD_BATCH_SHEETS,
-        data=opt.workbook_bytes(rows, scale_to, sized, print_pack=print_pack),
+        data=book,
         file_name=wording.workbook_file_name(opt.project_name,
                                              opt.pending_batch_no),
         mime=WORKBOOK_MIME, key="download_batch_sheets",
         type="primary" if lit else "secondary",
-        use_container_width=True,
+        width="stretch",
         on_click=_sheets_are_out,
+        help=wording.for_project(opt, wording.workbook_tabs_help(print_pack)),
     )
+    # v3: one line under the button naming the sheets (it follows the box:
+    # the file a tick produces has no Results sheet); the pre-mix sheet and
+    # the tick in its "?".
+    st.caption(wording.for_project(opt, wording.workbook_sheets(
+                   print_pack, preparation=_has_preparation_sheet(book))),
+               help=wording.for_project(opt, wording.workbook_sheets_help(print_pack)))
     if scale_to is not None and not said_size:
         # The file carries the amounts on screen, so the size it was written
         # for is named directly under it — unless the refusal above the
@@ -769,7 +1365,9 @@ def _recorded_row(opt, number, ordered):
                   unit_after_number(o.get('unit')))
         for o in ordered if o['name'] in results
     )
-    unmeasured = [o['name'] for o in ordered if o['name'] not in results]
+    # Only what it still waits for: a measurement added after this row was
+    # recorded was never expected of it.
+    unmeasured = opt.waiting_on(index) if index is not None else []
     if unmeasured:
         # Named, not "partial": the row has room to say which measurement
         # nobody took, and the reader would otherwise have to go and look.
@@ -801,12 +1399,34 @@ def _record_results(opt):
             st.session_state[f'f{number}_note'] = draft.get('note', row.get('note') or '')
             st.session_state[f'f{number}_leave_out'] = draft.get('not_scored', False)
         st.session_state['_result_draft_seed'] = seed
-    st.caption(wording.RECORD_RESULTS_CAPTION)
+    else:
+        # 05 N1: a save on Set up reruns from ABOVE this tab, and Streamlit
+        # drops the state of every box that run did not reach. The seed is
+        # unchanged (a Highest widened, a unit corrected), so without this
+        # the boxes came back empty and the empty boxes were then saved over
+        # the drafts on file. Only a box with no state at all is filled, and
+        # only from what was saved: one the reader is typing in is theirs.
+        for row in to_record:
+            number = row['formulation']
+            draft = opt.result_drafts.get(number, {})
+            for obj in ordered:
+                key = _result_key(number, obj['name'])
+                if key not in st.session_state:
+                    st.session_state[key] = draft.get('results', {}).get(obj['name'])
+            if f'f{number}_note' not in st.session_state:
+                st.session_state[f'f{number}_note'] = draft.get('note', row.get('note') or '')
+            if f'f{number}_leave_out' not in st.session_state:
+                st.session_state[f'f{number}_leave_out'] = draft.get('not_scored', False)
+    st.caption(wording.RECORD_RESULTS_LINE, help=wording.RECORD_RESULTS_HELP)
     left_out, entered, partly = set(), 0, 0
+    # As the table above names them: 'Suggestion 1' until a row is recorded.
+    shown_as = suggestion_numbers(opt)
 
     for row in rows:
         number = row['formulation']
-        st.markdown(wording.for_project(opt, wording.formulation_heading(number)))
+        k = shown_as.get(int(number))
+        st.markdown(wording.for_project(opt, wording.suggestion_heading(k) if k
+                                        else wording.formulation_heading(number)))
         if number not in open_numbers:
             _recorded_row(opt, number, ordered)
             st.divider()
@@ -830,7 +1450,7 @@ def _record_results(opt):
                                             None)
                 value = st.number_input(
                     f"{entry_label(obj['name'], obj.get('unit'))} · "
-                    f"{goal_line(obj)}",
+                    f"{goal_shown(obj)}",
                     placeholder=f"{obj['min_val']:g}–{obj['max_val']:g}",
                     key=_result_key(number, obj['name']), disabled=skip,
                 )
@@ -847,13 +1467,19 @@ def _record_results(opt):
         if row.get('note'):
             # A repeat of the best formulation arrives already saying so.
             st.session_state.setdefault(f"f{number}_note", row['note'])
-        # Never disabled: why a formulation was not scored is the only
-        # record of what went wrong, and a Note that greys out on the tick
-        # can only be typed by someone who knew to type it first.
-        st.text_input(wording.NOTE, key=f"f{number}_note")
-        # Last in the row, per spec: the boxes the user came to fill come first.
-        st.checkbox(wording.NOT_SCORED, key=f"f{number}_leave_out",
-                    help=wording.NOT_SCORED_HELP)
+        # Note and Not scored behind one "More" per formulation (spec
+        # 2026-09-30 §3, audit V11): the boxes the user came to fill come
+        # first. The label says what is set inside, and the fold opens when
+        # Not scored is ticked or a note was typed here (review M11).
+        note = str(st.session_state.get(f"f{number}_note") or "").strip()
+        with st.expander(wording.more_label(skip, bool(note)),
+                         expanded=skip or note not in ("", str(row.get('note') or "").strip())):
+            # Never disabled: why a formulation was not scored is the only
+            # record of what went wrong, and a Note that greys out on the
+            # tick can only be typed by someone who knew to type it first.
+            st.text_input(wording.NOTE, key=f"f{number}_note")
+            st.checkbox(wording.NOT_SCORED, key=f"f{number}_leave_out",
+                        help=wording.NOT_SCORED_TICK_HELP)
         if not skip:
             # Complete means EVERY measurement has a number. One of three
             # typed is not a third of a result, and counting it as complete
@@ -880,7 +1506,7 @@ def _record_results(opt):
             and drafts.get(r['formulation'], {}).get('results')]
     ready = bool(kept)
     if to_record and len(left_out) == len(to_record):
-        st.info(wording.for_project(opt, wording.NOTHING_TO_SAVE))
+        st.info(wording.for_project(opt, wording.nothing_to_save(len(to_record))))
     # "complete", not "to record": this counts the rows that HAVE every
     # measurement, and every other screen uses "to record" for the rows that
     # do not ("Back to Round 2 · 2 to record"). One word could not mean both.
@@ -905,14 +1531,22 @@ def _save_results(opt, kept, left_out, to_record):
     # Check every value against its range before writing anything: a
     # half-saved batch is worse than a refused one.
     typed = {}
+    # The refusal lands under the whole grid, so it names the row as the
+    # row's own heading does: 'Suggestion 1' until anything is recorded.
+    shown_as = suggestion_numbers(opt)
     for row in kept:
         number = row['formulation']
         results = {}
         for obj in opt.objectives:
             value = st.session_state.get(_result_key(number, obj['name']))
-            problem = scale_error(obj, value)
+            k = shown_as.get(int(number))
+            problem = scale_error(
+                obj, value,
+                label=(f"{wording.suggestion_column(k)}: {obj['name']}" if k
+                       else wording.formulation_measurement(number,
+                                                            obj['name'])))
             if problem:
-                st.error(problem)
+                st.error(wording.for_project(opt, problem))
                 return
             results[obj['name']] = value
         typed[number] = results
@@ -944,17 +1578,33 @@ def _save_results(opt, kept, left_out, to_record):
     if not saved_ok(opt):
         # A move would rerun past app.py's end-of-script check and hide it.
         return
+    saved = [row['formulation'] for row in kept]
+    _after_save(opt, batch_no)
     if open_rows(opt):
         flash('success', wording.upload_partial_flash(
             len(kept) + len(left_out), len(opt.pending_batch),
-            batch_no, len(open_rows(opt))))
+            batch_no, len(open_rows(opt))), sticky=True)
+        flash_waiting(opt, saved, sticky=True)
+        # The reader is at Save results, far below the line (01 O3).
+        st.session_state[SCROLL_KEY] = "top"
         st.rerun()
     opt.set_pending_batch(None)
     clear_scale_total()
     if not saved_ok(opt):
         return
-    flash("success", wording.batch_recorded_flash(batch_no))
+    flash("success", wording.batch_recorded_flash(batch_no), sticky=True)
+    flash_waiting(opt, saved, sticky=True)
     go_to_tab(TAB_RESULTS)
+
+
+def _after_save(opt, batch_no=None):
+    """After Save results or Save uploaded results (review I10): Results'
+    View formulation box back on Best so far (ui_results.reset_view); and
+    (review guide) the Round now due a Review, whole or part saved."""
+    import ui_results     # ui_results is a sibling tab, drawn after this one
+    ui_results.reset_view(opt)
+    if batch_no is not None:
+        st.session_state[REVIEW_DUE_KEY] = batch_no
 
 
 def _read_results_file(opt, uploaded):
@@ -999,7 +1649,7 @@ def _upload_preview(opt, parsed, left_out, weighed=None, lots=None):
         {c: _blank_or_number for c in frame.columns
          if frame[c].dtype != object and c != wording.FORMULATION_CAP}),
         hide_index=True, key="upload_preview",
-        height=table_height(len(frame)))
+        height=table_height(len(frame)), placeholder="")
     by_number = {r['formulation']: r['recipe'] for r in opt.pending_batch}
     imported = {no for no, _, _ in parsed} | {no for no, _ in left_out}
     if weighed:
@@ -1042,11 +1692,11 @@ def _upload_preview(opt, parsed, left_out, weighed=None, lots=None):
                 st.dataframe(frame, hide_index=True, key='upload_amounts_preview',
                     column_config={c: st.column_config.NumberColumn(c, format='%.2f')
                         for c in frame.columns if c not in
-                        (wording.FORMULATION_CAP, wording.NAME_LABEL, wording.UNIT_LABEL)})
+                        (wording.FORMULATION_CAP, wording.NAME_LABEL, wording.UNIT_LABEL)}, placeholder="")
     if lots:
         with st.expander(wording.UPLOAD_LOTS_HEADING):
             st.dataframe(pd.DataFrame([{wording.NAME_LABEL: name, wording.LOT_COLUMN: lot}
-                for name, lot in lots.items()]), hide_index=True, key='upload_lots_preview')
+                for name, lot in lots.items()]), hide_index=True, key='upload_lots_preview', placeholder="")
 
 
 def _blank_or_number(value):
@@ -1063,6 +1713,29 @@ def _blank_or_number(value):
 _SHEETS_DOWNLOADED = "_sheets_downloaded"
 
 
+def _file_mark(opt, sheet_file):
+    """Which file, for which project and Round: read again only when it
+    changes."""
+    return (opt.project_name, hashlib.sha256(sheet_file.getvalue()).hexdigest(),
+            json.dumps(opt.pending_batch, sort_keys=True, default=str))
+
+
+def _upload_key(opt):
+    return f"results_file_{opt.project_name}"
+
+
+def _upload_pending(opt):
+    """Whether an uploaded results file is the next step (02 M5): read and
+    waiting for Save uploaded results, or new and read further down this
+    run. A file already read and refused is not."""
+    if st.session_state.get("_results_upload") is not None:
+        return True
+    sheet_file = st.session_state.get(_upload_key(opt))
+    if sheet_file is None:
+        return False
+    return _file_mark(opt, sheet_file) != st.session_state.get("_results_file_mark")
+
+
 def _upload(opt):
     # Open, once the workbook has left the app in this session. The reader
     # who downloaded the sheets is coming back with a file in their hand,
@@ -1070,17 +1743,25 @@ def _upload(opt):
     came_back = bool(st.session_state.get(_SHEETS_DOWNLOADED))
     with st.expander(wording.UPLOAD_EXPANDER, expanded=came_back):
         st.caption(wording.for_project(opt, wording.UPLOAD_SHEETS_ARE_BACK_CAPTION if came_back
-                   else wording.UPLOAD_HELP_CAPTION))
+                   else wording.UPLOAD_HELP_CAPTION),
+                   help=wording.for_project(opt, wording.UPLOAD_SHEETS_ARE_BACK_HELP if came_back
+                                            else wording.UPLOAD_HELP_DETAIL))
         sheet_file = st.file_uploader(
             wording.UPLOAD_RESULTS_FILE, type=["xlsx", "csv"],
             # Per project: an uploader cannot be emptied from session state,
             # so a shared key offered the next project this one's sheet.
-            key=f"results_file_{opt.project_name}")
+            key=_upload_key(opt))
+        # The Round 6 sample: the pilot's own results, to upload right here.
+        if sample_projects.offers_round6_download(opt):
+            st.download_button(
+                wording.DOWNLOAD_ROUND6_RESULTS,
+                data=sample_projects.round6_results_bytes(),
+                file_name=sample_projects.ROUND6_RESULTS_FILE_NAME,
+                mime=WORKBOOK_MIME, key="sample_round6_results")
         check_file = sheet_file is not None and st.button(wording.CHECK_THIS_FILE, key="check_sheet")
         file_mark = None
         if sheet_file is not None:
-            file_mark = (opt.project_name, hashlib.sha256(sheet_file.getvalue()).hexdigest(),
-                         json.dumps(opt.pending_batch, sort_keys=True, default=str))
+            file_mark = _file_mark(opt, sheet_file)
         if sheet_file is not None and (check_file or file_mark != st.session_state.get("_results_file_mark")):
             st.session_state["_results_file_mark"] = file_mark
             try:
@@ -1094,7 +1775,8 @@ def _upload(opt):
                 st.error(str(e))
             except Exception:
                 st.session_state.pop("_results_upload", None)
-                st.error(wording.FILE_UNREADABLE)
+                st.error(wording.file_unreadable(
+                    getattr(sheet_file, "name", "")))
         # The rows, what the Actual cells said, and the lots: three things
         # the file carried, kept apart all the way to Save.
         sheet, weighed, lots = uploaded_parts(
@@ -1122,16 +1804,21 @@ def _upload(opt):
         if extra_records:
             definitions = {f['id']: f for f in custom_records.fields(opt, enabled=False)}
             st.caption(wording.CUSTOM_IMPORT_FOUND)
-            st.dataframe(pd.DataFrame([{wording.CUSTOM_SCOPE_LABEL: wording.CUSTOM_SCOPE_NAMES[scope],
+            st.dataframe(pd.DataFrame([{wording.CUSTOM_SCOPE_LABEL: wording.for_project(opt, wording.CUSTOM_SCOPE_NAMES[scope]),
                 wording.CUSTOM_SUBJECT: subject, wording.CUSTOM_FIELD_NAME: definitions[key]['name'],
-                wording.CUSTOM_VALUE: value} for scope, subject, key, value in extra_records]), hide_index=True)
+                wording.CUSTOM_VALUE: value} for scope, subject, key, value in extra_records]), hide_index=True, placeholder="")
         records = getattr(st.session_state.get("_results_upload"), "bench_records", None)
         if records:
             st.caption(wording.for_project(opt, wording.BENCH_RECORDS_CAPTION))
             with st.expander(wording.BENCH_RECORDS_SHEET):
                 st.dataframe(pd.DataFrame(records).rename(columns=wording.BENCH_RECORD_COLUMNS),
-                             hide_index=True, use_container_width=True)
-        if st.button(wording.SAVE_UPLOADED_RESULTS, key="save_uploaded"):
+                             hide_index=True, width="stretch", placeholder="")
+        # The next step once the preview shows (02 M5): lit, and the
+        # download steps aside (_downloads, _upload_pending). Not while
+        # results are typed into the grid: Save results is lit then.
+        lit = not confirmation_open() and not _any_value_typed(opt)
+        if st.button(wording.SAVE_UPLOADED_RESULTS, key="save_uploaded",
+                     type="primary" if lit else "secondary"):
             batch_no = opt.pending_batch_no
             by_number = {r['formulation']: r['recipe'] for r in opt.pending_batch}
             try:
@@ -1177,6 +1864,7 @@ def _upload(opt):
             if extra_records and not parsed and not left_out:
                 flash("success", wording.CUSTOM_SAVED)
                 st.rerun()
+            _after_save(opt, batch_no)
             # A row ticked Not scored has been dealt with, and open_rows
             # counts only the scored ones — without this the file that
             # finished a batch left it open on a row it had just recorded.
@@ -1189,7 +1877,9 @@ def _upload(opt):
                 # so the whole-batch sentence would be a lie.
                 flash("success", wording.upload_partial_flash(
                     len(parsed) + len(left_out), len(opt.pending_batch),
-                    batch_no, len(left)))
+                    batch_no, len(left)), sticky=True)
+                flash_waiting(opt, [no for no, _, _ in parsed], sticky=True)
+                st.session_state[SCROLL_KEY] = "top"
                 st.rerun()
             opt.set_pending_batch(None)
             clear_scale_total()
@@ -1197,11 +1887,12 @@ def _upload(opt):
                 # A move would rerun past app.py's end-of-script check and
                 # hide it, and the batch is still open on disk.
                 return
-            flash("success", wording.batch_recorded_flash(batch_no))
+            flash("success", wording.batch_recorded_flash(batch_no), sticky=True)
+            flash_waiting(opt, [no for no, _, _ in parsed], sticky=True)
             go_to_tab(TAB_RESULTS)
 
 
-def render(opt, storage):
+def render(opt, storage, tab_open=False):
     """The open batch reads as the work: make these formulations, print the
     sheets, record what you measured — each step headed with its number, the
     three folded extras after Save, and the one button that throws the batch
@@ -1216,7 +1907,7 @@ def render(opt, storage):
     Every step below the table reserves its position in a container; the
     question is asked first, then the slots are filled.
 
-    And `Add to this batch` and `Start from the best so far` both end in
+    And `Add to this batch` and `Start from Best so far` both end in
     st.rerun(), while Streamlit discards the session-state entry of every
     widget the run did not create — so an expander that reruns before the
     result grid exists took every measurement, note and Not-made tick
@@ -1227,7 +1918,7 @@ def render(opt, storage):
         _incomplete(missing)
         return
     if not opt.pending_batch:
-        _no_batch(opt)
+        _no_batch(opt, tab_open)
         _own_formulation(opt)
         return
 
@@ -1253,11 +1944,17 @@ def render(opt, storage):
     sized = getattr(opt, 'pending_batch_total', None) is not None
 
     _title(opt)
+    table = round_compare(opt, scale_to)
+    _improve_caption(opt, table)
+    # Review guide: filled after the confirmation below is asked, so an
+    # armed one greys "Review Round N" on the same run.
+    status_slot = st.container()
     st.markdown(wording.for_project(opt, wording.STEP_MAKE_HEADING))
     # Above the table: the size is what the table is a table of.
     _batch_size_control(opt, opt.one_amount_unit(), typed, scale_to,
                         sized, refusal)
-    if _batch_table(opt, scale_to):
+    editing, _ = _batch_table(opt, scale_to, tab_open, table)
+    if editing:
         preserve_tab_forms()
         st.caption(wording.for_project(opt, wording.FINISH_FORMULATION_EDITS))
         return
@@ -1273,8 +1970,10 @@ def render(opt, storage):
     # opened; a generated row has none. With no generated row in it there is
     # no Generate control anywhere on this screen, and this is the button
     # that gets one back — so the line sits directly above it.
-    if rows and all(r.get('note') for r in rows):
-        st.caption(wording.for_project(opt, wording.ONLY_OWN_FORMULATIONS_CAPTION))
+    # Not under the pilot's engine picks: the title already says the engine
+    # chose them, and "entered formulations" would say the opposite.
+    if rows and all(r.get('note') for r in rows) and not pilot_engine_picks(opt):
+        st.caption(wording.for_project(opt, own_round_caption(rows)))
     numbers = [r['formulation'] for r in rows]
     regenerate = confirm_action(
         "regenerate", wording.GENERATE_DIFFERENT_BATCH,
@@ -1291,9 +1990,14 @@ def render(opt, storage):
         preserve=True,
     )
 
+    if tab_open:
+        with status_slot:
+            due = review_due(opt)
+            _review_status(opt, due, _review_lit(opt, due))
     with print_slot:
         _downloads(opt, scale_to, sized, said_size)
     with record_slot:
+        # v3: no forecast before tasting (owner: no forecasts on this screen).
         _record_results(opt)
     with own_slot:
         _own_formulation(opt)

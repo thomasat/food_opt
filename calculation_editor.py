@@ -131,23 +131,15 @@ def _preview(opt, plan, name):
         var = opt._var_by_name(name)
         if not opt.has_formula(var):
             return
+        if var.get('balance') and not opt.has_formulation_total():
+            # Fill to total before a default batch size (0.8.0 e2e fixes B1,
+            # 03 M4): nothing to fill to yet, so no range — never "0.00 to
+            # −43.00 g".
+            st.caption(wording.rest_needs_batch_size(name))
+            return
         low, high = opt._form_reach(opt._linear_form(name), opt._batch_size())
         unit = opt.unit_of(name)
         st.caption(wording.calculated_range_caption(f"{low:.2f}", f"{high:.2f}", unit))
-
-
-def apply_calculation(opt, frame, index, text):
-    """One row given a calculation, checked before anything is staged.
-
-    Hands back `(errors, candidate)`: the candidate grid when the project
-    can take it, and None with the refusals when it cannot. A function
-    rather than a branch inside the dialog, because the dialog is redrawn
-    from scratch on every rerun and what it decided has to survive that.
-    """
-    candidate = frame.copy()
-    candidate.at[index, wording.FORMULA_LABEL] = canonical_calculation(text)
-    errors, _ = _validate(opt, candidate)
-    return (errors, None) if errors else ([], candidate)
 
 
 def _stage(frame, name=""):
@@ -238,8 +230,13 @@ def open_editor(opt, frame):
             st.info(wording.CALCULATION_EMPTY_INFO)
             return
     errors, plan = _validate(opt, candidate)
+    names = {position: str(row.get(wording.NAME_LABEL) or '').strip()
+             for position, (_, row) in enumerate(candidate.iterrows(), start=1)}
     for row_no, message in errors:
-        st.error((str(frame.at[row_no, wording.NAME_LABEL])+': ' if row_no in frame.index else '')+message)
+        # Named as the grid names its refusals (wording.named_row_error),
+        # and by position: the model numbers rows from 1 down the grid.
+        st.error(message if row_no is None else wording.named_row_error(
+            names.get(row_no) or wording.NEW_GRID_ROW, message))
     if not errors:
         _preview(opt, plan, name)
     st.caption(wording.CALCULATION_APPLY_CAPTION)

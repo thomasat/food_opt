@@ -41,6 +41,7 @@ assert "plutil -lint Info.plist" plutil -lint "$DESKTOP_DIR/Info.plist"
 assert "launcher binds localhost only" grep -q -- '--server.address=127.0.0.1' "$DESKTOP_DIR/launcher.sh"
 assert "launcher disables telemetry" grep -q -- '--browser.gatherUsageStats=false' "$DESKTOP_DIR/launcher.sh"
 assert "launcher hides the Streamlit toolbar" grep -q -- '--client.toolbarMode=minimal' "$DESKTOP_DIR/launcher.sh"
+assert "launcher shows no traceback in the window" grep -q -- '--client.showErrorDetails=none' "$DESKTOP_DIR/launcher.sh"
 assert "starting line carries no percent" grep -qF -- 'status "Starting the app|"' "$DESKTOP_DIR/launcher.sh"
 # The window shows the app on Streamlit's first healthy answer, which lands
 # before app.py has imported torch and friends. The launcher imports them
@@ -88,6 +89,50 @@ done
 if grep -q '+cpu' "$LOCK"; then fail "lock is macOS-resolvable (no +cpu)"; else ok "lock is macOS-resolvable (no +cpu)"; fi
 if grep -qi '^pytest==' "$LOCK"; then fail "lock excludes pytest"; else ok "lock excludes pytest"; fi
 
+echo "== Level 1: bundle list covers app.py's local imports =="
+# app.py fails to import in the packaged app if a module it (or a ui_*.py it
+# imports) imports at module level isn't in build_dmg.sh's bundle list. Derive
+# the required local modules straight from the source instead of hand-listing
+# them, so this catches the next missed module too.
+REPO_DIR="$(dirname "$DESKTOP_DIR")"
+BUNDLE_FOR_LINE="$(grep -m1 '^for f in .*; do$' "$DESKTOP_DIR/build_dmg.sh")"
+BUNDLE_FILES="$(printf '%s\n' "$BUNDLE_FOR_LINE" | sed -e 's/^for f in //' -e 's/; do$//')"
+MISSING="$(REPO_DIR="$REPO_DIR" BUNDLE_FILES="$BUNDLE_FILES" python3 <<'PYEOF'
+import ast, os
+
+repo_dir = os.environ["REPO_DIR"]
+bundle = set(os.environ["BUNDLE_FILES"].split())
+
+
+def top_level_local_imports(path):
+    mods = set()
+    with open(path) as fh:
+        tree = ast.parse(fh.read(), filename=path)
+    for node in tree.body:  # top-level only: skip imports nested in functions
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                mods.add(alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            if node.module and node.level == 0:
+                mods.add(node.module.split(".")[0])
+    return {m for m in mods if os.path.exists(os.path.join(repo_dir, m + ".py"))}
+
+
+required = top_level_local_imports(os.path.join(repo_dir, "app.py"))
+for mod in list(required):
+    if mod.startswith("ui_"):
+        required |= top_level_local_imports(os.path.join(repo_dir, mod + ".py"))
+
+missing = sorted(mod + ".py" for mod in required if mod + ".py" not in bundle)
+print("\n".join(missing))
+PYEOF
+)"
+if [ -z "$MISSING" ]; then
+  ok "bundle list covers app.py's local imports"
+else
+  fail "bundle list covers app.py's local imports (missing: $(printf '%s' "$MISSING" | tr '\n' ' '))"
+fi
+
 echo "== Level 1: build =="
 if "$DESKTOP_DIR/build_dmg.sh" "$TEST_VERSION"; then ok "build_dmg.sh runs"; else fail "build_dmg.sh runs"; fi
 
@@ -105,14 +150,19 @@ if file "$DIST_APP/Contents/MacOS/FoodOptimizer" | grep -q "Mach-O 64-bit execut
 else
   fail "native wrapper is arm64 Mach-O"
 fi
-for f in app.py food_bo.py storage.py ui_helpers.py ui_setup.py ui_batch.py ui_results.py calculation_editor.py wording.py workbook_flow.py custom_records.py sample_projects.py data/sample_ingredients.csv requirements.lock.txt icon.icns; do
+for f in app.py food_bo.py storage.py ui_helpers.py ui_setup.py ui_batch.py ui_results.py insights.py ui_insights.py bo_views.py calculation_editor.py wording.py workbook_flow.py custom_records.py sample_projects.py data/ingredients_template.csv requirements.lock.txt icon.icns; do
   assert "Resources/$f present" test -f "$DIST_APP/Contents/Resources/$f"
 done
+for f in "Yogurt pilot - Round 6 to score.json" "Yogurt pilot - all 10 Rounds.json" "Round 6 results (pilot).xlsx"; do
+  assert "Resources/data/samples/yogurt_pilot/$f present" test -f "$DIST_APP/Contents/Resources/data/samples/yogurt_pilot/$f"
+done
+assert "Resources/data/samples/burger_setup/Example setup - plant-based burger.json present" test -f "$DIST_APP/Contents/Resources/data/samples/burger_setup/Example setup - plant-based burger.json"
+assert "no sample_ingredients.csv in the bundle" test ! -e "$DIST_APP/Contents/Resources/data/sample_ingredients.csv"
 assert "Info.plist present"   test -f "$DIST_APP/Contents/Info.plist"
 
-# The bundle deliberately ships Resources/data/sample_ingredients.csv (sample project +
-# template); anything else under a data dir is stray.
-STRAY="$(find "$DIST_APP" \( -name '*.pkl' -o -name '__pycache__' -o -name 'results' -o -name 'plots' \) 2>/dev/null; find "$DIST_APP/Contents/Resources/data" -type f ! -name 'sample_ingredients.csv' 2>/dev/null; find "$DIST_APP" -name data -not -path '*/Contents/Resources/data' 2>/dev/null)"
+# The bundle deliberately ships Resources/data/ingredients_template.csv and yogurt pilot
+# sample data; anything else under a data dir is stray.
+STRAY="$(find "$DIST_APP" \( -name '*.pkl' -o -name '__pycache__' -o -name 'results' -o -name 'plots' \) 2>/dev/null; find "$DIST_APP/Contents/Resources/data" -type f \( ! -name 'ingredients_template.csv' ! -path '*/yogurt_pilot/*' ! -path '*/burger_setup/*' \) 2>/dev/null; find "$DIST_APP" -name data -not -path '*/Contents/Resources/data' 2>/dev/null)"
 if [ -z "$STRAY" ]; then ok "no stray files in bundle"; else fail "no stray files in bundle ($STRAY)"; fi
 
 SIZE=$(stat -f%z "$DMG")
@@ -367,13 +417,14 @@ assert wording.ADD_OWN_EXPANDER in expander_labels, expander_labels
 assert not any(c.label and c.label.startswith("Repeat") for c in at.checkbox), \
     [c.label for c in at.checkbox]
 
-# Tab 3 - Results: one "Edit past formulations" expander replaces the three
-# retired controls; none of their old labels survive anywhere on the tab.
+# Tab 3 - Results: one "Correct, delete or add past formulations" fold
+# replaces the three retired controls; none of their old labels survive
+# anywhere on the tab.
 at.session_state["main_tab"] = wording.TAB_RESULTS
 at.run()
 assert not at.exception, at.exception
 expander_labels = [e.label for e in at.expander]
-assert wording.EDIT_PAST_FORMULATIONS_EXPANDER in expander_labels, expander_labels
+assert wording.EDIT_PAST_FOLD in expander_labels, expander_labels
 retired = ("Correct a result", "Delete a batch or a formulation",
            "Delete the last batch", "Import past formulations from a CSV")
 seen = (expander_labels + [b.label for b in at.button]
@@ -404,7 +455,7 @@ opt.add_ingredient("water", 0.0, 100.0)
 opt.add_ingredient("flour", 0.0, 100.0)
 opt.add_objective("taste", 1.0, goal="max")
 opt.set_formulation_total(50.0)
-# Five scored rows: the Compared-with column is drawn only once the cold
+# Five scored rows: the Best-so-far column is drawn only once the cold
 # start is over (the first five formulations are spread out, not compared).
 for no, water in enumerate((20.0, 22.0, 24.0, 26.0, 28.0), start=1):
     opt.tell({"water": water, "flour": 50.0 - water}, {"taste": 5.0 + no * 0.4},
@@ -447,17 +498,16 @@ assert _unknown(at.sidebar, "file_uploader", wording.OPEN_A_SAVED_COPY) is not N
 assert wording.formulation_total_label("g") in [n.label for n in at.number_input], \
     [n.label for n in at.number_input]
 
-# Tab 2 - Make a round: one workbook download, and the last column of the
-# round table says what each formulation is trying, against the best so far.
+# Tab 2 - Make a round: one workbook download, and the round table (v3)
+# compares each formulation with the best so far, column by column.
 at.session_state["main_tab"] = wording.TAB_BATCH
 at.run()
 assert not at.exception, at.exception
 assert _unknown(at.main, "download_button",
                 wording.DOWNLOAD_BATCH_SHEETS) is not None
-table = next(d.value for d in at.dataframe
-             if any(str(c).startswith("Compared with") for c in d.value.columns))
-assert any(str(c).startswith("Compared with") for c in table.columns), \
-    list(table.columns)
+best_cols = [str(c) for d in at.dataframe for c in d.value.columns
+             if str(c).startswith(wording.BEST_SO_FAR_COLUMN)]
+assert best_cols, [list(d.value.columns) for d in at.dataframe]
 print("KITCHEN_TRUST_OK")
 PY
 )"
@@ -553,24 +603,77 @@ PY
 )"
 if echo "$GRID_OUT" | grep -q GRID_OK; then ok "spreadsheet-feel controls in packaged app"; else fail "spreadsheet-feel controls in packaged app ($GRID_OUT)"; fi
 
-echo "-- test 5g: rules controls (0.6.0) are in the packaged app --"
+echo "-- test 5g: rules, pre-mix, sample and draft controls are in the packaged app --"
 RULES_OUT="$(cd "$DATA" && HOME="$E2E_HOME" PYTHONDONTWRITEBYTECODE=1 \
   PYTHONPATH="$WORK/$APP_NAME.app/Contents/Resources" \
   APP_RESOURCES="$WORK/$APP_NAME.app/Contents/Resources" \
   "$SUPPORT/venv/bin/python" - <<'PY'
+import io
 import os
+import tempfile
+import pandas as pd
+import custom_records
+import sample_projects
 import wording
+from food_bo import FoodOptimizer
+from openpyxl import load_workbook
 from streamlit.testing.v1 import AppTest
 
-# The sample as a reader meets it: Try the sample project in the sidebar.
 # (No apostrophes in this block: the heredoc sits inside a double-quoted
 # command substitution, where one would open a quote bash never sees
 # closed.)
-at = AppTest.from_file(
-    os.path.join(os.environ["APP_RESOURCES"], "app.py"), default_timeout=300)
-at.run()
-assert not at.exception, at.exception
-next(b for b in at.button if b.label == wording.TRY_SAMPLE_LABEL).click()
+APP = os.path.join(os.environ["APP_RESOURCES"], "app.py")
+DATA = os.getcwd()
+
+# A project with what the rules and pre-mix checks need, built here: the
+# yogurt samples have no pre-mix, no calculated row and no "= rest" row.
+# Two calculated water rows, a fixed-ratio pre-mix with a 150 g floor, a
+# fixed-amount one, a weighed blend, a setting on a 5 s dial, a solids
+# limit, a default batch size, bench fields and a method.
+CSV = """Name,Part of,Preparation,Lowest,Highest,Composition (%),Calculation,Unit,Fat per 100 g
+Textured pea protein,,,4,6,,,g,6.0
+Textured soy protein,,,4,6,,,g,6.0
+Hydration water,,,0,100,,= 2.2 * (Textured pea protein + Textured soy protein),g,0.0
+Remaining water,,,0,100,,= rest,g,0.0
+Dry blend,,Pre-mix: keep proportions fixed,15,18,,,g,
+Pea protein isolate,Dry blend,,,,66,,g,8.0
+Potato starch,Dry blend,,,,26,,g,0.1
+Methylcellulose,Dry blend,,,,8,,g,0.0
+Wheat gluten,,,3.5,6,,,g,1.9
+Seasoning blend,,Pre-mix: keep proportions fixed,2.2,2.2,,,g,
+Salt,Seasoning blend,,,,60,,g,0.0
+Onion powder,Seasoning blend,,,,40,,g,1.0
+Fats and oils,,Blend: vary each ingredient,,,,,g,
+Coconut oil,Fats and oils,,6,10,,,g,99.0
+Sunflower oil,Fats and oils,,2,5,,,g,100.0
+"""
+NAMES = ["Textured pea protein", "Textured soy protein", "Hydration water",
+         "Remaining water", "Dry blend", "Wheat gluten", "Seasoning blend",
+         "Fats and oils", "Mixing time after fat"]
+built = FoodOptimizer("Premix_Check")
+built.set_amount_unit("g")
+built.load_ingredients_from_csv(pd.read_csv(io.StringIO(CSV)))
+built.add_process_parameter("Mixing time after fat", 45, 150, unit="s", step=5)
+built.add_objective("Firmness", 1, goal="target", target=6, min_val=0,
+                    max_val=10, unit="/10")
+built.add_objective("Cook loss", 1, goal="min", min_val=0, max_val=40, unit="%")
+built.set_formulation_total(100)
+built.add_constraint("Fat per 100 g", max_val=16)
+built.add_chosen_quantity_constraint(
+    ["Textured pea protein", "Textured soy protein", "Dry blend",
+     "Wheat gluten", "Coconut oil", "Sunflower oil"], min_val=36, max_val=43)
+built.set_premix_smallest_quantity("Dry blend", 150)
+built.set_records("lot", True)
+built.set_records("actual", True)
+for field in ["Raw weight (g)", "Cooked weight (g)"]:
+    custom_records.add_field(built, field, "formulation")
+built.set_method(
+    "1. Hydrate the proteins.\n2. Mix the dry blend in cold.\n"
+    "3. Griddle at 180 °C, 3 min per side, to 74 °C core.\n"
+    "Contains soy and wheat (gluten).")
+
+at = AppTest.from_file(APP, default_timeout=300)
+at.session_state["_loaded_project"] = "Premix_Check"
 at.run()
 assert not at.exception, at.exception
 
@@ -579,10 +682,10 @@ grid = at.dataframe[0].value
 columns = [c for c in grid.columns if c != "_id"]
 assert columns[-1] == wording.FORMULA_LABEL, columns
 
-# The sample gives Remaining water the rest of the batch size, so its
-# amount is not typed: the Calculation cell says Fill to total, the two
-# range cells are blank beside it, and one caption under the grid says what
-# the calculation comes to in numbers.
+# Remaining water takes the rest of the batch size, so its amount is not
+# typed: the Calculation cell says Fill to total, the two range cells are
+# blank beside it, and one caption under the grid says what it fills to
+# and what that comes to in numbers.
 water = grid[grid[wording.NAME_LABEL] == "Remaining water"]
 assert len(water) == 1, list(grid[wording.NAME_LABEL])
 assert water.iloc[0][wording.FORMULA_LABEL] == wording.FILL_TO_TOTAL, \
@@ -592,13 +695,15 @@ assert water.iloc[0][wording.LOWEST_LABEL] == "", \
 assert water.iloc[0][wording.HIGHEST_LABEL] == "", \
     water.iloc[0][wording.HIGHEST_LABEL]
 captions = [c.value for c in at.caption]
-assert any(c.startswith("Remaining water is calculated to bring the total to")
+assert any(c.startswith("Remaining water fills to the 100 g ")
            for c in captions), captions
-assert wording.RULE_HINT in captions, captions
+# RULE_HINT is gone (audit V19): the one calculation cue left on the tab
+# is the Edit calculation line under the grid.
+assert wording.CALCULATION_EDIT_HINT in captions, captions
 
 # More settings - Limits: one Kind picker choosing the shape of the limit,
-# and because the sample has a default batch size the "Write it as" choice
-# offers % of default batch size too.
+# and because the project has a default batch size the "Write it as"
+# choice offers % of default batch size too.
 kind_select = next((s for s in at.selectbox if s.key == "qc_kind"), None)
 assert kind_select is not None, [s.key for s in at.selectbox]
 assert list(kind_select.options) == wording.LIMIT_KINDS, kind_select.options
@@ -610,10 +715,8 @@ assert wording.PERCENT_OF_BATCH_SIZE_UNIT in unit_select.options, \
 print("RULES_OK")
 
 # Both pre-mix modes and the preparation pages are in the shipped app.
-import io
-from openpyxl import load_workbook
 opt = at.session_state["optimizer"]
-assert list(grid[wording.NAME_LABEL]) == ["Textured pea protein", "Textured soy protein", "Hydration water", "Remaining water", "Dry blend", "Wheat gluten", "Seasoning blend", "Fats and oils", "Mixing time after fat"]
+assert list(grid[wording.NAME_LABEL]) == NAMES, list(grid[wording.NAME_LABEL])
 assert wording.MADE_AS_LABEL in columns
 assert opt.premixes["Fats and oils"]["mode"] == "weighed"
 assert len(opt.premixes["Dry blend"]["parts"]) == 3
@@ -622,7 +725,7 @@ opt.ask(3)
 book = load_workbook(io.BytesIO(opt.workbook_bytes(opt.pending_batch, 100)))
 assert book.sheetnames[:2] == ["Pre-mix · Dry blend", "Pre-mix · Seasoning blend"]
 assert book.active["A1"].value.startswith("Dry blend · Prepare 150 g")
-assert "this round needs" in book.active["A1"].value
+assert "this Round needs" in book.active["A1"].value
 assert book.active.protection.sheet and not book.active["D4"].protection.locked
 summary = book[wording.batch_sheet_name(opt.pending_batch_no)]
 assert wording.MAKE_FOR_ROUND_HEADING in [c.value for row in summary for c in row]
@@ -631,7 +734,7 @@ method = "\n".join(str(c.value) for row in summary for c in row if c.value)
 assert "180 °C" in method and "74 °C core" in method, method[:400]
 assert "Contains soy and wheat (gluten)." in method
 assert wording.SETTINGS_SHEET_HEADING in [c.value for row in summary for c in row]
-# The solids limit the sample writes, and the design space it holds.
+# The solids limit the project writes, and the design space it holds.
 limit = next(qc for qc in opt.quantity_constraints if qc.get("source") is None)
 assert (limit["min"], limit["max"]) == (36.0, 43.0), limit
 # A setting is issued on the step its dial has.
@@ -649,23 +752,52 @@ assert any(str(c.value).startswith("Cook loss (%)") for row in compact["Results"
 # ...and on the print pack too, which is where it was missing.
 assert any(str(c.value).startswith("Cook loss (%)") for row in summary for c in row)
 print("PREMIX_OK")
-# Committed manual fields survive a fresh application session.
+
+# The welcome Try the sample project (0.8.0): in a folder with no projects
+# the welcome panel offers it; one click writes both yogurt samples and
+# opens Round 6 to score on 4 · Review, with Round 6 (Formulations 16-18)
+# open and Rounds 1-5 scored.
+fresh_dir = tempfile.mkdtemp(prefix="sample_", dir=os.environ["HOME"])
+os.chdir(fresh_dir)
+at = AppTest.from_file(APP, default_timeout=300)
 at.run()
-number = opt.pending_batch[0]["formulation"]
-at.number_input(key=f"f{number}_Firmness").set_value(6).run()
-fresh = AppTest.from_file(
-    os.path.join(os.environ["APP_RESOURCES"], "app.py"), default_timeout=300)
-fresh.session_state["_loaded_project"] = opt.project_name
+assert not at.exception, at.exception
+assert "optimizer" not in at.session_state or at.session_state["optimizer"] is None
+assert wording.WELCOME_HEADER in [m.value for m in at.main.markdown]
+next(b for b in at.main.button if b.label == wording.OPEN_YOGURT_LABEL).click()
+at.run()
+assert not at.exception, at.exception
+for name in (sample_projects.ROUND6, sample_projects.ALL10):
+    assert os.path.isfile(name + ".pkl"), (name, sorted(os.listdir(".")))
+sample = at.session_state["optimizer"]
+assert sample.project_name == sample_projects.ROUND6, sample.project_name
+assert at.session_state["main_tab"] == wording.TAB_INSIGHTS, \
+    at.session_state["main_tab"]
+assert [r["formulation"] for r in sample.pending_batch] == [16, 17, 18], \
+    sample.pending_batch
+assert len(sample.X_history) == 15, len(sample.X_history)
+print("SAMPLE_OK")
+
+# Committed manual fields survive a fresh application session: a score
+# typed for the first open formulation of the sample.
+number = sample.pending_batch[0]["formulation"]
+at.number_input(key=f"f{number}_Consistency").set_value(11).run()
+assert not at.exception, at.exception
+fresh = AppTest.from_file(APP, default_timeout=300)
+fresh.session_state["_loaded_project"] = sample.project_name
 fresh.run()
 assert not fresh.exception, fresh.exception
-assert fresh.number_input(key=f"f{number}_Firmness").value == 6
+assert fresh.number_input(key=f"f{number}_Consistency").value == 11
 assert not next(b for b in fresh.button if b.label == wording.SAVE_RESULTS).disabled
+os.chdir(DATA)
 print("DRAFT_OK")
 PY
 )"
 if echo "$RULES_OUT" | grep -q RULES_OK; then ok "rules controls in packaged app"; else fail "rules controls in packaged app ($RULES_OUT)"; fi
 
-if echo "$RULES_OUT" | grep -q PREMIX_OK; then ok "pre-mix sample and workbook in packaged app"; else fail "pre-mix sample and workbook in packaged app ($RULES_OUT)"; fi
+if echo "$RULES_OUT" | grep -q PREMIX_OK; then ok "pre-mix project and workbook in packaged app"; else fail "pre-mix project and workbook in packaged app ($RULES_OUT)"; fi
+
+if echo "$RULES_OUT" | grep -q SAMPLE_OK; then ok "Try the sample project in packaged app"; else fail "Try the sample project in packaged app ($RULES_OUT)"; fi
 
 if echo "$RULES_OUT" | grep -q DRAFT_OK; then ok "manual results persist in packaged app"; else fail "manual results persist in packaged app ($RULES_OUT)"; fi
 

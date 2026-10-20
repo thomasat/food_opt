@@ -5,11 +5,13 @@ st.rerun(), so `st.success("Saved"); st.rerun()` shows nothing. The audit found
 14 such sites. flash() queues the message in session state; render_flash() at
 the top of the script shows it on the next run.
 """
+import json
 import re
 from datetime import datetime
 
 import streamlit as st
 
+import sample_projects
 import wording
 # join_unit, goal_line and the two number formatters live in food_bo (they are
 # pure data formatting, and closeness_details, the batch table and the
@@ -17,27 +19,65 @@ import wording
 # from here so there is one import site for screen helpers.
 from food_bo import (  # noqa: F401  (re-exported)
     amount_range_placeholder, entry_label, fmt_amount, fmt_setting, goal_line,
-    join_unit, label_with_unit, number_list, outside_message, unit_after_number,
+    join_unit, label_with_unit, number_list, outside_message, scale_outside_message,
+    unit_after_number,
 )
 # Every word below lives in wording.py; these three names stay importable
 # from here because ui_setup.py, ui_results.py and app.py already do
 # `from ui_helpers import TAB_BATCH` and the like.
 from wording import COPY_KEPT, TAB_BATCH, TAB_RESULTS, TAB_SETUP  # noqa: F401
 
+# food_bo's goal words ('Prefer higher values', the workbook's and Set up's
+# Goal option) said as the Results headers and the score fold say them:
+# 'Higher is better' / 'Lower is better'. A target stays 'Target 6 N'.
+_GOAL_SHOWN = {
+    wording.GOAL_LABELS['max']: wording.SCORE_GOAL_HIGHER,
+    wording.GOAL_LABELS['min']: wording.SCORE_GOAL_LOWER,
+}
+
+
+def goal_shown(goal):
+    """A measurement's goal for a screen: `goal` is the objective dict or
+    food_bo's goal text (closeness_details' 'goal'). 'Higher is better',
+    'Lower is better' or the target, e.g. 'Target 6 N'."""
+    text = goal_line(goal) if isinstance(goal, dict) else goal
+    return _GOAL_SHOWN.get(text, text)
+
+
 _FLASH_KEY = "_flash_messages"
+# The sticky messages on screen now (0.8.0 e2e fixes B3, review I10): what
+# render_flash showed with sticky=True, the tab it showed them on, and where.
+_STICKY_KEY = "_flash_sticky"
+# Set for one run by a rerun the app makes itself (app_rerun).
+APP_RERUN_KEY = "_app_rerun"
 
 
-def flash(kind, message):
+def flash(kind, message, sticky=False, place=None):
     """Queue a message for the top of the NEXT run. Call right before st.rerun().
 
     kind: "success" | "info" | "warning" | "error"
+
+    `sticky` (0.8.0 e2e fixes B3, review I10): the message stays on screen
+    through the reruns the app makes itself (app_rerun: Insights' poller
+    and keep_up as fits land took a "Round 6 recorded." down after about
+    2.8 s, 01 O3) and comes down at the user's next action: any rerun the
+    app did not make (a click, a widget, a fold that reruns), the next
+    flash or go_to_tab. `place`: the keyed slot it is drawn in
+    (render_flash(place=…)), None for the top of the page.
     """
     if kind not in ("success", "info", "warning", "error"):
         raise ValueError(f"unknown flash kind {kind!r}")
-    st.session_state.setdefault(_FLASH_KEY, []).append((kind, message))
+    # The next message replaces the one that stayed.
+    st.session_state.pop(_STICKY_KEY, None)
+    st.session_state.setdefault(_FLASH_KEY, []).append((kind, message, bool(sticky), place))
 
 
-def render_flash(box=None):
+def _shown_tab():
+    """The tab this run draws: a move go_to_tab asked for lands on it."""
+    return st.session_state.get("_pending_tab") or st.session_state.get("main_tab")
+
+
+def render_flash(box=None, place=None):
     """Show and clear queued messages, and return the container they went into.
 
     The messages always render inside one container, so the page keeps the
@@ -50,12 +90,54 @@ def render_flash(box=None):
     Pass the container back to drain messages queued LATER in the same run —
     the sidebar runs after this point and can discard an unmakeable batch,
     and that notice belongs above the tabs on this run, not the next one.
+    Such a second drain never draws the sticky messages again.
+
+    `place`: draw only the messages queued for that slot (flash(place=…));
+    None, the top of the page. With nothing queued for it, the sticky
+    messages shown there last are drawn again on a rerun the app made
+    itself (app_rerun); the top-of-page call, first in every run, takes
+    them down on any other run with nothing newly queued, which is the
+    user's next action (review I10; integration of the e2e fixes).
     """
+    again = box is None
     box = st.container() if box is None else box
+    queue = [_entry(item) for item in st.session_state.pop(_FLASH_KEY, [])]
+    mine = [q for q in queue if q[3] == place]
+    later = [q for q in queue if q[3] != place]
+    if later:
+        st.session_state[_FLASH_KEY] = later
+    if again and place is None:
+        # The run's first call decides: a run the app made keeps them; a
+        # run that carries a newly queued message is that action's own
+        # (flash() already took the older ones down); any other run is
+        # the user's next action, which takes them down.
+        app_made = st.session_state.pop(APP_RERUN_KEY, False)
+        if not app_made and not queue:
+            st.session_state.pop(_STICKY_KEY, None)
+    stay = st.session_state.get(_STICKY_KEY)
+    if stay is not None and stay["tab"] != _shown_tab():
+        st.session_state.pop(_STICKY_KEY, None)
+        stay = None
     with box:
-        for kind, message in st.session_state.pop(_FLASH_KEY, []):
-            getattr(st, kind)(message)
+        if mine:
+            for kind, message, _, _ in mine:
+                getattr(st, kind)(message)
+            kept = [(k, m, p) for k, m, s, p in mine if s]
+            if kept:
+                items = [i for i in (stay or {}).get("items", []) if i[2] != place] + kept
+                st.session_state[_STICKY_KEY] = {"tab": _shown_tab(), "items": items}
+        elif again and stay is not None:
+            for kind, message, where in stay["items"]:
+                if where == place:
+                    getattr(st, kind)(message)
     return box
+
+
+def _entry(item):
+    """A queued message as (kind, message, sticky, place), whatever shape it
+    was queued in (a session from before sticky messages held pairs)."""
+    item = tuple(item)
+    return item + (False, None)[len(item) - 2:] if len(item) < 4 else item
 
 
 def saved_ok(opt):
@@ -150,7 +232,7 @@ def disarm(key):
 
 
 def confirm_action(key, button_label, warning, confirm_label=wording.YES_CONTINUE,
-                   disabled=False, preserve=False, primary=False):
+                   disabled=False, preserve=False, primary=False, help=None):
     """Two-step confirmation for an irreversible action.
 
     Renders `button_label`. After it is clicked, shows `warning` above a
@@ -166,6 +248,8 @@ def confirm_action(key, button_label, warning, confirm_label=wording.YES_CONTINU
     drawn into its reserved slot. Streamlit discards the session-state entry
     of every widget a run did not create, so without it the Cancel empties
     the sheet the user has already half-recorded.
+
+    `help` is the trigger's "?" (spec 2026-09-30 §4: Move to Not scored).
 
     `primary` colours the trigger. Every confirmation in the app is reached
     from a grey button — the coloured one is the Yes it leads to — except
@@ -188,7 +272,7 @@ def confirm_action(key, button_label, warning, confirm_label=wording.YES_CONTINU
                   and st.session_state.get(pending_key))
     lit = primary and not (arming or up_already)
     if st.button(button_label, key=btn_key, disabled=disabled,
-                 type="primary" if lit else "secondary"):
+                 type="primary" if lit else "secondary", help=help):
         # One at a time. A click that arrives while another confirmation is
         # armed — a second click in the same frame, or a click already in
         # flight against a button this frame draws greyed — is ignored rather
@@ -202,9 +286,9 @@ def confirm_action(key, button_label, warning, confirm_label=wording.YES_CONTINU
     c1, c2 = st.columns(2)
     with c1:
         confirmed = st.button(confirm_label, key=f"{key}__yes", type="primary",
-                              use_container_width=True)
+                              width="stretch")
     with c2:
-        if st.button(wording.CANCEL, key=f"{key}__no", use_container_width=True):
+        if st.button(wording.CANCEL, key=f"{key}__no", width="stretch"):
             st.session_state[pending_key] = False
             st.session_state.pop(ARMED_KEY, None)
             if preserve:
@@ -256,22 +340,122 @@ def preserve_tab_forms():
             park_clear(key, st.session_state[key])
 
 
-def go_to_tab(label):
-    """Move to another tab and rerun. This is the ONLY way the app changes
-    tabs, and it is called from eight handlers only: Next: make a batch,
-    Back to set up, Save results, Save uploaded results, Start the next
-    batch, Change a measurement or an ingredient, Change the total, and
-    opening a project. A set-up edit, Generate, a correction or a plain
-    rerun must never call it, and neither must a handler whose write
-    failed.
+# Where a move between tabs lands (spec 2026-09-30-bo-views §5; 04 §5):
+# "top", or the key of a container on the tab moved to. app.py scrolls there
+# once, after the tabs are drawn, and forgets it.
+SCROLL_KEY = "_scroll_to"
+# The data_key Insights was last opened with (app.py): Make a round's E3
+# link is not offered again until the data changes (04 §3, ping-pong).
+INSIGHTS_OPENED_KEY = "_insights_opened"
+# Review guide: the Round whose results were just saved (Save results or
+# Save uploaded results, whole Round or part), until 4 · Review is opened.
+# While it is set, Results' one lit button is "Review Round N" and the
+# Review tab carries a dot.
+REVIEW_DUE_KEY = "_review_due"
+# The dot itself: CSS on the fourth tab's button, so its label (the tabs
+# widget's value) never changes.
+REVIEW_DOT_STYLE = """<style>
+[data-testid="stTabs"] [role="tablist"] > button[role="tab"]:nth-of-type(4) p::after {
+  content: " \\2022"; color: var(--st-primary-color, #ff4b4b);
+}
+</style>"""
+# Ftue fix C: a keyed expander carries no st-key- class in the page
+# (Streamlit 1.55), so a fold the page scrolls to sits in a keyed container
+# of its own: "Add a formulation to this round" (keyed, so it can be opened).
+ADD_OWN_KEY = "add_own_fold"
+ADD_OWN_PLACE = "add_own_place"
+
+
+def go_to_tab(label, section="top"):
+    """Move to another tab and rerun, landing at its top (or, `section`, at
+    the container of that key). This is the ONLY
+    way a flow changes tabs, and it is called from eight handlers only:
+    Next: make a batch, Back to set up, Save results, Save uploaded
+    results, Start the next batch, Change a measurement or an ingredient,
+    Change the total, and opening a project. A set-up edit, Generate, a
+    correction or a plain rerun must never call it, and neither must a
+    handler whose write failed. Links the user clicks may open Insights
+    (ask_tab); no flow moves there on its own.
 
     The move is deferred: the tabs widget already exists on this run, so
     assigning its key now would raise, and a write the frontend never asked
     for is ignored anyway. We park the target in "_pending_tab" and rerun;
     app.py drains it into "main_tab" BEFORE st.tabs renders, which is the one
-    moment the widget takes a value from session state."""
+    moment the widget takes a value from session state. A move made by the
+    app used to land where the last tab was scrolled (after Save results,
+    ~1,400 px down: 04 §1), so it now asks app.py to scroll to the top.
+    The sticky messages already on screen come down (review I10); one
+    queued by the same handler (Save results' own) is drawn on arrival."""
     st.session_state["_pending_tab"] = label
+    st.session_state[SCROLL_KEY] = section
+    st.session_state.pop(_STICKY_KEY, None)
     st.rerun()
+
+
+def review_due(opt):
+    """Review guide: the Round whose results were just saved, until 4 ·
+    Review is opened (REVIEW_DUE_KEY), or None. Only a Round this project
+    holds results for."""
+    no = st.session_state.get(REVIEW_DUE_KEY)
+    if no is None or no not in {int(b) for b in opt.batch_history if b is not None}:
+        return None
+    return no
+
+
+def ask_tab(label, section="top", fold=None, state=None):
+    """on_click of a link to another tab (spec 2026-09-30-bo-views §5; 04
+    §5): the move, where to land (`section`: "top" or a container's key)
+    and a fold to open (`fold`: a keyed expander's key; set before it is
+    drawn, it opens). `state`: entries the tab moved to reads on arrival.
+    A callback, not go_to_tab's
+    st.rerun(): it runs before the script, so no half-typed form on the tab
+    left is lost."""
+    st.session_state["_pending_tab"] = label
+    st.session_state[SCROLL_KEY] = section
+    if fold:
+        st.session_state[fold] = True
+    for key, value in (state or {}).items():
+        st.session_state[key] = value
+
+
+def scroll_script(section, nonce):
+    """The one-shot script app.py runs after the tabs are drawn (04 §5):
+    scroll the page to its top, or bring the container keyed `section`
+    into view, retrying for two seconds while Insights fills in. `nonce`
+    makes each run's script new, so the browser runs it again.
+
+    Ftue fix C: the container lands just under the app's header bar, not
+    behind it (the Why fold's heading sat under the 60 px bar), and it is
+    kept there for 8 seconds while the screen above it still fills in
+    (a Round's predictions arriving moved the Add fold 55-430 px down after
+    the landing), until the reader scrolls, clicks or types."""
+    target = "" if section == "top" else f".st-key-{section}"
+    return f"""<script>/* {nonce} */
+(function go(n) {{
+  const sel = {json.dumps(target)};
+  const find = (q) => document.querySelector(q) || window.parent.document.querySelector(q);
+  const main = find('[data-testid="stMain"]');
+  if (!sel) {{ if (main) main.scrollTop = 0; return; }}
+  const el = find(sel);
+  if (!el) {{ if (n > 0) setTimeout(() => go(n - 1), 100); return; }}
+  if (!main) {{ el.scrollIntoView({{block: "start"}}); return; }}
+  const doc = main.ownerDocument;
+  let stop = false;
+  const quit = () => {{ stop = true; }};
+  for (const kind of ["wheel", "touchstart", "keydown", "mousedown"])
+    doc.addEventListener(kind, quit, {{once: true, capture: true}});
+  (function follow(k) {{
+    if (stop) return;
+    const now = find(sel);
+    if (now) {{
+      const head = find('[data-testid="stHeader"]');
+      const below = head ? head.getBoundingClientRect().height + 8 : 0;
+      const off = now.getBoundingClientRect().top - main.getBoundingClientRect().top - below;
+      if (Math.abs(off) > 2) main.scrollTop += off;
+    }}
+    if (k > 0) setTimeout(() => follow(k - 1), 100);
+  }})(80);
+}})(20);</script>"""
 
 
 def open_rows(opt):
@@ -289,17 +473,32 @@ def plural(n, word):
     return f"{n} {word}" if n == 1 else f"{n} {word}s"
 
 
-def scale_error(obj, value):
+def blank_amounts_message(opt, blank):
+    """The refusal for a formulation typed with empty amount boxes, naming
+    them. 0 is offered as the way to leave one out only while every blank
+    row allows 0: a row whose Lowest is above 0 cannot be left out."""
+    by_name = {var['name']: var for var in opt.variables}
+    zero_allowed = all(
+        float(by_name[name]['bounds'][0]) <= 0
+        for name in blank if name in by_name)
+    return wording.enter_amounts_for(number_list(blank), n=len(blank),
+                                     zero_allowed=zero_allowed)
+
+
+def scale_error(obj, value, label=None):
     """The refusal for a measured value outside its range, or '' when it fits.
     Results are never clamped: a firmness of 12 on a 0-10 range is either a
-    typo or a range that is too narrow, and silently storing 10 hides both."""
+    typo or a range that is too narrow, and silently storing 10 hides both.
+
+    `label` names the cell when the line is shown away from its box —
+    'Formulation 4: Firmness' under a grid of several rows."""
     if value is None:
         return ""
     low, high = float(obj['min_val']), float(obj['max_val'])
     if low <= float(value) <= high:
         return ""
-    return outside_message(obj['name'], value, low, high, obj.get('unit'),
-                           wording.YOUR_RANGE, wording.WIDEN_RANGE_HINT)
+    return scale_outside_message(label or obj['name'], value, low, high,
+                                 obj.get('unit'))
 
 
 def bounds_caution(opt, name, value, scale=1.0):
@@ -442,9 +641,31 @@ def drain_clears(fresh=None):
 
 def best_formulation_no(opt):
     """The number of the best formulation, or None. Three tabs name it —
-    `Start from the best so far`, the biggest-changes line and every 'Best
+    `Start from Best so far`, the biggest-changes line and every 'Best
     moved' sentence — and they must all mean the same formulation."""
     return opt.best_formulation_no()
+
+
+def flash_waiting(opt, numbers, sticky=False):
+    """One line per set of measurements the formulations just saved still
+    wait for — 'Formulations 7–12 saved · waiting for Cook loss.' — not one
+    per formulation. Queued after the round's own line, and as sticky as
+    it is."""
+    groups = {}
+    for no in numbers:
+        index = opt.index_of_formulation(no)
+        if index is not None and not opt.fully_measured(index):
+            groups.setdefault(tuple(opt.waiting_on(index)), []).append(no)
+    for names, group in groups.items():
+        flash("info", wording.saved_waiting(group, number_list(names)), sticky=sticky)
+
+
+def waiting_text(opt, index):
+    """What formulation `index` waits for, named — or None when it has
+    all its results."""
+    if opt.fully_measured(index):
+        return None
+    return number_list(opt.waiting_on(index))
 
 
 def best_move_sentence(before, after):
@@ -475,13 +696,19 @@ def readiness(opt, here=False):
 def landing_tab(opt):
     """Where opening a project lands: set-up while it is incomplete, the batch
     while one is unrecorded, set-up again while nothing has been made, and
-    results once the project holds some.
+    results once the project holds some. The two yogurt samples are the
+    exception: once they hold recorded results they land on 4 · Review,
+    where a demo starts, even with a Round open. (The example setup holds
+    none, so it lands on set-up by the rule.)
 
     A project with no formulations sent the user to an empty Results tab, and
     the sample project skipped its own set-up entirely. Confirming the set-up
     is the step before making anything, so that is where those land. A
     not-scored formulation counts as one the project holds: it has a
     number, its amounts and a note, and tab 3 lists it."""
+    if (sample_projects.is_yogurt(getattr(opt, "project_name", None))
+            and opt.X_history):
+        return wording.TAB_INSIGHTS
     ready, _ = readiness(opt)
     if not ready:
         return TAB_SETUP

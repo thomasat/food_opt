@@ -54,7 +54,7 @@ def test_invalid_edits_are_atomic(project, changes):
 def test_compact_workbook_results_and_actual_import(project):
     project.set_records('actual', True)
     book = load_workbook(io.BytesIO(project.workbook_bytes(project.pending_batch, 100, print_pack=False)))
-    assert [s.title for s in book if s.sheet_state == 'visible'] == ['Round overview', 'Preparation', 'Results']
+    assert [s.title for s in book if s.sheet_state == 'visible'] == ['Round overview', 'Results']
     assert book.active.title == 'Round overview'
     results = book['Results']
     results.cell(result_row(results), 2, 8)
@@ -81,7 +81,7 @@ def test_legacy_results_on_both_surfaces_merge_and_conflicts_fail(project):
     assert upload.frame['Taste'].tolist() == [8, 7]
     page = book['Formulation 1']
     page.cell(result_row(page, col=2), 4, 9)
-    with pytest.raises(ValueError, match='conflicting Taste'):
+    with pytest.raises(ValueError, match='Formulation 1 has two different Taste entries'):
         project.results_from_workbook(data(book))
 
 
@@ -128,41 +128,87 @@ def test_the_compact_sheets_pointer_never_comes_back_as_a_lot(project):
     assert project.results_from_workbook(data(book)).lots == {}
 
 
-def test_guided_example_generates_feasible_rounds(tmp_path, monkeypatch):
-    kind = 'Burger formulation'
+def _yogurt(tmp_path, monkeypatch, name=None):
+    """The shipped Round 6 sample, opened the way the app opens it."""
     import sample_projects
     from storage import LocalStorage
     monkeypatch.chdir(tmp_path)
-    assert sample_projects.OPTIONS == [kind]
-    opt = sample_projects.build(kind, sample_projects.NAMES[kind], LocalStorage(), LocalStorage())
-    assert not opt.X_history
-    # Where firmness 6 and juiciness 7 came from: the control, the cook,
-    # the panel and the direction of failure, with the allergens.
-    assert '80/20 beef control cooked to 71 °C core' in opt.targets_source
-    assert 'Contains soy and wheat (gluten).' in opt.targets_source
+    sample_projects.ensure(LocalStorage())
+    return FoodOptimizer(name or sample_projects.ROUND6)
+
+
+_BENCH_CSV = """Name,Part of,Preparation,Lowest,Highest,Composition (%),Calculation,Unit
+Protein,,,4,6,,,g
+Hydration water,,,0,100,,= 2.2 * Protein,g
+Remaining water,,,0,100,,= rest,g
+Dry blend,,Pre-mix: keep proportions fixed,15,18,,,g
+Isolate,Dry blend,,,,66,,g
+Starch,Dry blend,,,,34,,g
+Seasoning blend,,Pre-mix: keep proportions fixed,2.2,2.2,,,g
+Salt,Seasoning blend,,,,60,,g
+Onion powder,Seasoning blend,,,,40,,g
+"""
+
+
+def _bench(tmp_path, monkeypatch):
+    """A small project with a fixed-ratio pre-mix, a 150 g pre-mix floor,
+    a setting with a dial step, a 'lower is better' measurement and bench
+    fields: the behaviours the sheets are checked on, not any one product."""
+    import custom_records
+    import pandas as pd
+    from io import StringIO
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer('bench', robust=False)
+    opt.set_amount_unit('g')
+    opt.load_ingredients_from_csv(pd.read_csv(StringIO(_BENCH_CSV)))
+    opt.add_process_parameter('Mixing time after fat', 45, 150, unit='s', step=5)
+    opt.add_objective('Firmness', 1, goal='target', target=6, min_val=0, max_val=10, unit='/10')
+    opt.add_objective('Cook loss', 1, goal='min', min_val=0, max_val=40, unit='%')
+    opt.set_formulation_total(100)
+    opt.set_premix_smallest_quantity('Dry blend', 150)
+    opt.set_method('1. Hydrate the protein.\n2. Mix the dry blend in.')
+    opt.set_records('lot', True)
+    opt.set_records('actual', True)
+    for field in ['Raw weight (g)', 'Cooked weight (g)',
+                  'Water temperature at addition (\u00b0C)',
+                  'Mass temperature out of the bowl (\u00b0C)']:
+        custom_records.add_field(opt, field, 'formulation')
+    return opt
+
+
+def test_the_yogurt_sample_generates_feasible_rounds(tmp_path, monkeypatch):
+    opt = _yogurt(tmp_path, monkeypatch)
+    assert len(opt.X_history) == 15           # Rounds 1-5 are scored; Round 6 is open
+    limit = opt.quantity_constraints[0]
     suggestions = opt.ask(3)
     assert len(suggestions) == 3
     for recipe in suggestions:
         assert opt._check_constraints(recipe)
-        assert recipe['Hydration water'] == pytest.approx(2.2 * (recipe['Textured pea protein'] + recipe['Textured soy protein']))
-        assert recipe['Remaining water'] >= 0
-        assert sum(v for k, v in recipe.items() if k != 'Mixing time after fat') == pytest.approx(100)
+        assert set(recipe) == set(limit['ingredients'])
+        assert limit['min'] - 1e-6 <= sum(recipe.values()) <= limit['max'] + 1e-6
     opt.set_pending_batch(suggestions)
     book = load_workbook(io.BytesIO(opt.workbook_bytes(opt.pending_batch, opt.open_round_size(), print_pack=False)))
-    assert [s.title for s in book if s.sheet_state == 'visible'] == ['Round overview', 'Preparation', 'Results']
+    assert [s.title for s in book if s.sheet_state == 'visible'] == ['Round overview', 'Results']
 
 
-def test_a_250_g_round_of_the_sample_raises_no_caution(tmp_path, monkeypatch):
-    """250 g is the first size anybody tries, and the sample's Seasoning
-    blend is fixed at 2.2 g per 100 g. 2.2 * 2.5 is 5.5; the stored amount
-    is 5.499999999999999, and one unit in the last place turned ordinary
-    bench work into "Seasoning blend goes past the amounts you allowed" on
-    screen, on tab 3 and on the printed Round sheet."""
-    import sample_projects
-    from storage import LocalStorage
-    monkeypatch.chdir(tmp_path)
-    opt = sample_projects.build('Burger formulation', 'Sample project',
-                                LocalStorage(), LocalStorage())
+def test_suggestions_honour_calculated_rows_the_rest_row_and_the_total(tmp_path, monkeypatch):
+    opt = _bench(tmp_path, monkeypatch)
+    suggestions = opt.ask(3)
+    assert len(suggestions) == 3
+    for recipe in suggestions:
+        assert opt._check_constraints(recipe)
+        assert recipe['Hydration water'] == pytest.approx(2.2 * recipe['Protein'])
+        assert recipe['Remaining water'] >= 0
+        assert sum(v for k, v in recipe.items() if k != 'Mixing time after fat') == pytest.approx(100)
+
+
+def test_a_250_g_round_of_a_fixed_ratio_blend_raises_no_caution(tmp_path, monkeypatch):
+    """250 g is the first size anybody tries, and a pre-mix fixed at 2.2 g
+    per 100 g gives 2.2 * 2.5 = 5.5; the stored amount is 5.499999999999999,
+    and one unit in the last place turned ordinary bench work into "Seasoning
+    blend goes past the amounts you allowed" on screen, on tab 3 and on the
+    printed Round sheet."""
+    opt = _bench(tmp_path, monkeypatch)
     opt.set_pending_batch(opt.ask(3))
     opt.scale_round(250.0)
     assert opt.open_round_size() == 250.0
@@ -237,18 +283,25 @@ def test_excel_cached_measurement_formula_is_preserved(project):
     sheet = book['Results']
     sheet.cell(result_row(sheet), 2, '=4+4')
     saved = data(book)
-    with pytest.raises(ValueError, match='no saved result'):
+    with pytest.raises(ValueError, match='Cell B7 on Results has a calculation but no value'):
         project.results_from_workbook(saved)
     # Excel supplies the cached number on recalculation; openpyxl cannot
-    # calculate, so emulate the standard OOXML value Excel would write.
+    # calculate, so emulate the standard OOXML value Excel would write. The
+    # Results sheet's part number depends on which sheets the workbook has
+    # (no Preparation sheet without pre-mixes), so search every worksheet.
+    import re
+    empty_cache = re.compile(rb'<f>4\+4</f><v\s*/>|<f>4\+4</f><v></v>')
     original = ZipFile(data(book))
     out = io.BytesIO()
+    filled = 0
     with ZipFile(out, 'w', ZIP_DEFLATED) as rewritten:
         for name in original.namelist():
             payload = original.read(name)
-            if name == 'xl/worksheets/sheet3.xml':
-                payload = payload.replace(b'<f>4+4</f><v></v>', b'<f>4+4</f><v>8</v>')
+            if name.startswith('xl/worksheets/'):
+                payload, count = empty_cache.subn(b'<f>4+4</f><v>8</v>', payload)
+                filled += count
             rewritten.writestr(name, payload)
+    assert filled == 1
     out.seek(0)
     assert project.results_from_workbook(out).frame['Taste'].tolist() == [8]
 
@@ -265,7 +318,7 @@ def test_workbook_separates_formulations_and_has_internal_navigation(project):
             assert header.border.left.style == 'medium'
             assert header.fill.fgColor.rgb in ('00DDEBF7', '00E2EFDA')
         links = [c for row in sheet for c in row if c.hyperlink]
-        assert {c.hyperlink.location for c in links} >= {"'Results'!A1", "'Preparation'!A1", "'Round overview'!A1"}
+        assert {c.hyperlink.location for c in links} >= {"'Results'!A1", "'Round overview'!A1"}
         assert all(c.hyperlink.target is None for c in links)
         assert all(not sheet.column_dimensions[c.column_letter].hidden for c in links)
     sheet = book['Results']
@@ -445,7 +498,7 @@ def test_missing_or_damaged_hidden_metadata_refused(project, damage):
         records = json.loads(metadata['A2'].value)
         records[0][0 if damage == 'sheet' else 1] = 'missing' if damage == 'sheet' else 'A1:A2'
         metadata['A2'] = json.dumps(records)
-    with pytest.raises(ValueError, match='round information'):
+    with pytest.raises(ValueError, match="Round details are damaged|This workbook has no missing sheet"):
         project.results_from_workbook(data(book))
 
 
@@ -484,58 +537,22 @@ def test_previous_and_current_fixed_premix_labels_keep_composition(tmp_path, mon
     assert loaded.premixes == opt.premixes
 
 
-def _sample(tmp_path, monkeypatch):
-    import sample_projects
-    from storage import LocalStorage
-    monkeypatch.chdir(tmp_path)
-    return sample_projects.build('Burger formulation', 'Sample project',
-                                 LocalStorage(), LocalStorage())
-
-
-def test_every_formulation_the_sample_suggests_is_a_patty_that_forms(
+def test_every_formulation_the_yogurt_sample_suggests_stays_inside_its_limit(
         tmp_path, monkeypatch):
-    """A formed plant-based patty is 55-65 % moisture; beef 80/20 is ~60 %.
-    The shipped space ran 42-60 % and the three formulations it generated
-    came out at 47, 50 and 52 % — three crumbles and a wasted day. Six bands
-    moving independently add 25 g of swing on the dry side and the row that
-    fills to the total hands every gram of it to the water, so the solids
-    are held between 36 and 43 g."""
-    opt = _sample(tmp_path, monkeypatch)
-    limit = next(qc for qc in opt.quantity_constraints
-                 if qc.get('source') is None)
+    """The shipped limit is the pilot's own limit on the 7 ingredients'
+    total, 97.69051-98.69051 g (100 g less the two ingredients fixed in
+    every formulation); a suggestion outside it is one the pilot could not
+    have made."""
+    opt = _yogurt(tmp_path, monkeypatch)
+    [limit] = opt.quantity_constraints
+    assert limit['name'] == 'Ingredient total'
     assert sorted(limit['ingredients']) == sorted([
-        'Textured pea protein', 'Textured soy protein', 'Dry blend',
-        'Wheat gluten', 'Coconut oil', 'Sunflower oil'])
-    assert (limit['min'], limit['max']) == (36.0, 43.0)
+        'Coconut cream', 'Tap water', 'Lemon juice', 'Salt',
+        'Nutritional yeast', 'Tapioca starch', 'Xanthan gum'])
+    assert (limit['min'], limit['max']) == (97.69051, 98.69051)
     for recipe in opt.ask(3):
-        water = recipe['Hydration water'] + recipe['Remaining water']
-        assert 52.0 <= water <= 66.0, recipe
-        assert 36.0 <= sum(recipe[n] for n in limit['ingredients']) <= 43.0
-
-
-def test_the_sample_method_says_how_hot_how_long_and_how_to_cook_it(
-        tmp_path, monkeypatch):
-    """What shipped had no temperature, no duration, no geometry and no
-    cook in it, and its first step was a disclaimer. 'Use a fixed hydration
-    protocol' tells three operators to be consistent without saying what
-    about, and the round's variance then swamps the formulation effect it
-    was built to measure."""
-    opt = _sample(tmp_path, monkeypatch)
-    method = "\n".join(opt.method_lines())
-    for fact in ("45 °C", "≤ 5 °C", "180 °C", "74 °C core", "60 s on low",
-                 "3 min per side", "100 mm across, 12 mm thick",
-                 "Contains soy and wheat (gluten).",
-                 "Cook loss = (raw − cooked)/raw × 100"):
-        assert fact in method, fact
-    # And it never states the formulation total, which is a lie on every
-    # sheet printed at any other batch size. The Total row says it.
-    assert "totals 100 g" not in method
-    assert "they total 100 g" not in method
-    assert "made to the batch size" in method
-    # The disclaimer is kept, at the foot, not in the position a method's
-    # first step belongs in.
-    assert method.splitlines()[0].startswith("1. Hydrate")
-    assert "demonstrate the app" in method.splitlines()[-1]
+        assert 97.69051 - 1e-4 <= sum(recipe[n] for n in limit['ingredients']) \
+            <= 98.69051 + 1e-4
 
 
 def test_a_resized_round_says_so_on_every_sheet_it_prints(tmp_path,
@@ -543,7 +560,7 @@ def test_a_resized_round_says_so_on_every_sheet_it_prints(tmp_path,
     """The screen said 'Made to 250 g — …' the moment the box moved; every
     cell of the workbook printed from those numbers said it nowhere, so the
     bench got a sheet of unfamiliar amounts with nothing reconciling them."""
-    opt = _sample(tmp_path, monkeypatch)
+    opt = _bench(tmp_path, monkeypatch)
     opt.set_pending_batch(opt.ask(3))
     opt.scale_round(250.0)
     note = opt.scaled_amounts_note(opt.pending_batch, 250.0, sized=True)
@@ -567,7 +584,7 @@ def test_a_setting_is_printed_on_a_step_its_dial_can_be_set_to(tmp_path,
     """`109.04` s asks the bench to round it, and three benches round three
     ways. It also sat directly under `Total (g) 100.00` with no number
     format, where it read for a moment as another mass."""
-    opt = _sample(tmp_path, monkeypatch)
+    opt = _bench(tmp_path, monkeypatch)
     for recipe in opt.ask(3):
         assert recipe['Mixing time after fat'] % 5 == 0, recipe
         assert 45 <= recipe['Mixing time after fat'] <= 150
@@ -576,8 +593,6 @@ def test_a_setting_is_printed_on_a_step_its_dial_can_be_set_to(tmp_path,
         opt.pending_batch, 100.0)))['Round 1']
     flat = [c.value for row in sheet.iter_rows() for c in row]
     heading = flat.index(wording.SETTINGS_SHEET_HEADING)
-    total = flat.index(wording.ROUND_TOTAL_COLUMN + ' (g)') if (
-        wording.ROUND_TOTAL_COLUMN + ' (g)') in flat else 0
     assert heading > flat.index(wording.METHOD_SHEET_HEADING)
     assert opt.settings_step_note() == "Settings are set to the nearest 5 s."
     assert opt.settings_step_note() in flat
@@ -587,7 +602,7 @@ def test_cook_loss_asks_for_a_per_cent_on_every_sheet(tmp_path, monkeypatch):
     """A blank cell cannot display a unit after its value, so the label is
     the only place it can be said — and a bench handed "Cook loss" writes
     18, 0.18 or 18.4 g. The compact sheet said it; the print pack did not."""
-    opt = _sample(tmp_path, monkeypatch)
+    opt = _bench(tmp_path, monkeypatch)
     opt.set_pending_batch(opt.ask(3))
     for print_pack in (True, False):
         book = load_workbook(io.BytesIO(opt.workbook_bytes(
@@ -604,11 +619,10 @@ def test_cook_loss_asks_for_a_per_cent_on_every_sheet(tmp_path, monkeypatch):
 
 def test_the_bench_is_given_somewhere_to_write_the_numbers_cook_loss_needs(
         tmp_path, monkeypatch):
-    """Twenty per cent of the score rests on (raw − cooked) / raw × 100, and
-    the workbook asked for the answer with nowhere to write either weight.
-    The two temperatures are what a methylcellulose system stands on."""
+    """Cook loss rests on (raw − cooked) / raw × 100, and the workbook asked
+    for the answer with nowhere to write either weight."""
     import custom_records
-    opt = _sample(tmp_path, monkeypatch)
+    opt = _bench(tmp_path, monkeypatch)
     assert [f['name'] for f in custom_records.fields(opt, 'formulation')] == [
         'Raw weight (g)', 'Cooked weight (g)',
         'Water temperature at addition (°C)',
@@ -620,7 +634,7 @@ def test_a_premix_is_not_made_at_a_quantity_that_prints_one_column_twice(
     """At exactly 100 g, `Amount (g)` and `Composition (%)` are the same
     column printed twice. The floor is the smallest quantity that blends
     evenly, and one pre-mix can be told it needs more than the usual 100 g."""
-    opt = _sample(tmp_path, monkeypatch)
+    opt = _bench(tmp_path, monkeypatch)
     assert opt.premix_smallest_quantity('Dry blend') == 150.0
     assert opt.premix_smallest_quantity('Seasoning blend') == 100.0
     opt.set_pending_batch(opt.ask(3))
@@ -656,13 +670,13 @@ def test_the_download_caption_describes_the_file_the_box_produces(project):
     app = str(Path(__file__).resolve().parents[1] / 'app.py')
     at = AppTest.from_file(app, default_timeout=180).run()
     said = [c.value for c in at.caption]
-    assert wording.COMPACT_WORKBOOK_CAPTION in said
-    assert wording.PRINT_PACK_WORKBOOK_CAPTION not in said
+    assert wording.workbook_sheets(False) in said
+    assert wording.workbook_sheets(True) not in said
     at.checkbox(key='workbook_print_pack').set_value(True).run()
     assert not at.exception
     said = [c.value for c in at.caption]
-    assert wording.PRINT_PACK_WORKBOOK_CAPTION in said
-    assert wording.COMPACT_WORKBOOK_CAPTION not in said
+    assert wording.workbook_sheets(True) in said
+    assert wording.workbook_sheets(False) not in said
     # ...and the sheet the standing caption names is in the file it names it
     # for.
     book = load_workbook(io.BytesIO(project.workbook_bytes(

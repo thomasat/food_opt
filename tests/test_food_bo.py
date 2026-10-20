@@ -146,7 +146,7 @@ class TestVariables:
         """A missing required column must raise a plain-language ValueError
         (which the app displays nicely), never a raw KeyError."""
         df = pd.DataFrame({"Name": ["Water"], "Min": [0]})
-        with pytest.raises(ValueError, match="missing required column"):
+        with pytest.raises(ValueError, match="The file has no Highest column"):
             opt.load_ingredients_from_csv(df)
 
     def test_load_csv_rejects_after_experiments(self, opt_configured):
@@ -171,7 +171,7 @@ class TestVariables:
             "Max": [10],
         })
         with pytest.raises(ValueError,
-                           match="Lowest.*cannot be above Highest"):
+                           match="Lowest 50 is above Highest 10; swap them"):
             opt.load_ingredients_from_csv(df)
 
     def test_csv_preserves_process_params(self, opt):
@@ -231,7 +231,7 @@ class TestObjectiveValidation:
         """What the measurement is worth is typed as its share of the score
         now, so the refusal for a nought says so in those words."""
         opt = self._opt(tmp_path, monkeypatch)
-        with pytest.raises(ValueError, match="share above 0"):
+        with pytest.raises(ValueError, match=r"Share of score \(%\) above 0"):
             opt.add_objective("Taste", 0.0)
 
     def test_target_must_lie_in_range(self, tmp_path, monkeypatch):
@@ -579,7 +579,7 @@ class TestPropertyLimitsPerHundred:
     def test_a_property_limit_needs_one_unit(self, opt):
         opt = self._fatty(opt)
         opt.set_ingredient_unit("Fatty", "ml")
-        with pytest.raises(ValueError, match="every ingredient needs a mass unit"):
+        with pytest.raises(ValueError, match="need every ingredient in one unit"):
             opt.add_constraint("Fat per 100 g", max_val=25)
         assert opt.constraints == []
 
@@ -673,16 +673,16 @@ class TestPropertyLimitsPerHundred:
         opt.add_constraint("Fat per 100 g", min_val=25)
         with pytest.raises(ValueError) as caught:
             opt.add_ingredient("Fatty", 0, 0)
-        assert ("the ingredients that can still vary only reach 10 per 100 g "
-                "at most. Loosen the limit first." in str(caught.value)), \
+        assert ("only 10 per 100 g is reachable; loosen it first."
+                in str(caught.value)), \
             str(caught.value)
 
         opt.remove_constraint(0)
         opt.add_constraint("Fat per 100 g", max_val=15)
         with pytest.raises(ValueError) as caught:
             opt.add_ingredient("Lean", 0, 0)
-        assert ("the ingredients that can still vary cannot get below 30 per "
-                "100 g. Loosen the limit first." in str(caught.value)), \
+        assert ("nothing gets below 30 per "
+                "100 g; loosen it first." in str(caught.value)), \
             str(caught.value)
 
     def test_fixing_that_strands_a_limit_says_so_in_per_100_terms(self, opt):
@@ -691,7 +691,7 @@ class TestPropertyLimitsPerHundred:
         opt = self._fatty(opt)
         opt.add_objective("Taste", weight=1.0, goal="max", min_val=0, max_val=10)
         opt.add_constraint("Fat per 100 g", min_val=25)
-        with pytest.raises(ValueError, match="impossible to meet"):
+        with pytest.raises(ValueError, match="breaks the limit on .*; loosen it first"):
             opt.add_ingredient("Fatty", 0, 0)
         assert opt.fixed_variables() == []
 
@@ -726,12 +726,12 @@ class TestAskTell:
         assert len(opt_configured.results_history) == 1
 
     def test_tell_no_objectives_raises(self, opt_with_ingredients):
-        with pytest.raises(ValueError, match="Add at least one measurement"):
+        with pytest.raises(ValueError, match="Add a measurement in Set up before saving results"):
             opt_with_ingredients.tell({"Water": 50, "Flour": 25, "Sugar": 10},
                                       {"Taste": 7.0})
 
     def test_tell_missing_result_raises(self, opt_configured):
-        with pytest.raises(ValueError, match="Enter a value for"):
+        with pytest.raises(ValueError, match="Enter at least one result"):
             opt_configured.tell({"Water": 50, "Flour": 25, "Sugar": 10}, {})
 
     def test_warm_start_after_enough_experiments(self, opt_configured):
@@ -877,7 +877,7 @@ class TestPersistence:
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer(project_name="numtest")
         df = pd.DataFrame({"name": ["Water"], "min": ["abc"], "max": [100]})
-        with pytest.raises(ValueError, match="must be numbers"):
+        with pytest.raises(ValueError, match="Water: enter a number in Lowest, not “abc”"):
             opt.load_ingredients_from_csv(df)
 
     def test_export_import_json(self, opt_configured):
@@ -998,7 +998,7 @@ class TestActiveSet:
         assert opt_configured._get_fixed_features() == {1: 0.0}
 
     def test_an_inverted_range_is_refused(self, opt_configured):
-        with pytest.raises(ValueError, match="cannot be above Highest"):
+        with pytest.raises(ValueError, match="is above Highest"):
             opt_configured.add_ingredient("Sugar", 99.0, 1.0)
 
     def test_fixing_twice_is_idempotent(self, opt_configured):
@@ -1037,12 +1037,12 @@ class TestActiveSet:
     def test_ask_guards_empty_active_set(self, opt_configured):
         for name in ("Flour", "Sugar", "Water"):
             opt_configured.add_ingredient(name, 1, 1)
-        with pytest.raises(ValueError, match="fixed at one amount"):
+        with pytest.raises(ValueError, match="Every row is fixed"):
             opt_configured.ask(n_suggestions=1)
 
     def test_fixing_detects_stranded_quantity_constraint(self, opt_configured):
         opt_configured.add_quantity_constraint(["Water", "Flour"], min_val=120.0)
-        with pytest.raises(ValueError, match="impossible to meet"):
+        with pytest.raises(ValueError, match="breaks the limit on .*; loosen it first"):
             opt_configured.add_ingredient("Flour", 0, 0)
         # Refused before anything was written.
         assert opt_configured._var_by_name("Flour")["bounds"] == (0.0, 50.0)
@@ -1059,7 +1059,7 @@ class TestActiveSet:
         ]))
         opt.add_objective("Taste", weight=1.0, goal="max", min_val=0, max_val=10)
         opt.add_constraint("protein", min_val=15.0)
-        with pytest.raises(ValueError, match="impossible to meet"):
+        with pytest.raises(ValueError, match="breaks the limit on .*; loosen it first"):
             opt.add_ingredient("a", 0, 0)
         assert opt._var_by_name("a")["bounds"] == (0.0, 10.0)
 
@@ -1378,16 +1378,16 @@ class TestSetupValidation:
 
     def test_blank_process_parameter_name(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
-        with pytest.raises(ValueError, match="cannot be empty"):
+        with pytest.raises(ValueError, match="Enter a name"):
             opt.add_process_parameter("   ", 0, 10)
 
     def test_inverted_bounds(self, tmp_path, monkeypatch):
         """Equal is how a row is FIXED, so only Lowest ABOVE Highest is a
         refusal."""
         opt = self._opt(tmp_path, monkeypatch)
-        with pytest.raises(ValueError, match="Lowest cannot be above Highest"):
+        with pytest.raises(ValueError, match="Lowest .* is above Highest .*; swap them"):
             opt.add_process_parameter("Temp", 200, 100)
-        with pytest.raises(ValueError, match="Lowest cannot be above Highest"):
+        with pytest.raises(ValueError, match="Lowest .* is above Highest .*; swap them"):
             opt.add_ingredient("Water", 50, 5)
         opt.add_ingredient("Water", 5, 5)
         assert opt._var_by_name("Water")['bounds'] == (5.0, 5.0)
@@ -1407,7 +1407,7 @@ class TestSetupValidation:
     def test_csv_rejects_duplicate_and_blank_names(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         df = pd.DataFrame({"Name": ["Sugar", " Sugar", None], "Min": [0, 0, 0], "Max": [10, 10, 10]})
-        with pytest.raises(ValueError, match="Row 3.*duplicate"):
+        with pytest.raises(ValueError, match="Row 3.*listed twice"):
             opt.load_ingredients_from_csv(df)
 
     def test_constraint_inverted_bounds(self, tmp_path, monkeypatch):
@@ -1417,7 +1417,7 @@ class TestSetupValidation:
         # The limit form's own two boxes, named: it has no Lowest or Highest
         # on it — those belong to the ingredient above.
         with pytest.raises(ValueError,
-                           match="At least must be less than At most"):
+                           match="At least 50 is above At most 10; swap them"):
             opt.add_quantity_constraint(["Sugar", "Honey"], min_val=50, max_val=10)
 
     def test_duplicate_quantity_constraint_replaces(self, tmp_path, monkeypatch):
@@ -1485,8 +1485,8 @@ def test_generating_prints_nothing_to_the_console(tmp_path, monkeypatch,
     assert "DEBUG" not in capsys.readouterr().out
 
 
-def test_sample_ingredients_file_has_readable_names(tmp_path, monkeypatch):
-    """The shipped sample CSV (the sample project and the CSV template
+def test_shipped_ingredient_files_have_readable_names(tmp_path, monkeypatch):
+    """The shipped ingredient lists (the experiments' list and the CSV template
     download) must use plain, human-readable ingredient names, since they
     appear verbatim in every table, recipe card, and batch sheet."""
     monkeypatch.chdir(tmp_path)
@@ -1502,16 +1502,15 @@ def test_sample_ingredients_file_has_readable_names(tmp_path, monkeypatch):
     for name in names:
         assert "_" not in name, name
 
-    # The shipped sample (sample project + CSV template) is a subset of the
-    # same list, short enough to read at a glance.
-    sample = pd.read_csv(os.path.join(repo_root, "data", "sample_ingredients.csv"))
+    # The CSV template is one example row, short enough to read at a glance.
+    import sample_projects
+    sample = pd.read_csv(sample_projects.TEMPLATE_CSV)
     sample_opt = FoodOptimizer(project_name="sample_small")
     sample_opt.load_ingredients_from_csv(sample)
     sample_names = [v["name"] for v in sample_opt.variables]
-    assert len(sample_names) == 9
+    assert len(sample_names) == 1
     assert list(sample_opt.ingredient_grid_frame()[wording.NAME_LABEL]) == [
-        "Textured pea protein", "Textured soy protein", "Hydration water", "Remaining water",
-        "Dry blend", "Wheat gluten", "Seasoning blend", "Fats and oils"]
+        "Coconut cream"]
     assert all("_" not in name for name in sample[wording.NAME_LABEL])
     # The template's headers are the add form's own words — Name, Lowest,
     # Highest, Unit — so a reader filling it in is answering the same four
@@ -1628,6 +1627,10 @@ class TestARegeneratedBatchIsADifferentBatch:
         whole.next_formulation_no = 1
         whole.pending_batch = None
         whole.pending_batch_no = None
+        # Reopening the file and adding an ingredient discarded split's open
+        # Round, whose rows the cold start now remembers (retired
+        # suggestions): a clean project has none.
+        whole.retired_suggestions = []
         whole.ask(n_suggestions=5)
         assert self._amounts(whole) == split_five
 
@@ -1667,6 +1670,7 @@ class TestARegeneratedBatchIsADifferentBatch:
         first = self._amounts(opt)
         opt.set_pending_batch(None)
         after_discard = int(opt.next_formulation_no)
+        retired_after_discard = [dict(r) for r in opt._retired()]
 
         reloaded = FoodOptimizer("reseed_reload")
         assert int(reloaded.next_formulation_no) == after_discard
@@ -1678,6 +1682,8 @@ class TestARegeneratedBatchIsADifferentBatch:
         # exactly, rather than wandering.
         reloaded.set_pending_batch(None)
         reloaded.next_formulation_no = after_discard
+        # The same state includes what had been discarded by then.
+        reloaded.retired_suggestions = [dict(r) for r in retired_after_discard]
         reloaded.save()
         again = FoodOptimizer("reseed_reload")
         again.ask(n_suggestions=3)
@@ -1692,6 +1698,7 @@ class TestARegeneratedBatchIsADifferentBatch:
         first = self._amounts(opt)
         opt.set_pending_batch(None)
         opt.next_formulation_no = 1          # wind back: the same state again
+        opt.retired_suggestions = []         # (nothing had been discarded then)
         opt.ask(n_suggestions=3)
         assert self._amounts(opt) == first
 
@@ -1845,7 +1852,7 @@ class TestFormulationIdentity:
         opt.add_objective("Juiciness", 1.0, goal="target", target=7, min_val=0, max_val=10)
         opt.tell({"Water": 10.0}, {"Firmness": 6.0, "Juiciness": None})
         assert opt.results_history[0] == {"Firmness": 6.0}
-        with pytest.raises(ValueError, match="Enter a value for"):
+        with pytest.raises(ValueError, match="Enter at least one result"):
             opt.tell({"Water": 20.0}, {"Firmness": None, "Juiciness": None})
 
     def test_skipped_formulations_live_outside_the_scored_history(self, tmp_path, monkeypatch):
@@ -1920,7 +1927,7 @@ class TestFormulationIdentity:
         opt = self._opt(tmp_path, monkeypatch)
         opt.tell({"Water": 10.0}, {"Firmness": 5.0}, formulation_no=1, batch_no=1)
         opt.ask(n_suggestions=2)
-        with pytest.raises(ValueError, match="Record or discard the open round first."):
+        with pytest.raises(ValueError, match="Record or discard the open Round first."):
             opt.undo_last_batch()
         assert opt.pending_batch is not None
         assert opt.formulation_ids == [1]
@@ -1931,7 +1938,7 @@ class TestFormulationIdentity:
         opt = self._opt(tmp_path, monkeypatch)
         opt.tell({"Water": 10.0}, {"Firmness": 5.0}, formulation_no=1, batch_no=1)
         opt.set_pending_batch([])
-        with pytest.raises(ValueError, match="Record or discard the open round first."):
+        with pytest.raises(ValueError, match="Record or discard the open Round first."):
             opt.undo_last_batch()
 
     def test_undo_last_batch_returns_none_when_no_batch_is_numbered(self, tmp_path, monkeypatch):
@@ -2004,7 +2011,7 @@ class TestFormulationIdentity:
         survive that refusal, or a slip of the hand deletes the formulation."""
         opt = self._opt(tmp_path, monkeypatch, name="scoreskipped2")
         opt.record_skipped(1, 1, {"Water": 10.0}, note="Not scored")
-        with pytest.raises(ValueError, match="at least one measurement"):
+        with pytest.raises(ValueError, match="Enter at least one result"):
             opt.score_skipped(1, {"Firmness": None})
         assert [s["formulation"] for s in opt.skipped] == [1]
         assert FoodOptimizer("scoreskipped2").skipped[0]["formulation"] == 1
@@ -2282,20 +2289,20 @@ class TestUnitsAndImportance:
         with pytest.raises(ValueError) as add:
             opt.add_objective("Chew", 1.0, goal="target", target=99,
                               min_val=0, max_val=10)
-        assert str(add.value) == ("Target 99 must be between Scale minimum and Scale maximum "
-                                  "(0 to 10).")
+        assert str(add.value) == ("Target 99 must be between Scale minimum 0 "
+                                  "and Scale maximum 10.")
         with pytest.raises(ValueError) as edit:
             opt.update_objective("Firmness", target=99)
-        assert str(edit.value) == ("Target 99 must be between Scale minimum and Scale maximum "
-                                   "(0 to 10).")
+        assert str(edit.value) == ("Target 99 must be between Scale minimum 0 "
+                                   "and Scale maximum 10.")
 
     def test_a_backwards_range_is_refused_in_the_tab_s_words(
             self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         with pytest.raises(ValueError) as e:
             opt.add_objective("Chew", 1.0, min_val=10, max_val=0)
-        assert str(e.value) == ("Scale minimum must be less than "
-                                "Scale maximum.")
+        assert str(e.value) == ("Scale minimum 10 is above Scale maximum 0; "
+                                "swap them.")
 
     def test_the_delete_refusal_names_the_formulations(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -2358,14 +2365,16 @@ class TestUnitsAndImportance:
             opt.add_objective(name, 1.0, goal="max", min_val=0, max_val=10)
         shares = [opt.share_text(o['name'])
                   for o in opt.measurements_by_importance()]
-        assert shares == ["34 %", "33 %", "33 %"], shares
-        assert sum(opt.share_percents().values()) == 100
-        # Seven equal measurements: 14.28 % apiece, so six get the point.
+        # One decimal, as stored (0.8.0 e2e fixes D5, review M11).
+        assert shares == ["33.4 %", "33.3 %", "33.3 %"], shares
+        assert round(sum(opt.share_percents().values()), 6) == 100
+        # Seven equal measurements: 14.285 % apiece, so six get the tenth.
         opt2 = FoodOptimizer("sevenths")
         opt2.add_ingredient("Water", 0, 100)
         for i in range(7):
             opt2.add_objective(f"M{i}", 1.0, goal="max", min_val=0, max_val=10)
-        assert sum(opt2.share_percents().values()) == 100
+        assert round(sum(opt2.share_percents().values()), 6) == 100
+        assert sorted(opt2.share_percents().values()) == [14.2] + [14.3] * 6
 
     def test_share_of_score_names_the_missing_measurement(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -2424,10 +2433,9 @@ class TestUnitsAndImportance:
         assert [r["name"] for r in rows] == ["Firmness", "Juiciness"]
         assert rows[0] == {"name": "Firmness", "goal": "Target 6 N",
                            "measured": "8 N", "off_by": "2 N too high"}
-        # "measured", not "scored": the column is headed Measured, and a
-        # panel rating is one kind of measurement among several.
-        assert rows[1]["measured"] == "not measured"
-        assert rows[1]["off_by"] == "not measured"
+        # A result still to come reads "waiting" (spec 2026-09-30 §4).
+        assert rows[1]["measured"] == wording.MEASURED_WAITING
+        assert rows[1]["off_by"] == wording.MEASURED_WAITING
 
     def test_closeness_details_leaves_off_by_blank_for_higher_and_lower(self, tmp_path, monkeypatch):
         """A 'higher is better' measurement has no target, so an off-by number
@@ -2472,14 +2480,16 @@ class TestUnitsAndImportance:
         assert opt.closeness_details(-1) == []
 
     def test_the_changes_are_largest_first(self, tmp_path, monkeypatch):
+        """Largest share of its own span first (0.8.0 e2e fixes B2, review
+        M3): 0.8 g of an allowed 0-3 g (27 %) before 2.1 g of 0-25 g (8 %)."""
         opt = self._opt(tmp_path, monkeypatch)
         changes = opt._variable_deltas(
             {"Pea protein": 8.0, "Methylcellulose": 1.8},
             {"Pea protein": 10.1, "Methylcellulose": 1.0}, 'ingredient')
-        assert changes[0][0] == "Pea protein"
-        assert changes[0][1] == pytest.approx(-2.1)
-        assert changes[1][0] == "Methylcellulose"
-        assert changes[1][1] == pytest.approx(0.8)
+        assert changes[0][0] == "Methylcellulose"
+        assert changes[0][1] == pytest.approx(0.8)
+        assert changes[1][0] == "Pea protein"
+        assert changes[1][1] == pytest.approx(-2.1)
 
     def test_the_amounts_are_asked_for_without_the_settings(self, tmp_path,
                                                             monkeypatch):
@@ -2494,7 +2504,7 @@ class TestUnitsAndImportance:
                "Cook temperature": 0.0}
         assert [name for name, _ in
                 opt._variable_deltas(recipe, ref, 'ingredient')] == \
-            ["Pea protein", "Methylcellulose"]
+            ["Methylcellulose", "Pea protein"]
         assert [name for name, _ in
                 opt._variable_deltas(recipe, ref, 'process')] == \
             ["Cook temperature"]
@@ -2547,7 +2557,7 @@ class TestUnitsAndImportance:
         # Named, not "partial": the reader should not have to work out which
         # measurement is missing from a row that has room to say.
         assert opt.history_frame()["Overall score"].iloc[0] == \
-            "1.50 · Juiciness not measured"
+            "waiting for Juiciness"
 
     def test_history_frame_orders(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -2721,8 +2731,8 @@ class TestUnitPerIngredient:
     def test_the_shipped_csv_template_carries_the_unit_column(self, tmp_path,
                                                               monkeypatch):
         monkeypatch.chdir(tmp_path)
-        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        df = pd.read_csv(os.path.join(root, "data", "sample_ingredients.csv"))
+        import sample_projects
+        df = pd.read_csv(sample_projects.TEMPLATE_CSV)
         assert "Unit" in df.columns
         opt = FoodOptimizer("template_units")
         opt.load_ingredients_from_csv(df)
@@ -2788,15 +2798,15 @@ class TestUnitPerIngredient:
         # what.
         with pytest.raises(
                 ValueError,
-                match=r"A limit adds amounts, so these ingredients need "
-                      r"one unit; enter Water in g instead of ml\."):
+                match=r"These ingredients need one unit for a limit; "
+                      r"enter Water in g instead of ml\."):
             opt.add_quantity_constraint(["Pea protein", "Water"], max_val=50)
         # All ingredients is the same limit over every one of them, refused
         # in the same words.
         with pytest.raises(
                 ValueError,
-                match=r"A limit adds amounts, so these ingredients need "
-                      r"one unit; enter Water in g instead of ml\."):
+                match=r"These ingredients need one unit for a limit; "
+                      r"enter Water in g instead of ml\."):
             opt.add_total_mass_constraint(max_val=400)
         assert opt.quantity_constraints == []
         # One unit between them, and the same limit is accepted.
@@ -2974,14 +2984,14 @@ class TestParseBatchResultsByFormulation:
         otherwise drop that measurement from the whole batch without a word."""
         opt = self._opt(tmp_path, monkeypatch)
         df = pd.DataFrame({"Formulation": [7], "Hardness": [1.0]})
-        with pytest.raises(ValueError, match=r"Missing columns: L\*"):
+        with pytest.raises(ValueError, match=r"Add a L\* column, then upload again\."):
             opt.parse_batch_results(df, opt.pending_batch)
 
     def test_a_number_outside_the_trial_names_the_trial(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         df = pd.DataFrame({"Formulation": [11], "Hardness": [1.0], "L*": [5.0]})
         with pytest.raises(ValueError,
-                           match=r"Formulation 11 is not in round 3 \(it has 7, 8, 9\)\."):
+                           match=r"Formulation 11 is not in Round 3, which has 7, 8 and 9\. Check its number\."):
             opt.parse_batch_results(df, opt.pending_batch)
 
     def test_a_blank_measurement_is_a_partial_result_not_an_error(self, tmp_path, monkeypatch):
@@ -2999,13 +3009,14 @@ class TestParseBatchResultsByFormulation:
     def test_a_row_with_nothing_filled_in_is_refused(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         df = pd.DataFrame({"Formulation": [7], "Hardness": [None], "L*": [None]})
-        with pytest.raises(ValueError, match="Formulation 7 has no measurements filled in"):
+        with pytest.raises(ValueError, match="Formulation 7 has no results. Fill them in, or tick Not scored."):
             opt.parse_batch_results(df, opt.pending_batch)
 
     def test_out_of_range_value(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         df = pd.DataFrame({"Formulation": [7], "Hardness": [1.0], "L*": [140.0]})
-        with pytest.raises(ValueError, match=r"outside your range of 0 to 100"):
+        with pytest.raises(ValueError, match=r"L\* 140 is outside 0–100\. Fix it, "
+                           r"or raise Scale maximum in Set up\."):
             opt.parse_batch_results(df, opt.pending_batch)
 
     def test_the_out_of_range_refusal_follows_the_unit_rule(self, tmp_path,
@@ -3018,33 +3029,33 @@ class TestParseBatchResultsByFormulation:
         with pytest.raises(ValueError) as with_unit:
             opt.parse_batch_results(df, opt.pending_batch)
         assert str(with_unit.value) == (
-            "Formulation 7 Hardness 12 N is outside your range of 0 to 10 N. "
-            "Check the value, or adjust Scale minimum or Scale maximum in Set up.")
+            "Formulation 7: Hardness 12 N is outside 0–10 N. Fix it, or raise "
+            "Scale maximum in Set up.")
         opt.update_objective("Hardness", unit="/10")
         with pytest.raises(ValueError) as slash:
             opt.parse_batch_results(df, opt.pending_batch)
         assert str(slash.value) == (
-            "Formulation 7 Hardness 12 is outside your range of 0 to 10. "
-            "Check the value, or adjust Scale minimum or Scale maximum in Set up.")
+            "Formulation 7: Hardness 12 is outside 0–10. Fix it, or raise "
+            "Scale maximum in Set up.")
 
     def test_duplicate_row_is_rejected(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         df = pd.DataFrame({"Formulation": [7, 7], "Hardness": [11.0, 12.0],
                            "L*": [70.0, 71.0]})
-        with pytest.raises(ValueError, match="appears more than once"):
+        with pytest.raises(ValueError, match="Formulation 7 is in the file twice. Keep one."):
             opt.parse_batch_results(df, opt.pending_batch)
 
     def test_non_integer_number(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         for bad in ("abc", 7.5):
             df = pd.DataFrame({"Formulation": [bad], "Hardness": [1.0], "L*": [5.0]})
-            with pytest.raises(ValueError, match="is not a whole number"):
+            with pytest.raises(ValueError, match="is not a formulation number. Use the numbers on the sheets."):
                 opt.parse_batch_results(df, opt.pending_batch)
 
     def test_empty_sheet_is_rejected(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         df = pd.DataFrame({"Formulation": [], "Hardness": [], "L*": []})
-        with pytest.raises(ValueError, match="no result rows"):
+        with pytest.raises(ValueError, match="The file has no formulations in it"):
             opt.parse_batch_results(df, opt.pending_batch)
 
 
@@ -3210,7 +3221,8 @@ class TestTheIngredientsGrid:
         errors, _ = opt.apply_ingredient_grid(
             _edit(opt.ingredient_grid_frame(), 2,
                   **{wording.TYPE_LABEL: wording.KIND_SETTING}))
-        assert errors == [(2, wording.TYPE_LOCKED_ERROR)]
+        assert errors == [(2, "Type stays Ingredient once results are "
+                              "recorded. Delete the row and add it again.")]
         assert opt._var_by_name("Salt")["category"] == "ingredient"
 
     def test_vendor_and_sku(self, tmp_path, monkeypatch):
@@ -3295,14 +3307,14 @@ class TestTheIngredientsGrid:
         assert self._refused(opt, _edit(opt.ingredient_grid_frame(), 1,
                                         **{wording.LOWEST_LABEL: 90.0,
                                            wording.HIGHEST_LABEL: 10.0})) == [
-            (1, "Lowest cannot be above Highest.")]
+            (1, "Lowest 90 is above Highest 10; swap them.")]
 
     def test_a_number_that_is_not_a_number_is_refused(self, tmp_path,
                                                       monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         assert self._refused(opt, _edit(opt.ingredient_grid_frame(), 1,
                                         **{wording.HIGHEST_LABEL: "lots"})) == [
-            (1, wording.NUMBER_REQUIRED_ERROR)]
+            (1, "Enter a number in Highest, not “lots”.")]
 
     def test_a_blank_unit_is_refused_for_an_ingredient_only(self, tmp_path,
                                                             monkeypatch):
@@ -3341,7 +3353,7 @@ class TestTheIngredientsGrid:
                                    wording.HIGHEST_LABEL: 10.0})
         assert self._refused(opt, frame) == [
             (1, wording.NAME_REQUIRED_ERROR),
-            (2, "Lowest cannot be above Highest.")]
+            (2, "Lowest 90 is above Highest 10; swap them.")]
 
     def test_a_deletion_of_a_used_ingredient_is_refused_before_it_writes(
             self, tmp_path, monkeypatch):
@@ -3583,7 +3595,7 @@ class TestTheMeasurementsGrid:
         errors, messages = opt.apply_measurement_grid(
             _edit(opt.measurement_grid_frame(), 2,
                   **{wording.SHARE_COLUMN: "half"}))
-        assert errors == [(2, wording.SHARE_REQUIRED_ERROR)]
+        assert errors == [(2, "Enter a number in Share of score (%), not “half”.")]
         assert messages == []
         assert opt.share_percents() == {"Firmness": 60, "Juiciness": 40}
 
@@ -3592,7 +3604,7 @@ class TestTheMeasurementsGrid:
         errors, _ = opt.apply_measurement_grid(
             _edit(opt.measurement_grid_frame(), 2,
                   **{wording.SHARE_COLUMN: 0.0}))
-        assert errors == [(2, wording.SHARE_REQUIRED_ERROR)]
+        assert errors == [(2, "Share of score (%) is 0; enter more than 0.")]
 
     def test_a_renamed_measurement_keeps_every_result_filed_under_it(
             self, tmp_path, monkeypatch):
@@ -3763,9 +3775,8 @@ class TestSharesAreTheWeights:
         opt.tell({"Water": 10.0}, {"Firmness": 6.0, "Juiciness": 10.0})
         saved = FoodOptimizer(opt.project_name)
         assert saved.Y_history[0] == pytest.approx(100.0)
-        assert wording.overall_score_caption(
-            saved.Y_history[0], saved.utility_ceiling()).startswith(
-            "Overall score 100.00 of 100")
+        assert wording.overall_score_line(
+            saved.Y_history[0], saved.utility_ceiling()) == "Overall score 100.0 of 100."
 
     def test_a_measurement_deleted_leaves_the_rest_at_a_hundred(
             self, tmp_path, monkeypatch):
@@ -3817,7 +3828,7 @@ class TestRenamingAMeasurement:
                            ("Total", "column name")):
             with pytest.raises(ValueError, match=why):
                 opt.rename_objective("Firmness", taken)
-        with pytest.raises(ValueError, match="cannot be empty"):
+        with pytest.raises(ValueError, match="Enter a name"):
             opt.rename_objective("Firmness", "   ")
         assert [o['name'] for o in opt.objectives] == ["Firmness"]
         assert opt.results_history[0] == {"Firmness": 6.0}
@@ -3879,7 +3890,9 @@ class TestTheGridFixesRoundOne:
         frame = _add(opt.ingredient_grid_frame(), **_ing_row("Oil", high=5.0))
         frame = _add(frame, **_ing_row("Oil", high=6.0))
         errors, _ = opt.apply_ingredient_grid(frame)
-        assert errors == [(5, _name_taken_message("Oil", 'ingredient'))]
+        assert errors == [(5, wording.name_on_two_rows("Oil"))]
+        assert wording.name_on_two_rows("Oil") == (
+            "Oil is on two rows; rename or delete one.")
 
     # ---- a name freed in the same save is free ----------------------- #
 
@@ -4155,7 +4168,13 @@ _USER_FACING_SOURCES = ["app.py", "ui_helpers.py", "ui_setup.py", "ui_batch.py",
                         # not see it, which is how sixty sentences reached
                         # the user unread.
                         "calculation_editor.py", "workbook_flow.py",
-                        "custom_records.py"]
+                        "custom_records.py",
+                        # The Insights tab (0.8.0): its computation names
+                        # the reasons a path stops, so both are swept.
+                        "insights.py", "ui_insights.py",
+                        # The BO views' numbers (0.8.0 BO views): no screen
+                        # text, and the sweep keeps it that way.
+                        "bo_views.py"]
 # The user-facing files that are not Python. They are scanned as plain text,
 # except the Swift wrapper, where only its string literals are screen text.
 _USER_FACING_TEXT = ["desktop/start_here.txt", "desktop/README.md", "README.md"]
@@ -4290,6 +4309,14 @@ _BANNED = [
     # "holds" and "holding" are the ordinary English verb ("a copy holds
     # everything") and are not this word.
     re.compile(r"\b(hold|held)\b", re.I),
+    # 0.8.0 speed and simplicity (spec 2026-09-30 §6, review M3): Repeats
+    # "differ", an ingredient "changes the prediction by up to". "spread"
+    # named both, and a Compare-all bar besides.
+    re.compile(r"\bspread\b", re.I),
+    # Owner's rule (03 rule 12; BO views fix round 1, T0 review I-2):
+    # "calculated", never "worked out" — the frozen WORKED_OUT constant says
+    # "calculated"; only the legacy label an old workbook carries keeps it.
+    re.compile(r"\bwork(ed|ing) out\b", re.I),
 ]
 
 class TestRoundTwoFixes:
@@ -4389,7 +4416,8 @@ class TestRoundTwoFixes:
 
     def test_the_downloaded_scores_are_the_scores_on_screen(self, tmp_path,
                                                             monkeypatch):
-        """The table shows 2.62; the file used to hold 2.625."""
+        """The table shows 2.6; the file keeps 2.62 (two decimals, never
+        2.625), and reads as the screen's number at one decimal."""
         opt = self._opt(tmp_path, monkeypatch)
         opt.add_objective("Juiciness", 0.75, goal="target", target=7,
                           min_val=0, max_val=10, unit="/10")
@@ -4398,13 +4426,33 @@ class TestRoundTwoFixes:
                  batch_no=1)
         frame = pd.read_csv(io.StringIO(opt.history_csv()))
         on_screen = opt.history_frame()["Overall score"].iloc[0]
-        assert f"{frame['Overall score'].iloc[0]:.2f}" == on_screen
+        assert f"{frame['Overall score'].iloc[0]:.1f}" == on_screen
         assert frame["Overall score"].iloc[0] == round(
             float(opt.Y_history[0]), 2)
 
 
+# Insights for a first-time user (spec 2026-10-01 rev. 2; review B2, R-B2).
+# The owner's §7 directive of 2026-10-01 ("make sure an audience familiar
+# with statistics and bayesian optimization knows what this means and what
+# is going on"), under the 2026-09-10 rule that the optimization mapping
+# lives in ONE collapsed expander: Method and definitions maps the screen's
+# words to the standard BO terms, and four of those terms are words this
+# guard keeps off every other screen. Each is allowed as one exact string,
+# said in the glossary or the Model and method summary and nowhere else
+# (test_the_ftue_allowance_is_scoped). Quotes would not help: the patterns
+# search the whole string. "lengthscale" (the library's spelling) and "BO
+# term" pass unaided, so they need no entry.
+# Final review (0.8.0): the glossary is gone from the app; only the Model
+# and method lead keeps its allowance.
+_FTUE_BO_TERMS = set()
+_FTUE_ALLOWED = _FTUE_BO_TERMS
+
 # Sentences that are allowed to keep a banned word, each for a stated reason.
 _ALLOWED_EXACT = {
+    # The glossary and Model and method (above): exact strings, one scope.
+    *_FTUE_ALLOWED,
+    # v3 (owner's tweak to the final-v3 Results mock): the fold's one name.
+    wording.SCORE_WORKED_OUT_FOLD,
     # Custom records apply to formulations and process-only trials.
     wording.CUSTOM_FIELD_HELP, wording.CUSTOM_SCOPE_NAMES["formulation"],
     wording.CUSTOM_SECTION_NAMES["formulation"],
@@ -4412,16 +4460,21 @@ _ALLOWED_EXACT = {
     wording.PROCESS_STUDY_INTRO, wording.METHOD_HELP, wording.COMPOSITION_ENTRY_LABEL, "run the trials",
     # Scientific teaching copy requested by the owner uses measurement scale,
     # ingredient weight and experimental results in their ordinary meanings.
-    wording.MEASUREMENT_GRID_CAPTION, wording.MEASUREMENT_MIN_HELP,
+    wording.MEASUREMENT_MIN_HELP,
     wording.MEASUREMENT_MAX_HELP, wording.RULE_GUIDE, wording.FORMULA_HELP,
-    wording.MADE_AS_HELP, wording.SAMPLE_TAB1_DESCRIPTION,
+    wording.MADE_AS_HELP,
     wording.LOWEST_MEASURABLE_LABEL, wording.HIGHEST_MEASURABLE_LABEL,
     wording.WIDEN_RANGE_HINT,
-    wording.SAMPLE_TARGETS_SOURCE, wording.SAMPLE_METHOD, wording.LEGACY_SAMPLE_TARGETS_SOURCE, wording.SAMPLE_REFERENCE,
+    # The owner's public-release wording (S14): "scale" as a verb, resizing
+    # every formulation, never a measurement's Range.
+    wording.NO_BATCH_SIZE_OF_ITS_OWN,
 
     # The one legacy value that must stay spelled the old way: it is the
     # reserved column name a 0.2.x project could collide with.
     "Overall Score",
+    # The label a workbook written before 0.7.1 carries; an import still
+    # reads it, and it never reaches a screen.
+    wording.OLD_CALCULATED_LABEL,
     # "Delete" is now the app's one verb for taking something out, so it is
     # no longer restricted; these entries stay because the sidebar's
     # sentences are assembled from fragments the scan sees one at a time.
@@ -4591,6 +4644,70 @@ def test_no_old_vocabulary_reaches_the_user():
         offenders += _single_word_offenders(
             name, _single_word_constants(root / name))
     assert offenders == [], offenders
+
+
+# The names that carry the allowed BO terms (review R-B2), and the two
+# Method-and-definitions drawers that may say them (W2's, in ui_insights).
+_FTUE_NAMES = set()
+_FTUE_DRAWERS = {"_glossary", "_model_and_method"}
+
+
+def _wording_uses(tree):
+    """(enclosing function name or None, attribute) for every
+    `wording.<name>` in `tree` with a name in _FTUE_NAMES."""
+    found = []
+
+    def walk(node, where):
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                walk(child, child.name)
+                continue
+            if (isinstance(child, ast.Attribute) and child.attr in _FTUE_NAMES
+                    and isinstance(child.value, ast.Name) and child.value.id == "wording"):
+                found.append((where, child.attr))
+            walk(child, where)
+
+    walk(tree, None)
+    return found
+
+
+def test_the_ftue_allowance_is_scoped():
+    """Review R-B2, the proof: the BO terms the glossary and Model and method
+    need are allowed as exact strings, each one needed, none spare; they are
+    written in wording.py alone; on screen, only Method and definitions'
+    two drawers read them; and every other prose literal stays scanned."""
+    root = pathlib.Path(__file__).resolve().parent.parent
+    bo_text = set()
+
+    def refused(text):
+        return (text not in _ALLOWED_EXACT and not text.startswith(_ALLOWED_PREFIXES)
+                and any(p.search(text) for p in _BANNED))
+
+    # Every entry is glossary or Model-and-method text, and needs its entry.
+    assert _FTUE_ALLOWED <= bo_text
+    assert all(any(p.search(t) for p in _BANNED) for t in _FTUE_ALLOWED)
+    # None spare: every such cell that says a banned word is listed by name.
+    assert {t for t in bo_text if any(p.search(t) for p in _BANNED)} == _FTUE_ALLOWED
+    # Exact strings, not the words: the same text with one word more is
+    # refused, wherever it is written.
+    for text in _FTUE_ALLOWED:
+        assert not refused(text) and refused(text + " here"), text
+    # "Bayesian optimisation" is said in exactly one string (R-B2).
+    named = [t for name in _USER_FACING_SOURCES for t in _prose_constants(root / name)
+             if re.search(r"bayesian optimi[sz]", t, re.I)]
+    assert named == []
+    # Written in wording.py alone: no other module carries a copy.
+    for name in _USER_FACING_SOURCES:
+        if name != "wording.py":
+            assert not set(_prose_constants(root / name)) & _FTUE_ALLOWED, name
+    # Read on screen only by Method and definitions' glossary and Model and
+    # method drawers.
+    for name in _USER_FACING_SOURCES:
+        if name == "wording.py":
+            continue
+        uses = _wording_uses(ast.parse((root / name).read_text()))
+        assert all(name == "ui_insights.py" and where in _FTUE_DRAWERS
+                   for where, _ in uses), (name, uses)
 
 
 @pytest.mark.parametrize("word", ["Batch", "batch", "BATCH"])
@@ -4780,7 +4897,10 @@ def test_no_old_vocabulary_reaches_the_user_outside_python():
             # Process-only studies deliberately use trials in the user guide.
             if name == "desktop/start_here.txt" and line == "and time. A project containing only process settings uses trials and does":
                 continue
-            if any(pattern.search(line) for pattern in _BANNED):
+            # v3: the Results fold, named as the screen names it.
+            scanned = line.replace("worked out", "") if "score is" in line or \
+                line.startswith("worked out shows") else line
+            if any(pattern.search(scanned) for pattern in _BANNED):
                 offenders.append((name, i, line))
     swift = (root / _USER_FACING_SWIFT).read_text()
     for fragment in _SWIFT_NOT_PROSE:
@@ -4921,7 +5041,7 @@ class TestPropertiesNamedInTheApp:
             opt.add_property("Taste")
         with pytest.raises(ValueError, match="column name Food Optimizer"):
             opt.add_property("Total (g)")
-        with pytest.raises(ValueError, match="Name cannot be empty"):
+        with pytest.raises(ValueError, match="Enter a name"):
             opt.add_property("   ")
         opt.add_property("Cost")
         with pytest.raises(ValueError, match="already a property"):
@@ -5276,8 +5396,18 @@ class TestWhereTheTargetsComeFrom:
 #  Default batch size (0.4.0 §C)
 # ------------------------------------------------------------------ #
 
-_SAMPLE_CSV = pathlib.Path(__file__).resolve().parent.parent / "data" / \
-    "sample_ingredients.csv"
+# A small ingredient list with a worked-out "= rest" water row and a
+# fixed-amount pre-mix, for the tests that need those two things.
+_REST_CSV = """Name,Part of,Preparation,Lowest,Highest,Composition (%),Calculation,Unit
+Textured pea protein,,,4,6,,,g
+Wheat gluten,,,3.5,6,,,g
+Seasoning blend,,Pre-mix: keep proportions fixed,2.2,2.2,,,g
+Salt,Seasoning blend,,,,60,,g
+Onion powder,Seasoning blend,,,,40,,g
+Remaining water,,,0,100,,= rest,g
+Coconut oil,,,6,10,,,g
+Sunflower oil,,,2,5,,,g
+"""
 
 
 _FLAT_BURGER_CSV = os.path.join(os.path.dirname(__file__), "fixtures", "flat_burger.csv")
@@ -5338,13 +5468,13 @@ class TestFormulationTotal:
         with pytest.raises(ValueError) as high:
             opt.set_formulation_total(150)
         assert str(high.value) == (
-            "A default batch size of 150 g is not reachable: the most these "
-            "ingredients can make is 131 g.")
+            "These ingredients make at most 131 g; enter 131 g or less, or "
+            "raise a Highest.")
         with pytest.raises(ValueError) as low:
             opt.set_formulation_total(10)
         assert str(low.value) == (
-            "A default batch size of 10 g is not reachable: the least these "
-            "ingredients can make is 20 g.")
+            "These ingredients make at least 20 g; enter 20 g or more, or "
+            "lower a Lowest.")
         assert opt.formulation_total is None
         assert opt.quantity_constraints == []
 
@@ -5576,15 +5706,23 @@ class TestWhatEachFormulationIsTrying:
             self, tmp_path, monkeypatch):
         """The line is at 0.15 of a variable's own allowed range, and 0.15
         itself falls on the near side of it. Water is allowed 0 to 100 g, so
-        the move that decides it is 15 g."""
+        the move that decides it is 15 g. Past it, a row is balanced until it
+        is more than 0.30 from every formulation made (0.8.0 e2e fixes A2,
+        review I3): Formulations 1-5 hold 40-45 g of water."""
         opt = self._warm(self._opt(tmp_path, monkeypatch))
         assert opt.suggestion_kind({"Water": 55.0, "Wheat gluten": 20.0}) == \
             "close to the best"
         assert opt.suggestion_kind({"Water": 55.1, "Wheat gluten": 20.0}) == \
-            "trying something different"
+            "balanced"
+        assert opt.suggestion_kind({"Water": 75.0, "Wheat gluten": 20.0}) == \
+            "balanced"
+        assert opt.suggestion_kind({"Water": 75.1, "Wheat gluten": 20.0}) == \
+            "explores"
         # Down is the same distance as up.
         assert opt.suggestion_kind({"Water": 24.9, "Wheat gluten": 20.0}) == \
-            "trying something different"
+            "balanced"
+        assert opt.suggestion_kind({"Water": 9.9, "Wheat gluten": 20.0}) == \
+            "explores"
 
     def test_the_kind_is_a_fraction_of_each_variables_own_range(
             self, tmp_path, monkeypatch):
@@ -5597,7 +5735,7 @@ class TestWhatEachFormulationIsTrying:
         # moves nothing at all.
         assert opt.suggestion_kind(
             {"Water": 40.0, "Wheat gluten": 20.0, "Salt": 5.0}) == \
-            "trying something different"
+            "explores"
         assert opt.suggestion_kind(
             {"Water": 40.0, "Wheat gluten": 20.0, "Salt": 0.5}) == \
             "close to the best"
@@ -5610,7 +5748,7 @@ class TestWhatEachFormulationIsTrying:
         opt.add_ingredient("Salt", 0, 10)
         self._warm(opt)
         moved = {"Water": 40.0, "Wheat gluten": 20.0, "Salt": 5.0}
-        assert opt.suggestion_kind(moved) == "trying something different"
+        assert opt.suggestion_kind(moved) == "explores"
         opt.add_ingredient("Salt", 0, 0)
         assert opt.suggestion_kind(moved) == "close to the best"
 
@@ -5622,9 +5760,10 @@ class TestWhatEachFormulationIsTrying:
         opt.tell({"Water": 40.0, "Wheat gluten": 20.0}, {"Firmness": 9.0},
                  formulation_no=1, batch_no=1)
         recipe = {"Water": 80.0, "Wheat gluten": 20.0}
-        assert opt.suggestion_kind(recipe) == "spread across the allowed amounts"
+        # "covering", not "spread across" (spec 2026-09-30 §6, review M3).
+        assert opt.suggestion_kind(recipe) == "covering the allowed amounts"
         assert opt.compared_with_text(recipe) == \
-            "Spread across the allowed amounts"
+            "Covering the allowed amounts"
         assert opt.compared_with_column() == "Compared with the allowed amounts"
 
     def test_with_no_best_there_is_nothing_to_compare(self, tmp_path,
@@ -5633,13 +5772,15 @@ class TestWhatEachFormulationIsTrying:
         assert opt.best_formulation_no() is None
         assert opt.vs_best_text({"Water": 40.0}) == ""
         assert opt.compared_with_text({"Water": 40.0}) == \
-            "Spread across the allowed amounts"
+            "Covering the allowed amounts"
 
     def test_the_changes_are_the_three_largest_in_their_own_units(
             self, tmp_path, monkeypatch):
-        """Three amounts, largest first, each in its own ingredient's unit and
-        written to the two decimals a balance works to; the settings follow
-        the amounts, and a setting is not an amount, so it is not."""
+        """Three amounts and the settings, the largest share of its own span
+        first, amounts and settings ranked together (0.8.0 e2e fixes B2):
+        each in its own unit, an amount written to the two decimals a balance
+        works to, and a setting is not an amount, so it is not. Oil moved
+        0.4 % of its span, the fourth amount: left out by the count."""
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer("units")
         opt.add_ingredient("Water", 0, 100, unit="ml")
@@ -5654,8 +5795,8 @@ class TestWhatEachFormulationIsTrying:
         text = opt.vs_best_text({"Water": 52.0, "Wheat gluten": 17.0,
                                  "Salt": 1.5, "Oil": 10.2,
                                  "Cook temperature": 185.0})
-        assert text == ("Water +12.00 ml, Wheat gluten −3.00 g, Salt +0.50 g, "
-                        "Cook temperature +5 °C")
+        assert text == ("Water +12.00 ml, Salt +0.50 g, Cook temperature +5 °C, "
+                        "Wheat gluten −3.00 g")
         # The minus is the typographic one, so it sits beside a plus.
         assert "-3" not in text
 
@@ -5668,11 +5809,13 @@ class TestWhatEachFormulationIsTrying:
             "Water +5.00 g, Wheat gluten −5.00 g"
 
     def test_the_cell_leads_with_the_kind(self, tmp_path, monkeypatch):
-        """'Trying something different · Water +12.00 g' — the kind first,
+        """'Explores · Water +12.00 g' — the kind first,
         capitalised as the first word of the cell, then what carries it."""
         opt = self._warm(self._opt(tmp_path, monkeypatch))
+        assert opt.compared_with_text({"Water": 80.0, "Wheat gluten": 20.0}) \
+            == "Explores · Water +40.00 g"
         assert opt.compared_with_text({"Water": 60.0, "Wheat gluten": 20.0}) \
-            == "Trying something different · Water +20.00 g"
+            == "Balanced · Water +20.00 g"
         assert opt.compared_with_text({"Water": 41.0, "Wheat gluten": 20.0}) \
             == "Close to the best · Water +1.00 g"
 
@@ -5681,12 +5824,12 @@ class TestWhatEachFormulationIsTrying:
         """The table says what each formulation is trying; the CSV sheet is a
         grid to fill in, and a column of prose is not something to weigh."""
         opt = self._warm(self._opt(tmp_path, monkeypatch))
-        opt.set_pending_batch([{"Water": 60.0, "Wheat gluten": 20.0},
+        opt.set_pending_batch([{"Water": 80.0, "Wheat gluten": 20.0},
                                {"Water": 41.0, "Wheat gluten": 20.0}])
         df = opt.batch_frame(opt.pending_batch)
         assert list(df.columns)[-1] == "Compared with Formulation 1"
         assert list(df["Compared with Formulation 1"]) == [
-            "Trying something different · Water +20.00 g",
+            "Explores · Water +40.00 g",
             "Close to the best · Water +1.00 g"]
         # ... and not on the sheets: a workbook's rows are the ingredients
         # to weigh out, and a column of prose is not one of them.
@@ -5965,8 +6108,9 @@ class TestTheTotalIsAlwaysReachable:
         assert opt._snap_to_total({"Water": 60.0, "Flour": 35.0}, 100.0) is None
         with pytest.raises(ValueError) as caught:
             opt.ask(n_suggestions=1)
-        assert str(caught.value) == ("The fixed amounts add up to 95 g, not "
-                                     "the 100 g batch size.")
+        assert str(caught.value) == ("Fixed amounts add up to 95 g, not "
+                                     "100 g. Change one, or the default "
+                                     "batch size, in Set up.")
 
     def test_the_opening_is_still_spread_out(self, tmp_path, monkeypatch):
         """Projecting onto the total must not collapse the design: three rows
@@ -5997,9 +6141,8 @@ class TestTheTotalIsAlwaysReachable:
         with pytest.raises(ValueError) as refused:
             opt.add_ingredient("Water", 20.0, 20.0)
         assert str(refused.value) == (
-            "Fixing these would leave no formulation adding up to 120 g. "
-            "Change the batch size, or let enough ingredients vary again. "
-            "Fixed at one amount: Water.")
+            "Fixing these leaves no formulation at 120 g; change the batch "
+            "size or let more ingredients vary. Fixed at one amount: Water.")
 
     def test_a_total_of_nothing_is_refused_in_the_reach_words(self, tmp_path,
                                                               monkeypatch):
@@ -6014,8 +6157,7 @@ class TestTheTotalIsAlwaysReachable:
         with pytest.raises(ValueError) as refused:
             opt.set_formulation_total(0)
         assert str(refused.value) == (
-            "A default batch size of 0 g is not reachable: every formulation has to add "
-            "up to something.")
+            "Enter a default batch size above 0.")
         assert opt.formulation_total is None
         assert opt.quantity_constraints == []
 
@@ -6165,16 +6307,16 @@ class TestTheWorkbook:
         # written in — this sheet's own, the Lot among them, and not the
         # Actual cells that live on the pages; the header the upload reads
         # is under that.
-        assert rows[1][0] == wording.SUMMARY_SHADED_NOTE
-        assert wording.LOT_COLUMN in wording.SUMMARY_SHADED_NOTE
-        assert wording.ACTUAL_COLUMN not in wording.SUMMARY_SHADED_NOTE
+        assert rows[1][0] == wording.summary_write_in_note()
+        assert wording.LOT_COLUMN in wording.summary_write_in_note()
+        assert wording.ACTUAL_COLUMN not in wording.summary_write_in_note()
         # It names the column by the word the block's own header row uses.
         # It said "Measured", which is a header this sheet does not write —
         # the formulation pages do, and their line names it.
         head = next(r for r in rows
                     if r and r[0] == wording.MEASUREMENT_COLUMN)
-        assert head[0] in wording.SUMMARY_SHADED_NOTE, head
-        assert wording.MEASURED_COLUMN not in wording.SUMMARY_SHADED_NOTE
+        assert head[0] in wording.summary_write_in_note(), head
+        assert wording.MEASURED_COLUMN not in wording.summary_write_in_note()
         assert wording.MEASURED_COLUMN in wording.sheet_write_in_note()
         pct = wording.PERCENT_COLUMN
         assert rows[2] == ("Ingredient or process setting", "Formulation 1",
@@ -6394,7 +6536,7 @@ class TestTheWorkbook:
         opt.set_pending_batch([{"Pea protein": 20.0, "Water": 70.0,
                                 "Salt": 10.0, "Cook temperature": 180.0}],
                               batch_no=3)
-        with pytest.raises(ValueError, match="different round"):
+        with pytest.raises(ValueError, match="This workbook is for Round 2; Round 3 is open. Upload Round 3's workbook."):
             opt.results_from_workbook(io.BytesIO(stale))
 
     def test_a_sheet_with_no_formulation_columns_is_refused(self, tmp_path,
@@ -6421,7 +6563,7 @@ class TestTheWorkbook:
     def test_something_that_is_not_a_workbook_at_all(self, tmp_path,
                                                      monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
-        with pytest.raises(ValueError, match="could not be read as a workbook"):
+        with pytest.raises(ValueError, match="Could not read this file as a workbook"):
             opt.results_from_workbook(io.BytesIO(b"not a workbook"))
 
     def _old_layout(self, opt, extra_rows=()):
@@ -6594,7 +6736,7 @@ class TestTheWorkbook:
         out = io.BytesIO()
         book.save(out)
         out.seek(0)
-        with pytest.raises(ValueError, match="conflicting Firmness"):
+        with pytest.raises(ValueError, match="Formulation 1 has two different Firmness entries. Make them match"):
             opt.results_from_workbook(out)
 
     # ------------------------- the whole project ------------------------ #
@@ -6643,8 +6785,8 @@ class TestTheWorkbook:
         the headers and ONE example row, so nobody has to work out which
         lines are theirs."""
         monkeypatch.chdir(tmp_path)
-        template = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                "..", "data", "sample_ingredients.csv")
+        import sample_projects
+        template = str(sample_projects.TEMPLATE_CSV)
         book = _book(ingredients_template_workbook(template))
         assert book.sheetnames == ["Ingredients"]
         header = _rows(book["Ingredients"])[0]
@@ -7252,7 +7394,7 @@ class TestRenameVariable:
                              "already the name of a process setting"),
                             ("Firmness", "already the name of a measurement"),
                             ("Total", "column name Food Optimizer"),
-                            ("   ", "Name cannot be empty")):
+                            ("   ", "Enter a name")):
             with pytest.raises(ValueError, match=says):
                 opt.rename_variable("Pea protein", taken)
         assert [v['name'] for v in opt.variables][0] == "Pea protein"
@@ -7626,7 +7768,7 @@ class TestFixedIsLowestEqualsHighest:
         opt.add_ingredient("Water", 70, 70)
         with pytest.raises(ValueError) as refused:
             opt.ask(n_suggestions=1)
-        assert "fixed at one amount" in str(refused.value)
+        assert "Every row is fixed" in str(refused.value)
 
     # ---- equal is a fix; inverted is a refusal ----
 
@@ -7639,10 +7781,10 @@ class TestFixedIsLowestEqualsHighest:
         assert opt._var_by_name("Mixing time")['bounds'] == (90.0, 90.0)
         for lowest, highest in ((10, 5), (200, 100)):
             with pytest.raises(ValueError,
-                               match="Lowest cannot be above Highest"):
+                               match=f"Lowest {lowest} is above Highest {highest}"):
                 opt.add_ingredient("Oil", lowest, highest)
             with pytest.raises(ValueError,
-                               match="Lowest cannot be above Highest"):
+                               match=f"Lowest {lowest} is above Highest {highest}"):
                 opt.add_process_parameter("Mixing time", lowest, highest)
         assert opt._var_by_name("Oil")['bounds'] == (5.0, 5.0)
 
@@ -7653,7 +7795,7 @@ class TestFixedIsLowestEqualsHighest:
         opt.load_ingredients_from_csv(pd.DataFrame({
             "Name": ["Flour", "Salt"], "Min": [0, 2], "Max": [100, 2]}))
         assert [v['name'] for v in opt.fixed_variables()] == ["Salt"]
-        with pytest.raises(ValueError, match="cannot be above Highest"):
+        with pytest.raises(ValueError, match="is above Highest"):
             opt.load_ingredients_from_csv(pd.DataFrame({
                 "Name": ["Flour"], "Min": [50], "Max": [10]}))
 
@@ -7667,9 +7809,8 @@ class TestFixedIsLowestEqualsHighest:
         with pytest.raises(ValueError) as refused:
             opt.add_ingredient("Water", 0, 0)
         assert str(refused.value) == (
-            "Fixing these would leave no formulation adding up to 120 g. "
-            "Change the batch size, or let enough ingredients vary again. "
-            "Fixed at one amount: Water.")
+            "Fixing these leaves no formulation at 120 g; change the batch "
+            "size or let more ingredients vary. Fixed at one amount: Water.")
         # Refused before anything was written: Water still varies.
         assert opt._var_by_name("Water")['bounds'] == (0.0, 80.0)
         assert [v['name'] for v in opt.fixed_variables()] == ["Salt"]
@@ -7714,7 +7855,7 @@ class TestFixedIsLowestEqualsHighest:
     def test_a_fixed_row_survives_a_saved_copy(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch, name="fixed_copy")
         state = opt.export_json()
-        assert state['CLASS_VERSION'] == 15
+        assert state['CLASS_VERSION'] == 17
         assert FoodOptimizer.validate_state(state)['ingredients'] == 3
         restored = FoodOptimizer("fixed_copy_restored")
         restored.import_json(state)
@@ -7882,7 +8023,7 @@ class TestALimitOnlyFixedRowsFeed:
         # The limit is written around the model's back, the way a file
         # restored from an older copy could carry one.
         opt._var_by_name("Salt")['bounds'] = (8.0, 8.0)
-        with pytest.raises(ValueError, match="impossible to meet"):
+        with pytest.raises(ValueError, match="breaks the limit on .*; loosen it first"):
             opt.ask(n_suggestions=2)
 
     def test_a_constant_property_limit_the_fixed_rows_break_stops_it_too(
@@ -7905,7 +8046,7 @@ class TestALimitOnlyFixedRowsFeed:
                      {"Firmness": 5.0 + i * 0.1})
         for name in ("Lean", "Fatty"):
             opt._var_by_name(name)['bounds'] = (20.0, 20.0)
-        with pytest.raises(ValueError, match="impossible to meet"):
+        with pytest.raises(ValueError, match="breaks the limit on .*; loosen it first"):
             opt.ask(n_suggestions=2)
 
     def test_a_constant_limit_the_fixed_rows_MEET_is_no_trouble(
@@ -8182,7 +8323,7 @@ class TestThePropertiesGrid:
         errors, messages = opt.apply_property_grid(
             _edit(opt.property_grid_frame(), 2,
                   **{"Cost": "cheap", "Sodium per 100 g": 4.0}))
-        assert errors == [(2, "Cost must be a number, or empty.")]
+        assert errors == [(2, "Enter a number in Cost, or leave it empty.")]
         assert messages == []
         assert json.dumps(opt.export_json(), sort_keys=True) == before
 
@@ -8593,7 +8734,7 @@ class TestTheLockedWorkbook:
         opt = self._opt(tmp_path, monkeypatch)
         book = _book(opt.workbook_bytes(opt.pending_batch, 100.0))
         for sheet, row, note in ((book["Round 2"], 2,
-                                  wording.SUMMARY_SHADED_NOTE),
+                                  wording.summary_write_in_note()),
                                  (book["Formulation 1"], 3,
                                   wording.sheet_write_in_note("Actual (g)"))):
             last = sheet.print_area.split(":")[-1].strip("'$0123456789")
@@ -8604,9 +8745,9 @@ class TestTheLockedWorkbook:
             assert cell.alignment.wrap_text
             assert sheet.row_dimensions[row].height >= 30
         # Lot is named where the Lot cells are, Actual where they are.
-        assert wording.ACTUAL_COLUMN in wording.SHEET_SHADED_NOTE
-        assert wording.LOT_COLUMN not in wording.SHEET_SHADED_NOTE
-        assert wording.LOT_COLUMN in wording.SUMMARY_SHADED_NOTE
+        assert wording.ACTUAL_COLUMN in wording.sheet_write_in_note()
+        assert wording.LOT_COLUMN not in wording.sheet_write_in_note()
+        assert wording.LOT_COLUMN in wording.summary_write_in_note()
         # And the line the measurements block carries is merged too.
         page = book["Formulation 1"]
         row = self._rows_of(page, column=2)[wording.SHEET_WRITE_IN_NOTE]
@@ -8630,7 +8771,7 @@ class TestTheLockedWorkbook:
         """Nothing was ever weighed out of a bowl, and "is not a number" is
         the wrong thing to say about -80."""
         opt = self._opt(tmp_path, monkeypatch)
-        with pytest.raises(ValueError, match="cannot be less than zero"):
+        with pytest.raises(ValueError, match="Formulation 1: the Actual cell for Water is below 0. Write what you weighed."):
             opt.results_from_workbook(self._filled(opt, actual=-80.0))
 
     def test_an_actual_cell_that_is_not_a_weight_is_refused(self, tmp_path,
@@ -9142,10 +9283,11 @@ class TestFormulaRows:
         opt.set_formulation_total(100)
         opt.set_formula("Water", "= rest")
         opt.set_formulation_total(250)
+        # Water's own range is the grid's caption; this line does not say
+        # it again (polish round, tests/test_106_last_fixes.py).
         assert opt.batch_size_consequence() == (
-            "Water takes up the difference: between 172.00 and 220.00 g in "
-            "a 250 g formulation. To keep the same proportions, widen "
-            "Lowest and Highest too.")
+            "At 250 g, the other rows keep their amounts. To keep the same "
+            "proportions, widen Lowest and Highest too.")
         # Nothing to say for a project with no rest row.
         opt.clear_formula("Water")
         assert opt.batch_size_consequence() == ""
@@ -9206,7 +9348,7 @@ class TestFormulaRows:
         opt.set_formula("Water", "= rest")
         opt.set_formula("Sugar", "= 0.1 × batch size")
         state = opt.export_json()
-        assert FoodOptimizer.validate_state(state)['version'] == 15
+        assert FoodOptimizer.validate_state(state)['version'] == 17
 
         other = FoodOptimizer("copy_of_formulas")
         other.import_json(state)
@@ -9293,9 +9435,9 @@ class TestFormulaRows:
 
         other = FoodOptimizer("wave_one_project")
         other.import_json(state)
-        assert FoodOptimizer.CLASS_VERSION == 15
+        assert FoodOptimizer.CLASS_VERSION == 17
         assert not any(other.has_formula(v) for v in other.variables)
-        assert other.export_json()['CLASS_VERSION'] == 15
+        assert other.export_json()['CLASS_VERSION'] == 17
         assert len(other._search_bounds()) == 3
         assert len(other.ask(1)) == 1
 
@@ -9562,8 +9704,8 @@ class TestTheFormulaColumn:
         frame = self._formula(self._formula(
             opt.ingredient_grid_frame(), 1, "= rest"), 3, "= rest")
         errors, messages = opt.apply_ingredient_grid(frame)
-        assert errors == [(None, "Only one row can be = rest: "
-                          "Water and Salt both are.")]
+        assert errors == [(None, "Only one row can use Fill to total; "
+                          "Water and Salt both do. Keep one.")]
         assert messages == []
         # Nothing was written: a refusal leaves the project as it was.
         assert opt.has_formula(opt._var_by_name("Water")) is False
@@ -9610,7 +9752,7 @@ class TestTheFormulaColumn:
         # The head names the number it fills to AND where that number is
         # set, so the line is read the same on a round made to another size.
         assert opt.worked_out_captions() == [
-            "Water is calculated to bring the total to the 100 g default "
+            "Water fills to the 100 g default "
             "batch size: between 40.00 and 62.00 g. "
             "Its own Lowest and Highest (20.00 to 60.00 g) do not apply "
             "while the calculation does."]
@@ -9711,7 +9853,7 @@ class TestTheFormulaColumn:
                 if text.startswith("Formulations already made keep")]
         assert said == [
             "Formulations already made keep their amounts. Water and Salt "
-            "are calculated from their calculations from the next round on."]
+            "are calculated from their calculations from the next Round on."]
 
     # ---- a formula is data a file can bring in ---------------------- #
 
@@ -9738,24 +9880,22 @@ class TestTheFormulaColumn:
         assert opt.fill_formulas({"Flour": 40.0}) == {
             "Flour": 40.0, "Sugar": 8.0, "Water": 52.0}
 
-    def test_the_sample_water_is_rest_and_every_sample_round_adds_up(
+    def test_a_rest_row_makes_every_round_add_up(
             self, tmp_path, monkeypatch):
-        """Show, don't teach: the sample project the reader opens first has
-        a worked-out row in it, and every round it makes lands exactly on
-        the batch size because of it."""
+        """A project with a worked-out row in it makes every round land
+        exactly on the batch size because of it."""
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer("sample_rest", robust=False)
         opt.set_amount_unit("g")
-        opt.load_ingredients_from_csv(pd.read_csv(_SAMPLE_CSV))
+        opt.load_ingredients_from_csv(pd.read_csv(io.StringIO(_REST_CSV)))
         opt.add_objective("Juiciness", 1.0, goal="target", target=7,
                           min_val=0, max_val=10, unit="/10")
         opt.set_formulation_total(100.0)
         assert opt._var_by_name("Remaining water")['balance'] is True
         assert opt._formula_text(opt._var_by_name("Remaining water")) == "= rest"
-        # Textured pea protein, Dry blend, Wheat gluten and the two oils
-        # the Fat phase is weighed out as; Seasoning blend is fixed at
-        # 2.20 g and Water is calculated.
-        assert len(opt.varying_variables()) == 6
+        # Textured pea protein, Wheat gluten and the two oils; Seasoning
+        # blend is fixed at 2.20 g and Remaining water is calculated.
+        assert len(opt.varying_variables()) == 4
         for row in opt.ask(n_suggestions=3):
             assert sum(row.values()) == pytest.approx(100.0, abs=1e-6)
             assert row["Remaining water"] >= -1e-9
@@ -10232,7 +10372,8 @@ class TestTheFormulaColumnFixes:
                 "Name": ["Flour", "Glaze"], "Lowest": [10, 0],
                 "Highest": [50, 0], "Unit": ["g", "g"],
                 "Rule": [None, "= 0.1 × Oven"]}))
-        assert str(refused.value) == wording.rule_ingredients_only("Oven")
+        assert str(refused.value) == wording.named_row_error(
+            "Glaze", wording.rule_ingredients_only("Oven"))
 
     @pytest.mark.parametrize("cell", ["=rest", "= REST", "=  rest",
                                       "= rest "])
@@ -10298,7 +10439,7 @@ class TestTheFormulaColumnFixes:
             "Flour and Water")
         assert opt.variables == before
 
-    def test_the_samples_water_keeps_the_range_its_formula_covers(
+    def test_a_rest_rows_water_keeps_the_range_its_formula_covers(
             self, tmp_path, monkeypatch):
         """A worked-out row may carry a dormant range: the grid shows the
         word, and rubbing the formula out gives the row its amounts back
@@ -10306,7 +10447,7 @@ class TestTheFormulaColumnFixes:
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer("sample_range", robust=False)
         opt.set_amount_unit("g")
-        opt.load_ingredients_from_csv(pd.read_csv(_SAMPLE_CSV))
+        opt.load_ingredients_from_csv(pd.read_csv(io.StringIO(_REST_CSV)))
         opt.add_objective("Juiciness", 1.0, goal="target", target=7,
                           min_val=0, max_val=10, unit="/10")
         opt.set_formulation_total(100.0)
@@ -10379,7 +10520,8 @@ class TestExactlyAndPercentLimits:
         opt = self._opt(tmp_path, monkeypatch)
         with pytest.raises(ValueError) as refused:
             opt.add_quantity_constraint(["Water"], exactly=10)
-        assert str(refused.value) == wording.EXACTLY_ONE_INGREDIENT
+        assert str(refused.value) == ("To fix Water at one amount, give it "
+                                      "equal Lowest and Highest in the grid.")
         assert opt.quantity_constraints == []
 
     def test_a_percent_limit_converts_to_grams_at_save(self, tmp_path,
@@ -10780,7 +10922,7 @@ class TestPreMixes:
         # A JSON object's keys are strings, so the round numbers go out as
         # text and come back whole.
         assert list(state['premixes']['Dry blend']['versions']) == ["1"]
-        assert FoodOptimizer.validate_state(state)['version'] == 15
+        assert FoodOptimizer.validate_state(state)['version'] == 17
 
         monkeypatch.chdir(tmp_path)
         other = FoodOptimizer("premix_copy", robust=False)
@@ -10815,11 +10957,11 @@ class TestPreMixes:
             "Protein", {'mode': "portioned", 'parts': [], 'versions': {}})
             or s.__setitem__('property_names', ["Protein"]))
         # And the copy the app itself writes is accepted.
-        assert FoodOptimizer.validate_state(opt.export_json())['version'] == 15
+        assert FoodOptimizer.validate_state(opt.export_json())['version'] == 17
 
     def test_a_version_12_project_loads_with_no_premixes_at_version_14(
             self, tmp_path, monkeypatch):
-        assert FoodOptimizer.CLASS_VERSION == 15
+        assert FoodOptimizer.CLASS_VERSION == 17
         opt = self._opt(tmp_path, monkeypatch)
         state = opt.export_json()
         del state['premixes']
@@ -10829,7 +10971,7 @@ class TestPreMixes:
         other = FoodOptimizer("held_project", robust=False)
         other.import_json(state)
         assert other.premixes == {}
-        assert other.export_json()['CLASS_VERSION'] == 15
+        assert other.export_json()['CLASS_VERSION'] == 17
 
     # ---- a file ---------------------------------------------------------- #
 
@@ -10947,7 +11089,7 @@ class TestPreMixes:
         said = opt.premix_consequence("Dry blend")
         assert said.startswith(
             "The suggestions vary how much Dry blend goes in. Its make-up "
-            "stays the same for the whole round, so you make it once.")
+            "stays the same for the whole Round, so you make it once.")
         assert said.startswith(wording.premix_portioned_consequence(
             "Dry blend"))
         assert "Flour" not in said and "Salt" not in said
@@ -11012,12 +11154,11 @@ class TestPreMixes:
         assert opt.pending_batch is None
         assert opt.pending_batch_no is None
         assert wording.batch_discarded_notice(no) == (
-            f"Round {no} was discarded: your set-up changed after it was "
-            "made. Generate a new one.")
+            f"Round {no} was discarded: your set-up changed. Generate a new one.")
         # And what the screen's question is built from, in wave 1's words.
         assert wording.saving_discards_round(no, "3 formulations", 1) == (
             f"Saving will discard Round {no}: 3 formulations, 1 of them "
-            "added by you. A formulation you added goes with the round — a "
+            "added by you. A formulation you added goes with the Round — a "
             "set-up change can make it invalid.")
 
     def test_portioned_to_weighed_back_fills_the_parts_from_the_round_version(
@@ -11643,7 +11784,7 @@ class TestThePreMixGrid:
         errors, _ = opt.apply_premix_grid("Dry blend", _edit(
             opt.premix_grid_frame("Dry blend"), 2,
             **{wording.LOWEST_LABEL: "9", wording.HIGHEST_LABEL: "1"}))
-        assert errors == [(2, wording.LOWEST_ABOVE_HIGHEST_ERROR)]
+        assert errors == [(2, "Lowest 9 is above Highest 1; swap them.")]
         assert opt._by_name()["Flour"]['bounds'] == (5.0, 15.0)
 
     def test_parts_are_rebalanced_and_the_caption_says_so(self, tmp_path,
@@ -11764,7 +11905,7 @@ class TestThePreMixGrid:
             wording.UNIT_LABEL: "g",
             wording.MADE_AS_LABEL: wording.PREMIX_MADE_AS_PORTIONED})
         errors, _ = opt2.apply_ingredient_grid(blank)
-        assert errors == [(2, wording.NUMBER_REQUIRED_ERROR)]
+        assert errors == [(2, "Enter Lowest and Highest.")]
         assert opt2.premixes == {}
 
     def test_blanking_made_as_takes_the_premix_away(self, tmp_path,
@@ -12029,7 +12170,7 @@ class TestPreMixReviewFixes:
         opt.set_premix_parts("Dry blend", self._parts(("Flour", 50), ("Salt", 30), ("Pepper", 20)))
         assert opt.quantity_constraints[-1]['ingredients'] == ["Flour", "Salt", "Pepper"]
         assert opt.limit_label(opt.quantity_constraints[-1]) == "Dry blend"
-        with pytest.raises(ValueError, match="Choose a pre-mix weighed into each formulation on its own"):
+        with pytest.raises(ValueError, match="Pick Dry blend on its own to limit its total"):
             opt.add_chosen_quantity_constraint(["Dry blend", "Flour"], max_val=45)
 
 
@@ -12265,8 +12406,8 @@ class TestTheColdRead:
         assert errors == [(int(row),
                            wording.premix_amount_is_its_parts("Dry blend"))]
         assert wording.premix_amount_is_its_parts("Dry blend") == (
-            "Dry blend's amount is the sum of its parts. Change the parts "
-            "in its fold.")
+            "Its amount is the sum of its parts; change them under Blend "
+            "compositions.")
 
     # ---- S8 · the rebalance names the numbers --------------------------- #
 
@@ -12360,3 +12501,75 @@ class TestTheMethod:
         assert opt.premix_make_quantity(85.71) == 100.0
         assert opt.premix_make_quantity(160.0) == 180.0
         assert opt.premix_make_quantity(253.25) == 280.0
+
+
+class TestAShownLimitIsTheOneChecked:
+    """A limit's number reads short (to 2 decimals) only when that short
+    number is one the limit check itself accepts: rounding 98.69051 to
+    98.69 moved the limit by 0.0005, ten times the check's own slack, so a
+    batch adding to the 97.69 g on the screen was told it broke 'at least
+    97.69 g'. Any amount the shown text allows passes the check."""
+
+    LIMITS = [  # (unit, min, max)
+        ("g", 97.69051, 98.69051),
+        ("g", 0.15, 0.65),
+        ("g", 0.9, 2.6),
+        ("g", 1234.5678, 2345.6789),
+        ("kg", 1.23456789, 2.3456789),
+        ("kg", 0.097691, 0.0986905),
+    ]
+
+    @staticmethod
+    def _numbers(text, unit):
+        import re
+        num = r"(-?\d+(?:\.\d+)?)"
+        low = re.search(rf"at least {num} {unit}\b", text)
+        high = re.search(rf"at most {num} {unit}\b", text)
+        return (float(low.group(1)) if low else None,
+                float(high.group(1)) if high else None)
+
+    def _opt(self, tmp_path, monkeypatch, unit):
+        monkeypatch.chdir(tmp_path)
+        opt = FoodOptimizer("shown_limits", robust=False)
+        opt.set_amount_unit(unit)
+        opt.add_ingredient("Water", 0, 5000)
+        opt.add_ingredient("Oil", 0, 5000)
+        opt.add_ingredient("Salt", 0, 200)
+        opt.add_objective("Taste", 1.0, goal="max")
+        return opt
+
+    @pytest.mark.parametrize("unit,low,high", LIMITS)
+    def test_every_amount_the_text_allows_passes(self, tmp_path, monkeypatch,
+                                                 unit, low, high):
+        opt = self._opt(tmp_path, monkeypatch, unit)
+        opt.add_quantity_constraint(["Water", "Oil"], min_val=low, max_val=high)
+        qc = opt.quantity_constraints[-1]
+        shown_low, shown_high = self._numbers(opt.limit_text(qc), unit)
+        assert shown_low is not None and shown_high is not None
+        for total in (shown_low, (shown_low + shown_high) / 2, shown_high):
+            recipe = {"Water": total * 0.6, "Oil": total - total * 0.6}
+            assert opt._check_constraints(recipe), (opt.limit_text(qc), total)
+
+    @pytest.mark.parametrize("value,text", [
+        (98.7, "98.7"), (60.0, "60"), (0.65, "0.65"), (2.6, "2.6"),
+        (98.69, "98.69"), (98.69051, "98.6905")])
+    def test_a_limit_reads_as_short_as_it_truthfully_can(
+            self, tmp_path, monkeypatch, value, text):
+        opt = self._opt(tmp_path, monkeypatch, "g")
+        opt.add_quantity_constraint(["Water", "Oil"], max_val=value)
+        assert opt.limit_text(opt.quantity_constraints[-1]) == \
+            f"Water + Oil: at most {text} g"
+
+    def test_a_percent_limit_reads_truthfully_too(self, tmp_path, monkeypatch):
+        import re
+        opt = self._opt(tmp_path, monkeypatch, "g")
+        opt.set_formulation_total(100)
+        opt.add_quantity_constraint(["Water", "Oil"], max_val=12.345,
+                                    percent=True)
+        qc = [q for q in opt.quantity_constraints if q.get('percent')][0]
+        text = opt.limit_text(qc)
+        assert text.startswith("Water + Oil: at most 12.345 % of default batch size")
+        shown = float(re.search(r"at most (\d+(?:\.\d+)?) %", text).group(1))
+        # The rest of the default 100 g batch is Salt.
+        assert opt._check_constraints(
+            {"Water": shown / 2, "Oil": shown / 2, "Salt": 100.0 - shown})

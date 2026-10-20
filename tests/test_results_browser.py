@@ -5,7 +5,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 from food_bo import FoodOptimizer
-from ui_results import _amount_rows
+from ui_results import BEST_CHOICE, _amount_rows
 import wording
 
 APP = str(Path(__file__).resolve().parents[1] / 'app.py')
@@ -35,21 +35,26 @@ def test_best_other_and_unscored_details_are_read_only(project):
     picker = at.selectbox(key='result_view_details')
     assert picker.options == ['Best so far · Formulation 2 (Round 1)',
                               'Formulation 1 (Round 1)', 'Formulation 3 (Round 1) · Not scored']
-    assert any(h.value == wording.best_so_far_heading(2, 1) for h in at.subheader)
-    assert amounts(at)[wording.RESULT_PERCENT_COLUMN].tolist() == ['30.00', '70.00', '']
+    # No heading repeats the box (spec 2026-09-30 §4, review I12).
+    assert not at.tabs[2].subheader
+    assert wording.BEST_RULE in [c.value for c in at.tabs[2].caption]
+    # N8: at 100 g the % column would repeat Amount, so it is not drawn.
+    assert wording.RESULT_PERCENT_COLUMN not in amounts(at).columns
     picker.select(1).run()
     assert not at.exception
-    assert any(h.value == 'Formulation 1 (Round 1)' for h in at.subheader)
-    assert not any(h.value.startswith('Best so far:') for h in at.subheader)
-    assert amounts(at)[wording.RESULT_PERCENT_COLUMN].tolist() == ['20.00', '80.00', '']
+    assert not at.tabs[2].subheader
+    assert wording.BEST_RULE not in [c.value for c in at.tabs[2].caption]
+    # N8: at 100 g the % column would repeat Amount, so it is not drawn.
+    assert wording.RESULT_PERCENT_COLUMN not in amounts(at).columns
     assert amounts(at)[wording.AMOUNT_COLUMN].tolist() == ['20.00 g', '80.00 g', '0 s']
     assert float(next(d.value for d in at.tabs[2].dataframe if 'Measured' in d.value.columns)['Measured'].iloc[0]) == 4
     at.selectbox(key='result_view_details').select(3).run()
     assert any(i.value == wording.RESULT_UNSCORED_HELP for i in at.info)
-    assert amounts(at)[wording.RESULT_PERCENT_COLUMN].tolist() == ['40.00', '60.00', '']
+    # N8: at 100 g the % column would repeat Amount, so it is not drawn.
+    assert wording.RESULT_PERCENT_COLUMN not in amounts(at).columns
     assert not any('Measured' in d.value.columns for d in at.tabs[2].dataframe)
-    at.selectbox(key='result_view_details').select(None).run()
-    assert any(h.value == wording.best_so_far_heading(2, 1) for h in at.subheader)
+    at.selectbox(key='result_view_details').select(BEST_CHOICE).run()
+    assert wording.BEST_RULE in [c.value for c in at.tabs[2].caption]
     assert FoodOptimizer('details').export_json() == before
 
 
@@ -62,19 +67,36 @@ def test_percentages_use_displayed_recorded_size(project):
     assert frame[wording.RESULT_PERCENT_COLUMN].tolist() == ['30.00', '70.00', '']
 
 
+def test_percentages_follow_the_formulation_picked(project):
+    """At 200 g the % column is drawn (N8 leaves it out at 100 g only), and
+    it is the picked formulation's own: best, another, one not scored."""
+    project._batch_totals()[1] = 200
+    project.save()
+    at = AppTest.from_file(APP, default_timeout=120).run()
+    assert amounts(at)[wording.RESULT_PERCENT_COLUMN].tolist() == ['30.00', '70.00', '']
+    at.selectbox(key='result_view_details').select(1).run()
+    assert not at.exception
+    assert amounts(at)[wording.RESULT_PERCENT_COLUMN].tolist() == ['20.00', '80.00', '']
+    at.selectbox(key='result_view_details').select(3).run()
+    assert amounts(at)[wording.RESULT_PERCENT_COLUMN].tolist() == ['40.00', '60.00', '']
+
+
 def test_best_default_follows_new_results_and_deleted_selection_recovers(project):
     at = AppTest.from_file(APP, default_timeout=120).run()
     opt = at.session_state['optimizer']
     opt.tell({'Protein': 50, 'Water': 50, 'Mixing time': 90}, {'Taste': 9}, formulation_no=4, batch_no=2)
     at.run()
-    assert any(h.value == wording.best_so_far_heading(4, 2) for h in at.subheader)
+    assert at.selectbox(key='result_view_details').value == BEST_CHOICE
+    assert at.selectbox(key='result_view_details').proto.options[0] == (
+        'Best so far · Formulation 4 (Round 2)')
     at.selectbox(key='result_view_details').select(3).run()
     opt = at.session_state['optimizer']
     opt.skipped = []
     opt.save()
     at.run()
     assert not at.exception
-    assert any(h.value == wording.best_so_far_heading(4, 2) for h in at.subheader)
+    assert at.selectbox(key='result_view_details').proto.options[0] == (
+        'Best so far · Formulation 4 (Round 2)')
 
 
 def test_mixed_units_do_not_create_meaningless_percentages(tmp_path, monkeypatch):
@@ -143,7 +165,8 @@ def test_best_so_far_compares_only_formulations_measured_all_the_way(
     # took is the thing being refused, not the arithmetic that got it there.
     opt.Y_history[1] = opt.Y_history[0] + 10.0
     assert opt.best_formulation_no() == 1
-    # With nothing finished there is still a best to name.
+    # With nothing finished there is no best to name (0.8.0): the star
+    # would land on a row whose score reads "waiting for results".
     half = FoodOptimizer('half', robust=False)
     half.set_amount_unit('g')
     half.add_ingredient('Pea protein', 10, 30)
@@ -152,26 +175,5 @@ def test_best_so_far_compares_only_formulations_measured_all_the_way(
     half.add_objective('Cook loss', 1, goal='min', min_val=0, max_val=40)
     half.tell({'Pea protein': 20.0, 'Water': 80.0}, {'Firmness': 6.0},
               formulation_no=1, batch_no=1)
-    assert half.best_formulation_no() == 1
+    assert half.best_formulation_no() is None
 
-
-def test_a_wrong_reading_has_a_door_beside_the_table_it_is_read_in(project):
-    """The only button in sight on Results was "Change a measurement or an
-    ingredient", which opens Set up — where measurements are DEFINED, not
-    where a recorded one is fixed. The correction control was folded away
-    under a heading about editing the past."""
-    at = AppTest.from_file(APP, default_timeout=180)
-    at.run()
-    button = next(b for b in at.button
-                  if b.label == wording.CORRECT_A_RESULT_BUTTON)
-    assert button.proto.type == "secondary"
-    fold = next(e for e in at.expander
-                if e.label == wording.EDIT_PAST_FORMULATIONS_EXPANDER)
-    assert not fold.proto.expanded
-    button.click()
-    at.run()
-    assert not at.exception
-    fold = next(e for e in at.expander
-                if e.label == wording.EDIT_PAST_FORMULATIONS_EXPANDER)
-    assert fold.proto.expanded
-    assert any(s.label == wording.CORRECT_WHICH_LABEL for s in at.selectbox)

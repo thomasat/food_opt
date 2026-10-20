@@ -233,8 +233,16 @@ def test_scale_error_names_the_value_the_range_and_the_fix():
     assert scale_error(obj, 6.0) == ""
     assert scale_error(obj, None) == ""
     assert scale_error(obj, 12.0) == (
-        "Firmness 12 N is outside your range of 0 to 10 N. Check the value, or adjust Scale minimum or Scale maximum in Set up."
-    )
+        "Firmness 12 N is outside 0–10 N. Fix it, or raise Scale maximum in "
+        "Set up.")
+    assert scale_error(obj, -1.0) == (
+        "Firmness -1 N is outside 0–10 N. Fix it, or lower Scale minimum in "
+        "Set up.")
+    # A unit that is a word for a score is left off: never '12 score'.
+    assert scale_error(dict(obj, name="Crunch", unit="score"), 12.0,
+                       label="Suggestion 1: Crunch") == (
+        "Suggestion 1: Crunch 12 is outside 0–10. Fix it, or raise Scale "
+        "maximum in Set up.")
 
 
 def test_table_height_grows_with_rows_and_stops_at_the_cap():
@@ -312,6 +320,28 @@ def test_landing_tab_follows_the_spec_rule():
                            pending_batch=[{"formulation": 1,
                                            "recipe": {"Water": 1.0}}])
     assert landing_tab(fresh_batch) == TAB_BATCH
+
+
+def test_landing_tab_opens_a_sample_with_results_on_review():
+    """The two samples reopen where a demo starts; an own project with the
+    same contents keeps the rule above."""
+    import sample_projects as sp
+    ing = [{"name": "Water", "category": "ingredient"}]
+    meas = [{"name": "Firmness", "weight": 1.0}]
+    row = [{"formulation": 2, "recipe": {"Water": 1.0}}]
+    for name in sp.YOGURT_NAMES:
+        open_round = _FakeOpt(ing, meas, X_history=[[0.5]], pending_batch=row)
+        open_round.project_name = name
+        assert landing_tab(open_round) == wording.TAB_INSIGHTS
+        closed = _FakeOpt(ing, meas, X_history=[[0.5]])
+        closed.project_name = name
+        assert landing_tab(closed) == wording.TAB_INSIGHTS
+        empty = _FakeOpt(ing, meas, pending_batch=row)
+        empty.project_name = name
+        assert landing_tab(empty) == TAB_BATCH
+    own = _FakeOpt(ing, meas, X_history=[[0.5]], pending_batch=row)
+    own.project_name = "Mine"
+    assert landing_tab(own) == TAB_BATCH
 
 
 # The two halves of the move, in the same order as app.py: the pending target
@@ -471,10 +501,12 @@ def test_the_discarded_notice_names_the_round_and_what_to_do_next():
     clause was unreadable on one pass and still never said what to do. The
     round is named because the notice lands above the tabs."""
     notice = wording.batch_discarded_notice(2)
-    assert notice == ("Round 2 was discarded: your set-up changed after it "
-                      "was made. Generate a new one."), notice
+    # 3c0aab1 (concision): "after it was made" went to the tooltip.
+    assert notice == (f"Round 2 was discarded: {wording.SETUP_CHANGED_REASON}. "
+                      "Generate a new one."), notice
+    assert wording.SETUP_CHANGED_REASON == "your set-up changed"
     assert "generated" not in notice, notice
-    assert wording.batch_discarded_notice().startswith("The open round")
+    assert wording.batch_discarded_notice().startswith("The open Round")
 
 
 def test_literal_texts_reaches_into_a_list_and_a_dicts_keys():
@@ -573,7 +605,7 @@ def test_the_properties_grid_says_what_a_cell_and_an_empty_cell_mean():
     """The grid names every property across its head, so its caption says the
     two things the head cannot: what one figure is per, and what the app does
     with a cell nobody filled in."""
-    assert wording.PROPERTIES_HEADING == "**Properties**"
+    assert wording.INGREDIENT_PROPERTIES_EXPANDER == "Ingredient properties (optional)"
     assert wording.properties_grid_caption() == ("Each ingredient’s property value, per 100 g. " + wording.PROPERTY_BLANK_RULE)
     # Names that carry the basis themselves do not have it added twice.
     said = wording.properties_grid_caption(True)

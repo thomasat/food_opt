@@ -1,0 +1,732 @@
+{
+  "project_name": "Oven trial - process settings",
+  "variables": [
+    {
+      "name": "Bake temperature",
+      "type": "continuous",
+      "bounds": [
+        160.0,
+        220.0
+      ],
+      "category": "process",
+      "unit": "\u00b0C",
+      "step": 5.0
+    },
+    {
+      "name": "Bake time",
+      "type": "continuous",
+      "bounds": [
+        8.0,
+        20.0
+      ],
+      "category": "process",
+      "unit": "min",
+      "step": 1.0
+    },
+    {
+      "name": "Proof time",
+      "type": "continuous",
+      "bounds": [
+        30.0,
+        90.0
+      ],
+      "category": "process",
+      "unit": "min",
+      "step": 5.0
+    }
+  ],
+  "objectives": [
+    {
+      "name": "Crumb softness",
+      "weight": 40.0,
+      "goal": "target",
+      "target": 7.0,
+      "min_val": 0.0,
+      "max_val": 10.0,
+      "unit": "/10",
+      "not_for": []
+    },
+    {
+      "name": "Crust colour",
+      "weight": 35.0,
+      "goal": "target",
+      "target": 6.0,
+      "min_val": 0.0,
+      "max_val": 10.0,
+      "unit": "/10",
+      "not_for": []
+    },
+    {
+      "name": "Moisture loss",
+      "weight": 25.0,
+      "goal": "min",
+      "target": null,
+      "min_val": 0.0,
+      "max_val": 30.0,
+      "unit": "%",
+      "not_for": []
+    }
+  ],
+  "premixes": {},
+  "ingredient_properties": {},
+  "property_names": [],
+  "constraints": [],
+  "quantity_constraints": [],
+  "robust": false,
+  "X_history": [
+    [
+      165.0,
+      16.0,
+      55.0
+    ],
+    [
+      210.0,
+      12.0,
+      85.0
+    ],
+    [
+      190.0,
+      20.0,
+      30.0
+    ],
+    [
+      180.0,
+      8.0,
+      65.0
+    ],
+    [
+      190.0,
+      18.0,
+      80.0
+    ],
+    [
+      220.0,
+      20.0,
+      90.0
+    ],
+    [
+      160.0,
+      19.0,
+      90.0
+    ],
+    [
+      160.0,
+      10.0,
+      90.0
+    ],
+    [
+      220.0,
+      20.0,
+      80.0
+    ],
+    [
+      200.0,
+      14.0,
+      85.0
+    ],
+    [
+      215.0,
+      10.0,
+      85.0
+    ],
+    [
+      205.0,
+      12.0,
+      70.0
+    ],
+    [
+      185.0,
+      17.0,
+      65.0
+    ],
+    [
+      215.0,
+      13.0,
+      90.0
+    ],
+    [
+      185.0,
+      19.0,
+      65.0
+    ],
+    [
+      185.0,
+      16.0,
+      80.0
+    ],
+    [
+      195.0,
+      18.0,
+      65.0
+    ],
+    [
+      215.0,
+      12.0,
+      90.0
+    ],
+    [
+      180.0,
+      16.0,
+      35.0
+    ],
+    [
+      220.0,
+      12.0,
+      90.0
+    ],
+    [
+      215.0,
+      13.0,
+      90.0
+    ]
+  ],
+  "Y_history": [
+    80.18333333333334,
+    85.11666666666667,
+    78.6,
+    81.0,
+    84.83333333333333,
+    71.98333333333333,
+    72.25,
+    74.96666666666667,
+    69.31666666666666,
+    82.41666666666666,
+    81.7,
+    80.36666666666666,
+    85.4,
+    85.96666666666668,
+    83.26666666666668,
+    83.6,
+    82.86666666666667,
+    86.45,
+    81.21666666666668,
+    82.86666666666667,
+    87.91666666666667
+  ],
+  "recipe_history": [
+    {
+      "Bake temperature": 165.0,
+      "Bake time": 16.0,
+      "Proof time": 55.0
+    },
+    {
+      "Bake temperature": 210.0,
+      "Bake time": 12.0,
+      "Proof time": 85.0
+    },
+    {
+      "Bake temperature": 190.0,
+      "Bake time": 20.0,
+      "Proof time": 30.0
+    },
+    {
+      "Bake temperature": 180.0,
+      "Bake time": 8.0,
+      "Proof time": 65.0
+    },
+    {
+      "Bake temperature": 190.0,
+      "Bake time": 18.0,
+      "Proof time": 80.0
+    },
+    {
+      "Bake temperature": 220.0,
+      "Bake time": 20.0,
+      "Proof time": 90.0
+    },
+    {
+      "Bake temperature": 160.0,
+      "Bake time": 19.0,
+      "Proof time": 90.0
+    },
+    {
+      "Bake temperature": 160.0,
+      "Bake time": 10.0,
+      "Proof time": 90.0
+    },
+    {
+      "Bake temperature": 220.0,
+      "Bake time": 20.0,
+      "Proof time": 80.0
+    },
+    {
+      "Bake temperature": 200.0,
+      "Bake time": 14.0,
+      "Proof time": 85.0
+    },
+    {
+      "Bake temperature": 215.0,
+      "Bake time": 10.0,
+      "Proof time": 85.0
+    },
+    {
+      "Bake temperature": 205.0,
+      "Bake time": 12.0,
+      "Proof time": 70.0
+    },
+    {
+      "Bake temperature": 185.0,
+      "Bake time": 17.0,
+      "Proof time": 65.0
+    },
+    {
+      "Bake temperature": 215.0,
+      "Bake time": 13.0,
+      "Proof time": 90.0
+    },
+    {
+      "Bake temperature": 185.0,
+      "Bake time": 19.0,
+      "Proof time": 65.0
+    },
+    {
+      "Bake temperature": 185.0,
+      "Bake time": 16.0,
+      "Proof time": 80.0
+    },
+    {
+      "Bake temperature": 195.0,
+      "Bake time": 18.0,
+      "Proof time": 65.0
+    },
+    {
+      "Bake temperature": 215.0,
+      "Bake time": 12.0,
+      "Proof time": 90.0
+    },
+    {
+      "Bake temperature": 180.0,
+      "Bake time": 16.0,
+      "Proof time": 35.0
+    },
+    {
+      "Bake temperature": 220.0,
+      "Bake time": 12.0,
+      "Proof time": 90.0
+    },
+    {
+      "Bake temperature": 215.0,
+      "Bake time": 13.0,
+      "Proof time": 90.0
+    }
+  ],
+  "results_history": [
+    {
+      "Crumb softness": 5.8,
+      "Crust colour": 3.9,
+      "Moisture loss": 9.2
+    },
+    {
+      "Crumb softness": 7.1,
+      "Crust colour": 4.6,
+      "Moisture loss": 11.5
+    },
+    {
+      "Crumb softness": 5.0,
+      "Crust colour": 5.6,
+      "Moisture loss": 14.4
+    },
+    {
+      "Crumb softness": 6.3,
+      "Crust colour": 3.3,
+      "Moisture loss": 8.1
+    },
+    {
+      "Crumb softness": 6.7,
+      "Crust colour": 5.2,
+      "Moisture loss": 13.4
+    },
+    {
+      "Crumb softness": 4.2,
+      "Crust colour": 6.9,
+      "Moisture loss": 16.4
+    },
+    {
+      "Crumb softness": 4.4,
+      "Crust colour": 3.9,
+      "Moisture loss": 12.0
+    },
+    {
+      "Crumb softness": 5.6,
+      "Crust colour": 1.9,
+      "Moisture loss": 6.1
+    },
+    {
+      "Crumb softness": 3.2,
+      "Crust colour": 6.9,
+      "Moisture loss": 14.8
+    },
+    {
+      "Crumb softness": 8.2,
+      "Crust colour": 4.8,
+      "Moisture loss": 10.3
+    },
+    {
+      "Crumb softness": 5.9,
+      "Crust colour": 4.6,
+      "Moisture loss": 10.8
+    },
+    {
+      "Crumb softness": 7.6,
+      "Crust colour": 3.6,
+      "Moisture loss": 10.6
+    },
+    {
+      "Crumb softness": 6.9,
+      "Crust colour": 4.8,
+      "Moisture loss": 12.0
+    },
+    {
+      "Crumb softness": 6.5,
+      "Crust colour": 5.3,
+      "Moisture loss": 11.5
+    },
+    {
+      "Crumb softness": 6.3,
+      "Crust colour": 4.9,
+      "Moisture loss": 12.1
+    },
+    {
+      "Crumb softness": 7.8,
+      "Crust colour": 4.8,
+      "Moisture loss": 10.8
+    },
+    {
+      "Crumb softness": 5.8,
+      "Crust colour": 5.5,
+      "Moisture loss": 12.7
+    },
+    {
+      "Crumb softness": 6.6,
+      "Crust colour": 5.3,
+      "Moisture loss": 11.4
+    },
+    {
+      "Crumb softness": 6.3,
+      "Crust colour": 4.1,
+      "Moisture loss": 11.2
+    },
+    {
+      "Crumb softness": 6.0,
+      "Crust colour": 5.2,
+      "Moisture loss": 12.4
+    },
+    {
+      "Crumb softness": 7.3,
+      "Crust colour": 5.7,
+      "Moisture loss": 11.8
+    }
+  ],
+  "timestamps_history": [
+    "2026-10-01T21:00:20.152754+00:00",
+    "2026-10-01T21:00:20.153036+00:00",
+    "2026-10-01T21:00:20.153309+00:00",
+    "2026-10-01T21:00:20.153724+00:00",
+    "2026-10-01T21:00:20.154093+00:00",
+    "2026-10-01T21:00:20.785970+00:00",
+    "2026-10-01T21:00:20.786313+00:00",
+    "2026-10-01T21:00:20.786625+00:00",
+    "2026-10-01T21:00:20.786910+00:00",
+    "2026-10-01T21:00:21.414395+00:00",
+    "2026-10-01T21:00:21.414694+00:00",
+    "2026-10-01T21:00:21.414982+00:00",
+    "2026-10-01T21:00:21.415270+00:00",
+    "2026-10-01T21:00:22.134789+00:00",
+    "2026-10-01T21:00:22.135153+00:00",
+    "2026-10-01T21:00:22.135507+00:00",
+    "2026-10-01T21:00:22.135861+00:00",
+    "2026-10-01T21:00:22.632577+00:00",
+    "2026-10-01T21:00:22.632955+00:00",
+    "2026-10-01T21:00:22.633325+00:00",
+    "2026-10-01T21:00:22.633647+00:00"
+  ],
+  "formulation_ids": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21
+  ],
+  "batch_history": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    2,
+    2,
+    2,
+    2,
+    3,
+    3,
+    3,
+    3,
+    4,
+    4,
+    4,
+    4,
+    5,
+    5,
+    5,
+    5
+  ],
+  "notes_history": [
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "Repeat of Formulation 14"
+  ],
+  "skipped": [],
+  "set_aside": [],
+  "next_formulation_no": 26,
+  "next_batch_number": 7,
+  "sobol_seed": 20261001,
+  "pending_batch_no": 6,
+  "pending_batch_created": "2026-10-01",
+  "pending_batch_discarded": [],
+  "pending_batch_total": null,
+  "formulation_total": null,
+  "lots": {},
+  "batch_totals": {
+    "1": null,
+    "2": null,
+    "3": null,
+    "4": null,
+    "5": null
+  },
+  "batch_generated_totals": {},
+  "round_generation": {
+    "1": {
+      "seed": 1,
+      "rows": [],
+      "n": 5,
+      "regime": "cold",
+      "key": "",
+      "picks": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    "2": {
+      "seed": 6,
+      "rows": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "n": 4,
+      "regime": "warm",
+      "key": "d67f5a66c94e2f3a118939f3e0c81b07382144baec971754209c77c9be17c2ed",
+      "picks": [
+        6,
+        7,
+        8,
+        9
+      ]
+    },
+    "3": {
+      "seed": 10,
+      "rows": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "n": 4,
+      "regime": "warm",
+      "key": "39d0625a23be88d5502b3c23dc72d02ad30102b29aaa3c707defad0f144e1e8d",
+      "picks": [
+        10,
+        11,
+        12,
+        13
+      ]
+    },
+    "4": {
+      "seed": 14,
+      "rows": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "n": 4,
+      "regime": "warm",
+      "key": "6fcad650d12fb0c2fbd426af6fcaf4b5e6a05a5c5b595b774bb50ce2fb58cf4f",
+      "picks": [
+        14,
+        15,
+        16,
+        17
+      ]
+    },
+    "5": {
+      "seed": 18,
+      "rows": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17
+      ],
+      "n": 3,
+      "regime": "warm",
+      "key": "246210b43513a18df9c22142bcb2310e93644c10ffef72b36062f812e84bc431",
+      "picks": [
+        18,
+        19,
+        20
+      ]
+    },
+    "6": {
+      "seed": 22,
+      "rows": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21
+      ],
+      "n": 4,
+      "regime": "warm",
+      "key": "c2a12ca7719a2f2596c345d2f4202be20be881e8da2ba3a096f9369125a264c6",
+      "picks": [
+        22,
+        23,
+        24,
+        25
+      ]
+    }
+  },
+  "amount_unit": "g",
+  "targets_source": "Benchmark: the current retail loaf, rated by the same panel",
+  "bench_records": {},
+  "custom_records": {
+    "fields": [],
+    "values": {}
+  },
+  "recorded_fields": {
+    "vendor": false,
+    "sku": false,
+    "lot": false,
+    "actual": false
+  },
+  "method": "Same dough each trial; proof, then bake one 500 g loaf; rate after 2 h",
+  "pending_batch": [
+    {
+      "formulation": 22,
+      "recipe": {
+        "Bake temperature": 210.0,
+        "Bake time": 14.0,
+        "Proof time": 90.0
+      }
+    },
+    {
+      "formulation": 23,
+      "recipe": {
+        "Bake temperature": 170.0,
+        "Bake time": 10.0,
+        "Proof time": 30.0
+      }
+    },
+    {
+      "formulation": 24,
+      "recipe": {
+        "Bake temperature": 210.0,
+        "Bake time": 14.0,
+        "Proof time": 90.0
+      }
+    },
+    {
+      "formulation": 25,
+      "recipe": {
+        "Bake temperature": 185.0,
+        "Bake time": 8.0,
+        "Proof time": 30.0
+      }
+    }
+  ],
+  "result_drafts": {},
+  "bo_config": null,
+  "CLASS_VERSION": 17
+}

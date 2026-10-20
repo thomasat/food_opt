@@ -23,7 +23,7 @@ def test_unknown_property_blocks_generation_until_explicit_zero(opt):
     opt.set_property_value('Protein','Fat',10)
     opt.add_constraint('Fat',max_val=15)
     before=opt.export_json()
-    with pytest.raises(ValueError,match='Complete Fat for: Water'):
+    with pytest.raises(ValueError,match='Enter Fat for Water under Ingredient properties, or delete the Fat limit.'):
         opt.ask(1)
     assert opt.export_json()==before
     assert not opt._check_constraints({'Protein':10,'Water':90})
@@ -37,9 +37,7 @@ def test_empty_property_bounds_do_not_restrict_or_require_data(opt):
     opt.add_constraint('Fat')
     assert opt.ask(1)
 
-def test_old_example_note_is_shortened_but_custom_note_kept(opt):
-    opt.set_targets_source(wording.LEGACY_SAMPLE_TARGETS_SOURCE)
-    assert FoodOptimizer('my_project').targets_source==wording.SAMPLE_TARGETS_SOURCE
+def test_custom_targets_note_is_kept(opt):
     opt.set_targets_source('My own panel protocol')
     assert FoodOptimizer('my_project').targets_source=='My own panel protocol'
 
@@ -51,7 +49,7 @@ def test_lot_editor_autosaves_and_prefills_workbook(opt):
     assert not at.exception
     assert 'actual' not in at.multiselect(key='record_fields').value
     assert at.checkbox(key='record_actual').value
-    assert any(m.value == f'**{wording.LOT_ENTRY_HEADING}**' for m in at.tabs[1].markdown)
+    assert any(e.label == wording.LOT_ENTRY_HEADING for e in at.tabs[1].expander)
     assert not any(e.label == wording.CUSTOM_RECORDS_HEADING for e in at.tabs[1].expander)
     for value in ['00123','00124','']:
         key=next(k for k in at.session_state.filtered_state if k.startswith('custom_lots_'))
@@ -65,7 +63,7 @@ def test_lot_editor_autosaves_and_prefills_workbook(opt):
             assert any(c.value==value for sheet in book for row in sheet for c in row)
     at.multiselect(key='record_fields').set_value([]).run()
     assert FoodOptimizer('my_project').records('actual')
-    assert not any(m.value == f'**{wording.LOT_ENTRY_HEADING}**' for m in at.tabs[1].markdown)
+    assert not any(e.label == wording.LOT_ENTRY_HEADING for e in at.tabs[1].expander)
     at.checkbox(key='record_actual').uncheck().run()
     assert not FoodOptimizer('my_project').records('actual')
     assert any(b.proto.popover.label=='How the score is calculated' for b in at.get('popover'))
@@ -73,7 +71,7 @@ def test_lot_editor_autosaves_and_prefills_workbook(opt):
 def test_incomplete_lower_limit_can_be_saved_but_not_used(opt):
     opt.add_property('Protein content')
     opt.add_constraint('Protein content',min_val=5)
-    with pytest.raises(ValueError,match='Complete Protein content'):
+    with pytest.raises(ValueError,match='Enter Protein content for Protein and Water under Ingredient properties'):
         opt.ask(1)
     assert opt.constraints[0]['min']==5
     assert opt.constraints[0]['max'] is None

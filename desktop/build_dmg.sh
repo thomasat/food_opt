@@ -37,11 +37,16 @@ chmod 755 "$APP_DIR/Contents/MacOS/FoodOptimizer"
 
 # theory.py is deliberately not bundled: nothing in the app imports it, and
 # it needs matplotlib, which left requirements.txt with the deploy cleanup.
-for f in app.py food_bo.py storage.py ui_helpers.py ui_setup.py ui_batch.py ui_results.py calculation_editor.py wording.py workbook_flow.py sample_projects.py custom_records.py; do
+for f in app.py food_bo.py storage.py ui_helpers.py ui_setup.py ui_batch.py ui_results.py insights.py ui_insights.py bo_views.py calculation_editor.py wording.py workbook_flow.py sample_projects.py custom_records.py; do
   cp "$REPO_DIR/$f" "$APP_DIR/Contents/Resources/$f"
 done
-mkdir -p "$APP_DIR/Contents/Resources/data"
-cp "$REPO_DIR/data/sample_ingredients.csv" "$APP_DIR/Contents/Resources/data/sample_ingredients.csv"
+mkdir -p "$APP_DIR/Contents/Resources/data/samples/yogurt_pilot"
+cp "$REPO_DIR/data/ingredients_template.csv" "$APP_DIR/Contents/Resources/data/ingredients_template.csv"
+for f in "Yogurt pilot - Round 6 to score.json" "Yogurt pilot - all 10 Rounds.json" "Round 6 results (pilot).xlsx"; do
+  cp "$REPO_DIR/data/samples/yogurt_pilot/$f" "$APP_DIR/Contents/Resources/data/samples/yogurt_pilot/$f"
+done
+mkdir -p "$APP_DIR/Contents/Resources/data/samples/burger_setup"
+cp "$REPO_DIR/data/samples/burger_setup/Example setup - plant-based burger.json" "$APP_DIR/Contents/Resources/data/samples/burger_setup/Example setup - plant-based burger.json"
 cp "$DESKTOP_DIR/requirements.lock.txt" "$APP_DIR/Contents/Resources/requirements.lock.txt"
 cp "$DESKTOP_DIR/icon.icns" "$APP_DIR/Contents/Resources/icon.icns"
 

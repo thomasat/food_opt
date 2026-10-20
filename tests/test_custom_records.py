@@ -78,7 +78,7 @@ def test_workbook_both_scopes_custom_only_and_hidden(project, print_pack):
     a = cr.add_field(project, 'Operator', 'formulation')
     b = cr.add_field(project, 'Expiry date', 'ingredient')
     book = load_workbook(io.BytesIO(project.workbook_bytes(project.pending_batch, 100, print_pack=print_pack)))
-    if not print_pack: assert [s.title for s in book if s.sheet_state == 'visible'] == ['Round overview', 'Preparation', 'Results']
+    if not print_pack: assert [s.title for s in book if s.sheet_state == 'visible'] == ['Round overview', 'Results']
     cells = marked(book)
     assert len(cells) == 4
     for i, c in enumerate(cells):
@@ -170,9 +170,9 @@ def test_json_validation_legacy_and_record_export(project):
     field = cr.add_field(project, 'Operator', 'formulation')
     cr.save_values(project, 1, [('formulation', '1', field, '=literal text')])
     state = json.loads(json.dumps(project.export_json()))
-    assert FoodOptimizer.validate_state(state)['version'] == 15
+    assert FoodOptimizer.validate_state(state)['version'] == 17
     state.pop('custom_records')
-    assert FoodOptimizer.validate_state(state)['version'] == 15
+    assert FoodOptimizer.validate_state(state)['version'] == 17
     state['custom_records'] = {'fields': [], 'values': {'1': {'ingredient': {'Water': {'missing':'bad'}}}}}
     with pytest.raises(ValueError): FoodOptimizer.validate_state(state)
     book = load_workbook(io.BytesIO(project.all_formulations_workbook()))
@@ -212,7 +212,7 @@ def test_a_lot_against_a_premix_part_never_locks_the_saved_copy(project):
     opt = _portioned(project)
     opt.store_lots(1, {'Pea protein isolate': 'L-1', 'Protein': 'L-2'})
     state = json.loads(json.dumps(opt.export_json()))
-    assert FoodOptimizer.validate_state(state)['version'] == 15
+    assert FoodOptimizer.validate_state(state)['version'] == 17
     reopened = FoodOptimizer('reopened', robust=False)
     reopened.import_json(state)
     assert reopened.lots[1]['Pea protein isolate'] == 'L-1'
