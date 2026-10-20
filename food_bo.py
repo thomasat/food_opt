@@ -8021,49 +8021,69 @@ class FoodOptimizer:
             if not isinstance(row, dict) or not isinstance(row.get('recipe'), dict):
                 continue
             no = row.get('formulation')
-            if no is not None and int(no) in recorded:
+            try:
+                if no is not None and int(no) in recorded:
+                    continue
+                kept.append(self._as_generated(row['recipe'], self.pending_batch_no,
+                                               None if no is None else int(no)))
+            except self._UNREADABLE:
+                # A row that cannot be read as numbers is not kept: dropping
+                # the Round must never fail over it.
                 continue
-            kept.append(self._as_generated(row['recipe'], self.pending_batch_no,
-                                           None if no is None else int(no)))
+
+    # What a damaged or hand-edited row can raise on the way to numbers: a
+    # blank or a word where an amount belongs, or a row shorter than today's
+    # columns. Such a row can match nothing, so it is left out.
+    _UNREADABLE = (TypeError, ValueError, IndexError, KeyError)
+
+    def _generated_row(self, recipe, batch_no=None, formulation_no=None):
+        """`recipe` on its generated basis (_as_generated), encoded; None when
+        it cannot be read as numbers."""
+        try:
+            row = np.asarray(self._encode(self._as_generated(recipe, batch_no,
+                                                             formulation_no)),
+                             dtype=float)
+        except self._UNREADABLE:
+            return None
+        return row if np.all(np.isfinite(row)) else None
 
     def _issued_matrix(self):
         """Every formulation the project already has, one encoded row each
         (_encode, today's columns), on the basis it was generated at: made
         (X_history), Not scored (skipped), waiting in the open Round (and an
         edited row's original suggestion), or handed out and dropped without
-        a record (retired_suggestions). None when there is none."""
-        recipes = []
+        a record (retired_suggestions). None when there is none. A row that
+        cannot be read as numbers is left out, never allowed to stop
+        Generate."""
+        rows = []
         for i in range(len(self.X_history)):
             batch = self.batch_history[i] if i < len(self.batch_history) else None
             no = self.formulation_ids[i] if i < len(self.formulation_ids) else None
-            recipes.append(self._as_generated(self._recorded_recipe(i), batch, no))
+            try:
+                recipe = self._recorded_recipe(i)
+            except self._UNREADABLE:
+                continue
+            rows.append(self._generated_row(recipe, batch, no))
         for row in self.skipped or []:
             if isinstance(row, dict) and isinstance(row.get('recipe'), dict):
-                recipes.append(self._as_generated(row['recipe'], row.get(ROUND_FIELD),
-                                                  row.get('formulation')))
+                rows.append(self._generated_row(row['recipe'], row.get(ROUND_FIELD),
+                                                row.get('formulation')))
         for row in self.pending_batch or []:
             if not isinstance(row, dict):
                 continue
             for recipe in (row.get('recipe', row), row.get('original_recipe')):
                 if isinstance(recipe, dict):
-                    recipes.append(self._as_generated(recipe, self.pending_batch_no,
-                                                      row.get('formulation')))
-        recipes += [dict(r) for r in self._retired() if isinstance(r, dict)]
-        rows = []
-        for recipe in recipes:
-            # A row this build cannot read as numbers (a blank or a word
-            # where an amount belongs, in an older or hand-edited file) can
-            # never match a candidate: it is left out, never allowed to stop
-            # Generate.
-            try:
-                row = np.asarray(self._encode(recipe), dtype=float)
-            except (TypeError, ValueError):
-                continue
-            if np.all(np.isfinite(row)):
-                rows.append(row)
+                    rows.append(self._generated_row(recipe, self.pending_batch_no,
+                                                    row.get('formulation')))
+        for recipe in self._retired():
+            if isinstance(recipe, dict):
+                rows.append(self._generated_row(recipe))
+        rows = [r for r in rows if r is not None]
         if not rows:
             return None
-        return np.vstack(rows)
+        width = rows[-1].shape[0]
+        rows = [r for r in rows if r.shape[0] == width]
+        return np.vstack(rows) if rows else None
 
     def _fill_from_repeats(self, repeats, chosen, k):
         """`k` of `repeats` (sequence order): first those that match neither

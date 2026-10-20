@@ -187,3 +187,14 @@ def test_a_damaged_retired_section_is_refused_at_the_door(tmp_path, monkeypatch)
     state['retired_suggestions'] = [[1, 2]]
     with pytest.raises(ValueError):
         FoodOptimizer.validate_state(state)
+
+
+def test_a_blank_amount_never_stops_a_drop_or_a_generate(burger):
+    """A blank amount in a damaged file: dropping the open Round (a setup
+    change, Generate a different batch) and the next Generate still work."""
+    _round(burger, 3)
+    burger.pending_batch[0]['recipe'][next(iter(burger.pending_batch[0]['recipe']))] = None
+    burger.set_pending_batch(None)
+    burger.skipped.append({'formulation': 90, 'batch': 1, 'note': "",
+                           'recipe': {'Wheat gluten': None, 'Coconut oil': ""}})
+    assert len(_round(burger, 3)) == 3
