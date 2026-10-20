@@ -1815,7 +1815,7 @@ def test_blank_amount_is_refused(burger):
     assert not at.exception
     # It names the box still empty, and how to leave one out.
     assert any(e.value == ("Enter an amount for Methylcellulose; type 0 to "
-                           "leave one out.")
+                           "leave it out.")
                for e in at.error), [e.value for e in at.error]
     # Nothing opened, and what was typed is still there to finish.
     assert not FoodOptimizer("burger").pending_batch
@@ -2032,8 +2032,8 @@ def test_result_inputs_do_not_clamp_and_refuse_out_of_range_on_save(open_batch):
     at.run()
     assert not at.exception
     # Said below the whole grid, so it names the row as its heading does.
-    assert any(e.value == ("Suggestion 1: Firmness 12 N is outside your range of 0 to 10 N. "
-                           "Check the value, or adjust Scale minimum or Scale maximum in Set up.")
+    assert any(e.value == ("Suggestion 1: Firmness 12 N is outside 0–10 N. "
+                           "Fix it, or raise Scale maximum in Set up.")
                for e in at.error), [e.value for e in at.error]
     assert FoodOptimizer("burger").X_history == []
 
@@ -2715,8 +2715,8 @@ def test_a_typed_past_measurement_outside_its_range_is_refused(burger):
     _submit_button(at, wording.ADD_THIS_FORMULATION).click()
     at.run()
     assert not at.exception
-    assert any(e.value == ("Firmness 99 N is outside your range of 0 to 10 N. "
-                           "Check the value, or adjust Scale minimum or Scale maximum in Set up.")
+    assert any(e.value == ("Firmness 99 N is outside 0–10 N. Fix it, or raise "
+                           "Scale maximum in Set up.")
                for e in at.error), [e.value for e in at.error]
     assert FoodOptimizer("burger").X_history == []
 
@@ -2859,8 +2859,8 @@ def test_a_correction_outside_the_range_is_refused(scored):
     _submit_button(at, "Save correction").click()
     at.run()
     assert not at.exception
-    assert any(e.value == ("Firmness 12 N is outside your range of 0 to 10 N. "
-                           "Check the value, or adjust Scale minimum or Scale maximum in Set up.")
+    assert any(e.value == ("Firmness 12 N is outside 0–10 N. Fix it, or raise "
+                           "Scale maximum in Set up.")
                for e in at.error), [e.value for e in at.error]
     assert FoodOptimizer("burger").results_history[0]["Firmness"] == 1.0
 
@@ -2896,7 +2896,8 @@ def test_a_correction_with_a_blank_amount_is_refused(scored):
     _submit_button(at, "Save correction").click()
     at.run()
     assert not at.exception
-    assert any(e.value == wording.enter_amounts_for("Pea protein")
+    assert any(e.value == ("Enter an amount for Pea protein; type 0 to "
+                           "leave it out.")
                for e in at.error), [e.value for e in at.error]
     assert FoodOptimizer("burger").recipe_history[0]["Pea protein"] == 10.0
 
@@ -3293,8 +3294,8 @@ def test_an_import_outside_the_range_is_refused_naming_the_row(burger):
     _submit_button(at, wording.IMPORT_ALL_ROWS_BUTTON).click()
     at.run()
     assert not at.exception
-    assert any(e.value == ("Row 2: Firmness 99 N is outside your range of 0 to "
-                           "10 N. Check the value, or adjust Scale minimum or Scale maximum in Set up.") for e in at.error), [e.value for e in at.error]
+    assert any(e.value == ("Row 2: Firmness 99 N is outside 0–10 N. Fix it, or "
+                           "raise Scale maximum in Set up.") for e in at.error), [e.value for e in at.error]
     assert FoodOptimizer("burger").X_history == []   # the whole file is refused
 
 
@@ -7821,7 +7822,7 @@ def test_enter_every_amount_says_what_to_do_about_an_ingredient_left_out(
     _submit_button(at, wording.ADD_TO_THIS_BATCH).click()
     at.run()
     assert [e.value for e in at.error] == [
-        "Enter an amount for Methylcellulose; type 0 to leave one out."]
+        "Enter an amount for Methylcellulose; type 0 to leave it out."]
 
 
 def test_the_question_names_the_rows_taken_off_the_grid(burger):
@@ -8917,9 +8918,9 @@ def test_an_out_of_range_result_is_said_where_it_was_typed(open_batch):
     at.number_input(key="f1_Firmness").set_value(12.0)
     at.run()
     assert not at.exception
-    said = [c.value for c in at.caption if "outside your range" in c.value]
-    assert said == ["Firmness 12 N is outside your range of 0 to 10 N."
-                    " Check the value, or adjust Scale minimum or Scale maximum in Set up."], said
+    said = [c.value for c in at.caption if "is outside" in c.value]
+    assert said == ["Firmness 12 N is outside 0–10 N. Fix it, or raise "
+                    "Scale maximum in Set up."], said
     order = _tab_flow(at)
     # The grid names an unmade app suggestion as the table does (v3).
     assert (order.index(said[0])
@@ -8927,7 +8928,7 @@ def test_an_out_of_range_result_is_said_where_it_was_typed(open_batch):
     save = _submit_button(at, wording.SAVE_RESULTS)
     assert not save.disabled
     save.click().run()
-    assert any("outside your range" in e.value for e in at.error)
+    assert any("is outside 0–10 N" in e.value for e in at.error)
 
 
 def test_the_picker_clears_after_a_saved_correction(scored):

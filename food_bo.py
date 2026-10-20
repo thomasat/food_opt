@@ -727,6 +727,23 @@ def outside_message(name, value, low, high, unit, what, tail=""):
             + "." + tail)
 
 
+def scale_outside_message(name, value, low, high, unit):
+    """'Crunch 12 is outside 0–10. Fix it, or raise Scale maximum in Set
+    up.' —
+    a result typed outside its measurement's scale (Scale minimum to Scale
+    maximum). The unit rides after both numbers ('12 N is outside 0–20 N');
+    a "/"-style unit, or one that is a word for a score ('score', 'points'),
+    is left off: '12 score' does not read."""
+    unit = unit_after_number(unit)
+    if unit.strip().lower() in wording.SCORE_WORD_UNITS:
+        unit = ""
+    reach = (f"{float(low):g}" if float(low) == float(high)
+             else f"{float(low):g}–{float(high):g}")
+    return wording.outside_scale(name, join_unit(f"{float(value):g}", unit),
+                                 join_unit(reach, unit),
+                                 above=float(value) > float(high))
+
+
 def local_date(ts):
     """The date a stored moment fell on where the user is standing. Results
     are stamped in UTC, so slicing the first ten characters off the stamp
@@ -4262,10 +4279,9 @@ class FoodOptimizer:
                 obj = next(o for o in self.objectives if o['name'] == name)
                 if not (obj['min_val'] <= val <= obj['max_val']):
                     # The same sentence the results grid refuses with.
-                    raise ValueError(outside_message(
+                    raise ValueError(scale_outside_message(
                         wording.formulation_measurement(number, name), val,
-                        obj['min_val'], obj['max_val'], obj.get('unit'),
-                        wording.YOUR_RANGE, wording.WIDEN_RANGE_HINT))
+                        obj['min_val'], obj['max_val'], obj.get('unit')))
                 results[name] = val
             if not results:
                 raise ValueError(
@@ -5143,6 +5159,9 @@ class FoodOptimizer:
         """
         wanted = wording.batch_sheet_name(
             self.pending_batch_no if batch_no is None else batch_no)
+        # The uploaded file's own name, for the refusal that says it is not
+        # a workbook at all.
+        file_name = str(getattr(source, 'name', '') or '')
         import workbook_flow
         try:
             extra_records = custom_records.read_workbook(source, self,
@@ -5155,18 +5174,25 @@ class FoodOptimizer:
         except ValueError:
             raise
         except Exception:
-            raise ValueError(wording.WORKBOOK_UNREADABLE)
+            raise ValueError(wording.workbook_unreadable(file_name))
+        # Where the bench wrote its results: the Results sheet of the
+        # workbook the app hands out, or the Round sheet of a printed pack.
+        # `wanted` is the sheet the reader below is handed, which for the
+        # Results layout is one the uploaded file does not have.
+        compact = wording.OVERVIEW_SHEET in as_uploaded.sheetnames
+        written_on = wording.RESULTS_SHEET if compact else wanted
         try:
             book = pd.ExcelFile(source)
         except Exception:
-            raise ValueError(wording.WORKBOOK_UNREADABLE)
+            raise ValueError(wording.workbook_unreadable(file_name))
         with book:
             if wanted not in book.sheet_names:
                 raise ValueError(wording.workbook_sheet_missing(wanted))
             summary = book.parse(wanted, header=None)
             rows, numbers = self._transpose_batch_sheet(summary, wanted)
             if not numbers:
-                raise ValueError(wording.workbook_no_formulations(wanted))
+                raise ValueError(wording.workbook_no_formulations(
+                    wording.OVERVIEW_SHEET if compact else wanted))
             page_rows = self._read_formulation_sheets(book, numbers)
             merged = {row['Formulation']: dict(row) for row in rows}
             for item in page_rows:
@@ -5222,7 +5248,7 @@ class FoodOptimizer:
                     if record['sheet'] == title and record['label'] == wording.PREMIX_LOT_LABEL:
                         lots[group] = record['value']
         if not rows and not extra_records:
-            raise ValueError(wording.workbook_nothing_filled_in(wanted))
+            raise ValueError(wording.workbook_nothing_filled_in(written_on))
         columns_out = (["Formulation"] + [o['name'] for o in self.objectives]
                        + [wording.NOT_SCORED, wording.NOTE])
         # The rows, and beside them the two things the sheet says that are

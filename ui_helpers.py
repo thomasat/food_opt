@@ -19,7 +19,8 @@ import wording
 # from here so there is one import site for screen helpers.
 from food_bo import (  # noqa: F401  (re-exported)
     amount_range_placeholder, entry_label, fmt_amount, fmt_setting, goal_line,
-    join_unit, label_with_unit, number_list, outside_message, unit_after_number,
+    join_unit, label_with_unit, number_list, outside_message, scale_outside_message,
+    unit_after_number,
 )
 # Every word below lives in wording.py; these three names stay importable
 # from here because ui_setup.py, ui_results.py and app.py already do
@@ -472,6 +473,18 @@ def plural(n, word):
     return f"{n} {word}" if n == 1 else f"{n} {word}s"
 
 
+def blank_amounts_message(opt, blank):
+    """The refusal for a formulation typed with empty amount boxes, naming
+    them. 0 is offered as the way to leave one out only while every blank
+    row allows 0: a row whose Lowest is above 0 cannot be left out."""
+    by_name = {var['name']: var for var in opt.variables}
+    zero_allowed = all(
+        float(by_name[name]['bounds'][0]) <= 0
+        for name in blank if name in by_name)
+    return wording.enter_amounts_for(number_list(blank), n=len(blank),
+                                     zero_allowed=zero_allowed)
+
+
 def scale_error(obj, value, label=None):
     """The refusal for a measured value outside its range, or '' when it fits.
     Results are never clamped: a firmness of 12 on a 0-10 range is either a
@@ -484,8 +497,8 @@ def scale_error(obj, value, label=None):
     low, high = float(obj['min_val']), float(obj['max_val'])
     if low <= float(value) <= high:
         return ""
-    return outside_message(label or obj['name'], value, low, high, obj.get('unit'),
-                           wording.YOUR_RANGE, wording.WIDEN_RANGE_HINT)
+    return scale_outside_message(label or obj['name'], value, low, high,
+                                 obj.get('unit'))
 
 
 def bounds_caution(opt, name, value, scale=1.0):

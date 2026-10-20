@@ -233,8 +233,16 @@ def test_scale_error_names_the_value_the_range_and_the_fix():
     assert scale_error(obj, 6.0) == ""
     assert scale_error(obj, None) == ""
     assert scale_error(obj, 12.0) == (
-        "Firmness 12 N is outside your range of 0 to 10 N. Check the value, or adjust Scale minimum or Scale maximum in Set up."
-    )
+        "Firmness 12 N is outside 0–10 N. Fix it, or raise Scale maximum in "
+        "Set up.")
+    assert scale_error(obj, -1.0) == (
+        "Firmness -1 N is outside 0–10 N. Fix it, or lower Scale minimum in "
+        "Set up.")
+    # A unit that is a word for a score is left off: never '12 score'.
+    assert scale_error(dict(obj, name="Crunch", unit="score"), 12.0,
+                       label="Suggestion 1: Crunch") == (
+        "Suggestion 1: Crunch 12 is outside 0–10. Fix it, or raise Scale "
+        "maximum in Set up.")
 
 
 def test_table_height_grows_with_rows_and_stops_at_the_cap():

@@ -286,8 +286,8 @@ def test_a_file_that_is_not_a_workbook_is_named(open_batch, monkeypatch):
     at = _app(wording.TAB_BATCH)
     at.run()
     assert not at.exception
-    assert any(e.startswith("Could not read") for e in _errors(at)), \
-        _errors(at)
+    assert ("notes.xlsx is not a workbook. Upload the one downloaded for "
+            "this Round.") in _errors(at), _errors(at)
 
 
 def test_text_in_a_result_cell_names_the_cell_and_what_was_typed(

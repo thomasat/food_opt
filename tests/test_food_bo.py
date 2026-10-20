@@ -3015,7 +3015,8 @@ class TestParseBatchResultsByFormulation:
     def test_out_of_range_value(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         df = pd.DataFrame({"Formulation": [7], "Hardness": [1.0], "L*": [140.0]})
-        with pytest.raises(ValueError, match=r"outside your range of 0 to 100"):
+        with pytest.raises(ValueError, match=r"L\* 140 is outside 0–100\. Fix it, "
+                           r"or raise Scale maximum in Set up\."):
             opt.parse_batch_results(df, opt.pending_batch)
 
     def test_the_out_of_range_refusal_follows_the_unit_rule(self, tmp_path,
@@ -3028,14 +3029,14 @@ class TestParseBatchResultsByFormulation:
         with pytest.raises(ValueError) as with_unit:
             opt.parse_batch_results(df, opt.pending_batch)
         assert str(with_unit.value) == (
-            "Formulation 7: Hardness 12 N is outside your range of 0 to 10 N. "
-            "Check the value, or adjust Scale minimum or Scale maximum in Set up.")
+            "Formulation 7: Hardness 12 N is outside 0–10 N. Fix it, or raise "
+            "Scale maximum in Set up.")
         opt.update_objective("Hardness", unit="/10")
         with pytest.raises(ValueError) as slash:
             opt.parse_batch_results(df, opt.pending_batch)
         assert str(slash.value) == (
-            "Formulation 7: Hardness 12 is outside your range of 0 to 10. "
-            "Check the value, or adjust Scale minimum or Scale maximum in Set up.")
+            "Formulation 7: Hardness 12 is outside 0–10. Fix it, or raise "
+            "Scale maximum in Set up.")
 
     def test_duplicate_row_is_rejected(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)

@@ -26,6 +26,7 @@ from food_bo import WORKBOOK_MIME, UploadedWorkbook, uploaded_parts
 from storage import StorageError
 from ui_helpers import (
     BATCH_SIZE_KEY, SCROLL_KEY, TAB_RESULTS, TAB_SETUP, amount_range_placeholder,
+    blank_amounts_message,
     best_formulation_no, bounds_caution, confirm_action, confirmation_open, flash,
     flash_waiting, fmt_setting, go_to_tab, goal_shown, clear_scale_total, entry_label,
     join_unit, label_with_unit, number_list, open_rows, park_clear, preserve_tab_forms,
@@ -514,7 +515,7 @@ def _add_own(opt):
         # empty, so nobody hunts down a column of them for the blank one.
         blank = [var['name'] for var in opt.varying_variables()
                  if st.session_state.get(_own_key(var['name'])) is None]
-        st.error(wording.enter_amounts_for(number_list(blank)))
+        st.error(blank_amounts_message(opt, blank))
         return
     note = str(st.session_state.get("own_note") or "").strip()
     number = opt.add_to_pending_batch(recipe, note or wording.OWN_FORMULATION_NOTE)

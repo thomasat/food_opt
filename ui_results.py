@@ -23,6 +23,7 @@ import custom_records
 from food_bo import ROUND_FIELD, WORKBOOK_MIME
 from ui_helpers import (
     COPY_KEPT, TAB_BATCH, TAB_SETUP, amount_range_placeholder, ask_tab,
+    blank_amounts_message,
     best_formulation_no, best_move_sentence,
     bounds_caution, clear_selection, confirm_action, confirmation_open,
     SCROLL_KEY, clear_scale_total, disarm, flash, fmt_amount, fmt_setting, goal_shown,
@@ -1418,7 +1419,7 @@ def _save_correction(opt, storage, pending):
     blank = [var['name'] for var in opt.variables
              if pending['amounts'].get(var['name']) is None]
     if blank:
-        st.error(wording.enter_amounts_for(number_list(blank)))
+        st.error(blank_amounts_message(opt, blank))
         return
     for var in opt.variables:
         name = var['name']
@@ -1770,7 +1771,7 @@ def _add_typed_past(opt, ordered):
     if blank:
         # No rerun: the refusal stays on screen beside the boxes, and what
         # was typed stays in them to be finished.
-        st.error(wording.enter_amounts_for(number_list(blank)))
+        st.error(blank_amounts_message(opt, blank))
         return
     for var in opt.variables:
         recipe[var['name']] = float(st.session_state.get(_past_key(var['name'])))

@@ -122,6 +122,21 @@ AMOUNTS_YOU_ALLOWED = "the amounts you allowed"
 # column headers further down; this one cannot read it because it is needed
 # above them. The guard below the grid pins the two together.
 WIDEN_RANGE_HINT = " Check the value, or adjust Scale minimum or Scale maximum in Set up."
+# A unit that is a word for a score rather than a unit of anything: '12
+# score' and '0 to 10 points' do not read, so a result outside its scale is
+# said without it.
+SCORE_WORD_UNITS = ("score", "scores", "point", "points", "pts", "rating")
+
+
+def outside_scale(name, value_text, range_text, above=True):
+    """'Suggestion 1: Crunch 12 is outside 0–10. Fix it, or raise Scale
+    maximum in Set up.' — a result typed outside its measurement's range,
+    naming the one Set up cell that would let it in (`above`: past the
+    top). The texts carry their unit already ('12 N', '0–20 N')."""
+    fix = (f"raise {HIGHEST_MEASURABLE_LABEL}" if above
+           else f"lower {LOWEST_MEASURABLE_LABEL}")
+    return (f"{name} {value_text} is outside {range_text}. Fix it, or "
+            f"{fix} in Set up.")
 
 
 SMALLER_TOTAL_HINT = (f"Print at a smaller {BATCH_SIZE_NOUN}, or widen them "
@@ -729,12 +744,17 @@ ADD_OWN_NO_BATCH_CAPTION = "Generate first to see suggestions too."
 ADD_OWN_NO_BATCH_HELP = "Want the app's suggestions too? Click Generate first, then add yours."
 OWN_NOTE_PLACEHOLDER = "e.g. Repeat of 4 with more salt"
 ADD_TO_THIS_BATCH = f"Add to this {ROUND_CAP}"
-def enter_amounts_for(names_text):
+def enter_amounts_for(names_text, n=1, zero_allowed=True):
     """'Enter an amount for Salt and Water; type 0 to leave one out.' — a
     formulation typed in with blank boxes: Add a formulation of your own,
     a correction on Results, a past formulation. It names the boxes that
-    are still empty, so the reader does not hunt for them."""
-    return f"Enter an amount for {names_text}; type 0 to leave one out."
+    are still empty, so the reader does not hunt for them. `n` is how many
+    there are ('leave it out' for one); `zero_allowed` is False when a
+    blank row's Lowest is above 0, and 0 is then not offered."""
+    if not zero_allowed:
+        return f"Enter an amount for {names_text}."
+    which = "it" if n == 1 else "one"
+    return f"Enter an amount for {names_text}; type 0 to leave {which} out."
 # What the row says when the user typed no reason of their own. The note is
 # part of the record, so a row on the batch table is never blank about what
 # it is.
@@ -1180,10 +1200,10 @@ def batch_recorded_flash(no):
 
 
 UPLOAD_EXPANDER = "Or upload results from a file"
-UPLOAD_HELP_CAPTION = "Upload the Round sheet with Measured cells filled."
+UPLOAD_HELP_CAPTION = "Upload the workbook with Results filled in."
 UPLOAD_HELP_DETAIL = (
-    "Fill in the Measured cells on the Round sheet you downloaded above and "
-    "upload the file here. Formulations are matched on their number."
+    "Enter results on the Results sheet of the workbook downloaded above, "
+    "then upload it here. Formulations are matched on their number."
 )
 # The same door, said the other way round, once the workbook has actually
 # been downloaded in this session: the fold is open and this is the line
@@ -2736,6 +2756,15 @@ WORKBOOK_UNREADABLE = ("Could not read this file as a workbook. Upload the "
                        f"one downloaded for this {ROUND_CAP}.")
 
 
+def workbook_unreadable(file_name):
+    """'oops.xlsx is not a workbook. Upload the one downloaded for this
+    Round.' — the uploaded file named; the old sentence when it has none."""
+    if not file_name:
+        return WORKBOOK_UNREADABLE
+    return (f"{file_name} is not a workbook. Upload the one downloaded for "
+            f"this {ROUND_CAP}.")
+
+
 def workbook_sheet_missing(wanted):
     """The sheet named after the open batch is not in the uploaded file —
     usually last week's workbook, downloaded twice. It names the sheet it
@@ -2749,9 +2778,12 @@ def workbook_no_formulations(wanted):
             f"file you downloaded from this {ROUND_CAP}.")
 
 
-def workbook_nothing_filled_in(wanted):
-    return (f"Nothing is filled in on the {wanted} sheet. Write a number "
-            f"in a Measured cell, or tick {NOT_SCORED}.")
+def workbook_nothing_filled_in(sheet):
+    """'Nothing is filled in on the Results sheet. Enter a result, or tick
+    Not scored.' — `sheet` is the sheet of the uploaded file the results
+    are written on: Results, or Round 2 in a printed pack."""
+    return (f"Nothing is filled in on the {sheet} sheet. Enter a result, "
+            f"or tick {NOT_SCORED}.")
 
 
 def limit_fixed_rows_break(what, names_text, many=False):
