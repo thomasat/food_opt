@@ -7872,8 +7872,10 @@ class FoodOptimizer:
         past the points it has already issued, so 3 + 2 lands on the same
         five points as 5 in one go, and a regenerate still differs because
         the formulation numbers have moved on."""
+        issued = self._issued_vectors()
         for size in self.COLD_START_POOLS:
-            candidates = self._cold_start_pool(size, bounds_tensor, dim)
+            candidates = [rec for rec in self._cold_start_pool(size, bounds_tensor, dim)
+                          if not self._already_issued(rec, issued)]
 
             # Optional screening model
             if self.screening_model is not None:
@@ -7932,6 +7934,39 @@ class FoodOptimizer:
         # screen used to show this one or wording.GENERATE_FAILED depending
         # on which internal step gave up, in two registers.
         raise ValueError(wording.GENERATE_FAILED)
+
+    # Two amounts closer than this are the same point of the sequence: a
+    # repeat is the same Sobol point decoded (and projected) the same way,
+    # so it matches to the last digit; anything a person typed or the model
+    # chose differs by far more.
+    REPEAT_TOLERANCE = 1e-9
+
+    def _issued_vectors(self):
+        """Every formulation already made or waiting in the open Round,
+        encoded as the search sees it (_encode)."""
+        vectors = [np.asarray(x, dtype=float) for x in self.X_history]
+        for row in self.pending_batch or []:
+            recipe = row.get('recipe', row) if isinstance(row, dict) else row
+            if isinstance(recipe, dict):
+                vectors.append(np.asarray(self._encode(recipe), dtype=float))
+        return vectors
+
+    def _already_issued(self, recipe, issued):
+        """`recipe` is a formulation the project already has (issued).
+
+        The cold start fast-forwards its sequence by the formulations issued
+        so far (_cold_start_pool), but a Round can pass over points its
+        limits reject, so the next Round's slice can start inside points a
+        Round already handed out. Those are skipped here, so a cold-start
+        Round never repeats a formulation; where no limit rejects a point,
+        nothing is skipped and the Round is exactly what it was."""
+        # Compared as it would be issued: ask() moves each setting onto its
+        # dial's step after the cold start picks it, and the history holds
+        # the stepped value.
+        vector = np.asarray(self._encode(self._settings_on_their_step(recipe)), dtype=float)
+        return any(v.shape == vector.shape
+                   and np.allclose(v, vector, rtol=0.0, atol=self.REPEAT_TOLERANCE)
+                   for v in issued)
 
     def _cold_start_pool(self, size, bounds_tensor, dim):
         """`size` points of this project's ONE Sobol sequence, decoded, and —
