@@ -2,7 +2,7 @@
 senior food scientist and an R&D director):
 
 - a formulation of the user's own with a note says the note as its source
-  ("Pilot batch 6.1 · EGBO"), never "Your own formulation" (generic: any
+  ("Engine's pick 6.1"), never "Your own formulation" (generic: any
   note);
 - Called it? leads with the Overall score whenever its order held; the
   measurement lines say "pairs in the right order", never "calls right",
@@ -45,8 +45,8 @@ def _opt(tmp_path, monkeypatch, name="persona"):
 def test_a_note_is_shown_as_the_source(tmp_path, monkeypatch):
     opt = _opt(tmp_path, monkeypatch)
     recipe = {"Water": 90.0, "Wheat gluten": 20.0}
-    cell = opt.compared_with_text(recipe, own=True, note="Pilot batch 6.1 · EGBO")
-    assert cell.startswith("Pilot batch 6.1 · EGBO · ")
+    cell = opt.compared_with_text(recipe, own=True, note="Engine's pick 6.1")
+    assert cell.startswith("Engine's pick 6.1 · ")
     assert "Your own" not in cell
     # Generic: any note, not a pilot's.
     assert opt.compared_with_text(recipe, own=True, note="Bench control B").startswith(
@@ -59,11 +59,11 @@ def test_a_note_is_shown_as_the_source(tmp_path, monkeypatch):
 
 def test_the_round_table_shows_the_note_as_source(tmp_path, monkeypatch):
     opt = _opt(tmp_path, monkeypatch)
-    opt.add_to_pending_batch({"Water": 55.0, "Wheat gluten": 12.0}, "Pilot batch 3.1 · EGBO")
+    opt.add_to_pending_batch({"Water": 55.0, "Wheat gluten": 12.0}, "Engine's pick 3.1")
     opt.add_to_pending_batch({"Water": 42.0, "Wheat gluten": 22.0}, wording.OWN_FORMULATION_NOTE)
     frame = opt.batch_frame(opt.pending_batch)
     cells = list(frame[opt.compared_with_column()])
-    assert cells[0].startswith("Pilot batch 3.1 · EGBO")
+    assert cells[0].startswith("Engine's pick 3.1")
     assert cells[1].startswith("Your own formulation")
 
 

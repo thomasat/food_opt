@@ -23,11 +23,11 @@ Limits: the campaign's own settings (with them, the campaign's code
 regenerates its recorded batches), not inferred from the data. Per 100 g of
 yogurt the 7 varied ingredients have the Lowest-Highest in INGREDIENTS, and
 their total is held to 97.69051-98.69051 g: 98.69051 g is 100 g less the two
-ingredients held constant in every batch (paper, Appendix G.2.1), soy protein
+ingredients held constant in every batch, soy protein
 isolate (1.00 %) and tricalcium phosphate (0.31 %). Those two are not in the
 CSVs and are not ingredients here. The projects carry the total as
 one amount limit over all 7, named BATCH_TOTAL_NAME ("Ingredient total"), at
-least BATCH_TOTAL_MIN and at most BATCH_TOTAL_MAX. Every Batch EGBO chose
+least BATCH_TOTAL_MIN and at most BATCH_TOTAL_MAX. Every Batch the engine chose
 (Rounds 3-10) sits inside every limit (tests/test_sample_projects.py). Rounds
 1-2 were a random (Sobol) starting set the engine drew within the ingredient
 limits but not the total (88.9-101.4 g); they stay as recorded, and the
@@ -38,11 +38,11 @@ open Round.
 
 Results: each rating is the median of a trained panel of five, 0-15, one per
 attribute per Batch; no Batch was repeated. Each Batch was mixed, cooked at
-90 C for 8 min and chilled (no culture or fermentation: the paper's method is
+90 C for 8 min and chilled (no culture or fermentation: the pilot's method is
 mix, cook, chill, with no culture among its ingredients). The campaign's
 budget was fixed at 10 Rounds of 3.
 
-No dates. The pilot was tasted Feb-May 2026, but its CSVs carry no date for
+No dates. The pilot's CSVs carry no date for
 any Batch, so no pilot row carries one: build() blanks timestamps_history
 (None per row, which 3 · Results and both exports show as a blank Date
 recorded) and pending_batch_created (the open Round 6's sheets then say
@@ -83,7 +83,7 @@ INGREDIENTS = OrderedDict([
 ])
 
 # CSV column -> (name in the app, target). Scale 0-15, equal shares. The
-# names are the paper's (Tanginess, Uniformity); the CSV columns keep theirs.
+# names are the pilot's (Tanginess, Uniformity); the CSV columns keep theirs.
 MEASUREMENTS = OrderedDict([
     ("Consistency", ("Consistency", 12.0)),
     ("Creaminess", ("Creaminess", 5.0)),
@@ -148,17 +148,18 @@ def setup(name):
     return opt
 
 
-STARTING_ROUNDS = 2    # Rounds 1-2: a random (Sobol) starting set; 3-10 chosen by EGBO
+ENGINE_PICK = "Engine's pick"   # sample_projects.ENGINE_PICK says it too
+STARTING_ROUNDS = 2    # Rounds 1-2: a random (Sobol) starting set; 3-10 chosen by the engine
 
 
 def note_of(batch):
     """The Note typed for a pilot Batch, saying where it came from: 'Random
-    starting set 1.1' (Rounds 1-2, drawn at random by the engine) or 'Pilot
-    batch 3.1 · EGBO' (Rounds 3-10, chosen by EGBO, the engine behind this
-    app)."""
+    starting set 1.1' (Rounds 1-2, drawn at random by the engine) or
+    'Engine's pick 3.1' (Rounds 3-10, chosen by an earlier version of this
+    app's engine)."""
     if _batch_key(batch)[0] <= STARTING_ROUNDS:
         return f"Random starting set {batch}"
-    return f"Pilot batch {batch} · EGBO"
+    return f"{ENGINE_PICK} {batch}"
 
 
 def add_round(opt, batches):

@@ -222,11 +222,11 @@ BURGER_NO_RESULTS = "No results: this example shows set-up only."
 # points to it.
 MORE_SETTINGS_EXPANDER = "Preparation and records"
 SAMPLE_PROVENANCE_CAPTION = "Real yogurt-style pilot; earlier engine chose Rounds 3–10."
-# The pilot as published (paper, §5 and Appendix G): its own limits, its
-# panel, its process and its fixed budget, each said once.
+# The pilot as it was run: its own limits, its panel, its process and its
+# fixed budget, each said once.
 SAMPLE_PROVENANCE_HELP = (
     "Rounds 1–2 were a random starting set drawn by the engine; Rounds 3–10 "
-    "were chosen by EGBO, an earlier version of this engine (Feb–May 2026). "
+    "were chosen by an earlier version of this engine. "
     "The limits are the pilot's own: each ingredient's Lowest and Highest, "
     "and their total at 97.6905–98.6905 g per 100 g. Soy protein isolate (1 %) "
     "and tricalcium phosphate (0.31 %) were fixed in every formulation, so "
@@ -737,9 +737,9 @@ def improve_on_help(nos):
             "they look and how unsure the model is.")
 
 
-# The shipped yogurt pilot's Rounds 3-10 were picked by EGBO (its notes say
-# so); a Round the app generates there is not.
-CHOSEN_BY_EGBO = "Chosen by EGBO in the pilot"
+# The shipped yogurt pilot's Rounds 3-10 were picked by an earlier version of
+# the engine (their notes say so); a Round the app generates there is not.
+CHOSEN_IN_PILOT = "Chosen by the engine in the pilot"
 # During the cold start there is no best to compare with (the old
 # COMPARED_WITH_ALLOWED column); the caption says what the table is instead
 # ("cover", never "spread": review M2), and HOW_CHOSEN_2 is its "?".
@@ -4412,7 +4412,7 @@ Q5_TITLE = "What next?"
 
 def own_source(note=None):
     """A row of the user's own, where it came from: its note when it has
-    one ('Pilot batch 6.1 · EGBO'); else 'your own formulation' (also for
+    one ("Engine's pick 6.1"); else 'your own formulation' (also for
     the default note the app types itself)."""
     note = str(note or "").strip()
     if not note or note == OWN_FORMULATION_NOTE:

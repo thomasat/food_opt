@@ -377,7 +377,7 @@ def test_the_docs_say_what_the_screen_says(doc):
 @pytest.mark.parametrize("doc", ["README.md", "build.py"])
 def test_no_culture_says_where_it_comes_from(doc):
     """'No culture or fermentation' is a claim about the pilot; where it is
-    made, its source is said with it: the paper's method (mix, cook,
+    made, its source is said with it: the pilot's method (mix, cook,
     chill) and its ingredients, none of them a culture."""
     import re
     text = " ".join((sp.SAMPLE_DIR / doc).read_text(encoding="utf-8").split())
@@ -385,7 +385,7 @@ def test_no_culture_says_where_it_comes_from(doc):
     assert claims
     for at in claims:
         said = text[at:at + 120]
-        assert "the paper's method is mix, cook, chill" in said, said
+        assert "the pilot's method is mix, cook, chill" in said, said
         assert "no culture among its ingredients" in said, said
 
 
@@ -452,7 +452,7 @@ def test_the_limits_are_the_campaigns_own(name):
 
 
 def test_every_batch_egbo_chose_sits_inside_every_limit(store):
-    """Rounds 3-10 (EGBO's) sit inside every limit, as the app checks a
+    """Rounds 3-10 (the engine's) sit inside every limit, as the app checks a
     limit; Rounds 1-2 (the random starting set) inside every ingredient's
     Lowest and Highest, but not all inside the total."""
     b = _builder()
@@ -477,7 +477,7 @@ def test_the_notes_say_where_each_batch_came_from():
     assert b.STARTING_ROUNDS == 2
     assert b.note_of("1.1") == "Random starting set 1.1"
     assert b.note_of("2.3") == "Random starting set 2.3"
-    assert b.note_of("3.1") == "Pilot batch 3.1 · EGBO"
+    assert b.note_of("3.1") == "Engine's pick 3.1"
     assert all(len(b.note_of(x).split()) <= 5 for x in ("1.1", "10.3"))
     notes = sp.shipped_state(sp.ALL10)["notes_history"]
     assert notes[:6] == [f"Random starting set {r}.{k}" for r in (1, 2) for k in (1, 2, 3)]
@@ -510,14 +510,35 @@ _OLD_BOUNDS = {"Coconut cream": (48.0, 61.0), "Lemon juice": (0.0, 3.0),
                "Tapioca starch": (1.0, 2.6), "Xanthan gum": (0.1, 0.65)}
 
 
+def _named_build(name):
+    """The state 5dc62ff shipped: the same pilot, its Rounds 3-10 notes
+    naming the method ('Pilot batch 3.1 · EGBO')."""
+    import re
+    state = sp.shipped_state(name)
+    pick = re.compile(r"^Engine's pick (\d+\.\d+)$")
+    def old(note):
+        m = pick.match(note) if isinstance(note, str) else None
+        return f"Pilot batch {m.group(1)} \u00b7 EGBO" if m else note
+    state["notes_history"] = [old(n) for n in state["notes_history"]]
+    for row in state.get("pending_batch") or []:
+        if "note" in row:
+            row["note"] = old(row["note"])
+    return state
+
+
 def _v3_build(name):
-    """The state db0d6b7 (v3) shipped: the same pilot, its attributes still
-    named Tangy and Thickness uniformity (the paper's names are Tanginess
+    """The state db0d6b7 (v3) shipped: as _named_build, its attributes still
+    named Tangy and Thickness uniformity (the pilot's names are Tanginess
     and Uniformity)."""
     import json
-    text = (json.dumps(sp.shipped_state(name))
+    text = (json.dumps(_named_build(name))
             .replace('"Tanginess"', '"Tangy"').replace('"Uniformity"', '"Thickness uniformity"'))
     return json.loads(text)
+
+
+@pytest.mark.parametrize("name", [sp.ROUND6, sp.ALL10])
+def test_the_build_that_named_the_method_is_known(name):
+    assert sp.fingerprint(_named_build(name)) in sp._SUPERSEDED[name]
 
 
 def _earlier_build(name):

@@ -9,7 +9,7 @@ import wording
 def test_round_caption_respects_notes():
     own = [{"note": wording.OWN_FORMULATION_NOTE}, {"note": wording.OWN_FORMULATION_NOTE}]
     assert ui_batch.own_round_caption(own) == wording.ONLY_OWN_FORMULATIONS_CAPTION
-    noted = [{"note": "Pilot batch 6.1 · EGBO"}, {"note": wording.OWN_FORMULATION_NOTE}]
+    noted = [{"note": "Engine's pick 6.1"}, {"note": wording.OWN_FORMULATION_NOTE}]
     caption = ui_batch.own_round_caption(noted)
     assert caption == wording.ENTERED_ROUND_CAPTION
     assert "only your own" not in caption and "notes" in caption

@@ -340,9 +340,9 @@ def test_the_shipped_round6_file_records_the_pilots_values(store):
     parsed, left_out = upload_round6(opt)
     assert left_out == []
     by_no = {no: (tuple(r[n] for n in NAMES), note) for no, r, note in parsed}
-    assert by_no == {16: ((12, 5, 4, 13), "Pilot batch 6.1 · EGBO"),
-                     17: ((12, 5, 4, 13), "Pilot batch 6.2 · EGBO"),
-                     18: ((13, 7, 4, 12), "Pilot batch 6.3 · EGBO")}
+    assert by_no == {16: ((12, 5, 4, 13), "Engine's pick 6.1"),
+                     17: ((12, 5, 4, 13), "Engine's pick 6.2"),
+                     18: ((13, 7, 4, 12), "Engine's pick 6.3")}
     scores = {int(n): round(float(y), 1) for n, y in zip(opt.formulation_ids, opt.Y_history)}
     assert (scores[16], scores[17], scores[18], scores[10]) == (98.3, 98.3, 91.7, 95.0)
 

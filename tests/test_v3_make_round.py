@@ -244,7 +244,7 @@ def test_round6_screen_has_the_table_captions_and_no_forecast():
     tab = at.tabs[1]
     captions = [c.value for c in tab.caption]
     assert "Best bets to improve on F10." in captions
-    assert wording.CHOSEN_BY_EGBO in captions
+    assert wording.CHOSEN_IN_PILOT in captions
     key = next(c for c in captions if "More than F10" in c)
     assert "Less than F10" in key and "plain: within 5 % of its range" in key
     assert "Sheets: Round overview · Results" in captions
@@ -275,7 +275,7 @@ def test_app_generated_round_reads_suggestions_on_screen():
     assert shown.columns[0] == "Best so far (F16 · 98.3)"
     captions = [c.value for c in tab.caption]
     assert "Best bets to improve on F16, F17 (tied)." in captions
-    assert wording.CHOSEN_BY_EGBO not in captions
+    assert wording.CHOSEN_IN_PILOT not in captions
     assert not any(c.startswith("F19") for c in shown.columns)
 
 
@@ -369,7 +369,7 @@ def test_a_process_only_round_reads_trial(tmp_path, monkeypatch):
 def test_the_v3_lines_pass_the_vocabulary_guard_and_the_length_rules():
     from tests.test_food_bo import _BANNED
     captions = [wording.improve_on_caption([10]), wording.improve_on_caption([16, 17]),
-                wording.CHOSEN_BY_EGBO, wording.COVER_CAPTION, wording.workbook_sheets(),
+                wording.CHOSEN_IN_PILOT, wording.COVER_CAPTION, wording.workbook_sheets(),
                 wording.workbook_sheets(True)]
     labels = [wording.best_column(10, "95.0"), wording.suggestion_column(1), wording.LESS_TRIED,
               wording.AT_UPPER_LIMIT, wording.AT_LOWER_LIMIT, wording.compare_row_header("g")]

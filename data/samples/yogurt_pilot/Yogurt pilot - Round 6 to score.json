@@ -597,15 +597,15 @@
     "Random starting set 2.1",
     "Random starting set 2.2",
     "Random starting set 2.3",
-    "Pilot batch 3.1 \u00b7 EGBO",
-    "Pilot batch 3.2 \u00b7 EGBO",
-    "Pilot batch 3.3 \u00b7 EGBO",
-    "Pilot batch 4.1 \u00b7 EGBO",
-    "Pilot batch 4.2 \u00b7 EGBO",
-    "Pilot batch 4.3 \u00b7 EGBO",
-    "Pilot batch 5.1 \u00b7 EGBO",
-    "Pilot batch 5.2 \u00b7 EGBO",
-    "Pilot batch 5.3 \u00b7 EGBO"
+    "Engine's pick 3.1",
+    "Engine's pick 3.2",
+    "Engine's pick 3.3",
+    "Engine's pick 4.1",
+    "Engine's pick 4.2",
+    "Engine's pick 4.3",
+    "Engine's pick 5.1",
+    "Engine's pick 5.2",
+    "Engine's pick 5.3"
   ],
   "skipped": [],
   "set_aside": [],
@@ -653,7 +653,7 @@
         "Tapioca starch": 2.6,
         "Xanthan gum": 0.6029617616186138
       },
-      "note": "Pilot batch 6.1 \u00b7 EGBO"
+      "note": "Engine's pick 6.1"
     },
     {
       "formulation": 17,
@@ -666,7 +666,7 @@
         "Tapioca starch": 2.6,
         "Xanthan gum": 0.5785709059378734
       },
-      "note": "Pilot batch 6.2 \u00b7 EGBO"
+      "note": "Engine's pick 6.2"
     },
     {
       "formulation": 18,
@@ -679,7 +679,7 @@
         "Tapioca starch": 2.5999999999999988,
         "Xanthan gum": 0.65
       },
-      "note": "Pilot batch 6.3 \u00b7 EGBO"
+      "note": "Engine's pick 6.3"
     }
   ],
   "result_drafts": {},

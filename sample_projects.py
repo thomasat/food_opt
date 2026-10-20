@@ -2,7 +2,7 @@
 and one example setup (a plant-based burger) with no results.
 
 Rounds 1-2 were a random starting set drawn by the engine; Rounds 3-10 were
-chosen by EGBO, an earlier version of this engine. The limits are the
+chosen by an earlier version of this engine. The limits are the
 pilot's own. The files under data/samples/yogurt_pilot
 are rebuilt from the pilot's CSVs by build.py there, and
 tests/test_sample_projects.py checks they still match.
@@ -32,10 +32,11 @@ TEMPLATE_CSV = _ROOT / "data" / "ingredients_template.csv"
 OPEN_NEXT_KEY = "_open_sample_next"
 RESET_LABEL = "sample_reset"    # the archive label Start this sample over writes
 _ROUND6 = 6                     # the pilot's Round 6, open in the shipped file
+ENGINE_PICK = "Engine's pick"   # in the Note of every Round 3-10 batch (build.note_of)
 
 # Earlier shipped states of the yogurt pilot (release-080 builds before the
 # pilot's own limits and notes, commits 7b184dc and 29b1b24; and db0d6b7,
-# before the attributes took the paper's names Tanginess and Uniformity), by
+# before the attributes took the pilot's names Tanginess and Uniformity), by
 # fingerprint(). A copy on disk equal to one of them was written by an
 # earlier build and never changed, so refresh() and ensure() put the current
 # one in its place; a copy that differs in anything is the reader's and is
@@ -44,10 +45,13 @@ _SUPERSEDED = {
     ROUND6: {"18f97c374a4eecdc5f14432a98e576c9218a58e0cdb5635211d497d074e09d11",
              "7f82e37a3c1c7c0fadc045b34b562599bc8b6e7ad577afd70cd7704b2697bfee",
              # db0d6b7 (v3): the attributes still Tangy, Thickness uniformity.
-             "24942d76a206680844e52c16c201c4de8744d77ba65cc031f7bd1ab45b6861f9"},
+             "24942d76a206680844e52c16c201c4de8744d77ba65cc031f7bd1ab45b6861f9",
+             # 5dc62ff: the notes still named the method ("· EGBO").
+             "15029a1823e7ef0a9d7bc43d9ee265d4799cd440ca611926de57a60da75b3b76"},
     ALL10: {"a7ab23c492a9e3a2c705473ed21c9c784e21c4caa5db18587a661c8ad1096a2b",
             "d6cd35236c4c2ff0d0a9aa78bcba8e9b0cfef1524b35a4e9d168bc05e887f94e",
-            "6684ce3ed9328bc29ea80da1c0ffa75af0cbb7e98c7782a2f4bed69488d8d82b"},
+            "6684ce3ed9328bc29ea80da1c0ffa75af0cbb7e98c7782a2f4bed69488d8d82b",
+            "77a7bef9d04291636e15bddc93cf5bbbe8793e48a5abd703171dd4b4d1c2d19e"},
 }
 
 

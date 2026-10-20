@@ -988,21 +988,21 @@ def compare_frames(opt, table, which="light"):
 
 
 def _improve_caption(opt, table):
-    """The caption under the Round title, and the pilot's EGBO line."""
+    """The caption under the Round title, and the pilot's engine line."""
     say = lambda text: ui_insights._short(opt, text)
     rows = opt.pending_batch or []
     suggested = any(not r.get('note') for r in rows)
-    egbo = (sample_projects.is_yogurt(opt.project_name)
-            and any("EGBO" in str(r.get('note') or "") for r in rows))
+    picked = (sample_projects.is_yogurt(opt.project_name)
+            and any(sample_projects.ENGINE_PICK in str(r.get('note') or "") for r in rows))
     if table.best_no is None:
         if suggested:
             st.caption(say(wording.COVER_CAPTION), help=say(wording.HOW_CHOSEN_2))
-    elif suggested or egbo:
+    elif suggested or picked:
         nos = sorted([table.best_no] + list(table.tied))
         st.caption(say(wording.improve_on_caption(nos)),
                    help=say(wording.improve_on_help(nos)))
-    if egbo:
-        st.caption(wording.CHOSEN_BY_EGBO)
+    if picked:
+        st.caption(wording.CHOSEN_IN_PILOT)
 
 
 def _draw_compare(opt, table):
