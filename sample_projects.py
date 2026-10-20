@@ -18,6 +18,8 @@ import hashlib
 import json
 from pathlib import Path
 
+import wording
+
 _ROOT = Path(__file__).resolve().parent
 SAMPLE_DIR = _ROOT / "data" / "samples" / "yogurt_pilot"
 ROUND6 = "Yogurt pilot - Round 6 to score"
@@ -106,11 +108,19 @@ def untouched_example(opt):
             and not getattr(opt, "pending_batch", None))
 
 
+class SampleUnreadable(OSError):
+    """A shipped sample file that is gone or will not parse, in plain words.
+    An OSError, so every caller that already catches one shows it."""
+
+
 def shipped_state(name):
     if not is_sample(name):
         raise ValueError(f"{name!r} is not a sample")
-    with open(_shipped_path(name), encoding="utf-8") as fh:
-        return json.load(fh)
+    try:
+        with open(_shipped_path(name), encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError) as e:
+        raise SampleUnreadable(wording.sample_unreadable(name)) from e
 
 
 def shipped_scored(name):

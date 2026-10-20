@@ -7,12 +7,15 @@ including the desktop app, which must never touch the network. SupabaseStorage
 
 This module must not import streamlit, and imports supabase only lazily.
 """
+import errno
 import glob
 import json
 import os
 import re
 import shutil
 from datetime import datetime
+
+import wording
 
 
 # pre_rewind and pre_undo are no longer written — the acts they named are
@@ -38,16 +41,26 @@ class StorageError(Exception):
     """
 
 
+# What the disk said, in the three words wording._DISK_TROUBLE has a fix
+# for; anything else is None and gets the plain "could not be written".
+_DISK_CAUSES = {
+    errno.ENOSPC: 'full', errno.EDQUOT: 'full',
+    errno.EACCES: 'read_only', errno.EPERM: 'read_only',
+    errno.EROFS: 'read_only',
+    errno.EBUSY: 'in_use', errno.ETXTBSY: 'in_use',
+}
+
+
+def disk_cause(error):
+    """'full', 'read_only', 'in_use' or None for an OSError."""
+    return _DISK_CAUSES.get(getattr(error, "errno", None))
+
+
 class LocalStorage:
     persist_empty_on_init = False  # nothing on disk until the user creates or edits
     persist_after_load = True      # re-save after load only when the file is behind the
                                    # current CLASS_VERSION (see FoodOptimizer.load); an
                                    # up-to-date file is left untouched
-
-    _CONFLICT = (
-        "This project was changed in another window. Click Reload "
-        "project before continuing — changes made here were NOT saved."
-    )
 
     def __init__(self):
         self._seen = {}  # project name -> st_mtime_ns when we last read or wrote it
@@ -125,10 +138,7 @@ class LocalStorage:
         except FileNotFoundError:
             return None
         except OSError:
-            raise StorageError(
-                "This project file could not be opened. It may have been "
-                "moved, renamed or deleted."
-            )
+            raise StorageError(wording.project_file_locked(name))
         seen[name] = self._stamp(name)
         try:
             return json.loads(raw.decode('utf-8'))
@@ -136,25 +146,19 @@ class LocalStorage:
             # No sniffing: a damaged file and a legacy pickle both start with
             # arbitrary bytes (the existing "damaged" tests use a pickle
             # header on purpose), so one message covers both cases.
-            raise StorageError(
-                "This project file is damaged, or was saved by an early version "
-                "of Food Optimizer, and could not be opened. If you saved a "
-                "copy, use Open a saved copy; otherwise look in your "
-                "FoodOptimizer folder for a recent copy. An early-version "
-                "file can be converted by opening "
-                "it in the version of Food Optimizer that created it and "
-                "saving a copy."
-            )
+            raise StorageError(wording.project_file_unreadable(name))
 
     def save(self, name, state):
         seen = self.__dict__.setdefault("_seen", {})
         known = seen.get(name)
         current = self._stamp(name)
         if known is not None and current is not None and current != known:
-            raise StorageError(self._CONFLICT)
+            raise StorageError(wording.changed_elsewhere(name))
         # Write-then-rename so a crash mid-write can't corrupt the file.
-        # Local I/O errors propagate raw (never StorageError): tests assert
-        # the RuntimeError path, and a local disk failure should be loud.
+        # A disk that refuses the write (full, read-only, file in use) is a
+        # StorageError in plain words, so the save banner says which and the
+        # work in memory survives; it was a traceback naming the .tmp file.
+        # Anything else propagates raw: a crash must stay loud.
         data = json.dumps(state, indent=2)
         path = self._path(name)
         tmp = f"{path}.tmp"
@@ -162,9 +166,14 @@ class LocalStorage:
             with open(tmp, 'w', encoding='utf-8') as f:
                 f.write(data)
             os.replace(tmp, path)
+        except OSError as e:
+            raise StorageError(wording.not_saved(name, disk_cause(e))) from e
         finally:
-            if os.path.exists(tmp):
-                os.remove(tmp)
+            try:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            except OSError:
+                pass
         seen[name] = self._stamp(name)
 
     def delete_archive(self, name):
@@ -183,11 +192,8 @@ class LocalStorage:
             os.remove(self._path(name))
         except FileNotFoundError:
             return False
-        except OSError:
-            raise StorageError(
-                "This copy could not be deleted. It may be open in another "
-                "program."
-            )
+        except OSError as e:
+            raise StorageError(wording.copy_not_deleted(disk_cause(e))) from e
         self.__dict__.setdefault("_seen", {}).pop(name, None)
         # What Insights worked out for the copy, if it was ever opened: it
         # goes with the copy.
@@ -211,10 +217,16 @@ class LocalStorage:
         while os.path.exists(self._path(archive_name)):
             archive_name = f"{name}_{label}_{counter}"
             counter += 1
-        if copy:
-            shutil.copy2(path, self._path(archive_name))
-        else:
-            os.rename(path, self._path(archive_name))
+        # The copy every destructive act takes first. A disk that refuses it
+        # is a StorageError every caller already shows, never a traceback.
+        try:
+            if copy:
+                shutil.copy2(path, self._path(archive_name))
+            else:
+                os.rename(path, self._path(archive_name))
+        except OSError as e:
+            raise StorageError(wording.nothing_changed(name, disk_cause(e))) from e
+        if not copy:
             seen.pop(name, None)
             # Delete project and Start over: what Insights worked out for the
             # project (measured values, make-ups) goes with it; the copy

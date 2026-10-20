@@ -12849,12 +12849,12 @@ class FoodOptimizer:
             self.load_error = str(e)
             return False
         if state is None:
-            self.load_error = wording.PROJECT_NOT_FOUND
+            self.load_error = wording.project_not_found(self.project_name)
             return False
         try:
             self.import_json(state)
         except Exception:
-            self.load_error = wording.PROJECT_FILE_DAMAGED
+            self.load_error = wording.project_file_damaged(self.project_name)
             return False
         # Re-save only when the file is behind the current CLASS_VERSION, so an
         # older JSON file is brought up to date once. Up-to-date files are not
