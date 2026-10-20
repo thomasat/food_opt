@@ -7,9 +7,10 @@ Three tiers, top to bottom (spec 1.5), and nothing else on the tab:
      file` alternative;
   2. the measurements grid, the same way;
   3. one collapsed `Preparation and records` — Default batch size, the
-     Method, what else to record and where the targets came from — then `Ingredient limits (optional)`, holding Limits and the
-     properties those limits read — and one collapsed `Advanced` at the
-     very foot, holding the model settings and the two explanations.
+     Method, what else to record and where the targets came from — then `Ingredient limits (optional)`, holding the two
+     limit builders and the current limits, then `Ingredient properties
+     (optional)`, the grid those limits read — and one collapsed `Advanced`
+     at the very foot, holding the model settings and the two explanations.
 
 Neither tier nests an expander inside itself: Streamlit forbids it, and a
 tab that folded the optional half away twice made the reader open two
@@ -348,6 +349,10 @@ def _formulation_total(opt):
 # read.
 # The picker the Delete beside the properties grid is armed from.
 _PROP_DELETE = "prop_delete"
+# The `Delete a property` popover that holds it (S11), whether it is open,
+# and the flag a landed delete leaves so the next run draws it shut.
+_PROP_DELETE_POPOVER = "prop_delete_popover"
+_PROP_DELETE_POPOVER_SHUT = "_prop_delete_popover_shut"
 _ING_ERRORS = ING_ERRORS_KEY
 _MEAS_ERRORS = MEAS_ERRORS_KEY
 _PROP_ERRORS = PROP_ERRORS_KEY
@@ -1631,17 +1636,19 @@ def _apply_property_grid(opt, edited):
 def _delete_property(opt, storage, properties):
     """A property goes from a picker and one Delete, not from a Delete per
     row: the list is beside a grid that already names every property across
-    its head, and a column of Delete buttons said each name twice."""
+    its head, and a column of Delete buttons said each name twice.
+
+    Drawn inside the `Delete a property` popover under the grid (S11), the
+    picker above its Delete rather than beside it: in a column beside the
+    picker, "Delete Sodium (mg per 100 g)" wrapped a word to a line."""
     # Assigned before the widget is created, which is the only moment
     # Streamlit allows it: the property the picker was left on may have just
     # been deleted, and a select box whose stored value is not in its options
     # refuses to draw at all.
     if st.session_state.get(_PROP_DELETE) not in properties:
         st.session_state.pop(_PROP_DELETE, None)
-    d1, d2 = st.columns([3, 1])
-    with d1:
-        prop = st.selectbox(wording.DELETE_PROPERTY_PICK_LABEL, properties,
-                            key=_PROP_DELETE)
+    prop = st.selectbox(wording.DELETE_PROPERTY_PICK_LABEL, properties,
+                        key=_PROP_DELETE)
     key = f"rm_prop_{prop}"
     # The question belongs to the property it was armed over. Pick another
     # and the question on screen is about one the picker no longer shows, so
@@ -1652,12 +1659,11 @@ def _delete_property(opt, storage, properties):
     limits = sum(1 for c in opt.constraints
                  if str(c['metric']).strip().lower() == prop.lower())
     limits_text = plural(limits, wording.LIMIT) if limits else None
-    with d2:
-        confirmed = confirm_action(
-            key, wording.delete_button(prop),
-            wording.delete_property_warning(prop, limits_text),
-            confirm_label=wording.YES_DELETE,
-            disabled=other_confirmation(key))
+    confirmed = confirm_action(
+        key, wording.delete_button(prop),
+        wording.delete_property_warning(prop, limits_text),
+        confirm_label=wording.YES_DELETE,
+        disabled=other_confirmation(key))
     if not confirmed:
         return
     try:
@@ -1671,6 +1677,7 @@ def _delete_property(opt, storage, properties):
                                                   wording.LIMIT))
                 if gone_limits else "")
         flash("success", wording.property_deleted(prop, gone))
+        st.session_state[_PROP_DELETE_POPOVER_SHUT] = True
         # The grid has lost a column; a record of edits against the old one
         # would write a figure into a property that no longer exists.
         clear_grid(PROP_GRID_KEY)
@@ -1678,7 +1685,8 @@ def _delete_property(opt, storage, properties):
 
 
 def _properties(opt, storage):
-    """Properties, as a grid of their own: rows are the ingredients, columns
+    """Ingredient properties (optional), a fold of its own under the limits
+    (S11): rows are the ingredients, columns
     are the properties, and a cell is that ingredient's figure per 100 g
     (spec 1.5). It replaces a fold holding a picker and one box per property
     — one ingredient at a time, with no way to read the column down.
@@ -1692,8 +1700,12 @@ def _properties(opt, storage):
     have to be threaded through the topmost-grid rule to keep the count at
     one. The unsaved line below still says nothing is written while typing;
     what is typed survives until it is saved or the project changes.
+
+    The fold's own name is its heading; a "Properties" heading inside it
+    said it twice. A project with no property yet still gets the fold, with
+    only its New property box: that box is the one place a property is
+    named, and the limit builder above points here.
     """
-    st.markdown(wording.PROPERTIES_HEADING)
     properties = opt.grid_properties()
     # Every property the project knows, the row-column name included: a
     # property named "Ingredient" can only have arrived as a column of an
@@ -1732,7 +1744,24 @@ def _properties(opt, storage):
             _apply_property_grid(opt, edited)
     _add_property(opt)
     if all_properties:
-        _delete_property(opt, storage, all_properties)
+        # Assigned before the popover is drawn, the only moment Streamlit
+        # allows it: a delete that landed shuts it.
+        if st.session_state.pop(_PROP_DELETE_POPOVER_SHUT, False):
+            st.session_state[_PROP_DELETE_POPOVER] = False
+        with st.popover(wording.DELETE_PROPERTY_POPOVER, key=_PROP_DELETE_POPOVER,
+                        on_change=_delete_popover_toggled):
+            _delete_property(opt, storage, all_properties)
+
+
+def _delete_popover_toggled():
+    """Shutting `Delete a property` while its question is up is a Cancel.
+    Left armed, the question would sit unseen inside a shut popover, with
+    every coloured button on the tab grey behind it."""
+    if st.session_state.get(_PROP_DELETE_POPOVER):
+        return
+    armed = armed_confirmation()
+    if str(armed or "").startswith("rm_prop_"):
+        disarm(armed)
 
 
 def _property_limits(opt):
@@ -1751,8 +1780,8 @@ def _property_limits(opt):
         st.caption(wording.per_100_caption(unit or 'g'))
     properties = opt.grid_properties()
     if not properties:
-        # The grid that names one is further down this expander, so the line
-        # points at it rather than leaving an empty picker on screen.
+        # The grid that names one is in the fold below, so the line points
+        # at it rather than leaving an empty picker on screen.
         st.caption(wording.NO_PROPERTIES_YET_CAPTION)
         return
     metric = st.selectbox(wording.INGREDIENT_PROPERTY_LABEL, properties,
@@ -1797,9 +1826,9 @@ def _limit_gap_tail(opt, metric):
 
 
 def _limits(opt, storage):
-    """Limits, inside Ingredient limits (optional). A heading and not a fold of its own:
-    Streamlit cannot nest one expander in another, and a tab that folded the
-    optional half away twice made the reader open two things to reach one.
+    """Limits, inside Ingredient limits (optional): the two limit builders
+    and the limits already set. The fold's name is the heading; a second
+    "Limits (optional)" inside it said it twice (S11).
     """
     # A limit is a sum, and a sum only has a unit when the ingredients share
     # one. When they do not, the labels stay bare and the limit itself is
@@ -1811,10 +1840,9 @@ def _limits(opt, storage):
     # bounds.
     if not opt.has_ingredients():
         return
-    st.markdown(wording.LIMITS_HEADING)
     # "of your ingredients", not "from your ingredient file": a property
     # is named in the app as often as it arrives in a file, and the grid
-    # that names one is further down this expander.
+    # that names one is in the fold below this one.
     st.caption(wording.for_project(opt, wording.LIMITS_CAPTION),
                help=wording.for_project(opt, wording.LIMITS_HELP))
 
@@ -2017,9 +2045,10 @@ def _advanced(opt):
 
 # What counts as a limit still being written: anything typed into the
 # ingredient-limit form, or into the property-limit form beside it. Read on
-# every run, before the expander is drawn.
+# every run, before the expander is drawn. The New property box is the
+# properties fold's (_properties_in_hand).
 _LIMIT_FORM_KEYS = ("qty_pick", "qc_min", "qc_max", "qc_one",
-                    "prop_min", "prop_max", "prop_new")
+                    "prop_min", "prop_max")
 
 
 def _limit_half_written():
@@ -2033,10 +2062,46 @@ def _limit_half_written():
     return False
 
 
+def _properties_in_hand():
+    """True while the properties fold holds something unfinished — an
+    unsaved edit in its grid, the refusals its Save left, a name typed into
+    New property, `Delete a property` open, or a property delete waiting on
+    its Yes — so the fold stays open across the rerun that work causes
+    (S11)."""
+    armed = str(armed_confirmation() or "")
+    # The click that arms a delete is filed under its button's key before
+    # the fold is drawn (see confirm_action), so the arming run counts too.
+    arming = any(str(k).startswith("rm_prop_") and str(k).endswith("__btn")
+                 and st.session_state.get(k) is True
+                 for k in list(st.session_state.keys()))
+    return (armed.startswith("rm_prop_") or arming
+            or bool(st.session_state.get(_PROP_DELETE_POPOVER))
+            or st.session_state.get(parked_grid_key(PROP_GRID_KEY)) is not None
+            or bool(st.session_state.get(_PROP_ERRORS))
+            or bool(st.session_state.get("prop_new")))
+
+
+# The project whose properties fold has had work in hand this session. Once
+# it has, the fold is drawn open for the rest of the session: Streamlit shuts
+# an open fold whose `expanded` turns from True to False, so a rule that let
+# go the moment the work was done shut the fold under the reader's hand —
+# on Cancel, on closing `Delete a property`, on the Save itself. The reader
+# can still shut it by hand.
+_PROP_FOLD_KEPT_OPEN = "_prop_fold_kept_open"
+
+
+def _properties_fold_open(opt):
+    name = getattr(opt, "project_name", None)
+    if _properties_in_hand():
+        st.session_state[_PROP_FOLD_KEPT_OPEN] = name
+    return st.session_state.get(_PROP_FOLD_KEPT_OPEN, object()) == name
+
+
 def _more_settings(opt, storage):
     """Shared preparation and records, separated from optional ingredient limits.
 
-    Keep the limits section open while a limit is being entered.
+    Keep the limits section open while a limit is being entered, and the
+    properties section while its grid or delete is in hand.
     """
     with st.expander(wording.MORE_SETTINGS_EXPANDER):
         _formulation_total(opt)
@@ -2050,6 +2115,10 @@ def _more_settings(opt, storage):
         with st.expander(wording.INGREDIENT_LIMITS_EXPANDER,
                          expanded=_limit_half_written()):
             _limits(opt, storage)
+        # Its own fold, directly under the limits (S11): the limits fold
+        # read as three sections deep with the grid at its foot.
+        with st.expander(wording.INGREDIENT_PROPERTIES_EXPANDER,
+                         expanded=_properties_fold_open(opt)):
             _properties(opt, storage)
 
 

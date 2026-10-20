@@ -1370,7 +1370,6 @@ def formulations_contain_none_of(names_text):
 # cannot also give to an ingredient or a property.
 PROPERTIES_ROW_COLUMN = "Ingredient"
 PROPERTIES_NAME = "Properties"
-PROPERTIES_HEADING = f"**{PROPERTIES_NAME}**"
 
 
 def properties_grid_caption(per_100_already_said=False):
@@ -1378,7 +1377,7 @@ def properties_grid_caption(per_100_already_said=False):
     any limit.'
 
     `per_100_already_said` drops the basis from the sentence: a project whose
-    property names carry it themselves ("Fat per 100 g and Sodium per 100 g")
+    property names carry it themselves ("Fat (g per 100 g)", "Cost per 100 g")
     would otherwise say it twice in one line.
     """
     basis = "" if per_100_already_said else ", per 100 g"
@@ -1390,6 +1389,9 @@ SAVE_PROPERTIES_BUTTON = "Save changes"
 CLOSE_BUTTON = "Close"
 PROPERTIES_SAVED = "Properties saved."
 DELETE_PROPERTY_PICK_LABEL = "Property to delete"
+# The small popover under the properties grid that holds the picker and its
+# Delete (S11): always on screen, they read as the grid's main action.
+DELETE_PROPERTY_POPOVER = "Delete a property"
 
 
 def property_not_a_number(name):
@@ -1594,9 +1596,8 @@ def per_100_caption(unit):
 # one of those, so it is named for them.
 INGREDIENT_PROPERTY_LABEL = "Property"
 # Said in place of the property picker when the project has named none. The
-# grid that names one is below this line, so the sentence points down.
-NO_PROPERTIES_YET_CAPTION = ("Name a property under Properties below to "
-                             "limit it here.")
+# fold that names one is directly below this one, so the sentence points down.
+NO_PROPERTIES_YET_CAPTION = "Add one under Ingredient properties below."
 AT_LEAST_LABEL = "At least"
 AT_MOST_LABEL = "At most"
 
@@ -1635,13 +1636,12 @@ def limit_gap_tail(name, many):
 # MORE_SETTINGS_EXPANDER is defined above SAMPLE_PROVENANCE_HELP, its first user.
 ADVANCED_EXPANDER = "Advanced"
 
-LIMITS_HEADING = "**Limits (optional)**"
 # The property rule lives here, not in the closeness fold: a property never
 # touches closeness — it feeds limits and nothing else.
 # The blank-figure rule is NOT repeated here. It used to be, because the
-# properties were a fold somewhere else on the tab; they are now a grid a
-# few lines below this line, under a caption that says it, and each limit's
-# own line names the ingredients it is reading as zeroes.
+# properties were a fold somewhere else on the tab; they are now a grid in
+# the fold directly below this one, under a caption that says it, and each
+# limit's own line names the ingredients it is reading as zeroes.
 LIMITS_CAPTION = "Generated formulations meet these limits."
 LIMITS_HELP = ("Generated formulations satisfy the limits listed here. "
                   "A formulation of your own is recorded as you "
@@ -3893,6 +3893,8 @@ SHARE_SAVED_TOTAL = "After saving: 100% total"
 
 BLEND_COMPOSITIONS_HEADING = "Blend compositions"
 INGREDIENT_LIMITS_EXPANDER = "Ingredient limits (optional)"
+# The properties grid's own fold, directly under the limits (S11).
+INGREDIENT_PROPERTIES_EXPANDER = "Ingredient properties (optional)"
 RECORDING_GUIDANCE = "Use Notes for anything else."
 RECORDING_GUIDANCE_HELP = ("Use Notes for other observations. Add outcomes you want scored to "
                            "Measurements and targets.")
@@ -3955,7 +3957,7 @@ LIMIT_BOUND_DETAIL = ("Leave a minimum or maximum empty for no restriction on th
                       "Ingredient amounts and other limits still apply.")
 
 def missing_property_values(metric, names):
-    return f"Complete {metric} for: {names}. Open Ingredient limits → Properties and enter the missing values (0 only if zero), or delete this property limit."
+    return f"Complete {metric} for: {names}. Open Ingredient properties and enter the missing values (0 only if zero), or delete this property limit."
 
 
 # Results detail browsing and ingredient composition.

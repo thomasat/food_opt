@@ -597,7 +597,7 @@ def test_the_properties_grid_says_what_a_cell_and_an_empty_cell_mean():
     """The grid names every property across its head, so its caption says the
     two things the head cannot: what one figure is per, and what the app does
     with a cell nobody filled in."""
-    assert wording.PROPERTIES_HEADING == "**Properties**"
+    assert wording.INGREDIENT_PROPERTIES_EXPANDER == "Ingredient properties (optional)"
     assert wording.properties_grid_caption() == ("Each ingredient’s property value, per 100 g. " + wording.PROPERTY_BLANK_RULE)
     # Names that carry the basis themselves do not have it added twice.
     said = wording.properties_grid_caption(True)
