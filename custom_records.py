@@ -299,7 +299,7 @@ def _lots(opt, round_no, prefix):
             edited_lots = st.data_editor(lot_frame, hide_index=True, disabled=[wording.CUSTOM_INGREDIENT_LABEL],
                 key=f'custom_lots_{opt.project_name}_{round_no}_{prefix}_{mark}',
                 column_config={wording.LOT_COLUMN: st.column_config.TextColumn(wording.LOT_COLUMN, max_chars=2000)},
-                width="stretch")
+                width="stretch", placeholder="")
             updates = {row[wording.CUSTOM_INGREDIENT_LABEL]: ('' if pd.isna(row[wording.LOT_COLUMN]) else str(row[wording.LOT_COLUMN]).strip())
                        for _, row in edited_lots.iterrows()}
             if any(stored_lots.get(n, '') != v for n, v in updates.items()):
@@ -326,7 +326,7 @@ def _custom_fields(opt, round_no, formulation_numbers, prefix):
             key = f'custom_values_{opt.project_name}_{round_no}_{prefix}_{scope}_{mark}'
             edited = st.data_editor(frame, hide_index=True, num_rows='fixed', disabled=[label], key=key,
                                     column_config={f['id']: st.column_config.TextColumn(f['name'], max_chars=2000)
-                                                   for f in definitions}, width="stretch")
+                                                   for f in definitions}, width="stretch", placeholder="")
             entries = [(scope, str(row[label]), f['id'], '' if pd.isna(row[f['id']]) else str(row[f['id']]))
                        for _, row in edited.iterrows() for f in definitions]
             if save_values(opt, round_no, entries) and saved_ok(opt):
@@ -347,4 +347,4 @@ def history(opt):
     numbers += [int(r['formulation']) for r in opt.skipped if r.get('batch') == number]
     editor(opt, number, numbers, prefix='history')
     if not frame.empty:
-        st.dataframe(frame, hide_index=True)
+        st.dataframe(frame, hide_index=True, placeholder="")

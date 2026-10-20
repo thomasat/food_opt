@@ -7071,10 +7071,11 @@ def test_every_delete_on_set_up_names_what_it_takes_out(burger):
     # asks names it; what is left of the old row of bare Delete buttons is
     # the property list and the limits, and both name what they take out.
     assert "Delete Fat per 100 g" in labels, labels      # the property list
-    # A limit's Delete names the limit too: two of them, drawn identically,
-    # left the reader counting rows to work out which was which.
-    assert "Delete limit on Fat per 100 g" in labels, labels
-    assert "Delete limit on Pea protein" in labels, labels
+    # A limit's Delete sits beside the line naming the limit (S12: naming
+    # it on the button wrapped a long one over four lines); its question
+    # names it.
+    assert labels.count(wording.DELETE_THIS_LIMIT) == 2, labels
+    assert wording.DELETE_THIS_LIMIT == "Delete this limit"
     assert labels.count("Delete limit") == 0, labels
     assert "Delete" not in labels, labels
     _grid_edits(at, ING_GRID, deleted=[0])
@@ -7093,7 +7094,7 @@ def test_deleting_a_limit_is_confirmed_and_keeps_a_copy(burger, tmp_path):
     burger.add_constraint("Fat per 100 g", max_val=20)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    _submit_button(at, "Delete limit on Fat per 100 g").click()
+    at.button(key="rm_constr_0__btn").click()
     at.run()
     assert any(w.value == ("Delete the limit on Fat per 100 g? The next "
                            "Round no longer has to obey it. " + wording.COPY_KEPT)
@@ -7115,15 +7116,20 @@ def test_an_ingredient_limits_delete_names_the_ingredients(burger):
                                    max_val=20)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    labels = _labels(at)
-    assert "Delete limit on Pea protein + Methylcellulose" in labels, labels
+    at.button(key="rm_qc_0__btn").click()
+    at.run()
+    assert any("Delete the limit on Pea protein + Methylcellulose?" in w.value
+               for w in at.warning), [w.value for w in at.warning]
 
 
 def test_a_limit_over_every_ingredient_is_named_all_ingredients(burger):
     burger.add_total_mass_constraint(max_val=30)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert "Delete limit on all ingredients" in _labels(at), _labels(at)
+    at.button(key="rm_qc_0__btn").click()
+    at.run()
+    assert any("Delete the limit on all ingredients?" in w.value
+               for w in at.warning), [w.value for w in at.warning]
 
 
 def test_the_foot_of_results_steps_aside_when_no_batch_can_be_made(burger):
@@ -8987,7 +8993,7 @@ def test_the_default_batch_size_is_not_in_the_limits_list_at_all(burger):
     assert not any(line.startswith("All ingredients") for line in lines), lines
     assert not any("Pea protein + Methylcellulose" in line for line in lines), \
         lines
-    assert "Delete limit on the total of each formulation" not in _labels(at)
+    assert wording.DELETE_THIS_LIMIT not in _labels(at)
     assert not any("take it off" in c.value for c in at.tabs[0].caption), \
         [c.value for c in at.tabs[0].caption]
     # ... and emptying the box is what takes it off.

@@ -1118,7 +1118,7 @@ def _batch_table(opt, scale_to, tab_open=False, table=None):
         edited = st.data_editor(frame, hide_index=True, num_rows="fixed",
                                column_config=columns,
                                disabled=[c for c in frame if c not in independent],
-                               key=edit_key + "_grid", width="stretch")
+                               key=edit_key + "_grid", width="stretch", placeholder="")
         save, cancel = st.columns(2)
         if save.button("Save changes", key=edit_key + "_save", type="primary"):
             changes = {}
@@ -1584,7 +1584,7 @@ def _upload_preview(opt, parsed, left_out, weighed=None, lots=None):
         {c: _blank_or_number for c in frame.columns
          if frame[c].dtype != object and c != wording.FORMULATION_CAP}),
         hide_index=True, key="upload_preview",
-        height=table_height(len(frame)))
+        height=table_height(len(frame)), placeholder="")
     by_number = {r['formulation']: r['recipe'] for r in opt.pending_batch}
     imported = {no for no, _, _ in parsed} | {no for no, _ in left_out}
     if weighed:
@@ -1627,11 +1627,11 @@ def _upload_preview(opt, parsed, left_out, weighed=None, lots=None):
                 st.dataframe(frame, hide_index=True, key='upload_amounts_preview',
                     column_config={c: st.column_config.NumberColumn(c, format='%.2f')
                         for c in frame.columns if c not in
-                        (wording.FORMULATION_CAP, wording.NAME_LABEL, wording.UNIT_LABEL)})
+                        (wording.FORMULATION_CAP, wording.NAME_LABEL, wording.UNIT_LABEL)}, placeholder="")
     if lots:
         with st.expander(wording.UPLOAD_LOTS_HEADING):
             st.dataframe(pd.DataFrame([{wording.NAME_LABEL: name, wording.LOT_COLUMN: lot}
-                for name, lot in lots.items()]), hide_index=True, key='upload_lots_preview')
+                for name, lot in lots.items()]), hide_index=True, key='upload_lots_preview', placeholder="")
 
 
 def _blank_or_number(value):
@@ -1740,13 +1740,13 @@ def _upload(opt):
             st.caption(wording.CUSTOM_IMPORT_FOUND)
             st.dataframe(pd.DataFrame([{wording.CUSTOM_SCOPE_LABEL: wording.for_project(opt, wording.CUSTOM_SCOPE_NAMES[scope]),
                 wording.CUSTOM_SUBJECT: subject, wording.CUSTOM_FIELD_NAME: definitions[key]['name'],
-                wording.CUSTOM_VALUE: value} for scope, subject, key, value in extra_records]), hide_index=True)
+                wording.CUSTOM_VALUE: value} for scope, subject, key, value in extra_records]), hide_index=True, placeholder="")
         records = getattr(st.session_state.get("_results_upload"), "bench_records", None)
         if records:
             st.caption(wording.for_project(opt, wording.BENCH_RECORDS_CAPTION))
             with st.expander(wording.BENCH_RECORDS_SHEET):
                 st.dataframe(pd.DataFrame(records).rename(columns=wording.BENCH_RECORD_COLUMNS),
-                             hide_index=True, width="stretch")
+                             hide_index=True, width="stretch", placeholder="")
         # The next step once the preview shows (02 M5): lit, and the
         # download steps aside (_downloads, _upload_pending). Not while
         # results are typed into the grid: Save results is lit then.

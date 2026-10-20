@@ -739,7 +739,7 @@ def _best(opt):
         # Round-2 fixes (P2 #15): the table named, as every other one here.
         st.markdown(f"**{wording.for_project(opt, wording.OFF_BY_TITLE)}**")
         st.dataframe(_off_by_table(opt, index, details), hide_index=True, key="best_off_by",
-                     height=table_height(len(details)))
+                     height=table_height(len(details)), placeholder="")
 
     recipe = opt.recipe_history[index]
     # The amounts stored are as generated. When the batch this formulation
@@ -1028,7 +1028,7 @@ def _all_formulations(opt, said_partial=False):
     st.dataframe(_table_style(opt, frame),
                      column_config=config,
                  hide_index=True, key="all_formulations",
-                 height=table_height(len(frame), max_rows=20))
+                 height=table_height(len(frame), max_rows=20), placeholder="")
     # What a dash means, only while a dash is in the table (audit V9): a
     # waiting cell is not one.
     if not said_partial and any(opt.not_expected(i) for i in range(len(opt.Y_history))):
@@ -1805,7 +1805,7 @@ def _import(opt):
     rows = st.session_state.get("_import_rows")
     if rows is None:
         return
-    st.dataframe(rows, hide_index=True)
+    st.dataframe(rows, hide_index=True, placeholder="")
     col_for, missing = _import_columns(opt, rows)
     if missing:
         st.error(wording.missing_columns(", ".join(missing)))

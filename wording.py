@@ -262,8 +262,13 @@ def no_such_field(name):
 
 
 ALSO_RECORD_LABEL = "Additional records (optional)"
+# Where each option is entered lives here, not on its chip: a chip reading
+# "Lot numbers · Enter in Make a round" was cut to "Lot numbers · En…" (S13).
 ALSO_RECORD_HELP = ("These options add entry fields in the app or "
-                    "workbook. Saved values are retained when an option is "
+                    "workbook: Vendor and SKU for each ingredient, in the "
+                    "Ingredients table; Lot numbers in Make a round; your "
+                    "own fields for each formulation or each ingredient. "
+                    "Saved values are retained when an option is "
                     "turned off.")
 RECORD_FIELD_LABELS = {
     'vendor': "Vendor",
@@ -1649,10 +1654,10 @@ def at_most(value, unit=""):
     return f"{text} {unit}".rstrip() if unit else text
 
 
-def delete_limit_button(who):
-    """'Delete limit on Fat per 100 g'. A bare `Delete limit` was drawn once
-    per limit, identically, with nothing on the button to say which."""
-    return f"Delete {LIMIT} on {who}"
+# Each limit's Delete sits beside the line that names the limit, and its
+# question names it again; the button naming every ingredient of a long
+# limit wrapped over four lines (S12).
+DELETE_THIS_LIMIT = f"Delete this {LIMIT}"
 
 
 def delete_limit_warning(who):
@@ -3899,11 +3904,19 @@ def custom_record_option(name, scope, opt=None):
     scope_text = CUSTOM_SCOPE_NAMES[scope]
     return f"{name} · {scope_text if opt is None else for_project(opt, scope_text)}"
 
+# Additional records' options by field name only (S13: longer chips were cut
+# off); where each is entered is in ALSO_RECORD_HELP.
 RECORD_SCOPE_LABELS = {
-    'vendor': "Vendor · Each ingredient · Ingredients table",
-    'sku': "SKU · Each ingredient · Ingredients table",
-    'lot': "Lot numbers · Enter in Make a round",
+    'vendor': "Vendor",
+    'sku': "SKU",
+    'lot': "Lot numbers",
 }
+
+
+def record_chip(name, scope, opt=None, name_twice=False):
+    """An own record field's option: its name as typed ('Raw weight (g)'),
+    with its scope only when the project has that name for both scopes."""
+    return custom_record_option(name, scope, opt) if name_twice else name
 ACTUAL_RECORD_OPTION = "Record changes from the planned amounts or settings"
 ACTUAL_RECORD_HELP = "For each formulation, record what you actually weighed or the settings you used in the workbook. Leave unchanged values blank. Imported corrections are used when learning from your results."
 LOT_ENTRY_HEADING = "Ingredient lot numbers"
