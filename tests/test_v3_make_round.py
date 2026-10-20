@@ -246,7 +246,9 @@ def test_round6_screen_has_the_table_captions_and_no_forecast():
     assert "Best bets to improve on F10." in captions
     assert wording.CHOSEN_IN_PILOT in captions
     key = next(c for c in captions if "More than F10" in c)
-    assert "Less than F10" in key and "plain: within 5 % of its range" in key
+    assert "Less than F10" in key and "Plain: changed under 5 % of its range" in key
+    # The pilot's engine picks are not "entered formulations" (final walk 30).
+    assert not any("holds entered" in c for c in captions), captions
     assert "Sheets: Round overview · Results" in captions
     assert len(tab.table) == 1
     shown = tab.table[0].value

@@ -33,7 +33,7 @@ For real results:
 6. Under What next?, “Start Round 7” has the app suggest Round 7.
    “See the pilot's Rounds 7–10” opens “Yogurt pilot - all 10 Rounds”:
    what the pilot made next.
-To try it again, open Manage project and click “Start this sample over.”
+To try it again, open Manage project and click “Start this example over.”
 Your version is kept in Saved copies.
 
 BURGER EXAMPLE

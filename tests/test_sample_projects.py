@@ -189,7 +189,7 @@ def test_the_restored_copy_is_a_saved_copy_not_a_project(store):
     assert sorted(store.list_projects()) == sorted(sp.YOGURT_NAMES)
     match = storage_backend.ARCHIVE_SUFFIX_RE.search(archived)
     assert storage_backend.ARCHIVE_SUFFIX_RE.sub("", archived) == sp.ROUND6
-    assert wording.SAFETY_COPY_REASONS[match.group(1)] == "Before Start this sample over"
+    assert wording.SAFETY_COPY_REASONS[match.group(1)] == "Before Start this example over"
 
 
 def test_restore_without_a_file_just_writes_it(store):

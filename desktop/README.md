@@ -156,7 +156,7 @@ warnings entirely, and the checklist below gates distribution on that.
    results". "3 · Results" shows "Round 6 results" (F16, F17 new best, tied);
    on "4 · Review", "Start Round 7" opens "2 · Make a round" with
    Suggestion 1–3, and "See the pilot's Rounds 7–10" opens "Yogurt pilot
-   - all 10 Rounds" on "4 · Review". Manage project → "Start this sample over" puts Round 6 back
+   - all 10 Rounds" on "4 · Review". Manage project → "Start this example over" puts Round 6 back
    to waiting and the results file back in ~/FoodOptimizer, shows one
    line ("… is back as shipped. Your version is in Saved copies."), and
    the old version is listed in Saved copies. Quit and reopen the app:

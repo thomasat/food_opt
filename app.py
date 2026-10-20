@@ -70,6 +70,8 @@ st.title(wording.APP_TITLE)
 _FLASH_BOX = render_flash()
 
 _NAME_RE = _re.compile(r"[A-Za-z0-9][A-Za-z0-9 _.\-]{0,63}")
+# The sidebar's New project fold: keyed, so a create can close it.
+_NEW_PROJECT_FOLD_KEY = "new_project_fold"
 
 
 # Half-typed set-up and batch entries belong to the project they were typed
@@ -281,11 +283,16 @@ def _open_sample(name=sample_projects.ROUND6):
     is the only thing that puts back one the reader changed."""
     names = ((name,) if not sample_projects.is_yogurt(name)
              else sample_projects.YOGURT_NAMES)
+    # The Round 6 results file is written beside the projects too; the line
+    # counts it only when this click is what put it there (S4).
+    had_file = sample_projects.round6_results_on_disk(STORAGE)
     try:
         written = sample_projects.ensure(STORAGE, names)
     except (OSError, storage_backend.StorageError) as e:
         st.error(str(e))
         return
+    new_files = int(sample_projects.ROUND6 in names and not had_file
+                    and sample_projects.round6_results_on_disk(STORAGE))
     # The yogurt pilot says what it added to the project list (two projects
     # at once); the burger example is the one project it opens. The all-10
     # sample is opened from inside the Round 6 one (See what happened next),
@@ -293,7 +300,8 @@ def _open_sample(name=sample_projects.ROUND6):
     if name == sample_projects.ALL10:
         line = wording.project_opened(name)
     elif sample_projects.is_yogurt(name):
-        line = wording.sample_opened(wording.YOGURT_SAMPLE_NAME, len(written))
+        line = wording.sample_opened(wording.YOGURT_SAMPLE_NAME, len(written),
+                                     new_files)
     else:
         line = wording.sample_opened(wording.BURGER_SAMPLE_NAME)
     _open_project(name, tab=_sample_tab(name), line=line)
@@ -601,7 +609,9 @@ with st.sidebar:
             # this one is on screen long before there is a name to create.
             if st.form_submit_button(wording.CREATE_PROJECT):
                 name = new_name.strip()
-                if not _NAME_RE.fullmatch(name):
+                if not name:
+                    st.error(wording.NAME_EMPTY)
+                elif not _NAME_RE.fullmatch(name):
                     st.error(wording.NAME_RULE)
                 elif name in existing_projects:
                     st.error(wording.name_taken(name))
@@ -609,6 +619,9 @@ with st.sidebar:
                     st.error(wording.NAME_COLLIDES_WITH_ARCHIVE)
                 else:
                     park_clear("new_project_name", "")
+                    # The fold closes behind the project it just made, so it
+                    # does not sit open over an empty box asking again.
+                    park_clear(_NEW_PROJECT_FOLD_KEY, False)
                     _open_project(name, create=True)
 
     if not st.session_state.get("_loaded_project"):
@@ -639,7 +652,9 @@ with st.sidebar:
         _open_slot = st.container()
 
     if st.session_state.get("_loaded_project"):
-        with st.expander(wording.NEW_PROJECT_FOLD):
+        take_clear(_NEW_PROJECT_FOLD_KEY)
+        with st.expander(wording.NEW_PROJECT_FOLD, key=_NEW_PROJECT_FOLD_KEY,
+                         on_change="rerun"):
             _new_project_form()
 
     project_name = st.session_state.get("_loaded_project")
