@@ -532,6 +532,28 @@ def _keep_pending(grid, pending, edited, from_park):
         unpark_grid(grid)
 
 
+def _row_names(frame, column):
+    """{row number: what to call that row} for a grid's refusals: its name,
+    or, for a row whose name was rubbed out, the name it was saved under —
+    "The new row: Enter a name." over a saved row sent the reader looking
+    for a row that was not there. Numbered by position, as the model
+    numbers the rows it refuses: a deletion higher up leaves the frame's
+    own index with a gap, and the name below it was then lost."""
+    def text(value):
+        if value is None:
+            return ""
+        try:
+            if pd.isna(value):
+                return ""
+        except (TypeError, ValueError):
+            pass
+        return str(value).strip()
+    if column not in frame.columns:
+        return {}
+    return {position: text(row.get(column)) or text(row.get(GRID_ID))
+            for position, (_, row) in enumerate(frame.iterrows(), start=1)}
+
+
 def _grid_errors(slot, key, names=None):
     """The refusals a Save left behind, one line per row, under the grid
     they belong to. A refusal about the grid as a whole has no row and says
@@ -631,10 +653,8 @@ def _variables(opt, storage):
         height=grid_height(len(saved)), placeholder="")
     edited = calculation_editor.canonical_frame(edited, opening)
     slot = st.empty()            # where a refused Save writes its rows
-    _grid_errors(slot, _ING_ERRORS, names={
-        int(no): str(edited.loc[no, wording.NAME_LABEL] or "").strip()
-        for no in edited.index
-        if wording.NAME_LABEL in edited.columns})
+    _grid_errors(slot, _ING_ERRORS,
+                 names=_row_names(edited, wording.NAME_LABEL))
     # A time or a temperature typed as an Ingredient (N16): asked, never
     # changed for the reader.
     setting_rows = setting_unit_rows(edited)
@@ -1073,10 +1093,8 @@ def _premix_grid(opt, storage, name):
                 st.dataframe(preview.style.format({"Composition (%)": "{:.2f}",
                                                   f"Amount ({unit})": "{:.2f}"}), hide_index=True, placeholder="")
         slot = st.empty()
-        names = ({int(no): str(edited.loc[no, wording.PART_LABEL] or "").strip()
-                  for no in edited.index}
-                 if wording.PART_LABEL in edited.columns else {})
-        _grid_errors(slot, premix_errors_key(name), names=names)
+        _grid_errors(slot, premix_errors_key(name),
+                     names=_row_names(edited, wording.PART_LABEL))
         if wording.PREMIX_SHARE_LABEL in edited.columns:
             # The column the reader is typing in, with its own sum under it:
             # the shares are scaled to 100 at the Save, and this is what
@@ -1244,7 +1262,7 @@ def _upload_ingredients(opt):
         try:
             df = _read_ingredients_file(uploaded)
         except Exception:
-            st.error(wording.FILE_UNREADABLE_RETRY)
+            st.error(wording.ingredients_file_unreadable(uploaded.name))
     # The file itself is left alone. Taking it out of the uploader changed
     # the widget's identity, which shut every open expander on the page under
     # the user's hands; remembering which file was loaded stops a second Load
@@ -1511,7 +1529,10 @@ def _measurements(opt, storage):
             st.dataframe(pd.DataFrame({wording.MEASUREMENT_COLUMN: list(preview),
                                        wording.SHARE_COLUMN: list(preview.values())}), hide_index=True, placeholder="")
     slot = st.empty()
-    _grid_errors(slot, _MEAS_ERRORS)
+    # Named, like the grid above: a measurement is what the reader calls
+    # its row, and "Row 3:" sent them counting.
+    _grid_errors(slot, _MEAS_ERRORS,
+                 names=_row_names(edited, wording.MEASUREMENT_COLUMN))
     pending = _pending(saved, edited)
     _keep_pending(MEAS_GRID_KEY, pending, edited, from_park)
     if pending:
@@ -1761,7 +1782,8 @@ def _properties(opt, storage):
             width="stretch",
             height=table_height(max(len(saved), 1), max_rows=20), placeholder="")
         slot = st.empty()
-        _grid_errors(slot, _PROP_ERRORS)
+        _grid_errors(slot, _PROP_ERRORS,
+                     names=_row_names(edited, wording.PROPERTIES_ROW_COLUMN))
         pending = _pending(saved, edited)
         _keep_pending(PROP_GRID_KEY, pending, edited, from_park)
         if pending:
@@ -1960,7 +1982,7 @@ def _limits(opt, storage):
             one if kind == wording.LIMIT_KIND_AT_MOST else None)
         exact = None if between or kind != wording.LIMIT_KIND_EXACTLY else one
         if low is None and high is None and exact is None:
-            st.error(wording.LIMIT_NUMBER_NEEDED_ERROR)
+            st.error(wording.limit_number_needed(kind))
         else:
             try:
                 opt.add_chosen_quantity_constraint(picked, min_val=low, max_val=high,

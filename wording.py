@@ -92,7 +92,7 @@ def name_not_allowed(name):
     if bad:
         shown = " ".join(f"“{c}”" for c in bad)
         return (f"Take {shown} out of the name. Use letters, numbers, "
-                "spaces, . - or _.")
+                "spaces, dots, dashes or underscores.")
     return NAME_RULE
 # Create project with nothing in the box: the rule above names no problem.
 NAME_EMPTY = "Type a project name first."
@@ -216,6 +216,7 @@ def name_used_by_copy(name, suffix=None):
         return (f"Names ending in {suffix} are kept for saved copies. "
                 "Choose another name.")
     return f"A saved copy is already named {name}. Choose another name."
+
 
 OPEN_PROJECT_LABEL = "Open project"
 
@@ -1342,8 +1343,8 @@ def saved(name):
 # contradicting each other, and the app never knows an ingredient is
 # fat-free — only that a cell was left empty.
 PROPERTY_BLANK_RULE = "Blank means unknown. For a property used in a limit, fill every ingredient’s value; enter 0 only if zero."
-ADD_BASELINE_ERROR = ("Enter the baseline: the setting you used for every "
-                      "formulation already made.")
+ADD_BASELINE_ERROR = (f"Enter a {BASELINE_LABEL}: the value used in "
+                      "formulations already made.")
 
 
 def added(name):
@@ -1440,19 +1441,61 @@ def delete_rows_warning(names_text):
 def only_a_setting_has(column):
     """A cell filled in on a row that cannot carry it. Refused rather than
     quietly dropped: a number typed into Baseline is an answer, and throwing
-    it away without a word is how a grid loses an edit."""
-    return f"Only a process setting has a {column}."
+    it away without a word is how a grid loses an edit. Both fixes are
+    named, as actions on the two cells the reader can reach."""
+    return f"Clear {column}, or change {TYPE_LABEL} to {KIND_SETTING}."
 
 
 def only_an_ingredient_has(column):
-    return f"Only an ingredient has a {column}."
+    if column == MADE_AS_LABEL:
+        # Preparation is a select: its "empty" is the Single ingredient
+        # choice, which is what the reader has to pick.
+        return (f"Set {column} to {PREMIX_MADE_AS_BOUGHT_IN}, or change "
+                f"{TYPE_LABEL} to {KIND_INGREDIENT}.")
+    return f"Clear {column}, or change {TYPE_LABEL} to {KIND_INGREDIENT}."
 
 
-NAME_REQUIRED_ERROR = "Name cannot be empty."
+NAME_REQUIRED_ERROR = "Enter a name."
 NUMBER_REQUIRED_ERROR = "Enter a number."
-SHARE_REQUIRED_ERROR = "Enter a share above 0."
-TYPE_LOCKED_ERROR = ("Type cannot change once formulations have been "
-                     "recorded. Delete the row and add it again.")
+SHARE_REQUIRED_ERROR = f"Enter a {SHARE_COLUMN} above 0."
+TYPE_LOCKED_ERROR = ("Type cannot change once results are recorded. "
+                     "Delete the row and add it again.")
+
+
+def _cell_text(text, limit=24):
+    """What a cell held, as a refusal quotes it back: trimmed, and cut short
+    so one long paste does not become the whole sentence."""
+    text = str(text).strip()
+    return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
+
+
+def cells_need_numbers(blank=(), typed=()):
+    """'Enter Lowest and Highest.' / 'Enter a number in Lowest, not “lots”.'
+    — a grid row refused for a number it does not have, naming the CELL.
+    "Enter a number." under a row of five number cells named none of them
+    (owner, 2026-10). `blank` are the empty cells' column names; `typed` is
+    [(column, text)] for cells holding something that is not a number,
+    which is said first: it is the one the reader typed."""
+    if typed:
+        column, text = typed[0]
+        return f"Enter a number in {column}, not “{_cell_text(text)}”."
+    return f"Enter {_and_join(blank)}."
+
+
+def type_locked(kind):
+    """'Type stays Ingredient once results are recorded. …' — the type the
+    row has, named, so the reader knows what to put back."""
+    return (f"{TYPE_LABEL} stays {kind} once results are recorded. "
+            "Delete the row and add it again.")
+
+
+def share_not_above_zero(value):
+    """'Share of score (%) is 0; enter more than 0.' — the number typed,
+    said back."""
+    return f"{SHARE_COLUMN} is {float(value):g}; enter more than 0."
+
+
+NAME_ON_TWO_ROWS = "Another row has this name; rename one of them."
 
 
 def formulations_contain_none_of(names_text):
@@ -1496,14 +1539,14 @@ def property_not_a_number(name):
     """One cell of the properties grid holding something that is not a
     number. The column is named: a grid of six properties gives the reader
     nothing else to go on."""
-    return f"{name} must be a number, or empty."
+    return f"Enter a number in {name}, or leave it empty."
 
 
 def no_such_ingredient(name):
     return f"No ingredient named {name}."
 
 
-UNIT_REQUIRED_ERROR = "A unit is required; use g if the amount is a mass."
+UNIT_REQUIRED_ERROR = f"Enter a {UNIT_LABEL}, such as g or ml."
 
 
 def unit_changed(name, written, is_ingredient):
@@ -1553,6 +1596,12 @@ UPLOAD_INGREDIENTS_FILE_LABEL = "Upload ingredients (Excel or CSV)"
 def blank_unit_cell_help(unit):
     return (f"Leave the {UNIT_LABEL} column blank and the app reads it "
             f"as {unit}.")
+
+
+def ingredients_file_unreadable(file_name):
+    """Set up's ingredient upload, refused by the file's own name."""
+    return (f"{file_name} could not be opened; upload the ingredients "
+            "template as .xlsx or .csv.")
 
 
 FILE_UNREADABLE_RETRY = ("This file could not be read. Upload a spreadsheet "
@@ -1710,9 +1759,20 @@ ADD_PROPERTY_LIMIT_BUTTON = "Add property limit"
 # The PROPERTY limit form asks for At least and At most, so its refusal
 # names those two boxes. The ingredient limit form has a Kind picker and one
 # box, and says LIMIT_NUMBER_NEEDED_ERROR instead.
-ENTER_LOWEST_HIGHEST_ERROR = (f"Enter {AT_LEAST_LABEL.lower()}, "
-                              f"{AT_MOST_LABEL.lower()}, or both.")
+ENTER_LOWEST_HIGHEST_ERROR = (f"Enter a number in {AT_LEAST_LABEL}, "
+                              f"{AT_MOST_LABEL}, or both.")
 LIMIT_BOUNDS_ORDER_ERROR = f"{AT_LEAST_LABEL} must be less than {AT_MOST_LABEL}."
+
+
+def limit_bounds_order(low, high):
+    """'At least 30 is above At most 20; swap them.' — the two boxes, in
+    their numbers. Equal is refused too: a limit of exactly one number is
+    a range of nothing to search."""
+    if float(low) == float(high):
+        return (f"{AT_LEAST_LABEL} and {AT_MOST_LABEL} are both "
+                f"{float(low):g}; make {AT_MOST_LABEL} larger.")
+    return (f"{AT_LEAST_LABEL} {float(low):g} is above {AT_MOST_LABEL} "
+            f"{float(high):g}; swap them.")
 
 
 def limit_added_on(who):
@@ -1884,22 +1944,21 @@ def total_not_reachable_at_most(total_text, most_text,
     `noun` is which of the two boxes is refusing — Set up's default, or the
     round screen's own — so the sentence names the box the reader just
     typed into rather than the other one."""
-    return (f"A {noun} of {total_text} is not reachable: the most these "
-            f"ingredients can make is {most_text}.")
+    return (f"These {INGREDIENT}s make at most {most_text}; enter "
+            f"{most_text} or less, or raise a {HIGHEST_LABEL}.")
 
 
 def total_not_reachable_at_least(total_text, least_text,
                                  noun=FORMULATION_TOTAL_NOUN):
-    return (f"A {noun} of {total_text} is not reachable: the least these "
-            f"ingredients can make is {least_text}.")
+    return (f"These {INGREDIENT}s make at least {least_text}; enter "
+            f"{least_text} or more, or lower a {LOWEST_LABEL}.")
 
 
 def total_not_reachable_at_all(total_text, noun=FORMULATION_TOTAL_NOUN):
     """A size of nothing. Reachable arithmetic — every amount can be 0 in a
     project with no lower bounds — and still not a formulation, so it is
     refused in the same shape as a size the amounts cannot make."""
-    return (f"A {noun} of {total_text} is not reachable: every formulation "
-            "has to add up to something.")
+    return f"Enter a {noun} above 0."
 
 
 def no_formulation_reaches_total(total_text):
@@ -1935,9 +1994,8 @@ def fixing_breaks_the_total(total_text):
     put the batch size out of reach of the rows still moving. The two ways
     back are the size and the allowed values — not the eight ingredients the size's
     own limit happens to name."""
-    return (f"Fixing these would leave no formulation adding up to "
-            f"{total_text}. Change the {BATCH_SIZE_NOUN}, or let enough "
-            f"ingredients vary again.")
+    return (f"Fixing these leaves no formulation at {total_text}; change "
+            f"the {BATCH_SIZE_NOUN} or let more {INGREDIENT}s vary.")
 
 
 def formulation_total_gone_unit(total_text):
@@ -1987,7 +2045,14 @@ APPLY_PASTED_SETTINGS_BUTTON = "Apply pasted settings"
 
 
 def invalid_json(e):
-    return f"Invalid JSON: {e}"
+    """The pasted expert settings, refused where they went wrong. The
+    parser's own words ("Expecting value: line 1 column 2 (char 1)") were
+    the whole message before."""
+    line, column = getattr(e, "lineno", None), getattr(e, "colno", None)
+    if line is not None and column is not None:
+        return (f"The settings stop making sense at line {line}, character "
+                f"{column}; check the quotes and commas there.")
+    return "Paste the settings in braces, like the example in the box."
 
 
 IN_USE_PREFIX = "In use: "
@@ -2439,8 +2504,29 @@ def named_row_error(name, problem):
     row numbers down its left edge (Name is its first column), so a refusal
     about one of its rows names the row the way every success line already
     does. `name` is NEW_GRID_ROW for a row typed on the empty line at the
-    bottom that has no name yet."""
-    return f"{name}: {problem}"
+    bottom that has no name yet.
+
+    A sentence that already opens with the row's name ("Salt is already
+    the name of an ingredient.") is said as it is: "Salt: Salt is …" said
+    the name twice."""
+    if name and str(problem).startswith((f"{name} ", f"{name}'s ")):
+        return problem
+    return f"{name}: {_after_colon(problem)}"
+
+
+# After "Butter:" an instruction reads on in lower case, as every other
+# named refusal does ("Formulation 2: enter an amount for Protein."); a
+# column name keeps its capital ("Butter: enter Lowest and Highest.").
+_LOWERED_VERBS = ("Enter", "Take", "Choose", "Type", "Use", "Make", "Set",
+                  "Delete", "Add", "Pick", "Give", "Raise", "Lower",
+                  "Swap", "Change", "Shorten", "Start", "Fill", "Open", "Move",
+                  "Leave", "Keep", "Save", "Clear")
+
+
+def _after_colon(problem):
+    text = str(problem)
+    first = text.split(" ", 1)[0]
+    return text[0].lower() + text[1:] if first in _LOWERED_VERBS else text
 
 
 NEW_GRID_ROW = "The new row"
@@ -2741,15 +2827,29 @@ EXACTLY_ONE_INGREDIENT = (
     f"such as = 1.5 % of {BATCH_SIZE_NOUN}.")
 
 
+def exactly_one_ingredient(name):
+    """An Exactly limit on one ingredient: that is the row's own Lowest and
+    Highest, and the sentence sends the reader to the row by name."""
+    return (f"To fix {name} at one amount, give it equal {LOWEST_LABEL} "
+            f"and {HIGHEST_LABEL} in the grid.")
+
+
+def limit_number_needed(kind):
+    """The ingredient-limit form's one empty box, named as the box is
+    labelled (At least / At most / Exactly), or both boxes for Between."""
+    if kind == LIMIT_KIND_BETWEEN:
+        return ENTER_LOWEST_HIGHEST_ERROR
+    return f"Enter a number in {kind}."
+
+
 def limit_on_worked_out_rows(names_text, many=False):
     """'Water and Salt are calculated from their calculations, so this limit
     cannot change them.' — every row of a limit filled in by a calculation leaves
     the limit nothing to act on, and the app accepted it and then let the
     calculations contradict it."""
-    verb, tail, them = (("are", "their calculations", "them") if many
-                        else ("is", "its calculation", "it"))
-    return (f"{names_text} {verb} {WORKED_OUT} from {tail}, so this limit "
-            f"cannot change {them}.")
+    verb, whose = ("are", "their") if many else ("is", "its")
+    return (f"{names_text} {verb} {WORKED_OUT}; limit the {INGREDIENT}s "
+            f"{whose} {FORMULA_IN_RANGE} uses instead.")
 
 
 def exactly(value):
@@ -2997,15 +3097,15 @@ def name_taken_by(name, what):
 
 
 def reserved_name_message(name):
-    return (f"{name} is a column name Food Optimizer uses for its own "
-            f"tables. Choose another name, for example {name}s.")
+    return (f"{name} is a column name Food Optimizer uses; choose "
+            f"another, such as {name}s.")
 
 
 def reserved_name_short(name):
     """The same refusal for a measurement, which has no plural to suggest:
     'Firmnesss' is not a name anybody wants."""
-    return (f"{name} is a column name Food Optimizer uses for its own "
-            f"tables. Choose another name.")
+    return (f"{name} is a column name Food Optimizer uses; choose "
+            "another.")
 
 
 def name_is_a_variable(name):
@@ -3049,27 +3149,50 @@ LAST_VARYING_ROW_ERROR = (
     f"Give another one a different {LOWEST_LABEL} and {HIGHEST_LABEL} "
     "first.")
 AMOUNTS_MISSING_DELETE_ERROR = (
-    "Cannot delete this: some formulations were recorded without their "
-    "amounts, so what was made cannot be recalculated. Fix it at one "
-    "amount instead, or clear the project contents.")
+    "Some results were recorded without their amounts, so this cannot be "
+    "deleted. Fix it at one amount instead.")
+
+
+def amounts_missing_delete(name):
+    """AMOUNTS_MISSING_DELETE_ERROR, said about the row being deleted."""
+    return (f"{name} cannot be deleted: some results were recorded without "
+            "their amounts. Fix it at one amount instead.")
 
 LOWEST_ABOVE_HIGHEST_ERROR = "Lowest cannot be above Highest."
 RANGE_ENDS_ERROR = f"{LOWEST_MEASURABLE_LABEL} must be less than {HIGHEST_MEASURABLE_LABEL}."
-TARGET_REQUIRED_ERROR = (f"Enter a target value for a "
-                         f"'{GOAL_LABELS['target']}' measurement.")
+TARGET_REQUIRED_ERROR = f"Enter a {TARGET_LABEL}, or change {GOAL_LABEL}."
+
+
+def lowest_above_highest(low, high):
+    """'Lowest 50 is above Highest 20; swap them.' — the two numbers, and
+    the fix. "Lowest cannot be above Highest." said neither (owner,
+    2026-10)."""
+    return (f"{LOWEST_LABEL} {float(low):g} is above {HIGHEST_LABEL} "
+            f"{float(high):g}; swap them.")
+
+
+def scale_ends_error(low, high):
+    """The measurement grid's two scale cells, refused in their numbers:
+    equal is a scale of nothing, reversed is a swap."""
+    if float(low) == float(high):
+        return (f"{LOWEST_MEASURABLE_LABEL} and {HIGHEST_MEASURABLE_LABEL} "
+                f"are both {float(low):g}; make {HIGHEST_MEASURABLE_LABEL} "
+                "larger.")
+    return (f"{LOWEST_MEASURABLE_LABEL} {float(low):g} is above "
+            f"{HIGHEST_MEASURABLE_LABEL} {float(high):g}; swap them.")
 
 
 def target_outside_message(target, low, high):
     """R13: the two controls the reader can reach, named as the grid names
     them. "the range's lowest and highest" named nothing on that screen."""
     return (f"{TARGET_LABEL} {target:g} must be between "
-            f"{LOWEST_MEASURABLE_LABEL} and {HIGHEST_MEASURABLE_LABEL} "
-            f"({low:g} to {high:g}).")
+            f"{LOWEST_MEASURABLE_LABEL} {low:g} and "
+            f"{HIGHEST_MEASURABLE_LABEL} {high:g}.")
 
 
 def baseline_outside_message(value, low, high):
-    return (f"{BASELINE_LABEL} {float(value):g} must be between {low:g} and "
-            f"{high:g}.")
+    return (f"{BASELINE_LABEL} {float(value):g} must be between "
+            f"{LOWEST_LABEL} {low:g} and {HIGHEST_LABEL} {high:g}.")
 
 
 # What cannot be done to a project whose older formulations were recorded
@@ -3089,34 +3212,51 @@ BASELINE_REQUIRED_FOR_A_SETTING = (
 
 # The ingredients file, row by row.
 def ingredients_file_missing_columns(named):
-    return (f"The ingredients file is missing required column(s): {named}. "
-            f"Expected columns: {NAME_LABEL}, {LOWEST_LABEL}, "
-            f"{HIGHEST_LABEL} (plus an optional {UNIT_LABEL} column and "
-            f"property columns like Cost or Protein).")
+    """'The file has no Highest column. …' — `named` is the comma-joined
+    headings; the fix is the heading, or the template that has them all."""
+    many = ", " in named
+    return (f"The file has no {named} {'columns' if many else 'column'}. "
+            f"Add {'them' if many else 'it'}, or start from the template.")
 
 
 def file_row_name_blank(row_no):
-    return f"{ROW.capitalize()} {row_no}: the {NAME_LABEL} cell is blank."
+    return (f"{ROW.capitalize()} {row_no}: enter a {NAME_LABEL}, or delete "
+            "the row.")
 
 
 def file_row_duplicate_name(row_no, name):
-    return (f"{ROW.capitalize()} {row_no}: duplicate {INGREDIENT} name "
-            f"{name}.")
+    return (f"{ROW.capitalize()} {row_no}: {name} is listed twice; delete "
+            "one of the rows.")
+
+
+def file_row_premix_in_premix(row_no, name):
+    """A file row that both declares a pre-mix (its Preparation) and files
+    itself under one (its Part of). Said against the row, by name."""
+    return (f"{ROW.capitalize()} {row_no}: {name} is a pre-mix; clear its "
+            f"{PART_OF_LABEL} cell.")
+
+
+def file_row_share_not_a_number(row_no, text):
+    return (f"{ROW.capitalize()} {row_no}: "
+            + cells_need_numbers(typed=[(PREMIX_SHARE_LABEL, text)]))
 
 
 def file_row_reserved_name(row_no, name):
     return f"{ROW.capitalize()} {row_no}: {reserved_name_message(name)}"
 
 
-def file_amounts_not_numbers(name):
-    return (f"{INGREDIENT.capitalize()} {name}: {LOWEST_LABEL} and "
-            f"{HIGHEST_LABEL} must be numbers. Please check that column for "
-            f"text or blank cells and try again.")
+def file_amounts_not_numbers(name, typed=()):
+    """An ingredient-file row whose Lowest or Highest holds text. `typed`
+    is [(column, text)] for the cells that do, so the sentence names the
+    cell and says back what is in it."""
+    if not typed:
+        return named_row_error(name, f"Enter numbers in {LOWEST_LABEL} and "
+                                     f"{HIGHEST_LABEL}.")
+    return named_row_error(name, cells_need_numbers(typed=typed))
 
 
 def file_lowest_above_highest(name, low, high):
-    return (f"{INGREDIENT.capitalize()} {name}: {LOWEST_LABEL} ({low}) "
-            f"cannot be above {HIGHEST_LABEL} ({high}).")
+    return named_row_error(name, lowest_above_highest(low, high))
 
 
 # An uploaded results sheet.
@@ -3173,12 +3313,12 @@ def formulation_is_not_not_scored(number):
 
 # Limits and units.
 def property_limits_need_a_mass_unit(unit, fix_sentence):
-    return (f"Property limits are per 100 {unit}, so every {INGREDIENT} "
-            f"needs a mass unit; {fix_sentence}")
+    return (f"Property limits need every {INGREDIENT} in one unit; "
+            f"{fix_sentence}")
 
 
 def limit_needs_one_unit(fix_sentence):
-    return (f"A {LIMIT} adds amounts, so these {INGREDIENT}s need one unit; "
+    return (f"These {INGREDIENT}s need one unit for a {LIMIT}; "
             f"{fix_sentence}")
 
 
@@ -3240,24 +3380,21 @@ def limit_unreachable_above(what, most_text):
     ingredients that can still vary only reach 10 per 100 g at most. Loosen
     the limit first.' — a limit's At least, put out of reach by the rows
     this save is about to pin."""
-    return (f"Fixing these would make the {LIMIT} on {what} impossible to "
-            f"meet: the {INGREDIENT}s that can still vary only reach "
-            f"{most_text} at most. {LOOSEN_THE_LIMIT_FIRST}")
+    return (f"Fixing these breaks the {LIMIT} on {what}: only {most_text} "
+            "is reachable; loosen it first.")
 
 
 def limit_unreachable_below(what, least_text):
     """The same for a limit's At most that the pinned rows already exceed."""
-    return (f"Fixing these would make the {LIMIT} on {what} impossible to "
-            f"meet: the {INGREDIENT}s that can still vary cannot get below "
-            f"{least_text}. {LOOSEN_THE_LIMIT_FIRST}")
+    return (f"Fixing these breaks the {LIMIT} on {what}: nothing gets "
+            f"below {least_text}; loosen it first.")
 
 
 def limit_pinned_amounts_exceed(what, pinned_text):
     """An amount limit whose At most is already passed by the amounts this
     save pins — nothing that can still vary is even involved."""
-    return (f"Fixing these would make the {LIMIT} on {what} impossible to "
-            f"meet: the amounts pinned already add up to {pinned_text}. "
-            f"{LOOSEN_THE_LIMIT_FIRST}")
+    return (f"Fixing these breaks the {LIMIT} on {what}: the fixed amounts "
+            f"add up to {pinned_text}; loosen it first.")
 
 
 LOOSEN_THE_LIMIT_FIRST = "Loosen the limit first."
@@ -3378,23 +3515,18 @@ def changed_elsewhere(name):
 # helpers keep their own names; nothing a reader sees says "formula" any
 # more, and nothing else in the app is called a rule (a limit is a limit).
 # ------------------------------------------------------------------ #
-FORMULA_REST_ALONE = ("Write = rest on its own: it is whatever is left of "
-                      "the batch size.")
-FORMULA_TWO_AMOUNTS = ("A calculation can add or subtract amounts and multiply "
-                       "by a number. It cannot multiply two amounts.")
-FORMULA_DIVIDE_BY_AMOUNT = ("A calculation can divide by a number, not by an "
-                           "amount.")
-FORMULA_DIVIDE_BY_ZERO = "A calculation cannot divide by zero."
-# Every word the grammar really takes, in both the alphabet the spec
-# prints and the one on the keyboard. The old sentence listed four
-# characters, three of them untypable, and omitted the leading '=', the
-# percentage, 'batch size' and 'rest' — the four things a reader who is
-# stuck most plausibly got wrong.
-FORMULA_UNREADABLE = ("This calculation could not be read. Use =, + − × ÷ (or "
-                      "- * /), %, numbers, brackets, batch size, rest and "
-                      "ingredient names.")
+FORMULA_REST_ALONE = (f"Write {REST_TOKEN} on its own; it means "
+                      f"{FILL_TO_TOTAL}.")
+FORMULA_TWO_AMOUNTS = "Multiply an amount by a number, not by another amount."
+FORMULA_DIVIDE_BY_AMOUNT = "Divide by a number, not by an amount."
+FORMULA_DIVIDE_BY_ZERO = "Divide by a number other than 0."
+# Every word the grammar really takes, as the fix: the reader is told
+# what a calculation may hold. The keyboard spellings (- * /) and the
+# rest are in the calculation guide's "?", where long reasons belong.
+FORMULA_UNREADABLE = ("Use only names, numbers, batch size, %, brackets "
+                      "and + − × ÷.")
 RULE_NEEDS_EQUALS = "Start a calculation with =."
-RULE_USES_ITS_OWN_ROW = "A calculation cannot use its own row."
+RULE_USES_ITS_OWN_ROW = "Take this row's own name out of its calculation."
 RULE_INGREDIENTS_ONLY_PREFIX = "A calculation can use ingredients and batch size, not"
 
 
@@ -3409,21 +3541,21 @@ def rule_ingredients_only(name):
 def formula_unknown_name(name):
     """'There is no ingredient called Sodium citrate.' — a calculation naming a
     row the project does not have."""
-    return f"There is no ingredient called {name}."
+    return f"There is no ingredient called {name}; check the spelling."
 
 
 def formula_loop(chain):
     """'A calculation cannot lead back to itself: Fat → Water → Fat.' — `chain`
     is the arrow-joined names that already spell the loop out."""
-    return f"A calculation cannot lead back to itself: {chain}."
+    return f"These calculations go round in a circle: {chain}. Change one."
 
 
 FORMULA_NEEDS_BATCH_SIZE = (
-    f"Set a {FORMULATION_TOTAL_NOUN} to calculate this amount. Set one "
-    "in Preparation and records, or enter amounts without a calculation.")
+    f"Set {FORMULATION_TOTAL_NAME} in {MORE_SETTINGS_EXPANDER} first, or "
+    f"enter {LOWEST_LABEL} and {HIGHEST_LABEL}.")
 PERCENT_NEEDS_BATCH_SIZE = (
-    f"There is no {FORMULATION_TOTAL_NOUN} to take a percent of. Set one "
-    "in Preparation and records.")
+    f"Set {FORMULATION_TOTAL_NAME} in {MORE_SETTINGS_EXPANDER} to limit "
+    "by percent.")
 
 
 # ------------------------------------------------------------------ #
@@ -3458,8 +3590,8 @@ def balance_would_go_negative(name, size_text, least_text, unit="",
     batch size box on Set up, the Batch size box on Make a round — because
     wave 1 settled those as two names for two things."""
     zero = f"0 {unit}".strip()
-    return (f"A {noun or FORMULATION_TOTAL_NOUN} of {size_text} leaves "
-            f"{name} below {zero}. The other {INGREDIENT}s need at least "
+    return (f"{(noun or FORMULATION_TOTAL_NOUN).capitalize()} {size_text} "
+            f"leaves {name} below {zero}; enter at least "
             f"{least_text}.")
 
 
@@ -3515,8 +3647,8 @@ def one_balance_only(names_text, many=False):
     anybody can do. Said over the grid as a whole, because it is about the
     pair — and it names the pair, which the old sentence did not, leaving
     the reader to go and find the other one."""
-    return (f"Only one row can be = {REST_TOKEN}: {names_text} "
-            f"{'all' if many else 'both'} are.")
+    return (f"Only one row can use {FILL_TO_TOTAL}; {names_text} "
+            f"{'all' if many else 'both'} do. Keep one.")
 
 
 def worked_out_caption(name, formula_text, low_text, high_text, size_text,
@@ -3714,8 +3846,8 @@ def premix_amount_is_its_parts(name):
     fold.' — a number typed over the word in a weighed pre-mix's Lowest or
     Highest cell. The cell lets a pen in and the app cannot take what it
     says: the amount of a weighed pre-mix is arithmetic over its parts."""
-    return (f"{name}'s amount is the {SUM_OF_ITS_PARTS}. Change the "
-            f"{PART_LABEL.lower()}s in its fold.")
+    return (f"Its amount is the {SUM_OF_ITS_PARTS}; change them under "
+            f"{BLEND_COMPOSITIONS_HEADING}.")
 
 
 def premix_unknown(name):
@@ -3734,8 +3866,8 @@ def file_row_made_as_unknown(row_no, text):
 def file_row_unknown_premix(row_no, name):
     """A part filed under a pre-mix no row of the file declares. The file
     is read whole, so the order of its rows is not the fault."""
-    return (f"Row {row_no} puts it in {name}, and no row of this file says "
-            f"how {name} is made.")
+    return (f"Row {row_no}: add a row for {name} with its "
+            f"{MADE_AS_LABEL}.")
 
 
 # The word for what per cent of a pre-mix each part is, as a sentence says
@@ -3874,9 +4006,16 @@ PART_LABEL = "Part"
 # It has none: the pre-mix is not a row of the list at all, its parts are,
 # and the amount of it in a formulation is whatever they add up to.
 SUM_OF_ITS_PARTS = "sum of its parts"
-PARTS_ADD_TO_NOTHING = ("The composition percentages total zero. Give at least one of "
-                        "them a composition percentage above zero.")
+PARTS_ADD_TO_NOTHING = (f"{PREMIX_SHARE_LABEL} adds up to 0; give one "
+                        f"{PART_LABEL.lower()} more than 0.")
 PREMIX_NEEDS_A_PART = "Enter at least one name in the Part column before saving."
+
+
+def premix_has_no_parts(name):
+    """A limit on a weighed pre-mix that has no parts yet: nothing to add
+    up. Said by name, pointing where the parts are typed."""
+    return (f"{name} has no parts yet; add them under "
+            f"{BLEND_COMPOSITIONS_HEADING}.")
 PREMIX_QUANTITY_POSITIVE = "The smallest quantity that blends evenly must be more than nothing."
 
 
@@ -3924,6 +4063,13 @@ def premix_no_longer_a_premix(name, parts_text="", many=False):
 
 
 PREMIX_LIMIT_ON_ITS_OWN = "Choose a pre-mix weighed into each formulation on its own to limit its total. To limit particular ingredients together, choose their names instead."
+
+
+def premix_limit_on_its_own(name):
+    """A pre-mix picked together with other names: its total is limited on
+    its own, and its parts by name."""
+    return (f"Pick {name} on its own to limit its total, or pick its parts "
+            "instead.")
 
 
 PREMIXES_HEADING = "Pre-mixes"
@@ -4129,6 +4275,18 @@ CUSTOM_FIELD_HELP = "For example, Operator for each formulation, or Expiry date 
 CUSTOM_FIELD_INVALID = "Enter a field name of 1–80 characters and choose what it records."
 CUSTOM_FIELD_BUILTIN = "That recording option already exists. Select it in Additional records."
 CUSTOM_FIELD_EXISTS = "A field with this name and scope already exists. Select it in Additional records."
+
+
+def custom_field_builtin(name):
+    return f"{name} is already a recording option; select it in Additional records."
+
+
+def custom_field_exists(name, scope_name):
+    """'Operator already exists for Each formulation; …' — "scope" was a
+    word on no control; the picker's own choice is."""
+    scope_name = scope_name[:1].lower() + scope_name[1:]
+    return (f"{name} already exists for {scope_name}; select it in "
+            "Additional records.")
 CUSTOM_VALUES_INVALID = "Recording values must be text or numbers, up to 2,000 characters per entry."
 CUSTOM_WORKBOOK_CHANGED = "These recording fields no longer match this Round. Download a new workbook and transfer your entries."
 
@@ -4651,16 +4809,14 @@ def import_limits_not_numbers(name, labels=(LOWEST_LABEL, HIGHEST_LABEL)):
     """An ingredient-file row whose Lowest or Highest would load empty (03:
     'Lowest/Highest NaN'), refused by name. `labels`: the cells that are
     not numbers."""
-    which = _and_join(labels)
-    verb = "must be numbers" if len(labels) > 1 else "must be a number"
-    return named_row_error(name, f"{which} {verb}.")
+    return named_row_error(name, cells_need_numbers(blank=labels))
 
 
 def import_spreadsheet_formula(name, label, text):
     """A Lowest or Highest cell holding a spreadsheet formula, read as
     written (the xlsx is read with formulas kept so '= rest' survives)."""
-    return named_row_error(name, f"{label} holds a spreadsheet formula ({text}). Type the "
-                                 "number itself.")
+    return named_row_error(name, f"Replace {_cell_text(text)} in {label} "
+                                 "with the number itself.")
 
 
 # B3 (review I10): the restore confirmation says what an open Round loses.

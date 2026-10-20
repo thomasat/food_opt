@@ -47,8 +47,8 @@ def _create(at, name):
 # ------------------------------------------------------------------ #
 
 @pytest.mark.parametrize("typed, expected", [
-    ("bad/name", "Take “/” out of the name. Use letters, numbers, spaces, . - or _."),
-    ("Crème brûlée", "Take “è” “û” “é” out of the name. Use letters, numbers, spaces, . - or _."),
+    ("bad/name", "Take “/” out of the name. Use letters, numbers, spaces, dots, dashes or underscores."),
+    ("Crème brûlée", "Take “è” “û” “é” out of the name. Use letters, numbers, spaces, dots, dashes or underscores."),
     ("-oat", "Start the name with a letter or a number."),
     ("x" * 70, "Shorten the name to 64 characters; it has 70."),
 ])

@@ -230,8 +230,13 @@ def open_editor(opt, frame):
             st.info(wording.CALCULATION_EMPTY_INFO)
             return
     errors, plan = _validate(opt, candidate)
+    names = {position: str(row.get(wording.NAME_LABEL) or '').strip()
+             for position, (_, row) in enumerate(candidate.iterrows(), start=1)}
     for row_no, message in errors:
-        st.error((str(frame.at[row_no, wording.NAME_LABEL])+': ' if row_no in frame.index else '')+message)
+        # Named as the grid names its refusals (wording.named_row_error),
+        # and by position: the model numbers rows from 1 down the grid.
+        st.error(message if row_no is None else wording.named_row_error(
+            names.get(row_no) or wording.NEW_GRID_ROW, message))
     if not errors:
         _preview(opt, plan, name)
     st.caption(wording.CALCULATION_APPLY_CAPTION)
