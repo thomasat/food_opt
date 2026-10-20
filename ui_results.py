@@ -25,7 +25,7 @@ from ui_helpers import (
     COPY_KEPT, TAB_BATCH, TAB_SETUP, amount_range_placeholder, ask_tab,
     best_formulation_no, best_move_sentence,
     bounds_caution, clear_selection, confirm_action, confirmation_open,
-    SCROLL_KEY, clear_scale_total, disarm, flash, fmt_amount, fmt_setting, goal_line,
+    SCROLL_KEY, clear_scale_total, disarm, flash, fmt_amount, fmt_setting, goal_shown,
     entry_label, go_to_tab, review_due, number_list, open_rows, other_confirmation,
     park_clear,
     plural, preserve_tab_forms, readiness, render_flash, saved_ok, scale_error,
@@ -349,7 +349,7 @@ def _off_by_table(opt, index, details=None):
     details = opt.closeness_details(index) if details is None else details
     has_target = any(o['goal'] == 'target' for o in opt.objectives)
     frame = pd.DataFrame([
-        {wording.MEASUREMENT_COLUMN: d['name'], wording.GOAL_LABEL: d['goal'],
+        {wording.MEASUREMENT_COLUMN: d['name'], wording.GOAL_LABEL: goal_shown(d['goal']),
          wording.MEASURED_COLUMN: d['measured'],
          **({wording.OFF_BY_COLUMN: d['off_by']} if has_target else {})}
         for d in details])
@@ -1023,6 +1023,25 @@ def _table_style(opt, frame):
     return styler
 
 
+# All formulations' column widths, in pixels. At a 1440 px window (the
+# sidebar open) the table is about 980 px wide, and Best so far, Round,
+# Formulation and Overall score take about 400 of it: each measurement
+# column is capped so the last measurement's values are on screen, never
+# below ALL_FORMULATIONS_MIN_WIDTH (more measurements than that fits
+# scroll sideways) nor above ALL_FORMULATIONS_MAX_WIDTH.
+ALL_FORMULATIONS_MAX_WIDTH = 200
+ALL_FORMULATIONS_MIN_WIDTH = 140
+_ALL_FORMULATIONS_VIEW = 980
+_ALL_FORMULATIONS_LEAD = 400
+
+
+def all_formulations_cap(measurements):
+    """The widest an All formulations column is drawn with `measurements`
+    measurement columns in the table."""
+    room = (_ALL_FORMULATIONS_VIEW - _ALL_FORMULATIONS_LEAD) // max(1, measurements)
+    return max(ALL_FORMULATIONS_MIN_WIDTH, min(ALL_FORMULATIONS_MAX_WIDTH, room))
+
+
 def _all_formulations(opt, said_partial=False):
     st.markdown(wording.for_project(opt, wording.ALL_FORMULATIONS_HEADING))
     o1, o2 = st.columns([2, 1])
@@ -1044,8 +1063,18 @@ def _all_formulations(opt, said_partial=False):
         o['name'], o.get('goal'), o.get('target'), o.get('unit', ''),
         None if common else (o.get('min_val', 0.0), o.get('max_val', 10.0)))
         for o in opt.objectives}
-    config = {c: st.column_config.Column(labels.get(c),
-                                         width=max(80, 8 * len(str(labels.get(c, c))) + 24))
+    # A column is as wide as its name up to all_formulations_cap: with
+    # every measurement headed in full the last measurement's values sat
+    # off screen at 1440 px. A header cut at that width is said whole in
+    # its tooltip.
+    cap = all_formulations_cap(sum(c in frame.columns for c in labels))
+
+    def width_of(c):
+        return max(80, 8 * len(str(labels.get(c, c))) + 24)
+
+    config = {c: st.column_config.Column(
+                  labels.get(c), width=min(width_of(c), cap),
+                  help=str(labels.get(c, c)) if width_of(c) > cap else None)
               for c in frame.columns if len(str(labels.get(c, c))) > 9}
     config.update({c: st.column_config.Column(label) for c, label in labels.items()
                    if c in frame.columns and c not in config})
@@ -1203,7 +1232,7 @@ def _measurement_boxes(ordered, key_of, current=None):
             # The unit in the label, as the record form says it: the box
             # holds a bare number (answer-key read-through).
             typed[name] = st.number_input(
-                f"{entry_label(name, obj.get('unit'))} · {goal_line(obj)}",
+                f"{entry_label(name, obj.get('unit'))} · {goal_shown(obj)}",
                 placeholder=f"{obj['min_val']:g}–{obj['max_val']:g}",
                 key=key_of(name))
     return typed

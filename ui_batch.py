@@ -12,9 +12,10 @@ reruns do not write.
 import hashlib
 import io
 import json
+import zipfile
 from dataclasses import dataclass
+from xml.etree import ElementTree
 
-import openpyxl
 import pandas as pd
 import streamlit as st
 
@@ -26,7 +27,7 @@ from storage import StorageError
 from ui_helpers import (
     BATCH_SIZE_KEY, SCROLL_KEY, TAB_RESULTS, TAB_SETUP, amount_range_placeholder,
     best_formulation_no, bounds_caution, confirm_action, confirmation_open, flash,
-    flash_waiting, fmt_setting, go_to_tab, goal_line, clear_scale_total, entry_label,
+    flash_waiting, fmt_setting, go_to_tab, goal_shown, clear_scale_total, entry_label,
     join_unit, label_with_unit, number_list, open_rows, park_clear, preserve_tab_forms,
     readiness, saved_ok, scale_error, table_height, typed_batch_size,
     unit_after_number,
@@ -1229,11 +1230,18 @@ def _batch_size_control(opt, unit, typed, scale_to, sized, refusal=""):
 
 def _has_preparation_sheet(book):
     """The workbook offered has a Preparation sheet: read from the file
-    itself, so the line under the download lists the sheets it really has."""
+    itself, so the line under the download lists the sheets it really has.
+
+    Only the file's sheet list (xl/workbook.xml) is read, and the archive is
+    closed after it: a read-only openpyxl workbook was opened on every rerun
+    and never closed. The bytes differ on each rerun (the file's own
+    timestamps), so there is nothing to keep between reruns."""
     try:
-        names = openpyxl.load_workbook(io.BytesIO(book), read_only=True).sheetnames
+        with zipfile.ZipFile(io.BytesIO(book)) as archive:
+            root = ElementTree.fromstring(archive.read("xl/workbook.xml"))
     except Exception:            # an unreadable file: the two-sheet line stands
         return False
+    names = {el.get("name") for el in root.iter() if el.tag.endswith("}sheet")}
     return wording.PREPARATION_SHEET in names
 
 
@@ -1409,7 +1417,7 @@ def _record_results(opt):
                                             None)
                 value = st.number_input(
                     f"{entry_label(obj['name'], obj.get('unit'))} · "
-                    f"{goal_line(obj)}",
+                    f"{goal_shown(obj)}",
                     placeholder=f"{obj['min_val']:g}–{obj['max_val']:g}",
                     key=_result_key(number, obj['name']), disabled=skip,
                 )

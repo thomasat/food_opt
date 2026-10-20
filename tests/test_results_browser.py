@@ -67,6 +67,20 @@ def test_percentages_use_displayed_recorded_size(project):
     assert frame[wording.RESULT_PERCENT_COLUMN].tolist() == ['30.00', '70.00', '']
 
 
+def test_percentages_follow_the_formulation_picked(project):
+    """At 200 g the % column is drawn (N8 leaves it out at 100 g only), and
+    it is the picked formulation's own: best, another, one not scored."""
+    project._batch_totals()[1] = 200
+    project.save()
+    at = AppTest.from_file(APP, default_timeout=120).run()
+    assert amounts(at)[wording.RESULT_PERCENT_COLUMN].tolist() == ['30.00', '70.00', '']
+    at.selectbox(key='result_view_details').select(1).run()
+    assert not at.exception
+    assert amounts(at)[wording.RESULT_PERCENT_COLUMN].tolist() == ['20.00', '80.00', '']
+    at.selectbox(key='result_view_details').select(3).run()
+    assert amounts(at)[wording.RESULT_PERCENT_COLUMN].tolist() == ['40.00', '60.00', '']
+
+
 def test_best_default_follows_new_results_and_deleted_selection_recovers(project):
     at = AppTest.from_file(APP, default_timeout=120).run()
     opt = at.session_state['optimizer']

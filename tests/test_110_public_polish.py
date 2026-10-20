@@ -158,6 +158,37 @@ def test_records_for_round_follows_the_latest_round(burger):
     at.run()
     at.run()
     assert at.selectbox(key="custom_history_round").value == 1
+    # Another project whose latest Round is also 2 opens on its own latest
+    # Round, not on the Round picked by hand in this one.
+    second = FoodOptimizer("second")
+    second.set_amount_unit("g")
+    second.add_ingredient("Pea protein", 0, 25)
+    second.add_objective("Juiciness", 1.0, goal="target", target=7,
+                         min_val=0, max_val=10, unit="/10")
+    custom_records.add_field(second, "Operator", "formulation")
+    for no in (1, 2):
+        second.tell({"Pea protein": 5.0 * no}, {"Juiciness": 5.0 + no},
+                    formulation_no=no, batch_no=no)
+    at.run()                        # the sidebar lists the new project
+    at.sidebar.selectbox(key="project_select").select("second")
+    at.run()
+    next(b for b in at.sidebar.button if b.label == "Open").click()
+    at.run()
+    at.session_state["main_tab"] = wording.TAB_RESULTS
+    at.run()
+    assert not at.exception
+    assert at.session_state["optimizer"].project_name == "second"
+    assert at.selectbox(key="custom_history_round").value == 2
+    # The box's own state can outlive a switch (it is on screen in both
+    # projects): Round 1 picked here does not follow into "burger", whose
+    # latest Round is also 2.
+    at.selectbox(key="custom_history_round").set_value(1)
+    at.run()
+    at.session_state["_loaded_project"] = "burger"
+    at.session_state["optimizer"] = FoodOptimizer("burger")
+    at.run()
+    assert not at.exception
+    assert at.selectbox(key="custom_history_round").value == 2
 
 
 # ------------------------------------------------------------------ #
@@ -175,6 +206,7 @@ def test_the_percent_column_is_left_out_at_100_g(burger):
     at = _app("burger", wording.TAB_RESULTS)
     table = next(t.value for t in at.table if wording.AMOUNT_COLUMN in t.value.columns)
     assert wording.RESULT_PERCENT_COLUMN in table.columns      # 22 g: it says something
+    assert table[wording.RESULT_PERCENT_COLUMN].tolist()[:2] == ['90.91', '9.09']
 
 
 # ------------------------------------------------------------------ #

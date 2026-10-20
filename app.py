@@ -34,6 +34,7 @@ from datetime import datetime, timedelta                 # noqa: E402
 
 import pandas as pd                           # noqa: E402
 
+import custom_records                         # noqa: E402
 import insights                               # noqa: E402
 import sample_projects                        # noqa: E402
 import storage as storage_backend             # noqa: E402
@@ -140,6 +141,13 @@ _FORM_EMPTIES_TO_NONE = ("correct_formulation", "delete_whole_batch",
 _PER_NAME_BOX_PREFIXES = ("own_", "correct_amount_", "past_", "missing_")
 
 
+def _on_shared_host():
+    """Streamlit Community Cloud mounts the repo at /mount/src: every visitor
+    there shares one disk, so nothing is reopened for them and no visitor's
+    last-opened project is written for the next one."""
+    return os.path.isdir("/mount/src")
+
+
 def _grid_fresh(key):
     """The empty value of one result-grid box: a note is text, Not scored is
     a tick, and a measurement is an empty number box."""
@@ -196,7 +204,10 @@ def _reset_project_session():
               # what they are for, and what was drawn and written from them.
               ui_insights.MEMO_KEY, ui_insights.PLAN_KEY, ui_insights.PARTIAL_KEY,
               ui_insights.SAVED_KEY, ui_insights.SEEN_KEY,
-              ARMED_KEY):
+              ARMED_KEY,
+              # Records for Round's latest-Round mark (S10): a Round picked
+              # by hand in one project is not carried into the next.
+              custom_records.HISTORY_ROUND_LATEST_KEY):
         st.session_state.pop(k, None)
     # Every pending grid edit, every grid's refused-save errors and whatever
     # each grid's deletion question was armed over: none of it belongs to
@@ -238,7 +249,9 @@ def _open_project(name, create=False, made=False, tab=None, line=None):
     st.session_state["_land_on_open"] = True
     # What a fresh session reopens (S4): the project opened, not the file
     # written last.
-    getattr(STORAGE, "remember_opened", lambda n: None)(name)
+    # Not on a shared host: one visitor's project would reopen for the next.
+    if not _on_shared_host():
+        getattr(STORAGE, "remember_opened", lambda n: None)(name)
     if tab:
         # The landing rule runs first; this overrides it on the same run.
         st.session_state["_pending_tab"] = tab
@@ -561,7 +574,7 @@ with st.sidebar:
     # Returning users land where they left off; new users get the welcome
     # panel. Never auto-open on a shared host (Streamlit Community Cloud
     # mounts the repo at /mount/src): every visitor there shares one disk.
-    _shared_host = os.path.isdir("/mount/src")
+    _shared_host = _on_shared_host()
     # Found before the launch-time sample refresh, and good for this run only.
     _recent = st.session_state.pop("_recent_at_launch", None)
     if ("_loaded_project" not in st.session_state and existing_projects

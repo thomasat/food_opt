@@ -970,8 +970,8 @@ def sheets_show_total_caption(total_text):
 
 GENERATE_DIFFERENT_BATCH = f"Discard this {ROUND_CAP} and generate again"
 # After the amounts of an open Round's formulations are edited in place.
-FORMULATIONS_SAVED_NEW_WORKBOOK = (f"{FORMULATION_CAP}s saved. Download a new "
-                                   f"workbook before preparing this {ROUND_CAP}.")
+# A status line: ten words at most (owner's wording rule).
+FORMULATIONS_SAVED_NEW_WORKBOOK = f"{FORMULATION_CAP}s saved. Download a new workbook."
 
 
 def regenerate_warning(no, numbers_text, next_no, many=True):

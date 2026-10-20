@@ -1348,10 +1348,15 @@ def _targets_source_contents(opt):
             st.rerun()
 
 
+# The chips are drawn whole (S13), and a very long field name wraps inside
+# its chip instead of running past the box: the chip as wide as the box at
+# most, its text on as many lines as it needs.
 _RECORD_CHIP_STYLE = (
-    "<style>.st-key-record_fields [data-baseweb='tag'],"
+    "<style>.st-key-record_fields [data-baseweb='tag']"
+    "{max-width: 100%; height: auto;}"
     ".st-key-record_fields [data-baseweb='tag'] span"
-    "{max-width: none; overflow: visible; text-overflow: clip;}</style>")
+    "{max-width: 100%; white-space: normal; overflow-wrap: anywhere;"
+    " overflow: visible; text-overflow: clip;}</style>")
 
 
 def _record_key(field):

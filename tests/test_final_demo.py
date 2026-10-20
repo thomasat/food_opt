@@ -225,7 +225,27 @@ def test_an_earlier_round_draws_only_the_rounds_up_to_it():
     # The kept spec: one per Round on view, the latest the full chart.
     a = U.improving_spec(opt, 6, height=U.PANEL_CHART_H)
     b = U.improving_spec(opt, 3, height=U.PANEL_CHART_H)
-    assert str(a) != str(b)
+    # On the same axes, and Round 3's spec holds no scored dot past F9.
+    # A kept spec carries its datasets as Arrow bytes.
+    import io
+
+    import pyarrow as pa
+
+    def kept(spec):
+        return {**{k: v for k, v in spec.items() if k != "datasets"},
+                "datasets": {name: pa.ipc.open_stream(io.BytesIO(data)).read_pandas()
+                             .to_dict("records")
+                             for name, data in spec["datasets"].items()}}
+    a, b = kept(a), kept(b)
+    assert domains(a) == domains(b) == domains(full)
+    form = U._say(opt, wording.FORMULATION_CAP)
+
+    def scored(spec):
+        return {r[form] for r in _dataset_rows(spec)
+                if r.get(score) is not None and r.get(score) == r.get(score)
+                and "full" in r}
+    assert max(scored(b)) == 9
+    assert max(scored(a)) == 18
 
 
 # ------------------------------------------------------------------ #

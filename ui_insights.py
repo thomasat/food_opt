@@ -749,7 +749,10 @@ def improving_chart(opt, height=None, upto=None):
     if step_of(bottom) != step:
         step = step_of(bottom)
         bottom = math.floor((lo - 2 * pad) / step) * step
-    if bottom < 0 <= lo:         # a score is never below 0: no axis there
+    # A score is never below 0, so no gridline step under it: the axis
+    # starts at 0, or a pad under the lowest dot when that dot is within
+    # a pad of 0 (just below 0 then, so the dot is clear of the axis).
+    if bottom < 0 <= lo:
         bottom = min(0.0, lo - pad)
     lane = _TOP_LANE if show_top else _TOP_LANE // 2     # the top dot clear of the edge
     per_px = (data_top - bottom) / max(1, plot_h - lane)

@@ -26,6 +26,23 @@ from food_bo import (  # noqa: F401  (re-exported)
 # `from ui_helpers import TAB_BATCH` and the like.
 from wording import COPY_KEPT, TAB_BATCH, TAB_RESULTS, TAB_SETUP  # noqa: F401
 
+# food_bo's goal words ('Prefer higher values', the workbook's and Set up's
+# Goal option) said as the Results headers and the score fold say them:
+# 'Higher is better' / 'Lower is better'. A target stays 'Target 6 N'.
+_GOAL_SHOWN = {
+    wording.GOAL_LABELS['max']: wording.SCORE_GOAL_HIGHER,
+    wording.GOAL_LABELS['min']: wording.SCORE_GOAL_LOWER,
+}
+
+
+def goal_shown(goal):
+    """A measurement's goal for a screen: `goal` is the objective dict or
+    food_bo's goal text (closeness_details' 'goal'). 'Higher is better',
+    'Lower is better' or the target, e.g. 'Target 6 N'."""
+    text = goal_line(goal) if isinstance(goal, dict) else goal
+    return _GOAL_SHOWN.get(text, text)
+
+
 _FLASH_KEY = "_flash_messages"
 # The sticky messages on screen now (0.8.0 e2e fixes B3, review I10): what
 # render_flash showed with sticky=True, the tab it showed them on, and where.
