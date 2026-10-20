@@ -221,11 +221,12 @@ def _reset_project_session():
             st.session_state.pop(k, None)
 
 
-def _open_project(name, create=False, made=False, tab=None):
+def _open_project(name, create=False, made=False, tab=None, line=None):
     """Open a project. `create` makes an empty one first; `made` says the
-    project was built a moment ago by another handler (the sample), so the
-    user is told it was created rather than opened. `tab`, when given, is
-    where it opens instead of where the landing rule would put it."""
+    project was built a moment ago by another handler, so the user is told
+    it was created rather than opened; `line`, when given, is the success
+    line instead (a sample's). `tab`, when given, is where it opens instead
+    of where the landing rule would put it."""
     if create:
         new_opt = FoodOptimizer(name, storage=STORAGE)
         new_opt.set_amount_unit("g")     # the default unit for a new project
@@ -235,6 +236,9 @@ def _open_project(name, create=False, made=False, tab=None):
     _reset_project_session()
     st.session_state["_loaded_project"] = name
     st.session_state["_land_on_open"] = True
+    # What a fresh session reopens (S4): the project opened, not the file
+    # written last.
+    getattr(STORAGE, "remember_opened", lambda n: None)(name)
     if tab:
         # The landing rule runs first; this overrides it on the same run.
         st.session_state["_pending_tab"] = tab
@@ -242,10 +246,9 @@ def _open_project(name, create=False, made=False, tab=None):
     # previous project's name straight back, leaving the sidebar naming one
     # project, the box another, and Open lit over the project just abandoned.
     clear_selection("project_select")
-    if create or made:
-        line = wording.project_created(name)
-    else:
-        line = wording.project_opened(name)
+    if line is None:
+        line = (wording.project_created(name) if create or made
+                else wording.project_opened(name))
     flash("success", line)
     st.rerun()
 
@@ -270,7 +273,17 @@ def _open_sample(name=sample_projects.ROUND6):
     except (OSError, storage_backend.StorageError) as e:
         st.error(str(e))
         return
-    _open_project(name, made=name in written, tab=_sample_tab(name))
+    # The yogurt pilot says what it added to the project list (two projects
+    # at once); the burger example is the one project it opens. The all-10
+    # sample is opened from inside the Round 6 one (See what happened next),
+    # by its own name.
+    if name == sample_projects.ALL10:
+        line = wording.project_opened(name)
+    elif sample_projects.is_yogurt(name):
+        line = wording.sample_opened(wording.YOGURT_SAMPLE_NAME, len(written))
+    else:
+        line = wording.sample_opened(wording.BURGER_SAMPLE_NAME)
+    _open_project(name, tab=_sample_tab(name), line=line)
 
 
 def _sidebar_samples():
@@ -553,6 +566,8 @@ with st.sidebar:
     _recent = st.session_state.pop("_recent_at_launch", None)
     if ("_loaded_project" not in st.session_state and existing_projects
             and not _shared_host):
+        # The project the reader last opened; else the newest file.
+        _recent = getattr(STORAGE, "last_opened", lambda: None)() or _recent
         if _recent not in existing_projects:
             _recent = getattr(STORAGE, "most_recent_project", lambda: None)()
         st.session_state["_loaded_project"] = _recent or existing_projects[0]
@@ -636,8 +651,14 @@ with st.sidebar:
         st.divider()
         st.subheader(opt.project_name)
         if sample_projects.is_yogurt(opt.project_name):
-            st.caption(wording.SAMPLE_PROVENANCE_CAPTION,
-                       help=wording.SAMPLE_PROVENANCE_HELP)
+            try:
+                _scored = sample_projects.shipped_scored(opt.project_name)
+            except (OSError, ValueError):
+                _scored = len(opt.Y_history)
+            st.caption(wording.sample_provenance_caption(_scored),
+                       help=(wording.SAMPLE_PROVENANCE_HELP
+                             if opt.project_name == sample_projects.ROUND6
+                             else wording.SAMPLE_PROVENANCE_HELP_ALL10))
         elif sample_projects.is_sample(opt.project_name):
             # "No results" only while it is true (untouched_example).
             if sample_projects.untouched_example(opt):
@@ -832,15 +853,14 @@ with st.sidebar:
 
     if existing_projects:
         with _open_slot:
-            # Lit only while it would do something, and only while nothing else
-            # is lit: an armed confirmation's Yes is the one coloured button in
+            # Shown only while it would do something (a greyed Open under the
+            # open project read as broken), and lit only while nothing else
+            # is: an armed confirmation's Yes is the one coloured button in
             # the sidebar until it is answered.
-            if st.button(
+            if _switching and st.button(
                 wording.OPEN_BUTTON,
-                type=("primary" if _switching and not confirmation_open()
-                      else "secondary"),
-                disabled=not _switching,
-            ) and _switching:
+                type=("secondary" if confirmation_open() else "primary"),
+            ):
                 _open_project(selected)
 
 
@@ -857,6 +877,7 @@ if opt is None:
     # project second, with its steps and the ingredients template as a quiet
     # link. The columns keep both buttons side by side and their captions
     # on one or two lines.
+    st.caption(wording.WELCOME_TAGLINE)
     st.markdown(wording.WELCOME_HEADER)
     wc1, wc2, _ = st.columns([1.3, 1.3, 1])
     with wc1:

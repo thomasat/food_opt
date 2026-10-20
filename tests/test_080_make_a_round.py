@@ -182,14 +182,18 @@ def test_the_first_five_caption_shows_only_before_five_are_scored(tmp_path, monk
     at = _app()
     at.session_state["_loaded_project"] = opt.project_name
     _on_batch(at)
-    assert wording.HOW_CHOSEN_2 in [c.value for c in at.tabs[1].caption]
+    # N10: eight words on screen, the rest in its "?".
+    line = next(c for c in at.tabs[1].caption
+                if c.value == wording.first_formulations_caption(5))
+    assert line.value == "First 5 formulations explore the allowed amounts."
+    assert line.help == wording.HOW_CHOSEN_2
     _tell(opt, 5, 2)
     at = _app()
     at.session_state["_loaded_project"] = opt.project_name
     _on_batch(at)
     assert not at.exception
     captions = [c.value for c in at.tabs[1].caption]
-    assert wording.HOW_CHOSEN_2 not in captions
+    assert wording.first_formulations_caption(5) not in captions
     assert not any(c.startswith("Until five formulations have results") for c in captions)
 
 

@@ -210,8 +210,8 @@ def test_an_earlier_round_draws_only_the_rounds_up_to_it():
     dots = [r for r in _dataset_rows(early) if r.get(score) is not None and "full" in r]
     assert dots and max(r[U._say(opt, wording.FORMULATION_CAP)] for r in dots) == 9
     texts = json.dumps(early, ensure_ascii=False)
-    # Review v3: the best is named by its formulation(s).
-    assert "Best: 92.5 (F7)" in texts and "Best: 98.3 (F16)" not in texts
+    # The best is the headline's to name, not the chart's (N12).
+    assert "Best: " not in texts
     assert "Stop signal" not in texts and "after the stop" not in texts
     # Round averages and the best line only to Round 3.
     rounds = {r.get("round") for r in _dataset_rows(early) if "avg" in r}
@@ -225,8 +225,7 @@ def test_an_earlier_round_draws_only_the_rounds_up_to_it():
     # The kept spec: one per Round on view, the latest the full chart.
     a = U.improving_spec(opt, 6, height=U.PANEL_CHART_H)
     b = U.improving_spec(opt, 3, height=U.PANEL_CHART_H)
-    assert "Best: 98.3 (F16)" in str(a)
-    assert "Best: 98.3 (F16)" not in str(b)
+    assert str(a) != str(b)
 
 
 # ------------------------------------------------------------------ #

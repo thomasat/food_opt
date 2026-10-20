@@ -166,7 +166,7 @@ def test_a_process_only_tie_says_trial(trial_tie):
     for_project."""
     said = _captions(_results(project="ferment"))
     # v3 final cleanup: the next best as measured, no tasting noise.
-    assert "Trial 1: 60.0 (0.5 lower than the best so far)." in said, said
+    assert "Next best: Trial 1, 60.0 (0.5 lower)." in said, said
     assert not any("Formulation" in c for c in said), said
 
 

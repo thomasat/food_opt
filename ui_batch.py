@@ -10,9 +10,11 @@ Changed batch sizes and committed measurement drafts are persisted; unchanged
 reruns do not write.
 """
 import hashlib
+import io
 import json
 from dataclasses import dataclass
 
+import openpyxl
 import pandas as pd
 import streamlit as st
 
@@ -392,7 +394,8 @@ def _no_batch(opt, tab_open=False):
     # Only while it is news: before five formulations have results (spec
     # 2026-09-30 §3, audit V16). Set up › Advanced › How it works keeps it.
     if opt.complete_count() < COLD_START_RUNS:
-        st.caption(wording.for_project(opt, wording.HOW_CHOSEN_2))
+        st.caption(wording.for_project(opt, wording.first_formulations_caption(COLD_START_RUNS)),
+                   help=wording.for_project(opt, wording.HOW_CHOSEN_2))
     line = _waiting_caption(opt)
     if line:
         st.caption(line)
@@ -1039,6 +1042,7 @@ def _draw_compare(opt, table):
                          table.formulations):
         if no in prefixes:
             tips.append(f"{label.split(' · ')[0]}: {prefixes[no].strip()}")
+    st.html(ui_insights.DIRECTION_KEY_STYLE)
     st.caption(ui_insights.direction_key_html(
         "", say(wording.compare_key_more(table.best_no)),
         say(wording.compare_key_less(table.best_no)), wording.compare_key_plain(pct)),
@@ -1118,7 +1122,7 @@ def _batch_table(opt, scale_to, tab_open=False, table=None):
         edited = st.data_editor(frame, hide_index=True, num_rows="fixed",
                                column_config=columns,
                                disabled=[c for c in frame if c not in independent],
-                               key=edit_key + "_grid", width="stretch")
+                               key=edit_key + "_grid", width="stretch", placeholder="")
         save, cancel = st.columns(2)
         if save.button("Save changes", key=edit_key + "_save", type="primary"):
             changes = {}
@@ -1135,7 +1139,7 @@ def _batch_table(opt, scale_to, tab_open=False, table=None):
                 if saved_ok(opt):
                     st.session_state[edit_key] = False
                     st.session_state.pop(edit_key + "_grid", None)
-                    flash("success", "Formulations saved. Download a new workbook before preparing this round.")
+                    flash("success", wording.FORMULATIONS_SAVED_NEW_WORKBOOK)
                     preserve_tab_forms()
                     st.rerun()
         if cancel.button("Cancel", key=edit_key + "_cancel"):
@@ -1223,6 +1227,16 @@ def _batch_size_control(opt, unit, typed, scale_to, sized, refusal=""):
     _scaled_cautions(opt, opt.pending_batch, scale_to, sized)
 
 
+def _has_preparation_sheet(book):
+    """The workbook offered has a Preparation sheet: read from the file
+    itself, so the line under the download lists the sheets it really has."""
+    try:
+        names = openpyxl.load_workbook(io.BytesIO(book), read_only=True).sheetnames
+    except Exception:            # an unreadable file: the two-sheet line stands
+        return False
+    return wording.PREPARATION_SHEET in names
+
+
 def _downloads(opt, scale_to, sized, said_size=False):
     """Step 2: the one file the bench works from, the size it is written to,
     and the one line that names it.
@@ -1244,9 +1258,10 @@ def _downloads(opt, scale_to, sized, said_size=False):
     lit = (not _any_value_typed(opt) and not confirmation_open()
            and not _upload_pending(opt) and review_due(opt) is None)
     print_pack = st.checkbox(wording.for_project(opt, wording.PRINT_PACK_CHECKBOX), key="workbook_print_pack")
+    book = opt.workbook_bytes(rows, scale_to, sized, print_pack=print_pack)
     st.download_button(
         wording.DOWNLOAD_BATCH_SHEETS,
-        data=opt.workbook_bytes(rows, scale_to, sized, print_pack=print_pack),
+        data=book,
         file_name=wording.workbook_file_name(opt.project_name,
                                              opt.pending_batch_no),
         mime=WORKBOOK_MIME, key="download_batch_sheets",
@@ -1258,7 +1273,8 @@ def _downloads(opt, scale_to, sized, said_size=False):
     # v3: one line under the button naming the sheets (it follows the box:
     # the file a tick produces has no Results sheet); the pre-mix sheet and
     # the tick in its "?".
-    st.caption(wording.for_project(opt, wording.workbook_sheets(print_pack)),
+    st.caption(wording.for_project(opt, wording.workbook_sheets(
+                   print_pack, preparation=_has_preparation_sheet(book))),
                help=wording.for_project(opt, wording.workbook_sheets_help(print_pack)))
     if scale_to is not None and not said_size:
         # The file carries the amounts on screen, so the size it was written
@@ -1584,7 +1600,7 @@ def _upload_preview(opt, parsed, left_out, weighed=None, lots=None):
         {c: _blank_or_number for c in frame.columns
          if frame[c].dtype != object and c != wording.FORMULATION_CAP}),
         hide_index=True, key="upload_preview",
-        height=table_height(len(frame)))
+        height=table_height(len(frame)), placeholder="")
     by_number = {r['formulation']: r['recipe'] for r in opt.pending_batch}
     imported = {no for no, _, _ in parsed} | {no for no, _ in left_out}
     if weighed:
@@ -1627,11 +1643,11 @@ def _upload_preview(opt, parsed, left_out, weighed=None, lots=None):
                 st.dataframe(frame, hide_index=True, key='upload_amounts_preview',
                     column_config={c: st.column_config.NumberColumn(c, format='%.2f')
                         for c in frame.columns if c not in
-                        (wording.FORMULATION_CAP, wording.NAME_LABEL, wording.UNIT_LABEL)})
+                        (wording.FORMULATION_CAP, wording.NAME_LABEL, wording.UNIT_LABEL)}, placeholder="")
     if lots:
         with st.expander(wording.UPLOAD_LOTS_HEADING):
             st.dataframe(pd.DataFrame([{wording.NAME_LABEL: name, wording.LOT_COLUMN: lot}
-                for name, lot in lots.items()]), hide_index=True, key='upload_lots_preview')
+                for name, lot in lots.items()]), hide_index=True, key='upload_lots_preview', placeholder="")
 
 
 def _blank_or_number(value):
@@ -1740,13 +1756,13 @@ def _upload(opt):
             st.caption(wording.CUSTOM_IMPORT_FOUND)
             st.dataframe(pd.DataFrame([{wording.CUSTOM_SCOPE_LABEL: wording.for_project(opt, wording.CUSTOM_SCOPE_NAMES[scope]),
                 wording.CUSTOM_SUBJECT: subject, wording.CUSTOM_FIELD_NAME: definitions[key]['name'],
-                wording.CUSTOM_VALUE: value} for scope, subject, key, value in extra_records]), hide_index=True)
+                wording.CUSTOM_VALUE: value} for scope, subject, key, value in extra_records]), hide_index=True, placeholder="")
         records = getattr(st.session_state.get("_results_upload"), "bench_records", None)
         if records:
             st.caption(wording.for_project(opt, wording.BENCH_RECORDS_CAPTION))
             with st.expander(wording.BENCH_RECORDS_SHEET):
                 st.dataframe(pd.DataFrame(records).rename(columns=wording.BENCH_RECORD_COLUMNS),
-                             hide_index=True, width="stretch")
+                             hide_index=True, width="stretch", placeholder="")
         # The next step once the preview shows (02 M5): lit, and the
         # download steps aside (_downloads, _upload_pending). Not while
         # results are typed into the grid: Save results is lit then.

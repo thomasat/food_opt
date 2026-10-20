@@ -34,7 +34,10 @@ def _write_own(name="Mine"):
 def _open(app, name):
     """Choose `name` in Open project and press Open, as the sidebar does."""
     app.selectbox(key="project_select").set_value(name).run()
-    _click(app, wording.OPEN_BUTTON)
+    # Open is drawn only while it would switch: a project already open
+    # (the only one on disk is opened at launch) has none.
+    if any(b.label == wording.OPEN_BUTTON for b in app.button):
+        _click(app, wording.OPEN_BUTTON)
 
 
 def test_welcome_try_sample_creates_both_and_opens_round6_on_review(at):

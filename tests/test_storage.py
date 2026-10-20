@@ -150,6 +150,23 @@ def test_most_recent_project(tmp_path, monkeypatch):
     assert LocalStorage().most_recent_project() == "New"  # fresh instance, reads disk
 
 
+def test_last_opened_is_the_project_opened_not_the_newest_file(tmp_path, monkeypatch):
+    """S4: a fresh session reopens the project the reader opened."""
+    monkeypatch.chdir(tmp_path)
+    s = LocalStorage()
+    assert s.last_opened() is None
+    s.save("Opened", {"v": 1})
+    s.remember_opened("Opened")
+    time.sleep(0.01)
+    s.save("Written later", {"v": 1})
+    assert LocalStorage().last_opened() == "Opened"
+    assert s.most_recent_project() == "Written later"
+    # A project that left the list is no answer: the caller falls back.
+    s.archive("Opened", "deleted")
+    assert LocalStorage().last_opened() is None
+    assert "Opened" not in s.list_projects()
+
+
 def test_no_file_written_on_init(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     from food_bo import FoodOptimizer

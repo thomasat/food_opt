@@ -309,6 +309,32 @@ def test_returning_user_lands_in_most_recent_project(project_with_history):
     assert "older" not in [h.value for h in at.sidebar.subheader]
 
 
+def test_a_fresh_session_reopens_the_project_last_opened(tmp_path, monkeypatch):
+    """S4: the yogurt pilot writes two projects, the all-10 one last, and a
+    fresh session reopened that one (the newest file). It reopens the one
+    the reader opened instead — and, once they open another, that one."""
+    monkeypatch.chdir(tmp_path)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _submit_button(at.main, wording.OPEN_YOGURT_LABEL).click()
+    at.run()
+    assert not at.exception
+    os.utime(tmp_path / f"{sample_projects.ALL10}.pkl")   # newest file on disk
+    fresh = AppTest.from_file(APP_PATH, default_timeout=180)
+    fresh.run()
+    assert sample_projects.ROUND6 in [h.value for h in fresh.sidebar.subheader]
+    # Open the burger example: that is what the next session reopens, even
+    # though a yogurt file is written later.
+    _submit_button(fresh.sidebar, wording.SEE_EXAMPLE_SETUP_LABEL).click()
+    fresh.run()
+    assert any(s.value == "Opened the burger example." for s in fresh.success), \
+        [s.value for s in fresh.success]
+    os.utime(tmp_path / f"{sample_projects.ROUND6}.pkl")
+    again = AppTest.from_file(APP_PATH, default_timeout=180)
+    again.run()
+    assert sample_projects.BURGER in [h.value for h in again.sidebar.subheader]
+
+
 def test_pending_confirm_is_cleared_on_project_switch(project_with_history, tmp_path):
     other = FoodOptimizer("second")
     other.add_ingredient("Flour", 0, 100)
@@ -335,17 +361,24 @@ def test_pending_confirm_is_cleared_on_project_switch(project_with_history, tmp_
     assert "second" in [h.value for h in at.sidebar.subheader]
 
 
+def _open_shown(at):
+    """The project box's Open (a saved copy's row has an Open of its own)."""
+    return any(b.label == wording.OPEN_BUTTON
+               and not str(b.key).startswith("open_copy")
+               for b in at.sidebar.button)
+
+
 def test_open_button_lights_up_only_when_it_would_switch(project_with_history, tmp_path):
     """Button rule: the button that moves you forward is coloured, and a
-    button that would do nothing is greyed out. Open must be disabled while
-    the box shows the project already on screen, and primary once a
-    different project is chosen."""
+    button that would do nothing is not drawn (N3: a greyed Open under the
+    open project read as broken). Open is absent while the box shows the
+    project already on screen, and primary once a different project is
+    chosen."""
     FoodOptimizer("second").add_ingredient("Flour", 0, 100)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "my_project"
     at.run()
-    open_btn = _submit_button(at.sidebar, "Open")
-    assert open_btn.disabled and open_btn.proto.type == "secondary"
+    assert not _open_shown(at)
 
     at.selectbox(key="project_select").set_value("second")
     at.run()
@@ -355,8 +388,8 @@ def test_open_button_lights_up_only_when_it_would_switch(project_with_history, t
     open_btn.click()
     at.run()
     assert "second" in [h.value for h in at.sidebar.subheader]
-    open_btn = _submit_button(at.sidebar, "Open")
-    assert open_btn.disabled
+    at.run()      # the aborted pass's Open is still in the tree until then
+    assert not _open_shown(at)
 
 
 def test_delete_project_confirms_archives_and_leaves_the_list(project_with_history, tmp_path):
@@ -791,8 +824,7 @@ def test_the_sidebar_carries_no_coloured_button_except_open(project_with_history
     at.run()
     lit = [b.label for b in at.sidebar.button if b.proto.type == "primary"]
     assert lit == [], lit
-    open_button = _submit_button(at.sidebar, "Open")
-    assert open_button.disabled and open_button.proto.type == "secondary"
+    assert not _open_shown(at)
     at.selectbox(key="project_select").set_value("second")
     at.run()
     open_button = _submit_button(at.sidebar, "Open")
@@ -1601,7 +1633,8 @@ def test_the_getting_started_sentence_is_the_how_it_works_bullet(burger):
     assert wording.HOW_CHOSEN_2 == (
         "Until five formulations have results, new ones cover the allowed "
         "amounts. After that, each Round aims closer to your targets."), wording.HOW_CHOSEN_2
-    assert any(c.value == wording.HOW_CHOSEN_2 for c in at.caption), \
+    # On screen it is the "?" of an eight-word line (N10).
+    assert any(c.help == wording.HOW_CHOSEN_2 for c in at.caption), \
         [c.value for c in at.caption]
 
 
@@ -3817,7 +3850,7 @@ def test_a_hard_reset_leaves_the_project_open_and_in_the_list(project_with_histo
     at.run()
     # Nothing in the sidebar is lit: the project on screen is the one open.
     assert [b.label for b in at.sidebar.button if b.proto.type == "primary"] == []
-    assert _submit_button(at.sidebar, "Open").disabled
+    assert not _open_shown(at)
 
 
 def test_every_confirmation_counts_the_left_out_formulations(scored):
@@ -4221,22 +4254,26 @@ def test_a_project_with_no_properties_still_offers_to_name_one(burger):
     assert "Add property limit" not in _labels(at)
 
 
-def test_the_sample_project_is_created_not_opened(tmp_path, monkeypatch):
+def test_the_sample_project_says_what_it_added(tmp_path, monkeypatch):
+    """S4: the first click writes two projects into the list, and the
+    success line says so: 'Opened the yogurt pilot (2 projects added).'"""
     monkeypatch.chdir(tmp_path)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     _submit_button(at.main, wording.OPEN_YOGURT_LABEL).click()
     at.run()
     assert not at.exception
-    assert any(s.value == wording.project_created(sample_projects.ROUND6)
+    assert wording.sample_opened(wording.YOGURT_SAMPLE_NAME, 2) == \
+        "Opened the yogurt pilot (2 projects added)."
+    assert any(s.value == wording.sample_opened(wording.YOGURT_SAMPLE_NAME, 2)
                for s in at.success), [s.value for s in at.success]
-    # Clicking it again opens the sample as it stands: it says "Opened", and
+    # Clicking it again opens the sample as it stands: nothing is added, and
     # it never claims the sample was put back, because nothing was.
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     _submit_button(at.sidebar, wording.OPEN_YOGURT_LABEL).click()
     at.run()
-    assert any(s.value == wording.project_opened(sample_projects.ROUND6)
+    assert any(s.value == "Opened the yogurt pilot."
                for s in at.success), [s.value for s in at.success]
     assert not any("restored" in s.value or "put back" in s.value
                    for s in at.success), [s.value for s in at.success]
@@ -5068,8 +5105,9 @@ def test_opening_a_project_renames_the_sidebar_box_and_greys_open(burger):
     at.run()
     assert not at.exception
     assert at.sidebar.selectbox(key="project_select").value == "second"
+    at.run()      # the aborted pass's Open is still in the tree until then
     assert [b.label for b in at.sidebar.button if b.proto.type == "primary"] == []
-    assert _submit_button(at.sidebar, "Open").disabled
+    assert not _open_shown(at)
 
 
 def test_creating_a_project_renames_the_sidebar_box_and_greys_open(burger):
@@ -7034,10 +7072,11 @@ def test_every_delete_on_set_up_names_what_it_takes_out(burger):
     # asks names it; what is left of the old row of bare Delete buttons is
     # the property list and the limits, and both name what they take out.
     assert "Delete Fat per 100 g" in labels, labels      # the property list
-    # A limit's Delete names the limit too: two of them, drawn identically,
-    # left the reader counting rows to work out which was which.
-    assert "Delete limit on Fat per 100 g" in labels, labels
-    assert "Delete limit on Pea protein" in labels, labels
+    # A limit's Delete sits beside the line naming the limit (S12: naming
+    # it on the button wrapped a long one over four lines); its question
+    # names it.
+    assert labels.count(wording.DELETE_THIS_LIMIT) == 2, labels
+    assert wording.DELETE_THIS_LIMIT == "Delete this limit"
     assert labels.count("Delete limit") == 0, labels
     assert "Delete" not in labels, labels
     _grid_edits(at, ING_GRID, deleted=[0])
@@ -7056,7 +7095,7 @@ def test_deleting_a_limit_is_confirmed_and_keeps_a_copy(burger, tmp_path):
     burger.add_constraint("Fat per 100 g", max_val=20)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    _submit_button(at, "Delete limit on Fat per 100 g").click()
+    at.button(key="rm_constr_0__btn").click()
     at.run()
     assert any(w.value == ("Delete the limit on Fat per 100 g? The next "
                            "Round no longer has to obey it. " + wording.COPY_KEPT)
@@ -7078,15 +7117,20 @@ def test_an_ingredient_limits_delete_names_the_ingredients(burger):
                                    max_val=20)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    labels = _labels(at)
-    assert "Delete limit on Pea protein + Methylcellulose" in labels, labels
+    at.button(key="rm_qc_0__btn").click()
+    at.run()
+    assert any("Delete the limit on Pea protein + Methylcellulose?" in w.value
+               for w in at.warning), [w.value for w in at.warning]
 
 
 def test_a_limit_over_every_ingredient_is_named_all_ingredients(burger):
     burger.add_total_mass_constraint(max_val=30)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    assert "Delete limit on all ingredients" in _labels(at), _labels(at)
+    at.button(key="rm_qc_0__btn").click()
+    at.run()
+    assert any("Delete the limit on all ingredients?" in w.value
+               for w in at.warning), [w.value for w in at.warning]
 
 
 def test_the_foot_of_results_steps_aside_when_no_batch_can_be_made(burger):
@@ -7136,8 +7180,8 @@ def test_the_whole_batch_pick_says_what_it_does(scored):
     at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
     picker = at.selectbox(key="delete_whole_batch")
-    assert picker.label == "Select a whole round for deletion"
-    assert picker.proto.placeholder == "Choose a round"
+    assert picker.label == "Select a whole Round for deletion"
+    assert picker.proto.placeholder == "Choose a Round"
 
 
 def test_the_delete_multiselect_placeholder_says_choose_one_or_more(scored):
@@ -7157,9 +7201,7 @@ def test_the_best_so_far_chart_caption_says_made_once_rated_once(scored):
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
     at.run()
     caps = [c.value for c in at.tabs[3].caption]
-    assert any(c.startswith(f"Each {wording.FORMULATION} made once, rated once")
-               or c.startswith(f"Each dot: one {wording.FORMULATION}, rated once")
-               for c in caps), caps
+    assert wording.REVIEW_SCORE_CAPTION in caps, caps        # S8: one line, every state
 
 
 def test_the_batch_size_help_ties_the_box_to_the_column_that_reads_it(
@@ -8252,7 +8294,7 @@ def test_the_getting_started_caption_shows_only_before_five(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
-    line = wording.HOW_CHOSEN_2
+    line = wording.first_formulations_caption(5)     # N10; HOW_CHOSEN_2 is its "?"
     assert any(c.value == line for c in at.tabs[1].caption), \
         [c.value for c in at.tabs[1].caption]
     for i in range(5):
@@ -8950,7 +8992,7 @@ def test_the_default_batch_size_is_not_in_the_limits_list_at_all(burger):
     assert not any(line.startswith("All ingredients") for line in lines), lines
     assert not any("Pea protein + Methylcellulose" in line for line in lines), \
         lines
-    assert "Delete limit on the total of each formulation" not in _labels(at)
+    assert wording.DELETE_THIS_LIMIT not in _labels(at)
     assert not any("take it off" in c.value for c in at.tabs[0].caption), \
         [c.value for c in at.tabs[0].caption]
     # ... and emptying the box is what takes it off.
@@ -9367,7 +9409,7 @@ def test_a_round_with_no_batch_size_of_its_own_says_so_under_the_table(
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert not at.exception
-    assert any(c.value == "This Round has no batch size of its own."
+    assert any(c.value == "Optional: scale every formulation to one batch size."
                for c in at.tabs[1].caption), \
         [c.value for c in at.tabs[1].caption]
 
@@ -9793,7 +9835,8 @@ def test_an_older_sample_on_disk_is_opened_as_it_stands_never_rebuilt(
     assert [v["name"] for v in kept.variables] == ["Oat flour"]
     assert [o["name"] for o in kept.objectives] == ["Taste"]
     assert _sample_file(tmp_path).read_text() == before
-    assert any(s.value == wording.project_opened(sample_projects.ROUND6)
+    # Only the all-10 project was missing, so only it is said to be added.
+    assert any(s.value == wording.sample_opened(wording.YOGURT_SAMPLE_NAME, 1)
                for s in at.success), [s.value for s in at.success]
 
 

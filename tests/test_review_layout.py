@@ -257,7 +257,8 @@ def test_the_control_frame_label_and_back_to_latest():
     at = _review(opt)
     texts = [m.value for m in at.tabs[3].markdown]
     assert wording.replay_label(4, 4) in texts
-    assert f":gray-badge[{wording.REPLAY_LATEST}]" in texts
+    assert wording.replay_label(4, 4) == "**Round 4** of 4 (latest)"      # N13
+    assert not any("gray-badge" in t for t in texts)
     assert "insights_replay_latest" not in _keys(at)
     assert at.button(key="insights_replay_play").label == wording.REPLAY_PLAY
     assert at.button(key="insights_replay_next").disabled
@@ -265,7 +266,7 @@ def test_the_control_frame_label_and_back_to_latest():
     texts = _click(at, "insights_replay_prev")
     assert wording.replay_label(3, 4) in texts
     assert f":orange-badge[{wording.REPLAY_EARLIER}]" in texts
-    assert f":gray-badge[{wording.REPLAY_LATEST}]" not in texts
+    assert wording.replay_label(3, 4) == "**Round 3** of 4"
     assert "insights_replay_latest" in _keys(at)
     assert ".st-key-insights_replay_panel_past" in U.REPLAY_STYLE
     assert any(".st-key-insights_replay_panel_past" in h.proto.body

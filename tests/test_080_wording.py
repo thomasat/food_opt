@@ -67,7 +67,7 @@ _FROZEN = {
     "NOT_SCORED": "Not scored",
     # Owner-confirmed 0.7.1 labels (spec §9 I17): not part of the sweep.
     "TAB_BATCH_NAME": "Make a round",
-    "START_NEXT_BATCH": "Start the next round",
+    "START_NEXT_BATCH": "Start the next Round",
 }
 
 

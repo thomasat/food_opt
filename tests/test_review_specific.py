@@ -15,5 +15,5 @@ def test_the_runner_up_line_is_short_and_says_no_noise():
     """Replaced the tie line that said what a rise needs (owner, v3 final
     cleanup: no tasting noise on screen)."""
     line = wording.runner_up_line(13, "93.3", "1.7")
-    assert line == "Formulation 13: 93.3 (1.7 lower than the best so far)."
+    assert line == "Next best: Formulation 13, 93.3 (1.7 lower)."
     assert _words(line) <= 10

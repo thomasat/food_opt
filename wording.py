@@ -33,6 +33,7 @@ BATCH_SIZE_NAME = "Batch size"
 INGREDIENT = "ingredient"
 PROCESS_SETTING = "process setting"
 LIMIT = "limit"
+MEASUREMENT = "measurement"
 ROW = "row"
 
 # "Note" is both a table column header (food_bo's own dataframes carry the
@@ -200,7 +201,7 @@ OPEN_YOGURT_HELP = (
     "waiting for its results.")
 SEE_EXAMPLE_SETUP_LABEL = "Open the burger example"
 SEE_EXAMPLE_SETUP_CAPTION = "Illustrative values; shows calculations and pre-mixes."
-SAMPLES_HEADING = "**Samples**"
+SAMPLES_HEADING = "**Examples**"   # the welcome screen says "example" too
 # The sidebar fold that holds the New project box while a project is open.
 NEW_PROJECT_FOLD = "New project"
 BURGER_PROVENANCE_CAPTION = "Example setup; illustrative values, no results."
@@ -223,18 +224,31 @@ BURGER_NO_RESULTS = "No results: this example shows set-up only."
 # The label of the Set up tab's second tier, on screen and in every text that
 # points to it.
 MORE_SETTINGS_EXPANDER = "Preparation and records"
-SAMPLE_PROVENANCE_CAPTION = "Real yogurt-style pilot; earlier engine chose Rounds 3–10."
+def sample_provenance_caption(n_scored):
+    """The yogurt pilot's sidebar line: 'Real tasting data; 15 formulations
+    scored.' — `n_scored` is what the shipped project holds (15 in the
+    Round 6 sample, 30 in the all-10 one)."""
+    return f"Real tasting data; {n_scored} formulations scored."
+
+
+SAMPLE_PROVENANCE_CAPTION = sample_provenance_caption(15)   # the Round 6 sample
 # The pilot as it was run: its own limits, its panel, its process and its
-# fixed budget, each said once.
-SAMPLE_PROVENANCE_HELP = (
+# fixed budget, each said once. The total keeps four decimals: the limit is
+# 97.69051–98.69051 g, and 97.69 g fails its check (limit_text says 97.6905
+# on Set up for the same reason).
+_SAMPLE_PROVENANCE_FACTS = (
     "Rounds 1–2 were a random starting set drawn by the engine; Rounds 3–10 "
     "were chosen by an earlier version of this engine. "
     "The limits are the pilot's own: each ingredient's Lowest and Highest, "
     "and their total at 97.6905–98.6905 g per 100 g. Soy protein isolate (1 %) "
     "and tricalcium phosphate (0.31 %) were fixed in every formulation, so "
     "they are not listed. Each result is the median of a trained panel of "
-    "five; no Repeats. Each formulation was mixed, cooked at 90 °C for 8 min "
-    "and chilled. The budget was fixed at 10 Rounds of 3.")
+    "five; no repeats. Each formulation was mixed, cooked at 90 °C for 8 min "
+    "and chilled. The budget was fixed at 10 Rounds of 3")
+# The Round 6 sample shows Rounds 1–5 and 6, so its "?" says where the rest are.
+SAMPLE_PROVENANCE_HELP = (_SAMPLE_PROVENANCE_FACTS
+                          + " (Rounds 7–10 are in Yogurt pilot - all 10 Rounds).")
+SAMPLE_PROVENANCE_HELP_ALL10 = _SAMPLE_PROVENANCE_FACTS + "."
 
 
 # The project-level Method: one text area in Preparation and records, printed on the
@@ -249,8 +263,13 @@ def no_such_field(name):
 
 
 ALSO_RECORD_LABEL = "Additional records (optional)"
+# Where each option is entered lives here, not on its chip: a chip reading
+# "Lot numbers · Enter in Make a round" was cut to "Lot numbers · En…" (S13).
 ALSO_RECORD_HELP = ("These options add entry fields in the app or "
-                    "workbook. Saved values are retained when an option is "
+                    "workbook: Vendor and SKU for each ingredient, in the "
+                    "Ingredients table; Lot numbers in Make a round; your "
+                    "own fields for each formulation or each ingredient. "
+                    "Saved values are retained when an option is "
                     "turned off.")
 RECORD_FIELD_LABELS = {
     'vendor': "Vendor",
@@ -482,6 +501,8 @@ OPEN_BUTTON = "Open"
 # ------------------------------------------------------------------ #
 # The welcome screen, no project open (owner, 2026-10-19): the two examples
 # first, under one heading; your own project second, smaller, with its steps.
+# The one line under the title on the welcome screen: what the app does.
+WELCOME_TAGLINE = "Suggests what to make next, from your results."
 WELCOME_HEADER = "## Start with an example"
 WELCOME_OWN_HEADER = "#### Or start your own project"
 
@@ -489,7 +510,7 @@ WELCOME_OWN_HEADER = "#### Or start your own project"
 def welcome_steps():
     return (
         "1. **Name a project** in the sidebar on the left.\n"
-        "2. **Set up ingredients and process settings**, then choose measurements and targets.\n"
+        "2. **Set up** ingredients, measurements and targets.\n"
         "3. **Generate formulations**, prepare each one, and record your measurements.\n"
         + WELCOME_REVIEW_STEP      # review guide: Review is the loop's fourth step
     )
@@ -573,6 +594,20 @@ def project_opened(name):
     return f"Opened {name}."
 
 
+# The two samples, as their success line names them (not by file name).
+YOGURT_SAMPLE_NAME = "the yogurt pilot"
+BURGER_SAMPLE_NAME = "the burger example"
+
+
+def sample_opened(what, added=0):
+    """'Opened the yogurt pilot (2 projects added).' — `added` is how many
+    sample projects this click wrote into the project list; none is left
+    unsaid ('Opened the burger example.')."""
+    if not added:
+        return f"Opened {what}."
+    return f"Opened {what} ({added} project{'s' if added != 1 else ''} added)."
+
+
 def batch_line_open(no, n):
     """The one line under the title on tabs 1 and 2 once a batch exists and
     still has rows without a result.
@@ -618,11 +653,11 @@ FORMULATIONS_TO_GENERATE = "Formulations to generate"
 # open): a formulation the scientist chose, added to the batch beside the
 # generated ones. It replaced the Repeat checkbox, which could only ever
 # repeat the best.
-ADD_OWN_EXPANDER = f"Add a {FORMULATION} to this {ROUND}"
-ADD_OWN_NO_BATCH_CAPTION = "For suggestions too, click Generate first."
+ADD_OWN_EXPANDER = f"Add a {FORMULATION} to this {ROUND_CAP}"
+ADD_OWN_NO_BATCH_CAPTION = "Generate first to see suggestions too."
 ADD_OWN_NO_BATCH_HELP = "Want the app's suggestions too? Click Generate first, then add yours."
 OWN_NOTE_PLACEHOLDER = "e.g. Repeat of 4 with more salt"
-ADD_TO_THIS_BATCH = f"Add to this {ROUND}"
+ADD_TO_THIS_BATCH = f"Add to this {ROUND_CAP}"
 ENTER_EVERY_AMOUNT = ("Enter every amount. Type 0 for an ingredient you "
                       "are leaving out.")
 # What the row says when the user typed no reason of their own. The note is
@@ -644,6 +679,13 @@ def generate_button_label(n):
 # have results (spec 2026-09-30 §3, §6; review M2: "cover", not "spread out").
 HOW_CHOSEN_2 = (f"Until five {FORMULATION}s have results, new ones cover the allowed amounts. "
                 f"After that, each {ROUND_CAP} aims closer to your targets.")
+
+
+def first_formulations_caption(n=5):
+    """Make a round's line before `n` formulations have results (N10, ≤ 8
+    words): 'First 5 formulations explore the allowed amounts.' The rest is
+    its "?" (HOW_CHOSEN_2)."""
+    return f"First {n} {FORMULATION}s explore the allowed amounts."
 
 
 # The open batch reads as the three steps of the work, each headed with its
@@ -900,7 +942,12 @@ def batch_size_help(unit=""):
 # for.
 BATCH_SIZE_PLACEHOLDER = "e.g. 100"
 
-NO_BATCH_SIZE_OF_ITS_OWN = f"This {ROUND_CAP} has no {BATCH_SIZE_NOUN} of its own."
+# Under the Batch size box while it is empty (S14): the box is optional,
+# and the bare "This Round has no batch size of its own." left a new reader
+# unsure whether they had to fill it.
+# "scale" is a verb here (resize), in the owner's words; the vocabulary
+# guard lets this one sentence through.
+NO_BATCH_SIZE_OF_ITS_OWN = "Optional: scale every formulation to one batch size."
 
 
 def total_mismatch_caption(no, made_text, total_text):
@@ -921,7 +968,10 @@ def sheets_show_total_caption(total_text):
     return f"Sheets show each {FORMULATION} made to {total_text}."
 
 
-GENERATE_DIFFERENT_BATCH = f"Discard this {ROUND} and generate again"
+GENERATE_DIFFERENT_BATCH = f"Discard this {ROUND_CAP} and generate again"
+# After the amounts of an open Round's formulations are edited in place.
+FORMULATIONS_SAVED_NEW_WORKBOOK = (f"{FORMULATION_CAP}s saved. Download a new "
+                                   f"workbook before preparing this {ROUND_CAP}.")
 
 
 def regenerate_warning(no, numbers_text, next_no, many=True):
@@ -1620,10 +1670,10 @@ def at_most(value, unit=""):
     return f"{text} {unit}".rstrip() if unit else text
 
 
-def delete_limit_button(who):
-    """'Delete limit on Fat per 100 g'. A bare `Delete limit` was drawn once
-    per limit, identically, with nothing on the button to say which."""
-    return f"Delete {LIMIT} on {who}"
+# Each limit's Delete sits beside the line that names the limit, and its
+# question names it again; the button naming every ingredient of a long
+# limit wrapped over four lines (S12).
+DELETE_THIS_LIMIT = f"Delete this {LIMIT}"
 
 
 def delete_limit_warning(who):
@@ -1855,21 +1905,24 @@ BELOW_TARGET = "Below target"
 
 
 def round_results_column(name, goal, target=None, unit="", scale=None):
-    """A measurement's header: 'Tanginess (target 5)'; 'Juiciness (higher is
-    better)'. `unit` is shown unless it is the scale itself ('/15');
-    `scale` (low, high) only when measurements differ in scale."""
+    """A measurement's header in every Results table (N7: one format, the
+    one the entry boxes use): 'Firmness (/10) · Target 6'; 'Juiciness ·
+    Higher is better'. `unit` in the brackets, '/10' included; `scale`
+    (low, high) only when measurements differ in scale and the unit does
+    not say it ('/10')."""
     said = []
-    if scale:
+    if scale and not str(unit).startswith("/"):     # '/10' says the scale itself
         said.append(_scale_text(*scale))
-    if unit and not str(unit).startswith("/"):
+    if unit:
         said.append(str(unit))
+    head = f"{name} ({', '.join(said)})" if said else name
     if goal == "target" and target is not None:
-        said.append(f"target {float(target):g}")
-    elif goal == "max":
-        said.append("higher is better")
-    elif goal == "min":
-        said.append("lower is better")
-    return f"{name} ({', '.join(said)})" if said else name
+        return f"{head} · {target_value(target)}"
+    if goal == "max":
+        return f"{head} · {SCORE_GOAL_HIGHER}"
+    if goal == "min":
+        return f"{head} · {SCORE_GOAL_LOWER}"
+    return head
 
 
 NEW_BEST = "new best"
@@ -1889,22 +1942,30 @@ SCORE_WORKED_OUT_PICK = FORMULATION_CAP
 
 
 def score_point_line(span=None):
-    """'Each point off costs 1/15 of its share.' — `span` is the Range's
-    width (Highest - Lowest) when every measurement shares one, else None."""
+    """'Each unit off costs 1/15 of its share.' — `span` is the width of the
+    measurements' scale (Scale maximum - Scale minimum) when every
+    measurement shares one, else None. 'unit', not 'point': a point is what
+    the score is counted in (S7)."""
     if span is None:
-        return "Each point off costs 1/(its Range's width) of its share."
-    return f"Each point off costs 1/{float(span):g} of its share."
+        return (f"Each unit off costs 1/({HIGHEST_MEASURABLE_LABEL} − "
+                f"{LOWEST_MEASURABLE_LABEL}) of its share.")
+    return f"Each unit off costs 1/{float(span):g} of its share."
 
 
-SCORE_ATTRIBUTE_COLUMN = "Attribute"
-SCORE_RATING_COLUMN = "Rating"
-SCORE_TARGET_COLUMN = "Target"
+# The fold's columns in Set up's own words (S7): a measurement, what was
+# measured, its goal. "Attribute" and "Rating" were a tasting panel's words,
+# and Cook loss is neither.
+SCORE_ATTRIBUTE_COLUMN = MEASUREMENT_COLUMN
+SCORE_RATING_COLUMN = "Measured"
+SCORE_TARGET_COLUMN = "Goal"
 # "Share of score", the Set up column it comes from (a bare "Share" is
 # banned vocabulary; the final-v3 mock's "Share").
 SCORE_SHARE_COLUMN = "Share of score"
 SCORE_POINTS_COLUMN = "Points earned"
-SCORE_GOAL_HIGHER = "highest"
-SCORE_GOAL_LOWER = "lowest"
+# The Goal cell of a measurement that is not a target: what scores 100 is
+# its scale's end, and the cell says which way is better.
+SCORE_GOAL_HIGHER = "Higher is better"
+SCORE_GOAL_LOWER = "Lower is better"
 
 
 # 0.8.0: a formulation teaches the suggestions only once every measurement
@@ -2112,7 +2173,7 @@ def formulation_has_all_results(no):
     return f"{FORMULATION_CAP} {no} already has all its results."
 
 
-START_NEXT_BATCH = f"Start the next {ROUND}"
+START_NEXT_BATCH = f"Start the next {ROUND_CAP}"
 
 NO_RESULTS_YET = "No results yet."
 OVERALL_SCORE_COLUMN = "Overall score"
@@ -2138,8 +2199,8 @@ CHOOSE_MANY_PLACEHOLDER = "Choose one or more"
 # "Add a whole round to the list" read as adding a round to the project,
 # under a heading about deleting them. What the picker does is choose
 # one for the list of things about to go.
-WHOLE_BATCH_LABEL = f"Select a whole {ROUND} for deletion"
-CHOOSE_A_BATCH_PLACEHOLDER = f"Choose a {ROUND}"
+WHOLE_BATCH_LABEL = f"Select a whole {ROUND_CAP} for deletion"
+CHOOSE_A_BATCH_PLACEHOLDER = f"Choose a {ROUND_CAP}"
 
 
 def no_formulation_to_delete_caption():
@@ -2290,7 +2351,7 @@ ADD_MEASUREMENT_RESCORE_INFO = ("Add a measurement in Set up to score these "
 # off the paper is here — the sheet is the one screen the app cannot see
 # being used, so it says exactly what the screen says.
 # ------------------------------------------------------------------ #
-DOWNLOAD_BATCH_SHEETS = f"Download the {ROUND} sheets (Excel)"
+DOWNLOAD_BATCH_SHEETS = f"Download the {ROUND_CAP} sheets (Excel)"
 
 # The summary sheet's own columns. The amount column carries its unit
 # (`Amount (g)`), built by food_bo.label_with_unit from AMOUNT_COLUMN.
@@ -2669,8 +2730,9 @@ def upload_amounts_total(number, planned, actual):
 # Where the sheets go when they come back. The bench fills the boxed cells
 # in and then has a file and no idea what to do with it: the sheet itself
 # names the door, in the words the screen puts on it.
+# (N17: the upload fold is on the tab itself, not under Save results.)
 SHEET_RETURN_PATH = (f"Then upload this file in the app: {TAB_BATCH} \u2192 "
-                     f"Save results \u2192 Or upload results from a file.")
+                     f"{UPLOAD_EXPANDER}.")
 # ...and the sheets the app never reads back say so, so nobody fills one in
 # and waits for it to arrive.
 SHEET_IS_A_RECORD = "This sheet is a record. The app does not read it back."
@@ -3669,11 +3731,11 @@ PREMIXES_HEADING = "Pre-mixes"
 # the number printed, and a loose row's total is three formulations added up
 # and is never weighed at that number anywhere. A tired bench operator
 # weighed out 167.52 g of water.
-MAKE_FOR_ROUND_HEADING = "Make for this round"
+MAKE_FOR_ROUND_HEADING = "Make for this Round"
 HAVE_ON_HAND_HEADING = "Have on hand"
 HAVE_ON_HAND_CAPTION = (f"Across every {FORMULATION}; a {WORKED_OUT} row's total "
-                        "is what the round comes to, not one weighing.")
-ROUND_TOTAL_COLUMN = "Total for this round"
+                        "is what the Round comes to, not one weighing.")
+ROUND_TOTAL_COLUMN = "Total for this Round"
 # The write-in line at the foot of a pre-mix page. The Round sheet has a Lot
 # box against `Dry blend (g)` — a thing the bench made itself, which has no
 # lot until somebody gives it one, and nothing anywhere assigned it one.
@@ -3698,7 +3760,7 @@ def premix_write_in_note(actual_head=None, lot=True):
 
 
 def premix_sheet_title(name, total_text, need_text=""):
-    """'Seasoning blend · make 100 g (this round needs 6.60 g)'.
+    """'Seasoning blend · make 100 g (this Round needs 6.60 g)'.
 
     `make 7.50 g` was the worst number in the workbook: you cannot blend
     7.5 g of coarse salt and four fine powders to any homogeneity, and you
@@ -3708,7 +3770,7 @@ def premix_sheet_title(name, total_text, need_text=""):
     quantity and says what the round takes out of it.
     """
     line = f"{name} · Prepare {total_text}"
-    return f"{line} (this round needs {need_text})" if need_text else line
+    return f"{line} (this Round needs {need_text})" if need_text else line
 
 
 def premix_sheet_name(name):
@@ -3724,7 +3786,7 @@ def premix_group_total_line(name):
 
 
 def workbook_lot_conflict(name):
-    return f"{name} has different lot numbers on two sheets. Use the same lot number for it throughout this round."
+    return f"{name} has different lot numbers on two sheets. Use the same lot number for it throughout this Round."
 
 
 def premix_needs_parts(name, here=False):
@@ -3803,7 +3865,7 @@ def edit_negative_error(number):
     return f"Formulation {number}: the calculated ingredient amounts must be zero or greater."
 
 def workbook_result_conflict(number, key):
-    return f"Formulation {number}: conflicting {key} entries on the round and formulation sheets. Keep one value or make them agree, then upload again."
+    return f"Formulation {number}: conflicting {key} entries on the Round and formulation sheets. Keep one value or make them agree, then upload again."
 
 
 SHARE_TOTAL = "Total: 100%"
@@ -3855,12 +3917,12 @@ CUSTOM_WORKBOOK_CHANGED = "These recording fields no longer match this Round. Do
 CUSTOM_WORKBOOK_CONFLICT = "This workbook contains conflicting entries for the same recording field. Keep one value and upload again."
 CUSTOM_TEXT_ONLY = "Enter recording values as text or numbers, rather than spreadsheet formulas."
 CUSTOM_RECORDS_HEADING = "Additional records"
-CUSTOM_SHEET_HELP = "Optional text or numbers. These records are saved with the round and do not affect scores."
+CUSTOM_SHEET_HELP = "Optional text or numbers. These records are saved with the Round and do not affect scores."
 CUSTOM_AUTOSAVE_HELP = "Double-click a cell to enter a value. Entries save automatically when you leave the cell and do not affect scores."
 CUSTOM_SUBJECT = "Recorded for"
 CUSTOM_VALUE = "Value"
 CUSTOM_INGREDIENT_LABEL = "Ingredient"
-CUSTOM_ROUND_LABEL = "Round for additional records"
+CUSTOM_ROUND_LABEL = f"Records for {ROUND_CAP}"
 CUSTOM_IMPORT_FOUND = "Additional records found. Check the entries below before saving."
 CUSTOM_SAVED = "Additional records saved."
 
@@ -3870,11 +3932,19 @@ def custom_record_option(name, scope, opt=None):
     scope_text = CUSTOM_SCOPE_NAMES[scope]
     return f"{name} · {scope_text if opt is None else for_project(opt, scope_text)}"
 
+# Additional records' options by field name only (S13: longer chips were cut
+# off); where each is entered is in ALSO_RECORD_HELP.
 RECORD_SCOPE_LABELS = {
-    'vendor': "Vendor · Each ingredient · Ingredients table",
-    'sku': "SKU · Each ingredient · Ingredients table",
-    'lot': "Lot numbers · Enter in Make a round",
+    'vendor': "Vendor",
+    'sku': "SKU",
+    'lot': "Lot numbers",
 }
+
+
+def record_chip(name, scope, opt=None, name_twice=False):
+    """An own record field's option: its name as typed ('Raw weight (g)'),
+    with its scope only when the project has that name for both scopes."""
+    return custom_record_option(name, scope, opt) if name_twice else name
 ACTUAL_RECORD_OPTION = "Record changes from the planned amounts or settings"
 ACTUAL_RECORD_HELP = "For each formulation, record what you actually weighed or the settings you used in the workbook. Leave unchanged values blank. Imported corrections are used when learning from your results."
 LOT_ENTRY_HEADING = "Ingredient lot numbers"
@@ -4015,7 +4085,7 @@ def sheet_navigation(premixes=True):
             "Excel and at the top in Numbers. ")
 
 
-PREPARATION_SHEET_TITLE = f"{PREPARATION_SHEET} — Pre-mixes for this round"
+PREPARATION_SHEET_TITLE = f"{PREPARATION_SHEET} — Pre-mixes for this Round"
 PREPARATION_SHEET_INTRO = (
     f"Prepare pre-mixes with fixed {INGREDIENT} percentages here. For blends "
     f"where {INGREDIENT} amounts vary separately, follow the individual "
@@ -4150,15 +4220,19 @@ def workbook_tabs_help(print_pack=False):
     if print_pack:
         return (f"The workbook has one {ROUND_CAP} sheet and one printable page per "
                 f"{FORMULATION}. Without the tick it has {OVERVIEW_SHEET} and {RESULTS_SHEET}, "
-                f"and {PREPARATION_SHEET} when the {ROUND} has pre-mixes.")
+                f"and {PREPARATION_SHEET} when the {ROUND_CAP} has pre-mixes.")
     return WORKBOOK_TABS_HELP
 
 
-def workbook_sheets(print_pack=False):
-    """v3: the one caption under the download (≤ 8 words); the pre-mix
-    sheet and the tick are in its "?" (workbook_sheets_help)."""
+def workbook_sheets(print_pack=False, preparation=False):
+    """v3: the one caption under the download (≤ 8 words); the tick is in
+    its "?" (workbook_sheets_help). `preparation`: the file being offered has
+    a Preparation sheet (a Round with pre-mixes), so the line names it (S6:
+    it listed two sheets of a workbook that had three)."""
     if print_pack:
         return f"Sheets: {ROUND_CAP} · one page per {FORMULATION}"
+    if preparation:
+        return f"Sheets: {OVERVIEW_SHEET} · {PREPARATION_SHEET} · {RESULTS_SHEET}"
     return f"Sheets: {OVERVIEW_SHEET} · {RESULTS_SHEET}"
 
 
@@ -4166,7 +4240,7 @@ def workbook_sheets_help(print_pack=False):
     if print_pack:
         return (f"One {ROUND_CAP} sheet and one printable page per {FORMULATION}. Untick for "
                 f"{OVERVIEW_SHEET} and {RESULTS_SHEET}.")
-    return (f"A {PREPARATION_SHEET} sheet is added when the {ROUND} has pre-mixes. Tick "
+    return (f"A {PREPARATION_SHEET} sheet is added when the {ROUND_CAP} has pre-mixes. Tick "
             f"“{PRINT_PACK_CHECKBOX}” for one printable page each.")
 RECORD_RESULTS_LINE = "Leave a result blank until it is in."
 # Generic about how a panel's number is made (owner, v3 final cleanup): the
@@ -4214,9 +4288,10 @@ OVERALL_SCORE_HELP = (f"{OVERALL_SCORE_COLUMN}, 0–100: the sum over measuremen
 
 def runner_up_line(no, score_text, lead_text):
     """Under Best so far: the next best different formulation, as measured
-    — 'Formulation 13: 93.3 (1.7 lower than the best so far).' (owner, v3
-    final cleanup: no tasting noise, no "within noise", no rise "needed")."""
-    return f"{FORMULATION_CAP} {no}: {score_text} ({lead_text} lower than the best so far)."
+    — 'Next best: Formulation 13, 93.3 (1.7 lower).' (owner, v3 final
+    cleanup: no tasting noise, no "within noise", no rise "needed"; N6: it
+    sat under a view of another formulation with no label)."""
+    return f"Next best: {FORMULATION_CAP} {no}, {score_text} ({lead_text} lower)."
 
 
 def tie_equal(best_no, other_no, score_text):
@@ -4495,12 +4570,16 @@ REPLAY_PLAY = f"Play {ROUND_CAP}s"
 REPLAY_STOP = "Stop"
 REPLAY_BACK = "Back to latest"
 REPLAY_EARLIER = f"Earlier {ROUND_CAP}"
-REPLAY_LATEST = "Latest"
+# N13: said in the control's own label, 'Round 5 of 5 (latest)'; a lone
+# grey "Latest" pill beside it explained nothing.
+REPLAY_LATEST = "latest"
 
 
 def replay_label(round_no, last):
-    """'**Round 4** of 10' (the panel's control)."""
-    return f"**{ROUND_CAP} {round_no}** of {last}"
+    """'**Round 4** of 10' (the panel's control); '**Round 5** of 5
+    (latest)' on the latest."""
+    tail = f" ({REPLAY_LATEST})" if round_no == last else ""
+    return f"**{ROUND_CAP} {round_no}** of {last}{tail}"
 
 
 def replay_to(round_no):
@@ -4565,34 +4644,35 @@ def review_each(n):
     return f"{REVIEW_EACH_FORMULATION} ({n})"
 
 
-def review_best_label(best, names):
-    """The score chart's Best label: 'Best: 98.3 (F16, F17 tied)'."""
-    return f"Best: {best} ({tied_names(names)})"
-
-
 def review_top_line(top):
-    """The dotted line at the top score: '100 = every attribute on target'."""
-    return f"{top} = every attribute on target"
+    """The dotted line at the top score: '100 = every measurement on target'."""
+    return f"{top} = every {MEASUREMENT} on target"
 
 
-def review_score_caption(n=None, once=True):
-    """Under the score chart: 'Each formulation made once, rated once by the
-    panel (n = 5).' — the panel's size only when the project records it;
-    with Repeats on file, 'Each dot: one formulation, rated once.'."""
-    size = f" (n = {n})" if n else ""
-    if not once:
-        return f"Each dot: one {FORMULATION}, rated once{size}."
-    return f"Each {FORMULATION} made once, rated once by the panel{size}."
+# Under the score chart, one line in every state (S8): it said "rated once
+# by the panel" of a project with no panel, and changed words once a second
+# Round was in. The panel, where the project records one (the yogurt pilot),
+# is in its "?".
+REVIEW_SCORE_CAPTION = f"Each dot: one {FORMULATION}, measured once."
 
 
-def review_score_help(example=None):
-    """The caption's "?": why small differences may not be real, and what
-    one point off costs, from the project's own best ('Example: Tanginess 4
-    instead of 5 costs 1.7 points.'); no example when every attribute is on
-    target."""
-    text = (f"Tasting the same {FORMULATION} again could give a slightly different score, "
-            "so small differences may not be real.")
-    return f"{text} {example}" if example else text
+def review_score_help(panel_size=None):
+    """The caption's "?": why small differences may not be real, and, for a
+    project that records its panel, how each result was made. The scoring
+    example is the chart title's "?" (review_score_title_help; N14)."""
+    text = (f"Measuring the same {FORMULATION} again could give a slightly "
+            "different score, so small differences may not be real.")
+    if panel_size:
+        text += f" Each result is the median of a panel of {panel_size}."
+    return text
+
+
+def review_score_title_help(definition, example=None):
+    """Best so far's "?": how the score is made (Definitions' first line)
+    and what one unit off costs, from the project's own best ('Example:
+    Tanginess 4 instead of 5 costs 1.7 points.'); no example when every
+    measurement is on target."""
+    return f"{definition} {example}" if example else definition
 
 
 def review_cost_example(name, value, ideal, cost):
@@ -4662,8 +4742,9 @@ def review_amounts_help(count=REVIEW_TOP_COUNT):
 
 
 def review_amounts_linked(n, total):
-    """'The 7 add to 97.7–98.7 g (the allowed total), so amounts are linked.'"""
-    return f"The {n} add to {total} (the allowed total), so amounts are linked."
+    """'These 9 ingredients total 100 g, so they move together.' (S9: "The
+    9" named nothing.)"""
+    return f"These {n} {INGREDIENT}s total {total}, so they move together."
 
 
 REVIEW_ALLOWED = "Allowed, not tried"
@@ -4728,13 +4809,14 @@ def method_definitions(top="100", span="15", count=REVIEW_TOP_COUNT, once=True, 
     rule; None when they differ) and how many the top formulations are.
     `once`: no Repeats on file. `limits`: the at-limit tags the amounts
     chart draws ('upper', 'lower'), each defined after the five."""
-    cost = f"1/{span}" if span else "1/(its Range)"
+    cost = (f"1/{span}" if span
+            else f"1/({HIGHEST_MEASURABLE_LABEL} − {LOWEST_MEASURABLE_LABEL})")
     best = f"the highest {OVERALL_SCORE_COLUMN} so far."
     if once:
-        best += f" Each {FORMULATION} is made once and rated once."
+        best += f" Each {FORMULATION} is made once and measured once."
     return (
-        f"{OVERALL_SCORE_COLUMN}: {top} = every attribute on target. Each attribute earns its "
-        f"share; each point off costs {cost} of it.",
+        f"{OVERALL_SCORE_COLUMN}: {top} = every {MEASUREMENT} on target. Each {MEASUREMENT} "
+        f"earns its share; each unit off costs {cost} of it.",
         f"{ROUND_CAP}: the {FORMULATION}s made and tasted together.",
         f"{BEST_SO_FAR_COLUMN}: {best}",
         f"Top {FORMULATION}s: {review_top_rule(count)}.",

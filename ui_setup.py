@@ -460,6 +460,21 @@ def _pending(saved, edited):
     return grid_signature(saved) != grid_signature(edited)
 
 
+
+# S2: the ingredient and measurement grids open about six rows tall. At two
+# rows, the row being typed into scrolled the one above it out of sight
+# behind an inner scrollbar, and a first ingredient looked lost. Each grid
+# grows with its saved rows, keeping room for the blank row being typed and
+# one more. (Its height is part of the editor's identity in Streamlit, so it
+# follows the SAVED rows only: growing it mid-edit would drop the edit.)
+GRID_MIN_ROWS = 6
+
+
+def grid_height(n_saved):
+    """The pixel height of a Set up grid holding `n_saved` saved rows."""
+    return table_height(max(n_saved + 2, GRID_MIN_ROWS), max_rows=20)
+
+
 def _opening_frame(grid, saved):
     """(what one grid opens holding, whether that came from the park).
 
@@ -585,7 +600,7 @@ def _variables(opt, storage):
                       wording.FORMULA_LABEL, wording.LOWEST_LABEL, wording.HIGHEST_LABEL,
                       wording.UNIT_LABEL, wording.TYPE_LABEL, wording.MADE_AS_LABEL)],
         width="stretch",
-        height=table_height(max(len(saved) + 1, 2), max_rows=20))
+        height=grid_height(len(saved)), placeholder="")
     edited = calculation_editor.canonical_frame(edited, opening)
     slot = st.empty()            # where a refused Save writes its rows
     _grid_errors(slot, _ING_ERRORS, names={
@@ -1011,7 +1026,7 @@ def _premix_grid(opt, storage, name):
         edited = st.data_editor(
             display, key=grid_key(grid), num_rows="dynamic",
             column_config=config, width="stretch",
-            height=table_height(max(len(saved) + 1, 2), max_rows=20))
+            height=table_height(max(len(saved) + 1, 2), max_rows=20), placeholder="")
         if amount_entry:
             shares = pd.to_numeric(edited[wording.PREMIX_SHARE_LABEL], errors="coerce").fillna(0)
             if shares.sum() > 0:
@@ -1023,7 +1038,7 @@ def _premix_grid(opt, storage, name):
                                         "Composition (%)": shares / shares.sum() * 100,
                                         f"Amount ({unit})": shares / shares.sum() * quantity})
                 st.dataframe(preview.style.format({"Composition (%)": "{:.2f}",
-                                                  f"Amount ({unit})": "{:.2f}"}), hide_index=True)
+                                                  f"Amount ({unit})": "{:.2f}"}), hide_index=True, placeholder="")
         slot = st.empty()
         names = ({int(no): str(edited.loc[no, wording.PART_LABEL] or "").strip()
                   for no in edited.index}
@@ -1206,7 +1221,7 @@ def _upload_ingredients(opt):
     if df is not None and mark == st.session_state.get("_ingredients_loaded"):
         st.caption(wording.FILE_ALREADY_LOADED_CAPTION)
     elif df is not None:
-        st.dataframe(df, hide_index=True, height=table_height(len(df)))
+        st.dataframe(df, hide_index=True, height=table_height(len(df)), placeholder="")
         if st.button(_load_label(opt), key="load_ingredients"):
             batch_no = opt.pending_batch_no
             try:
@@ -1261,7 +1276,7 @@ def _delete_limit(opt, storage, key, who, remove):
     It was a bare `Delete limit`, drawn once per limit with nothing on it to
     say which, and it removed the limit on the click — the only destructive
     button in the app with no question and no copy behind it."""
-    if not confirm_action(key, wording.delete_limit_button(who),
+    if not confirm_action(key, wording.DELETE_THIS_LIMIT,
                           wording.delete_limit_warning(who),
                           confirm_label=wording.YES_DELETE,
                           disabled=other_confirmation(key)):
@@ -1333,6 +1348,12 @@ def _targets_source_contents(opt):
             st.rerun()
 
 
+_RECORD_CHIP_STYLE = (
+    "<style>.st-key-record_fields [data-baseweb='tag'],"
+    ".st-key-record_fields [data-baseweb='tag'] span"
+    "{max-width: none; overflow: visible; text-overflow: clip;}</style>")
+
+
 def _record_key(field):
     return f"record_{field}"
 
@@ -1359,10 +1380,15 @@ def _also_record(opt):
         if saved_ok(opt):
             flash("success", wording.RECORDS_UPDATED)
 
+    names = [f['name'] for f in definitions]
+    # S13: a chip shows its whole field name; Streamlit cuts a chip at a
+    # fixed width ("Water temperatu…").
+    st.html(_RECORD_CHIP_STYLE)
     st.multiselect(wording.ALSO_RECORD_LABEL, options, key=key,
                    format_func=lambda field: (wording.RECORD_SCOPE_LABELS[field] if field in standard
-                       else wording.custom_record_option(
-                               by_id[field]['name'], by_id[field]['scope'], opt)),
+                       else wording.record_chip(
+                               by_id[field]['name'], by_id[field]['scope'], opt,
+                               name_twice=names.count(by_id[field]['name']) > 1)),
                    help=wording.ALSO_RECORD_HELP, on_change=_save)
     if opt.records("lot"):
         st.caption(wording.LOT_LOCATION_HELP)
@@ -1372,10 +1398,10 @@ def _also_record(opt):
         opt.set_records('actual', st.session_state['record_actual'])
         saved_ok(opt)
     st.session_state.setdefault('record_actual', opt.records('actual'))
+    # Its "?" says what it does; the same words as a caption under it
+    # were the same sentence twice (N19).
     st.checkbox(wording.ACTUAL_RECORD_OPTION, key='record_actual',
                 help=wording.ACTUAL_RECORD_HELP, on_change=_save_actual)
-    if opt.records('actual'):
-        st.caption(wording.ACTUAL_RECORD_HELP)
 
 
 _METHOD_BOX = "method_box"
@@ -1436,7 +1462,7 @@ def _measurements(opt, storage):
                       wording.UNIT_LABEL, wording.LOWEST_MEASURABLE_LABEL,
                       wording.HIGHEST_MEASURABLE_LABEL],
         column_config=_measurement_columns(), width="stretch",
-        height=table_height(max(len(saved) + 1, 2), max_rows=20))
+        height=grid_height(len(saved)), placeholder="")
     preview = opt.preview_measurement_shares(edited)
     if preview:
         typed = dict(zip(edited[wording.MEASUREMENT_COLUMN], edited[wording.SHARE_COLUMN]))
@@ -1445,7 +1471,7 @@ def _measurements(opt, storage):
         if adjusted:
             st.caption(wording.SHARE_PREVIEW_HELP)
             st.dataframe(pd.DataFrame({wording.MEASUREMENT_COLUMN: list(preview),
-                                       wording.SHARE_COLUMN: list(preview.values())}), hide_index=True)
+                                       wording.SHARE_COLUMN: list(preview.values())}), hide_index=True, placeholder="")
     slot = st.empty()
     _grid_errors(slot, _MEAS_ERRORS)
     pending = _pending(saved, edited)
@@ -1688,7 +1714,7 @@ def _properties(opt, storage):
             opening, key=grid_key(PROP_GRID_KEY), num_rows="fixed",
             column_config=_property_columns(properties),
             width="stretch",
-            height=table_height(max(len(saved), 1), max_rows=20))
+            height=table_height(max(len(saved), 1), max_rows=20), placeholder="")
         slot = st.empty()
         _grid_errors(slot, _PROP_ERRORS)
         pending = _pending(saved, edited)

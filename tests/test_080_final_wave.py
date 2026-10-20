@@ -114,7 +114,7 @@ def test_best_so_far_moving_to_its_own_repeat_flashes_what_the_line_says():
     import ui_results
     opt = _repeat_of(_three([60.0, 70.0, 69.8]), 2, 70.3)
     assert ui_results._move_sentence(opt, 2, 4) == wording.best_moved(2, 4)
-    assert ui_results._runner_up_line(opt).startswith("Formulation 3: 69.8")
+    assert ui_results._runner_up_line(opt).startswith("Next best: Formulation 3, 69.8")
 
 
 def test_an_exact_tie_is_said_as_a_tie():

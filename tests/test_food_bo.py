@@ -4461,6 +4461,9 @@ _ALLOWED_EXACT = {
     wording.MADE_AS_HELP,
     wording.LOWEST_MEASURABLE_LABEL, wording.HIGHEST_MEASURABLE_LABEL,
     wording.WIDEN_RANGE_HINT,
+    # The owner's public-release wording (S14): "scale" as a verb, resizing
+    # every formulation, never a measurement's Range.
+    wording.NO_BATCH_SIZE_OF_ITS_OWN,
 
     # The one legacy value that must stay spelled the old way: it is the
     # reserved column name a 0.2.x project could collide with.
