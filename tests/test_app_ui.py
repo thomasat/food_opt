@@ -1633,7 +1633,8 @@ def test_the_getting_started_sentence_is_the_how_it_works_bullet(burger):
     assert wording.HOW_CHOSEN_2 == (
         "Until five formulations have results, new ones cover the allowed "
         "amounts. After that, each Round aims closer to your targets."), wording.HOW_CHOSEN_2
-    assert any(c.value == wording.HOW_CHOSEN_2 for c in at.caption), \
+    # On screen it is the "?" of an eight-word line (N10).
+    assert any(c.help == wording.HOW_CHOSEN_2 for c in at.caption), \
         [c.value for c in at.caption]
 
 
@@ -7179,8 +7180,8 @@ def test_the_whole_batch_pick_says_what_it_does(scored):
     at.session_state["main_tab"] = wording.TAB_RESULTS
     at.run()
     picker = at.selectbox(key="delete_whole_batch")
-    assert picker.label == "Select a whole round for deletion"
-    assert picker.proto.placeholder == "Choose a round"
+    assert picker.label == "Select a whole Round for deletion"
+    assert picker.proto.placeholder == "Choose a Round"
 
 
 def test_the_delete_multiselect_placeholder_says_choose_one_or_more(scored):
@@ -8295,7 +8296,7 @@ def test_the_getting_started_caption_shows_only_before_five(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["main_tab"] = wording.TAB_BATCH
     at.run()
-    line = wording.HOW_CHOSEN_2
+    line = wording.first_formulations_caption(5)     # N10; HOW_CHOSEN_2 is its "?"
     assert any(c.value == line for c in at.tabs[1].caption), \
         [c.value for c in at.tabs[1].caption]
     for i in range(5):
@@ -9410,7 +9411,7 @@ def test_a_round_with_no_batch_size_of_its_own_says_so_under_the_table(
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert not at.exception
-    assert any(c.value == "This Round has no batch size of its own."
+    assert any(c.value == "Optional: scale every formulation to one batch size."
                for c in at.tabs[1].caption), \
         [c.value for c in at.tabs[1].caption]
 

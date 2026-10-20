@@ -652,11 +652,11 @@ FORMULATIONS_TO_GENERATE = "Formulations to generate"
 # open): a formulation the scientist chose, added to the batch beside the
 # generated ones. It replaced the Repeat checkbox, which could only ever
 # repeat the best.
-ADD_OWN_EXPANDER = f"Add a {FORMULATION} to this {ROUND}"
-ADD_OWN_NO_BATCH_CAPTION = "For suggestions too, click Generate first."
+ADD_OWN_EXPANDER = f"Add a {FORMULATION} to this {ROUND_CAP}"
+ADD_OWN_NO_BATCH_CAPTION = "Generate first to see suggestions too."
 ADD_OWN_NO_BATCH_HELP = "Want the app's suggestions too? Click Generate first, then add yours."
 OWN_NOTE_PLACEHOLDER = "e.g. Repeat of 4 with more salt"
-ADD_TO_THIS_BATCH = f"Add to this {ROUND}"
+ADD_TO_THIS_BATCH = f"Add to this {ROUND_CAP}"
 ENTER_EVERY_AMOUNT = ("Enter every amount. Type 0 for an ingredient you "
                       "are leaving out.")
 # What the row says when the user typed no reason of their own. The note is
@@ -678,6 +678,13 @@ def generate_button_label(n):
 # have results (spec 2026-09-30 §3, §6; review M2: "cover", not "spread out").
 HOW_CHOSEN_2 = (f"Until five {FORMULATION}s have results, new ones cover the allowed amounts. "
                 f"After that, each {ROUND_CAP} aims closer to your targets.")
+
+
+def first_formulations_caption(n=5):
+    """Make a round's line before `n` formulations have results (N10, ≤ 8
+    words): 'First 5 formulations explore the allowed amounts.' The rest is
+    its "?" (HOW_CHOSEN_2)."""
+    return f"First {n} {FORMULATION}s explore the allowed amounts."
 
 
 # The open batch reads as the three steps of the work, each headed with its
@@ -934,7 +941,12 @@ def batch_size_help(unit=""):
 # for.
 BATCH_SIZE_PLACEHOLDER = "e.g. 100"
 
-NO_BATCH_SIZE_OF_ITS_OWN = f"This {ROUND_CAP} has no {BATCH_SIZE_NOUN} of its own."
+# Under the Batch size box while it is empty (S14): the box is optional,
+# and the bare "This Round has no batch size of its own." left a new reader
+# unsure whether they had to fill it.
+# "scale" is a verb here (resize), in the owner's words; the vocabulary
+# guard lets this one sentence through.
+NO_BATCH_SIZE_OF_ITS_OWN = "Optional: scale every formulation to one batch size."
 
 
 def total_mismatch_caption(no, made_text, total_text):
@@ -955,7 +967,10 @@ def sheets_show_total_caption(total_text):
     return f"Sheets show each {FORMULATION} made to {total_text}."
 
 
-GENERATE_DIFFERENT_BATCH = f"Discard this {ROUND} and generate again"
+GENERATE_DIFFERENT_BATCH = f"Discard this {ROUND_CAP} and generate again"
+# After the amounts of an open Round's formulations are edited in place.
+FORMULATIONS_SAVED_NEW_WORKBOOK = (f"{FORMULATION_CAP}s saved. Download a new "
+                                   f"workbook before preparing this {ROUND_CAP}.")
 
 
 def regenerate_warning(no, numbers_text, next_no, many=True):
@@ -2146,7 +2161,7 @@ def formulation_has_all_results(no):
     return f"{FORMULATION_CAP} {no} already has all its results."
 
 
-START_NEXT_BATCH = f"Start the next {ROUND}"
+START_NEXT_BATCH = f"Start the next {ROUND_CAP}"
 
 NO_RESULTS_YET = "No results yet."
 OVERALL_SCORE_COLUMN = "Overall score"
@@ -2172,8 +2187,8 @@ CHOOSE_MANY_PLACEHOLDER = "Choose one or more"
 # "Add a whole round to the list" read as adding a round to the project,
 # under a heading about deleting them. What the picker does is choose
 # one for the list of things about to go.
-WHOLE_BATCH_LABEL = f"Select a whole {ROUND} for deletion"
-CHOOSE_A_BATCH_PLACEHOLDER = f"Choose a {ROUND}"
+WHOLE_BATCH_LABEL = f"Select a whole {ROUND_CAP} for deletion"
+CHOOSE_A_BATCH_PLACEHOLDER = f"Choose a {ROUND_CAP}"
 
 
 def no_formulation_to_delete_caption():
@@ -2324,7 +2339,7 @@ ADD_MEASUREMENT_RESCORE_INFO = ("Add a measurement in Set up to score these "
 # off the paper is here — the sheet is the one screen the app cannot see
 # being used, so it says exactly what the screen says.
 # ------------------------------------------------------------------ #
-DOWNLOAD_BATCH_SHEETS = f"Download the {ROUND} sheets (Excel)"
+DOWNLOAD_BATCH_SHEETS = f"Download the {ROUND_CAP} sheets (Excel)"
 
 # The summary sheet's own columns. The amount column carries its unit
 # (`Amount (g)`), built by food_bo.label_with_unit from AMOUNT_COLUMN.
@@ -2703,8 +2718,9 @@ def upload_amounts_total(number, planned, actual):
 # Where the sheets go when they come back. The bench fills the boxed cells
 # in and then has a file and no idea what to do with it: the sheet itself
 # names the door, in the words the screen puts on it.
+# (N17: the upload fold is on the tab itself, not under Save results.)
 SHEET_RETURN_PATH = (f"Then upload this file in the app: {TAB_BATCH} \u2192 "
-                     f"Save results \u2192 Or upload results from a file.")
+                     f"{UPLOAD_EXPANDER}.")
 # ...and the sheets the app never reads back say so, so nobody fills one in
 # and waits for it to arrive.
 SHEET_IS_A_RECORD = "This sheet is a record. The app does not read it back."
@@ -3703,11 +3719,11 @@ PREMIXES_HEADING = "Pre-mixes"
 # the number printed, and a loose row's total is three formulations added up
 # and is never weighed at that number anywhere. A tired bench operator
 # weighed out 167.52 g of water.
-MAKE_FOR_ROUND_HEADING = "Make for this round"
+MAKE_FOR_ROUND_HEADING = "Make for this Round"
 HAVE_ON_HAND_HEADING = "Have on hand"
 HAVE_ON_HAND_CAPTION = (f"Across every {FORMULATION}; a {WORKED_OUT} row's total "
-                        "is what the round comes to, not one weighing.")
-ROUND_TOTAL_COLUMN = "Total for this round"
+                        "is what the Round comes to, not one weighing.")
+ROUND_TOTAL_COLUMN = "Total for this Round"
 # The write-in line at the foot of a pre-mix page. The Round sheet has a Lot
 # box against `Dry blend (g)` — a thing the bench made itself, which has no
 # lot until somebody gives it one, and nothing anywhere assigned it one.
@@ -3732,7 +3748,7 @@ def premix_write_in_note(actual_head=None, lot=True):
 
 
 def premix_sheet_title(name, total_text, need_text=""):
-    """'Seasoning blend · make 100 g (this round needs 6.60 g)'.
+    """'Seasoning blend · make 100 g (this Round needs 6.60 g)'.
 
     `make 7.50 g` was the worst number in the workbook: you cannot blend
     7.5 g of coarse salt and four fine powders to any homogeneity, and you
@@ -3742,7 +3758,7 @@ def premix_sheet_title(name, total_text, need_text=""):
     quantity and says what the round takes out of it.
     """
     line = f"{name} · Prepare {total_text}"
-    return f"{line} (this round needs {need_text})" if need_text else line
+    return f"{line} (this Round needs {need_text})" if need_text else line
 
 
 def premix_sheet_name(name):
@@ -3758,7 +3774,7 @@ def premix_group_total_line(name):
 
 
 def workbook_lot_conflict(name):
-    return f"{name} has different lot numbers on two sheets. Use the same lot number for it throughout this round."
+    return f"{name} has different lot numbers on two sheets. Use the same lot number for it throughout this Round."
 
 
 def premix_needs_parts(name, here=False):
@@ -3837,7 +3853,7 @@ def edit_negative_error(number):
     return f"Formulation {number}: the calculated ingredient amounts must be zero or greater."
 
 def workbook_result_conflict(number, key):
-    return f"Formulation {number}: conflicting {key} entries on the round and formulation sheets. Keep one value or make them agree, then upload again."
+    return f"Formulation {number}: conflicting {key} entries on the Round and formulation sheets. Keep one value or make them agree, then upload again."
 
 
 SHARE_TOTAL = "Total: 100%"
@@ -3889,7 +3905,7 @@ CUSTOM_WORKBOOK_CHANGED = "These recording fields no longer match this Round. Do
 CUSTOM_WORKBOOK_CONFLICT = "This workbook contains conflicting entries for the same recording field. Keep one value and upload again."
 CUSTOM_TEXT_ONLY = "Enter recording values as text or numbers, rather than spreadsheet formulas."
 CUSTOM_RECORDS_HEADING = "Additional records"
-CUSTOM_SHEET_HELP = "Optional text or numbers. These records are saved with the round and do not affect scores."
+CUSTOM_SHEET_HELP = "Optional text or numbers. These records are saved with the Round and do not affect scores."
 CUSTOM_AUTOSAVE_HELP = "Double-click a cell to enter a value. Entries save automatically when you leave the cell and do not affect scores."
 CUSTOM_SUBJECT = "Recorded for"
 CUSTOM_VALUE = "Value"
@@ -4057,7 +4073,7 @@ def sheet_navigation(premixes=True):
             "Excel and at the top in Numbers. ")
 
 
-PREPARATION_SHEET_TITLE = f"{PREPARATION_SHEET} — Pre-mixes for this round"
+PREPARATION_SHEET_TITLE = f"{PREPARATION_SHEET} — Pre-mixes for this Round"
 PREPARATION_SHEET_INTRO = (
     f"Prepare pre-mixes with fixed {INGREDIENT} percentages here. For blends "
     f"where {INGREDIENT} amounts vary separately, follow the individual "
@@ -4192,15 +4208,19 @@ def workbook_tabs_help(print_pack=False):
     if print_pack:
         return (f"The workbook has one {ROUND_CAP} sheet and one printable page per "
                 f"{FORMULATION}. Without the tick it has {OVERVIEW_SHEET} and {RESULTS_SHEET}, "
-                f"and {PREPARATION_SHEET} when the {ROUND} has pre-mixes.")
+                f"and {PREPARATION_SHEET} when the {ROUND_CAP} has pre-mixes.")
     return WORKBOOK_TABS_HELP
 
 
-def workbook_sheets(print_pack=False):
-    """v3: the one caption under the download (≤ 8 words); the pre-mix
-    sheet and the tick are in its "?" (workbook_sheets_help)."""
+def workbook_sheets(print_pack=False, preparation=False):
+    """v3: the one caption under the download (≤ 8 words); the tick is in
+    its "?" (workbook_sheets_help). `preparation`: the file being offered has
+    a Preparation sheet (a Round with pre-mixes), so the line names it (S6:
+    it listed two sheets of a workbook that had three)."""
     if print_pack:
         return f"Sheets: {ROUND_CAP} · one page per {FORMULATION}"
+    if preparation:
+        return f"Sheets: {OVERVIEW_SHEET} · {PREPARATION_SHEET} · {RESULTS_SHEET}"
     return f"Sheets: {OVERVIEW_SHEET} · {RESULTS_SHEET}"
 
 
@@ -4208,7 +4228,7 @@ def workbook_sheets_help(print_pack=False):
     if print_pack:
         return (f"One {ROUND_CAP} sheet and one printable page per {FORMULATION}. Untick for "
                 f"{OVERVIEW_SHEET} and {RESULTS_SHEET}.")
-    return (f"A {PREPARATION_SHEET} sheet is added when the {ROUND} has pre-mixes. Tick "
+    return (f"A {PREPARATION_SHEET} sheet is added when the {ROUND_CAP} has pre-mixes. Tick "
             f"“{PRINT_PACK_CHECKBOX}” for one printable page each.")
 RECORD_RESULTS_LINE = "Leave a result blank until it is in."
 # Generic about how a panel's number is made (owner, v3 final cleanup): the

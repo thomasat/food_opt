@@ -67,3 +67,65 @@ def test_record_changes_option_says_its_help_once(burger):
     assert burger.records("actual")
     assert wording.ACTUAL_RECORD_HELP not in [c.value for c in at.caption]
     assert at.checkbox(key="record_actual").help == wording.ACTUAL_RECORD_HELP
+
+
+# ------------------------------------------------------------------ #
+#  S6: the line under the download lists the sheets the file has
+# ------------------------------------------------------------------ #
+
+def _premix_round(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("premix round", robust=False)
+    opt.set_amount_unit("g")
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_objective("Taste", 1, goal="max", min_val=0, max_val=10)
+    opt.add_premix("Dry blend", "portioned")
+    opt.set_premix_parts("Dry blend", [{"name": "Flour", "share": 60, "unit": "g"},
+                                       {"name": "Salt", "share": 40, "unit": "g"}])
+    opt.add_ingredient("Dry blend", 10, 60)
+    opt.set_pending_batch([{"Water": 60, "Dry blend": 30},
+                           {"Water": 40, "Dry blend": 50}], batch_no=1)
+    opt._snapshot_premixes(1)
+    opt.save()
+    return opt
+
+
+def test_the_sheets_line_names_preparation_when_the_file_has_it(tmp_path, monkeypatch):
+    import io
+
+    import openpyxl
+    opt = _premix_round(tmp_path, monkeypatch)
+    names = openpyxl.load_workbook(io.BytesIO(
+        opt.workbook_bytes(opt.pending_batch, None, print_pack=False))).sheetnames
+    assert wording.PREPARATION_SHEET in names
+    at = _app(opt.project_name, wording.TAB_BATCH)
+    assert not at.exception
+    captions = [c.value for c in at.tabs[1].caption]
+    assert "Sheets: Round overview · Preparation · Results" in captions, captions
+    assert wording.workbook_sheets() not in captions
+
+
+def test_the_sheets_line_names_two_sheets_without_premixes(open_batch):
+    at = _app(None, wording.TAB_BATCH)
+    captions = [c.value for c in at.tabs[1].caption]
+    assert wording.workbook_sheets() == "Sheets: Round overview · Results"
+    assert wording.workbook_sheets() in captions, captions
+
+
+# ------------------------------------------------------------------ #
+#  S14, N10, N11, N17: Make a round's words
+# ------------------------------------------------------------------ #
+
+def test_make_a_round_words():
+    assert wording.NO_BATCH_SIZE_OF_ITS_OWN == "Optional: scale every formulation to one batch size."
+    assert wording.first_formulations_caption(5) == "First 5 formulations explore the allowed amounts."
+    assert wording.ADD_OWN_NO_BATCH_CAPTION == "Generate first to see suggestions too."
+    assert wording.SHEET_RETURN_PATH == (
+        "Then upload this file in the app: 2 · Make a round → Or upload results from a file.")
+    # N9: Round capitalised on every label that names one.
+    for label in (wording.ADD_OWN_EXPANDER, wording.GENERATE_DIFFERENT_BATCH,
+                  wording.START_NEXT_BATCH, wording.PREPARATION_SHEET_TITLE,
+                  wording.MAKE_FOR_ROUND_HEADING, wording.ROUND_TOTAL_COLUMN,
+                  wording.DOWNLOAD_BATCH_SHEETS, wording.WHOLE_BATCH_LABEL):
+        assert " round" not in label, label
+    assert wording.TAB_BATCH_NAME == "Make a round"     # the tab keeps its name

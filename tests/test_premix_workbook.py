@@ -53,7 +53,7 @@ def test_portioned_page_is_first_and_names_its_round_quantity(premix_project):
     assert book.sheetnames[:2] == ['Pre-mix · Dry blend', 'Round 1']
     sheet = book.active
     assert sheet['A1'].value == \
-        'Dry blend · Prepare 180 g (this round needs 160.00 g)'
+        'Dry blend · Prepare 180 g (this Round needs 160.00 g)'
     # The parts are scaled to what is MADE, and the Total adds the printed
     # numbers rather than the ones behind them.
     assert sheet['B4'].value == 108
@@ -74,7 +74,7 @@ def test_prep_page_uses_the_rounds_original_makeup(premix_project):
     sheet = workbook(premix_project).active
     # 80 g needed, so 100 g made: 60 / 40 of the round's own make-up.
     assert sheet['A1'].value == \
-        'Dry blend · Prepare 100 g (this round needs 80.00 g)'
+        'Dry blend · Prepare 100 g (this Round needs 80.00 g)'
     assert sheet['B4'].value == 60
     assert sheet['B5'].value == 40
 
@@ -105,10 +105,10 @@ def test_the_round_sheet_separates_what_is_made_from_what_is_needed(
     made = row_for(sheet, wording.MAKE_FOR_ROUND_HEADING)
     assert sheet.cell(made + 1, 2).value == 'Amount (g)'
     assert sheet.cell(made + 2, 1).value == \
-        'Dry blend · Prepare 180 g (this round needs 160.00 g)'
+        'Dry blend · Prepare 180 g (this Round needs 160.00 g)'
     assert sheet.cell(made + 2, 2).value == 180
     on_hand = row_for(sheet, wording.HAVE_ON_HAND_HEADING)
-    assert sheet.cell(on_hand + 1, 2).value == 'Total for this round (g)'
+    assert sheet.cell(on_hand + 1, 2).value == 'Total for this Round (g)'
     rows = {}
     for i in range(on_hand + 2, sheet.max_row + 1):
         name = sheet.cell(i, 1).value
