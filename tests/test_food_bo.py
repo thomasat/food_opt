@@ -673,16 +673,16 @@ class TestPropertyLimitsPerHundred:
         opt.add_constraint("Fat per 100 g", min_val=25)
         with pytest.raises(ValueError) as caught:
             opt.add_ingredient("Fatty", 0, 0)
-        assert ("the ingredients that can still vary only reach 10 per 100 g "
-                "at most. Loosen the limit first." in str(caught.value)), \
+        assert ("only 10 per 100 g is reachable; loosen it first."
+                in str(caught.value)), \
             str(caught.value)
 
         opt.remove_constraint(0)
         opt.add_constraint("Fat per 100 g", max_val=15)
         with pytest.raises(ValueError) as caught:
             opt.add_ingredient("Lean", 0, 0)
-        assert ("the ingredients that can still vary cannot get below 30 per "
-                "100 g. Loosen the limit first." in str(caught.value)), \
+        assert ("nothing gets below 30 per "
+                "100 g; loosen it first." in str(caught.value)), \
             str(caught.value)
 
     def test_fixing_that_strands_a_limit_says_so_in_per_100_terms(self, opt):
@@ -691,7 +691,7 @@ class TestPropertyLimitsPerHundred:
         opt = self._fatty(opt)
         opt.add_objective("Taste", weight=1.0, goal="max", min_val=0, max_val=10)
         opt.add_constraint("Fat per 100 g", min_val=25)
-        with pytest.raises(ValueError, match="loosen the limit first"):
+        with pytest.raises(ValueError, match="breaks the limit on .*; loosen it first"):
             opt.add_ingredient("Fatty", 0, 0)
         assert opt.fixed_variables() == []
 
@@ -1042,7 +1042,7 @@ class TestActiveSet:
 
     def test_fixing_detects_stranded_quantity_constraint(self, opt_configured):
         opt_configured.add_quantity_constraint(["Water", "Flour"], min_val=120.0)
-        with pytest.raises(ValueError, match="loosen the limit first"):
+        with pytest.raises(ValueError, match="breaks the limit on .*; loosen it first"):
             opt_configured.add_ingredient("Flour", 0, 0)
         # Refused before anything was written.
         assert opt_configured._var_by_name("Flour")["bounds"] == (0.0, 50.0)
@@ -1059,7 +1059,7 @@ class TestActiveSet:
         ]))
         opt.add_objective("Taste", weight=1.0, goal="max", min_val=0, max_val=10)
         opt.add_constraint("protein", min_val=15.0)
-        with pytest.raises(ValueError, match="loosen the limit first"):
+        with pytest.raises(ValueError, match="breaks the limit on .*; loosen it first"):
             opt.add_ingredient("a", 0, 0)
         assert opt._var_by_name("a")["bounds"] == (0.0, 10.0)
 
@@ -8019,7 +8019,7 @@ class TestALimitOnlyFixedRowsFeed:
         # The limit is written around the model's back, the way a file
         # restored from an older copy could carry one.
         opt._var_by_name("Salt")['bounds'] = (8.0, 8.0)
-        with pytest.raises(ValueError, match="loosen the limit first"):
+        with pytest.raises(ValueError, match="breaks the limit on .*; loosen it first"):
             opt.ask(n_suggestions=2)
 
     def test_a_constant_property_limit_the_fixed_rows_break_stops_it_too(
@@ -8042,7 +8042,7 @@ class TestALimitOnlyFixedRowsFeed:
                      {"Firmness": 5.0 + i * 0.1})
         for name in ("Lean", "Fatty"):
             opt._var_by_name(name)['bounds'] = (20.0, 20.0)
-        with pytest.raises(ValueError, match="loosen the limit first"):
+        with pytest.raises(ValueError, match="breaks the limit on .*; loosen it first"):
             opt.ask(n_suggestions=2)
 
     def test_a_constant_limit_the_fixed_rows_MEET_is_no_trouble(

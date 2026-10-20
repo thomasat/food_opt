@@ -405,6 +405,8 @@ _REWRITTEN = [
     wording.limit_on_worked_out_rows("Water"),
     wording.fixing_breaks_the_total("30 g"),
     wording.limit_unreachable_above("Fat", "10 per 100 g"),
+    wording.limit_unreachable_below("Fat", "30 per 100 g"),
+    wording.limit_pinned_amounts_exceed("Salt", "20"),
     wording.project_name_problem("Burger #2"),
     wording.name_collides_with_archive("Burger"),
     wording.custom_field_builtin("Lot"),

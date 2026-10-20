@@ -3265,24 +3265,21 @@ def limit_unreachable_above(what, most_text):
     ingredients that can still vary only reach 10 per 100 g at most. Loosen
     the limit first.' — a limit's At least, put out of reach by the rows
     this save is about to pin."""
-    return (f"Fixing these lets {what} reach only {most_text}, short of "
-            f"its {LIMIT}; {LOOSEN_THE_LIMIT_FIRST[0].lower()}"
-            f"{LOOSEN_THE_LIMIT_FIRST[1:]}")
+    return (f"Fixing these breaks the {LIMIT} on {what}: only {most_text} "
+            "is reachable; loosen it first.")
 
 
 def limit_unreachable_below(what, least_text):
     """The same for a limit's At most that the pinned rows already exceed."""
-    return (f"Fixing these keeps {what} at {least_text} or more, over its "
-            f"{LIMIT}; {LOOSEN_THE_LIMIT_FIRST[0].lower()}"
-            f"{LOOSEN_THE_LIMIT_FIRST[1:]}")
+    return (f"Fixing these breaks the {LIMIT} on {what}: nothing gets "
+            f"below {least_text}; loosen it first.")
 
 
 def limit_pinned_amounts_exceed(what, pinned_text):
     """An amount limit whose At most is already passed by the amounts this
     save pins — nothing that can still vary is even involved."""
-    return (f"Fixing these already puts {what} at {pinned_text}, over its "
-            f"{LIMIT}; {LOOSEN_THE_LIMIT_FIRST[0].lower()}"
-            f"{LOOSEN_THE_LIMIT_FIRST[1:]}")
+    return (f"Fixing these breaks the {LIMIT} on {what}: the fixed amounts "
+            f"add up to {pinned_text}; loosen it first.")
 
 
 LOOSEN_THE_LIMIT_FIRST = "Loosen the limit first."
