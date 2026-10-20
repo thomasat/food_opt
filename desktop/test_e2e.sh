@@ -724,7 +724,7 @@ opt.ask(3)
 book = load_workbook(io.BytesIO(opt.workbook_bytes(opt.pending_batch, 100)))
 assert book.sheetnames[:2] == ["Pre-mix · Dry blend", "Pre-mix · Seasoning blend"]
 assert book.active["A1"].value.startswith("Dry blend · Prepare 150 g")
-assert "this round needs" in book.active["A1"].value
+assert "this Round needs" in book.active["A1"].value
 assert book.active.protection.sheet and not book.active["D4"].protection.locked
 summary = book[wording.batch_sheet_name(opt.pending_batch_no)]
 assert wording.MAKE_FOR_ROUND_HEADING in [c.value for row in summary for c in row]
