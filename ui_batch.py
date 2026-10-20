@@ -1159,7 +1159,9 @@ def _batch_table(opt, scale_to, tab_open=False, table=None):
     # table, two of them about the size, used to sit with the one that is
     # not in the middle of them.
     if scale_to is None:
-        if opt.has_ingredients():
+        # Only where the Batch size box is offered: with ingredients in
+        # different units there is no box, and NEEDS_ONE_UNIT says why.
+        if opt.has_ingredients() and opt.one_amount_unit() is not None:
             st.caption(wording.NO_BATCH_SIZE_OF_ITS_OWN)
     else:
         for line in opt.total_mismatch_lines(opt.pending_batch, scale_to):

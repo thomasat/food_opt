@@ -72,3 +72,29 @@ def test_empty_batch_size_help_and_empty_name_line():
     assert len(wording.sample_opened("the yogurt pilot", 2, 1).split()) <= 10
     assert wording.sample_opened("the yogurt pilot", 0, 1) == \
         "Opened the yogurt pilot (1 results file added)."
+
+
+def test_mixed_units_offer_no_batch_size_and_no_scale_line(tmp_path, monkeypatch):
+    """Ingredients in different units: no Batch size box, so the line
+    inviting the reader to scale every formulation is not shown either; the
+    line saying why there is no box is."""
+    from streamlit.testing.v1 import AppTest
+    from food_bo import FoodOptimizer
+    import wording
+    from tests.test_app_ui import APP_PATH
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("mixed")
+    opt.add_ingredient("Flour", 10.0, 60.0, unit="g")
+    opt.add_ingredient("Bake time", 8.0, 15.0, unit="min")
+    opt.add_objective("Crunch", 1.0, goal="max")
+    opt.ask(n_suggestions=2)
+    opt.save()
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "mixed"
+    at.run()
+    at.session_state["main_tab"] = wording.TAB_BATCH
+    at.run()
+    assert not at.exception
+    captions = [c.value for c in at.tabs[1].caption]
+    assert wording.NO_BATCH_SIZE_OF_ITS_OWN not in captions, captions
+    assert wording.for_project(opt, wording.NEEDS_ONE_UNIT) in captions, captions
