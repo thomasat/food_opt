@@ -272,8 +272,9 @@ BURGER_NO_RESULTS = "No results: this example shows set-up only."
 MORE_SETTINGS_EXPANDER = "Preparation and records"
 def sample_provenance_caption(n_scored):
     """The yogurt pilot's sidebar line: 'Real tasting data; 15 formulations
-    scored.' — `n_scored` is what the shipped project holds (15 in the
-    Round 6 sample, 30 in the all-10 one)."""
+    scored.' — `n_scored` is what the project holds now (15 in the Round 6
+    sample as shipped, 18 once its Round 6 is saved, 30 in the all-10
+    one)."""
     return f"Real tasting data; {n_scored} formulations scored."
 
 
@@ -504,10 +505,32 @@ def copy_apply_failed(file, project_name):
             "is unchanged. Try another copy.")
 
 
+def copy_reason(archived):
+    """What a copy the app kept was taken before, in Saved copies' own
+    words ('Before opening a saved copy'), read off the end of its file
+    name — or None for a name that is not one of the app's copies."""
+    name = str(archived or "")
+    for suffix, reason in SAFETY_COPY_REASONS.items():
+        tail = f"_{suffix}"
+        stem = name.rstrip("0123456789")
+        if name.endswith(tail) or (stem != name and stem.endswith(tail + "_")):
+            return reason
+    return None
+
+
+def copy_kept_line(archived):
+    """'A copy is in Saved copies: Before opening a saved copy.' — never the
+    copy's file name (Yogurt pilot_pre_restore), which is machinery."""
+    reason = copy_reason(archived)
+    if reason is None:
+        return "A copy is in Saved copies."
+    return f"A copy is in Saved copies: {reason}."
+
+
 def restored_flash(count_text, project_name, archived=None):
     text = f"Restored {count_text} into {project_name}."
     if archived:
-        text += f" A copy was saved as {archived}."
+        text += " " + copy_kept_line(archived)
     return text
 
 
@@ -554,7 +577,7 @@ def delete_project_warning(project_name, held_text=None):
 
 
 def copy_saved_as(archived):
-    return f"A copy was saved as {archived}."
+    return copy_kept_line(archived)
 
 
 def project_deleted_flash(name, archived=None):

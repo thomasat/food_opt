@@ -214,14 +214,33 @@ def test_the_restore_warning_names_the_open_round(scored_open_batch):
     """02 I7: "Replace Pea burger patty, which has 24 formulations?" said
     nothing of the open Round 7 and its 4 suggestions."""
     opt = FoodOptimizer("burger")
+    # The copy is taken before the result is typed: it does not hold the
+    # Round as it stands, so replacing the project loses that result.
+    copy = opt.export_json()
+    no = opt.pending_batch[0]["formulation"]
+    opt.save_result_drafts({no: {"results": {"Firmness": 6.0}, "note": ""}})
+    at = _app(wording.TAB_RESULTS)
+    at.session_state["_restore_candidate"] = copy
+    at.run()
+    assert not at.exception
+    lost = wording.open_round_lost(2, 1, 1)
+    assert any(lost in w.value for w in at.sidebar.warning), [w.value for w in at.sidebar.warning]
+
+
+def test_a_copy_holding_the_same_open_round_loses_nothing(scored_open_batch):
+    """E2E walk #10: a copy that holds the very Round that is open — same
+    number, same formulations and amounts, same results typed — is not
+    warned about as if that Round would be lost."""
+    opt = FoodOptimizer("burger")
     no = opt.pending_batch[0]["formulation"]
     opt.save_result_drafts({no: {"results": {"Firmness": 6.0}, "note": ""}})
     at = _app(wording.TAB_RESULTS)
     at.session_state["_restore_candidate"] = FoodOptimizer("burger").export_json()
     at.run()
     assert not at.exception
-    lost = wording.open_round_lost(2, 1, 1)
-    assert any(lost in w.value for w in at.sidebar.warning), [w.value for w in at.sidebar.warning]
+    said = [w.value for w in at.sidebar.warning]
+    assert any(w.startswith("This copy holds") for w in said), said
+    assert not any("will be lost" in w for w in said), said
 
 
 def test_best_so_far_lists_its_repeats_with_the_mean():
