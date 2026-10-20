@@ -612,11 +612,11 @@ with st.sidebar:
                 if not name:
                     st.error(wording.NAME_EMPTY)
                 elif not _NAME_RE.fullmatch(name):
-                    st.error(wording.NAME_RULE)
+                    st.error(wording.project_name_problem(name))
                 elif name in existing_projects:
                     st.error(wording.name_taken(name))
                 elif storage_backend.is_archive_name(name) or STORAGE.exists(name):
-                    st.error(wording.NAME_COLLIDES_WITH_ARCHIVE)
+                    st.error(wording.name_collides_with_archive(name))
                 else:
                     park_clear("new_project_name", "")
                     # The fold closes behind the project it just made, so it

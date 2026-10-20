@@ -146,7 +146,7 @@ class TestVariables:
         """A missing required column must raise a plain-language ValueError
         (which the app displays nicely), never a raw KeyError."""
         df = pd.DataFrame({"Name": ["Water"], "Min": [0]})
-        with pytest.raises(ValueError, match="missing required column"):
+        with pytest.raises(ValueError, match="The file has no Highest column"):
             opt.load_ingredients_from_csv(df)
 
     def test_load_csv_rejects_after_experiments(self, opt_configured):
@@ -171,7 +171,7 @@ class TestVariables:
             "Max": [10],
         })
         with pytest.raises(ValueError,
-                           match="Lowest.*cannot be above Highest"):
+                           match="Lowest 50 is above Highest 10; swap them"):
             opt.load_ingredients_from_csv(df)
 
     def test_csv_preserves_process_params(self, opt):
@@ -231,7 +231,7 @@ class TestObjectiveValidation:
         """What the measurement is worth is typed as its share of the score
         now, so the refusal for a nought says so in those words."""
         opt = self._opt(tmp_path, monkeypatch)
-        with pytest.raises(ValueError, match="share above 0"):
+        with pytest.raises(ValueError, match=r"Share of score \(%\) above 0"):
             opt.add_objective("Taste", 0.0)
 
     def test_target_must_lie_in_range(self, tmp_path, monkeypatch):
@@ -579,7 +579,7 @@ class TestPropertyLimitsPerHundred:
     def test_a_property_limit_needs_one_unit(self, opt):
         opt = self._fatty(opt)
         opt.set_ingredient_unit("Fatty", "ml")
-        with pytest.raises(ValueError, match="every ingredient needs a mass unit"):
+        with pytest.raises(ValueError, match="need every ingredient in one unit"):
             opt.add_constraint("Fat per 100 g", max_val=25)
         assert opt.constraints == []
 
@@ -691,7 +691,7 @@ class TestPropertyLimitsPerHundred:
         opt = self._fatty(opt)
         opt.add_objective("Taste", weight=1.0, goal="max", min_val=0, max_val=10)
         opt.add_constraint("Fat per 100 g", min_val=25)
-        with pytest.raises(ValueError, match="impossible to meet"):
+        with pytest.raises(ValueError, match="loosen the limit first"):
             opt.add_ingredient("Fatty", 0, 0)
         assert opt.fixed_variables() == []
 
@@ -877,7 +877,7 @@ class TestPersistence:
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer(project_name="numtest")
         df = pd.DataFrame({"name": ["Water"], "min": ["abc"], "max": [100]})
-        with pytest.raises(ValueError, match="must be numbers"):
+        with pytest.raises(ValueError, match="Water: Enter a number in Lowest, not “abc”"):
             opt.load_ingredients_from_csv(df)
 
     def test_export_import_json(self, opt_configured):
@@ -998,7 +998,7 @@ class TestActiveSet:
         assert opt_configured._get_fixed_features() == {1: 0.0}
 
     def test_an_inverted_range_is_refused(self, opt_configured):
-        with pytest.raises(ValueError, match="cannot be above Highest"):
+        with pytest.raises(ValueError, match="is above Highest"):
             opt_configured.add_ingredient("Sugar", 99.0, 1.0)
 
     def test_fixing_twice_is_idempotent(self, opt_configured):
@@ -1042,7 +1042,7 @@ class TestActiveSet:
 
     def test_fixing_detects_stranded_quantity_constraint(self, opt_configured):
         opt_configured.add_quantity_constraint(["Water", "Flour"], min_val=120.0)
-        with pytest.raises(ValueError, match="impossible to meet"):
+        with pytest.raises(ValueError, match="loosen the limit first"):
             opt_configured.add_ingredient("Flour", 0, 0)
         # Refused before anything was written.
         assert opt_configured._var_by_name("Flour")["bounds"] == (0.0, 50.0)
@@ -1059,7 +1059,7 @@ class TestActiveSet:
         ]))
         opt.add_objective("Taste", weight=1.0, goal="max", min_val=0, max_val=10)
         opt.add_constraint("protein", min_val=15.0)
-        with pytest.raises(ValueError, match="impossible to meet"):
+        with pytest.raises(ValueError, match="loosen the limit first"):
             opt.add_ingredient("a", 0, 0)
         assert opt._var_by_name("a")["bounds"] == (0.0, 10.0)
 
@@ -1378,16 +1378,16 @@ class TestSetupValidation:
 
     def test_blank_process_parameter_name(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
-        with pytest.raises(ValueError, match="cannot be empty"):
+        with pytest.raises(ValueError, match="Enter a name"):
             opt.add_process_parameter("   ", 0, 10)
 
     def test_inverted_bounds(self, tmp_path, monkeypatch):
         """Equal is how a row is FIXED, so only Lowest ABOVE Highest is a
         refusal."""
         opt = self._opt(tmp_path, monkeypatch)
-        with pytest.raises(ValueError, match="Lowest cannot be above Highest"):
+        with pytest.raises(ValueError, match="Lowest .* is above Highest .*; swap them"):
             opt.add_process_parameter("Temp", 200, 100)
-        with pytest.raises(ValueError, match="Lowest cannot be above Highest"):
+        with pytest.raises(ValueError, match="Lowest .* is above Highest .*; swap them"):
             opt.add_ingredient("Water", 50, 5)
         opt.add_ingredient("Water", 5, 5)
         assert opt._var_by_name("Water")['bounds'] == (5.0, 5.0)
@@ -1407,7 +1407,7 @@ class TestSetupValidation:
     def test_csv_rejects_duplicate_and_blank_names(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         df = pd.DataFrame({"Name": ["Sugar", " Sugar", None], "Min": [0, 0, 0], "Max": [10, 10, 10]})
-        with pytest.raises(ValueError, match="Row 3.*duplicate"):
+        with pytest.raises(ValueError, match="Row 3.*listed twice"):
             opt.load_ingredients_from_csv(df)
 
     def test_constraint_inverted_bounds(self, tmp_path, monkeypatch):
@@ -1417,7 +1417,7 @@ class TestSetupValidation:
         # The limit form's own two boxes, named: it has no Lowest or Highest
         # on it — those belong to the ingredient above.
         with pytest.raises(ValueError,
-                           match="At least must be less than At most"):
+                           match="At least 50 is above At most 10; swap them"):
             opt.add_quantity_constraint(["Sugar", "Honey"], min_val=50, max_val=10)
 
     def test_duplicate_quantity_constraint_replaces(self, tmp_path, monkeypatch):
@@ -2289,20 +2289,20 @@ class TestUnitsAndImportance:
         with pytest.raises(ValueError) as add:
             opt.add_objective("Chew", 1.0, goal="target", target=99,
                               min_val=0, max_val=10)
-        assert str(add.value) == ("Target 99 must be between Scale minimum and Scale maximum "
-                                  "(0 to 10).")
+        assert str(add.value) == ("Target 99 must be between Scale minimum 0 "
+                                  "and Scale maximum 10.")
         with pytest.raises(ValueError) as edit:
             opt.update_objective("Firmness", target=99)
-        assert str(edit.value) == ("Target 99 must be between Scale minimum and Scale maximum "
-                                   "(0 to 10).")
+        assert str(edit.value) == ("Target 99 must be between Scale minimum 0 "
+                                   "and Scale maximum 10.")
 
     def test_a_backwards_range_is_refused_in_the_tab_s_words(
             self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         with pytest.raises(ValueError) as e:
             opt.add_objective("Chew", 1.0, min_val=10, max_val=0)
-        assert str(e.value) == ("Scale minimum must be less than "
-                                "Scale maximum.")
+        assert str(e.value) == ("Scale minimum 10 is above Scale maximum 0; "
+                                "swap them.")
 
     def test_the_delete_refusal_names_the_formulations(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
@@ -2798,15 +2798,15 @@ class TestUnitPerIngredient:
         # what.
         with pytest.raises(
                 ValueError,
-                match=r"A limit adds amounts, so these ingredients need "
-                      r"one unit; enter Water in g instead of ml\."):
+                match=r"These ingredients need one unit for a limit; "
+                      r"enter Water in g instead of ml\."):
             opt.add_quantity_constraint(["Pea protein", "Water"], max_val=50)
         # All ingredients is the same limit over every one of them, refused
         # in the same words.
         with pytest.raises(
                 ValueError,
-                match=r"A limit adds amounts, so these ingredients need "
-                      r"one unit; enter Water in g instead of ml\."):
+                match=r"These ingredients need one unit for a limit; "
+                      r"enter Water in g instead of ml\."):
             opt.add_total_mass_constraint(max_val=400)
         assert opt.quantity_constraints == []
         # One unit between them, and the same limit is accepted.
@@ -3220,7 +3220,8 @@ class TestTheIngredientsGrid:
         errors, _ = opt.apply_ingredient_grid(
             _edit(opt.ingredient_grid_frame(), 2,
                   **{wording.TYPE_LABEL: wording.KIND_SETTING}))
-        assert errors == [(2, wording.TYPE_LOCKED_ERROR)]
+        assert errors == [(2, "Type stays Ingredient once results are "
+                              "recorded. Delete the row and add it again.")]
         assert opt._var_by_name("Salt")["category"] == "ingredient"
 
     def test_vendor_and_sku(self, tmp_path, monkeypatch):
@@ -3305,14 +3306,14 @@ class TestTheIngredientsGrid:
         assert self._refused(opt, _edit(opt.ingredient_grid_frame(), 1,
                                         **{wording.LOWEST_LABEL: 90.0,
                                            wording.HIGHEST_LABEL: 10.0})) == [
-            (1, "Lowest cannot be above Highest.")]
+            (1, "Lowest 90 is above Highest 10; swap them.")]
 
     def test_a_number_that_is_not_a_number_is_refused(self, tmp_path,
                                                       monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         assert self._refused(opt, _edit(opt.ingredient_grid_frame(), 1,
                                         **{wording.HIGHEST_LABEL: "lots"})) == [
-            (1, wording.NUMBER_REQUIRED_ERROR)]
+            (1, "Enter a number in Highest, not “lots”.")]
 
     def test_a_blank_unit_is_refused_for_an_ingredient_only(self, tmp_path,
                                                             monkeypatch):
@@ -3351,7 +3352,7 @@ class TestTheIngredientsGrid:
                                    wording.HIGHEST_LABEL: 10.0})
         assert self._refused(opt, frame) == [
             (1, wording.NAME_REQUIRED_ERROR),
-            (2, "Lowest cannot be above Highest.")]
+            (2, "Lowest 90 is above Highest 10; swap them.")]
 
     def test_a_deletion_of_a_used_ingredient_is_refused_before_it_writes(
             self, tmp_path, monkeypatch):
@@ -3593,7 +3594,7 @@ class TestTheMeasurementsGrid:
         errors, messages = opt.apply_measurement_grid(
             _edit(opt.measurement_grid_frame(), 2,
                   **{wording.SHARE_COLUMN: "half"}))
-        assert errors == [(2, wording.SHARE_REQUIRED_ERROR)]
+        assert errors == [(2, "Enter a number in Share of score (%), not “half”.")]
         assert messages == []
         assert opt.share_percents() == {"Firmness": 60, "Juiciness": 40}
 
@@ -3602,7 +3603,7 @@ class TestTheMeasurementsGrid:
         errors, _ = opt.apply_measurement_grid(
             _edit(opt.measurement_grid_frame(), 2,
                   **{wording.SHARE_COLUMN: 0.0}))
-        assert errors == [(2, wording.SHARE_REQUIRED_ERROR)]
+        assert errors == [(2, "Share of score (%) is 0; enter more than 0.")]
 
     def test_a_renamed_measurement_keeps_every_result_filed_under_it(
             self, tmp_path, monkeypatch):
@@ -3826,7 +3827,7 @@ class TestRenamingAMeasurement:
                            ("Total", "column name")):
             with pytest.raises(ValueError, match=why):
                 opt.rename_objective("Firmness", taken)
-        with pytest.raises(ValueError, match="cannot be empty"):
+        with pytest.raises(ValueError, match="Enter a name"):
             opt.rename_objective("Firmness", "   ")
         assert [o['name'] for o in opt.objectives] == ["Firmness"]
         assert opt.results_history[0] == {"Firmness": 6.0}
@@ -5037,7 +5038,7 @@ class TestPropertiesNamedInTheApp:
             opt.add_property("Taste")
         with pytest.raises(ValueError, match="column name Food Optimizer"):
             opt.add_property("Total (g)")
-        with pytest.raises(ValueError, match="Name cannot be empty"):
+        with pytest.raises(ValueError, match="Enter a name"):
             opt.add_property("   ")
         opt.add_property("Cost")
         with pytest.raises(ValueError, match="already a property"):
@@ -5464,13 +5465,13 @@ class TestFormulationTotal:
         with pytest.raises(ValueError) as high:
             opt.set_formulation_total(150)
         assert str(high.value) == (
-            "A default batch size of 150 g is not reachable: the most these "
-            "ingredients can make is 131 g.")
+            "These ingredients make at most 131 g; enter 131 g or less, or "
+            "raise a Highest.")
         with pytest.raises(ValueError) as low:
             opt.set_formulation_total(10)
         assert str(low.value) == (
-            "A default batch size of 10 g is not reachable: the least these "
-            "ingredients can make is 20 g.")
+            "These ingredients make at least 20 g; enter 20 g or more, or "
+            "lower a Lowest.")
         assert opt.formulation_total is None
         assert opt.quantity_constraints == []
 
@@ -6136,9 +6137,8 @@ class TestTheTotalIsAlwaysReachable:
         with pytest.raises(ValueError) as refused:
             opt.add_ingredient("Water", 20.0, 20.0)
         assert str(refused.value) == (
-            "Fixing these would leave no formulation adding up to 120 g. "
-            "Change the batch size, or let enough ingredients vary again. "
-            "Fixed at one amount: Water.")
+            "Fixing these leaves no formulation at 120 g; change the batch "
+            "size or let more ingredients vary. Fixed at one amount: Water.")
 
     def test_a_total_of_nothing_is_refused_in_the_reach_words(self, tmp_path,
                                                               monkeypatch):
@@ -6153,8 +6153,7 @@ class TestTheTotalIsAlwaysReachable:
         with pytest.raises(ValueError) as refused:
             opt.set_formulation_total(0)
         assert str(refused.value) == (
-            "A default batch size of 0 g is not reachable: every formulation has to add "
-            "up to something.")
+            "Enter a default batch size above 0.")
         assert opt.formulation_total is None
         assert opt.quantity_constraints == []
 
@@ -7391,7 +7390,7 @@ class TestRenameVariable:
                              "already the name of a process setting"),
                             ("Firmness", "already the name of a measurement"),
                             ("Total", "column name Food Optimizer"),
-                            ("   ", "Name cannot be empty")):
+                            ("   ", "Enter a name")):
             with pytest.raises(ValueError, match=says):
                 opt.rename_variable("Pea protein", taken)
         assert [v['name'] for v in opt.variables][0] == "Pea protein"
@@ -7778,10 +7777,10 @@ class TestFixedIsLowestEqualsHighest:
         assert opt._var_by_name("Mixing time")['bounds'] == (90.0, 90.0)
         for lowest, highest in ((10, 5), (200, 100)):
             with pytest.raises(ValueError,
-                               match="Lowest cannot be above Highest"):
+                               match=f"Lowest {lowest} is above Highest {highest}"):
                 opt.add_ingredient("Oil", lowest, highest)
             with pytest.raises(ValueError,
-                               match="Lowest cannot be above Highest"):
+                               match=f"Lowest {lowest} is above Highest {highest}"):
                 opt.add_process_parameter("Mixing time", lowest, highest)
         assert opt._var_by_name("Oil")['bounds'] == (5.0, 5.0)
 
@@ -7792,7 +7791,7 @@ class TestFixedIsLowestEqualsHighest:
         opt.load_ingredients_from_csv(pd.DataFrame({
             "Name": ["Flour", "Salt"], "Min": [0, 2], "Max": [100, 2]}))
         assert [v['name'] for v in opt.fixed_variables()] == ["Salt"]
-        with pytest.raises(ValueError, match="cannot be above Highest"):
+        with pytest.raises(ValueError, match="is above Highest"):
             opt.load_ingredients_from_csv(pd.DataFrame({
                 "Name": ["Flour"], "Min": [50], "Max": [10]}))
 
@@ -7806,9 +7805,8 @@ class TestFixedIsLowestEqualsHighest:
         with pytest.raises(ValueError) as refused:
             opt.add_ingredient("Water", 0, 0)
         assert str(refused.value) == (
-            "Fixing these would leave no formulation adding up to 120 g. "
-            "Change the batch size, or let enough ingredients vary again. "
-            "Fixed at one amount: Water.")
+            "Fixing these leaves no formulation at 120 g; change the batch "
+            "size or let more ingredients vary. Fixed at one amount: Water.")
         # Refused before anything was written: Water still varies.
         assert opt._var_by_name("Water")['bounds'] == (0.0, 80.0)
         assert [v['name'] for v in opt.fixed_variables()] == ["Salt"]
@@ -8021,7 +8019,7 @@ class TestALimitOnlyFixedRowsFeed:
         # The limit is written around the model's back, the way a file
         # restored from an older copy could carry one.
         opt._var_by_name("Salt")['bounds'] = (8.0, 8.0)
-        with pytest.raises(ValueError, match="impossible to meet"):
+        with pytest.raises(ValueError, match="loosen the limit first"):
             opt.ask(n_suggestions=2)
 
     def test_a_constant_property_limit_the_fixed_rows_break_stops_it_too(
@@ -8044,7 +8042,7 @@ class TestALimitOnlyFixedRowsFeed:
                      {"Firmness": 5.0 + i * 0.1})
         for name in ("Lean", "Fatty"):
             opt._var_by_name(name)['bounds'] = (20.0, 20.0)
-        with pytest.raises(ValueError, match="impossible to meet"):
+        with pytest.raises(ValueError, match="loosen the limit first"):
             opt.ask(n_suggestions=2)
 
     def test_a_constant_limit_the_fixed_rows_MEET_is_no_trouble(
@@ -8321,7 +8319,7 @@ class TestThePropertiesGrid:
         errors, messages = opt.apply_property_grid(
             _edit(opt.property_grid_frame(), 2,
                   **{"Cost": "cheap", "Sodium per 100 g": 4.0}))
-        assert errors == [(2, "Cost must be a number, or empty.")]
+        assert errors == [(2, "Enter a number in Cost, or leave it empty.")]
         assert messages == []
         assert json.dumps(opt.export_json(), sort_keys=True) == before
 
@@ -9702,8 +9700,8 @@ class TestTheFormulaColumn:
         frame = self._formula(self._formula(
             opt.ingredient_grid_frame(), 1, "= rest"), 3, "= rest")
         errors, messages = opt.apply_ingredient_grid(frame)
-        assert errors == [(None, "Only one row can be = rest: "
-                          "Water and Salt both are.")]
+        assert errors == [(None, "Only one row can use Fill to total; "
+                          "Water and Salt both do. Keep one.")]
         assert messages == []
         # Nothing was written: a refusal leaves the project as it was.
         assert opt.has_formula(opt._var_by_name("Water")) is False
@@ -10370,7 +10368,8 @@ class TestTheFormulaColumnFixes:
                 "Name": ["Flour", "Glaze"], "Lowest": [10, 0],
                 "Highest": [50, 0], "Unit": ["g", "g"],
                 "Rule": [None, "= 0.1 × Oven"]}))
-        assert str(refused.value) == wording.rule_ingredients_only("Oven")
+        assert str(refused.value) == wording.named_row_error(
+            "Glaze", wording.rule_ingredients_only("Oven"))
 
     @pytest.mark.parametrize("cell", ["=rest", "= REST", "=  rest",
                                       "= rest "])
@@ -10517,7 +10516,8 @@ class TestExactlyAndPercentLimits:
         opt = self._opt(tmp_path, monkeypatch)
         with pytest.raises(ValueError) as refused:
             opt.add_quantity_constraint(["Water"], exactly=10)
-        assert str(refused.value) == wording.EXACTLY_ONE_INGREDIENT
+        assert str(refused.value) == ("To fix Water at one amount, give it "
+                                      "equal Lowest and Highest in the grid.")
         assert opt.quantity_constraints == []
 
     def test_a_percent_limit_converts_to_grams_at_save(self, tmp_path,
@@ -11780,7 +11780,7 @@ class TestThePreMixGrid:
         errors, _ = opt.apply_premix_grid("Dry blend", _edit(
             opt.premix_grid_frame("Dry blend"), 2,
             **{wording.LOWEST_LABEL: "9", wording.HIGHEST_LABEL: "1"}))
-        assert errors == [(2, wording.LOWEST_ABOVE_HIGHEST_ERROR)]
+        assert errors == [(2, "Lowest 9 is above Highest 1; swap them.")]
         assert opt._by_name()["Flour"]['bounds'] == (5.0, 15.0)
 
     def test_parts_are_rebalanced_and_the_caption_says_so(self, tmp_path,
@@ -11901,7 +11901,7 @@ class TestThePreMixGrid:
             wording.UNIT_LABEL: "g",
             wording.MADE_AS_LABEL: wording.PREMIX_MADE_AS_PORTIONED})
         errors, _ = opt2.apply_ingredient_grid(blank)
-        assert errors == [(2, wording.NUMBER_REQUIRED_ERROR)]
+        assert errors == [(2, "Enter Lowest and Highest.")]
         assert opt2.premixes == {}
 
     def test_blanking_made_as_takes_the_premix_away(self, tmp_path,
@@ -12166,7 +12166,7 @@ class TestPreMixReviewFixes:
         opt.set_premix_parts("Dry blend", self._parts(("Flour", 50), ("Salt", 30), ("Pepper", 20)))
         assert opt.quantity_constraints[-1]['ingredients'] == ["Flour", "Salt", "Pepper"]
         assert opt.limit_label(opt.quantity_constraints[-1]) == "Dry blend"
-        with pytest.raises(ValueError, match="Choose a pre-mix weighed into each formulation on its own"):
+        with pytest.raises(ValueError, match="Pick Dry blend on its own to limit its total"):
             opt.add_chosen_quantity_constraint(["Dry blend", "Flour"], max_val=45)
 
 
@@ -12402,8 +12402,8 @@ class TestTheColdRead:
         assert errors == [(int(row),
                            wording.premix_amount_is_its_parts("Dry blend"))]
         assert wording.premix_amount_is_its_parts("Dry blend") == (
-            "Dry blend's amount is the sum of its parts. Change the parts "
-            "in its fold.")
+            "Its amount is the sum of its parts; change them under Blend "
+            "compositions.")
 
     # ---- S8 · the rebalance names the numbers --------------------------- #
 

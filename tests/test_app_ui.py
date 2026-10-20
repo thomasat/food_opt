@@ -283,7 +283,8 @@ def test_create_project_rejects_bad_name(tmp_path, monkeypatch):
     at.text_input(key="new_project_name").set_value("bad/name")
     _submit_button(at, "Create project").click()
     at.run()
-    assert any("Up to 64 characters" in e.value for e in at.error)
+    # The refusal names the character to take out, not the whole rule.
+    assert [e.value for e in at.error] == ["Take / out of the name."]
     assert list(tmp_path.glob("*.pkl")) == []
 
 
@@ -1215,9 +1216,11 @@ def test_a_measurement_renamed_onto_a_taken_name_is_refused_by_row(burger):
     at.run()
     _save_grid(at, MEAS_GRID,
                edited={0: {wording.MEASUREMENT_COLUMN: "Pea protein"}})
-    assert [e.value for e in at.error] == [wording.row_error(
-        1, "Pea protein is already the name of an ingredient. Choose "
-           "another name.")]
+    # Named by the row's own name; a sentence that already starts with it
+    # is not prefixed with it a second time.
+    assert [e.value for e in at.error] == [
+        "Pea protein is already the name of an ingredient. Choose "
+        "another name."]
     assert {o["name"] for o in FoodOptimizer("burger").objectives} == {
         "Firmness", "Juiciness"}
 
@@ -1460,8 +1463,8 @@ def test_adding_a_measurement_that_already_exists_is_refused(burger):
     # case-insensitive
     _save_grid(at, MEAS_GRID, added=[_measurement_row("firmness", share=20.0)])
     assert not at.exception
-    assert any(wording.MEASUREMENT_EXISTS_ERROR in e.value
-               for e in at.error), [e.value for e in at.error]
+    assert [e.value for e in at.error] == [
+        "firmness: Another row has this name; rename one of them."]
     kept = next(o for o in FoodOptimizer("burger").objectives
                 if o["name"] == "Firmness")
     # 60 %, not 1.5: a saved project reads its importances as shares of 100.
@@ -4603,7 +4606,7 @@ def test_an_amount_limit_across_units_is_refused_on_screen(mixed_units):
     _submit_button(at, "Add ingredient limit").click()
     at.run()
     assert not at.exception
-    assert [e.value for e in at.error] == ["A limit adds amounts, so these ingredients need one unit; enter Water in g instead of ml."]
+    assert [e.value for e in at.error] == ["These ingredients need one unit for a limit; enter Water in g instead of ml."]
     assert FoodOptimizer("mixed").quantity_constraints == []
 
 
@@ -4902,7 +4905,7 @@ def test_a_limit_on_all_ingredients_is_refused_in_words_the_screen_can_obey(
     at.run()
     assert not at.exception
     assert [e.value for e in at.error] == [
-        "A limit adds amounts, so these ingredients need one unit; "
+        "These ingredients need one unit for a limit; "
         "enter Water in g instead of ml."]
     assert FoodOptimizer("mixed").quantity_constraints == []
 
@@ -5367,8 +5370,8 @@ def test_a_property_limit_is_refused_while_the_units_differ(with_properties):
     at.run()
     assert not at.exception
     # The refusal names the fix, not just the fault.
-    assert any(e.value == ("Property limits are per 100 g, so every ingredient "
-                           "needs a mass unit; enter Water in g instead of "
+    assert any(e.value == ("Property limits need every ingredient in one "
+                           "unit; enter Water in g instead of "
                            "ml.") for e in at.error), \
         [e.value for e in at.error]
     assert FoodOptimizer("props").constraints == []
@@ -6133,9 +6136,9 @@ def test_a_row_rubbed_out_is_refused_not_quietly_deleted(burger):
         wording.LOWEST_LABEL: None, wording.HIGHEST_LABEL: None,
         wording.UNIT_LABEL: ""}})
     assert not at.exception
-    assert [e.value for e in at.error] == [
-        wording.named_row_error(wording.NEW_GRID_ROW,
-                                wording.NAME_REQUIRED_ERROR)]
+    # Named by the name it was saved under: "The new row" sent the reader
+    # looking for a row that is not new.
+    assert [e.value for e in at.error] == ["Methylcellulose: Enter a name."]
     assert "Yes, delete" not in _labels(at), _labels(at)
     assert [v["name"] for v in FoodOptimizer("burger").variables] == [
         "Pea protein", "Methylcellulose"]
@@ -7020,7 +7023,7 @@ def test_an_amount_limit_needs_a_number(burger):
     at.run()
     _submit_button(at, "Add ingredient limit").click()
     at.run()
-    assert [e.value for e in at.error] == ["Enter a number for this limit."]
+    assert [e.value for e in at.error] == ["Enter a number in At most."]
     assert FoodOptimizer("burger").quantity_constraints == []
 
 
@@ -7495,7 +7498,8 @@ def test_a_round_with_a_rest_row_takes_any_batch_size_it_fits_in(rest_round):
         at.number_input(key="scale_total").set_value(size)
         at.run()
         assert not at.exception
-        assert not any("not reachable" in e.value for e in at.error), \
+        assert not any("These ingredients make at" in e.value
+                       for e in at.error), \
             [e.value for e in at.error]
         table = _round_table(at)
         assert table["Total (g)"].iloc[0] == pytest.approx(size)
@@ -7602,8 +7606,9 @@ def test_a_target_is_a_cell_of_its_own_and_is_refused_outside_the_range(
     _save_grid(at, MEAS_GRID, edited={0: {wording.TARGET_LABEL: 50.0}})
     # R13: the refusal names the two controls the reader can reach on this
     # grid, not "the range", which is a column on a printed sheet.
-    assert [e.value for e in at.error] == [wording.row_error(
-        1, "Target 50 must be between Scale minimum and Scale maximum (0 to 10).")]
+    assert [e.value for e in at.error] == [
+        "Firmness: Target 50 must be between Scale minimum 0 and Scale "
+        "maximum 10."]
     assert FoodOptimizer("burger").objectives[1]["target"] == 6.0
 
 
@@ -8010,8 +8015,8 @@ def test_a_batch_size_the_ingredients_cannot_make_is_refused(open_batch):
     at.number_input(key="scale_total").set_value(250.0)
     at.run()
     assert not at.exception
-    assert any(c.value == ("A batch size of 250 g is not reachable: the most "
-                           "these ingredients can make is 28 g. The Round "
+    assert any(c.value == ("These ingredients make at most 28 g; enter "
+                           "28 g or less, or raise a Highest. The Round "
                            "stays at 25 g.")
                for c in at.caption), [c.value for c in at.caption]
     # Not made to it: the round, the table and the sheets are all still 25 g.
@@ -8041,11 +8046,11 @@ def test_a_reachable_size_typed_after_a_refused_one_is_made(open_batch):
     at.run()
     at.number_input(key="scale_total").set_value(250.0)
     at.run()
-    assert any("is not reachable" in c.value for c in at.caption)
+    assert any("These ingredients make at most" in c.value for c in at.caption)
     at.number_input(key="scale_total").set_value(28.0)
     at.run()
     assert not at.exception
-    assert not any("is not reachable" in c.value for c in at.caption), \
+    assert not any("These ingredients make at" in c.value for c in at.caption), \
         [c.value for c in at.caption]
     assert at.number_input(key="scale_total").value == 28.0
     assert FoodOptimizer("burger").pending_batch_total == 28.0
@@ -8074,7 +8079,7 @@ def test_the_box_is_blank_and_refuses_nothing_when_no_size_is_in_force(
     assert not at.exception
     assert at.number_input(key="scale_total").value is None
     said = [c.value for c in at.caption] + [e.value for e in at.error]
-    assert not any("is not reachable" in s for s in said), said
+    assert not any("These ingredients make at" in s for s in said), said
     # ...and nothing was rewritten behind the blank box.
     assert [r['recipe'] for r in FoodOptimizer("unreachable_mean").pending_batch] \
         == [{"Pea protein": 20.0, "Water": 10.0},
@@ -9205,8 +9210,8 @@ def test_a_total_the_amounts_cannot_reach_is_refused_on_screen(burger):
     at.run()
     assert not at.exception
     assert [e.value for e in at.error] == [
-        "A default batch size of 90 g is not reachable: the most these "
-        "ingredients can make is 28 g."]
+        "These ingredients make at most 28 g; enter 28 g or less, or "
+        "raise a Highest."]
     assert FoodOptimizer("burger").formulation_total is None
 
 

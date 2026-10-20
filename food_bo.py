@@ -899,6 +899,31 @@ def _range_from_cells(row):
     return low, high, (low_ok and high_ok)
 
 
+def _number_cells_refusal(row, columns, values=None):
+    """The refusal for number cells that are empty or hold text, naming the
+    cells (wording.cells_need_numbers). Message only: whether the row is
+    refused is decided by the caller. `values` are what the caller read the
+    cells as, where it has already filled a blank in (a calculation rubbed
+    out hands the row back its old amounts); a cell is blank when its
+    value is None."""
+    blank, typed = [], []
+    for i, column in enumerate(columns):
+        value, ok = _number_cell(row, column)
+        text = _text_cell(row, column)
+        if not ok and text not in _APP_RANGE_WORDS:
+            typed.append((column, text))
+        elif (value if values is None else values[i]) is None:
+            blank.append(column)
+    return wording.cells_need_numbers(blank, typed)
+
+
+_RANGE_CELLS = (wording.LOWEST_LABEL, wording.HIGHEST_LABEL)
+# What the app itself writes into the Lowest and Highest cells of a row
+# that is calculated: read as no number, never quoted back as one.
+_APP_RANGE_WORDS = (wording.WORKED_OUT, wording.CALCULATED_RANGE,
+                    wording.OLD_CALCULATED_LABEL, wording.OLD_CALCULATED_RANGE)
+
+
 def grid_signature(frame):
     """One comparable value per row, for asking whether a grid still says
     what the project says. Compared cell by cell rather than frame by frame:
@@ -1026,6 +1051,12 @@ def _proposed_variable(spec):
     var['formula'] = spec['formula']
     var['balance'] = spec['balance']
     return var
+
+
+def _kind_label(var):
+    """The Type cell's word for a row: Ingredient or Process setting."""
+    return (wording.KIND_SETTING if var.get('category', 'ingredient') == 'process'
+            else wording.KIND_INGREDIENT)
 
 
 def _duplicate_name_errors(rows):
@@ -1884,7 +1915,7 @@ class FoodOptimizer:
         # formulation. Only Lowest ABOVE Highest is a range with nothing in
         # it, and that is what is refused.
         if float(min_val) > float(max_val):
-            raise ValueError(LOWEST_ABOVE_HIGHEST_ERROR)
+            raise ValueError(wording.lowest_above_highest(min_val, max_val))
         for v in self.variables:
             if v['name'].lower() == name.lower() and v.get('category', 'ingredient') != category:
                 other = v.get('category', 'ingredient')
@@ -2121,7 +2152,8 @@ class FoodOptimizer:
                     in {wording.PREMIX_MADE_AS_BOUGHT_IN.lower(), wording.OLD_SINGLE_MODE}):
                 made_as = ""
             if made_as and group:
-                raise ValueError(wording.PREMIX_INSIDE_PREMIX)
+                raise ValueError(wording.file_row_premix_in_premix(row_no,
+                                                                   name))
             # One name, one thing — with the one exception a pre-mix makes:
             # the same water may be a part of the dry blend and of the wet
             # one, so a name is repeated only across DIFFERENT pre-mixes.
@@ -2131,7 +2163,8 @@ class FoodOptimizer:
             taken.add(key)
             share, readable = _number_cell(row, wording.PREMIX_SHARE_LABEL)
             if not readable:
-                raise ValueError(wording.PART_SHARE_ERROR)
+                raise ValueError(wording.file_row_share_not_a_number(
+                    row_no, _text_cell(row, wording.PREMIX_SHARE_LABEL)))
             props = {}
             for col in prop_cols:
                 try:
@@ -2227,7 +2260,15 @@ class FoodOptimizer:
             try:
                 min_val, max_val = float(row['Min']), float(row['Max'])
             except (ValueError, TypeError):
-                raise ValueError(wording.file_amounts_not_numbers(name))
+                typed = []
+                for column, label in (('Min', wording.LOWEST_LABEL),
+                                      ('Max', wording.HIGHEST_LABEL)):
+                    try:
+                        float(row[column])
+                    except (ValueError, TypeError):
+                        typed.append((label, _file_text(row, column)))
+                raise ValueError(wording.file_amounts_not_numbers(name,
+                                                                  typed))
             if min_val > max_val:
                 raise ValueError(wording.file_lowest_above_highest(
                     name, min_val, max_val))
@@ -2278,13 +2319,22 @@ class FoodOptimizer:
         for var in self.variables:
             if not var.get('formula'):
                 continue
-            form = parse_formula(var['formula'],
-                                 [v['name'] for v in self.variables], True)
+            # Every refusal about one row's calculation is said against
+            # that row by name: a file has no grid row for the reader to be
+            # looking at.
+            try:
+                form = parse_formula(var['formula'],
+                                     [v['name'] for v in self.variables], True)
+            except FormulaError as e:
+                raise FormulaError(wording.named_row_error(var['name'],
+                                                           str(e)))
             if var['name'] in form.names():
-                raise ValueError(wording.RULE_USES_ITS_OWN_ROW)
+                raise ValueError(wording.named_row_error(
+                    var['name'], wording.RULE_USES_ITS_OWN_ROW))
             trouble = self._rule_names_a_setting(form)
             if trouble:
-                raise ValueError(trouble)
+                raise ValueError(wording.named_row_error(var['name'],
+                                                         trouble))
         self._formula_order()
 
     def add_process_parameter(self, name, min_val, max_val, baseline=None,
@@ -2421,7 +2471,7 @@ class FoodOptimizer:
         min_val = float(min_val) if min_val is not None else 0.0
         max_val = float(max_val) if max_val is not None else 10.0
         if min_val >= max_val:
-            raise ValueError(RANGE_ENDS_ERROR)
+            raise ValueError(wording.scale_ends_error(min_val, max_val))
         if goal == 'target':
             if target is None:
                 raise ValueError(TARGET_REQUIRED_ERROR)
@@ -3033,7 +3083,7 @@ class FoodOptimizer:
         min_val = float(merged.get('min_val', 0.0))
         max_val = float(merged.get('max_val', 10.0))
         if min_val >= max_val:
-            raise ValueError(RANGE_ENDS_ERROR)
+            raise ValueError(wording.scale_ends_error(min_val, max_val))
         goal = merged.get('goal', 'max')
         if goal == 'target':
             if merged.get('target') is None:
@@ -6313,7 +6363,7 @@ class FoodOptimizer:
         Per 100 g of formulation, not as a total: a total grew with the batch,
         so the same formulation passed at 100 g and failed at 1 kg."""
         if min_val is not None and max_val is not None and float(min_val) >= float(max_val):
-            raise ValueError(wording.LIMIT_BOUNDS_ORDER_ERROR)
+            raise ValueError(wording.limit_bounds_order(min_val, max_val))
         # An average over the amounts, so the amounts must be in one unit:
         # 25 g of powder and 40 ml of water share no 100 g to be measured per.
         units = self.ingredient_units()
@@ -6376,11 +6426,11 @@ class FoodOptimizer:
                   and self.premixes[n]['mode'] == PREMIX_WEIGHED]
         if groups:
             if len(chosen) != 1:
-                raise ValueError(wording.PREMIX_LIMIT_ON_ITS_OWN)
+                raise ValueError(wording.premix_limit_on_its_own(groups[0]))
             group = groups[0]
             parts = [p['name'] for p in self.premixes[group]['parts']]
             if not parts:
-                raise ValueError(wording.PREMIX_NEEDS_A_PART)
+                raise ValueError(wording.premix_has_no_parts(group))
             return self.add_quantity_constraint(
                 parts, source=premix_limit_source(group), **bounds)
         return self.add_quantity_constraint(chosen, **bounds)
@@ -6426,7 +6476,8 @@ class FoodOptimizer:
         # Exactly wins and writes its own band.
         if (exactly is not None and len(ingredients) == 1
                 and premix_named_by(source) is None):
-            raise ValueError(wording.EXACTLY_ONE_INGREDIENT)
+            raise ValueError(wording.exactly_one_ingredient(
+                list(ingredients)[0]))
         # A limit can only change what the search moves. Every row of this
         # one worked out from a rule means the limit has nothing to act on:
         # it was accepted, listed, and then quietly contradicted by the
@@ -6438,7 +6489,7 @@ class FoodOptimizer:
                 number_list(list(ingredients)),
                 many=len(ingredients) != 1))
         if min_val is not None and max_val is not None and float(min_val) >= float(max_val):
-            raise ValueError(wording.LIMIT_BOUNDS_ORDER_ERROR)
+            raise ValueError(wording.limit_bounds_order(min_val, max_val))
         # A limit is a sum, and a sum across units is a number of nothing:
         # 25 g of powder plus 40 ml of water is neither 65 g nor 65 ml.
         if len({self.unit_of(name) for name in ingredients}) > 1:
@@ -11187,10 +11238,12 @@ class FoodOptimizer:
             if weighed:
                 low, high, ok = _range_from_cells(row)
                 if not ok or low is None or high is None:
-                    errors.append((row_no, wording.PART_AMOUNTS_REQUIRED))
+                    errors.append((row_no, _number_cells_refusal(
+                        row, _RANGE_CELLS, None if not ok else (low, high))))
                     continue
                 if low > high:
-                    errors.append((row_no, LOWEST_ABOVE_HIGHEST_ERROR))
+                    errors.append((row_no,
+                                   wording.lowest_above_highest(low, high)))
                     continue
                 amounts[cleaned['name']] = (low, high)
             seen.add(cleaned['name'].lower())
@@ -11783,7 +11836,7 @@ class FoodOptimizer:
             low, high = (0.0, 0.0) if kept is None else kept
         else:
             if not range_ok:
-                return None, wording.NUMBER_REQUIRED_ERROR
+                return None, _number_cells_refusal(row, _RANGE_CELLS)
             if kept is not None and self.has_formula(var):
                 # The rule has just been rubbed out, and the two cells still
                 # hold what the app wrote into them — the word in Highest,
@@ -11797,11 +11850,12 @@ class FoodOptimizer:
                         row, wording.HIGHEST_LABEL) in ("", wording.WORKED_OUT, wording.CALCULATED_RANGE, wording.OLD_CALCULATED_LABEL, wording.OLD_CALCULATED_RANGE):
                     high = kept[1]
             if low is None or high is None:
-                return None, wording.NUMBER_REQUIRED_ERROR
+                return None, _number_cells_refusal(row, _RANGE_CELLS,
+                                                   (low, high))
             # Equal is allowed, and is how a row is FIXED at one amount.
             # Only Lowest ABOVE Highest is a range with nothing in it.
             if low > high:
-                return None, LOWEST_ABOVE_HIGHEST_ERROR
+                return None, wording.lowest_above_highest(low, high)
         unit = _text_cell(row, wording.UNIT_LABEL)
         if category == 'ingredient' and not unit:
             # An ingredient's amounts are added up, averaged and printed. A
@@ -11817,12 +11871,12 @@ class FoodOptimizer:
                 wording.VENDOR_LABEL if vendor else wording.SKU_LABEL)
         baseline, baseline_ok = _number_cell(row, wording.BASELINE_LABEL)
         if not baseline_ok:
-            return None, wording.NUMBER_REQUIRED_ERROR
+            return None, _number_cells_refusal(row, (wording.BASELINE_LABEL,))
         if baseline is not None and category == 'ingredient':
             return None, wording.only_a_setting_has(wording.BASELINE_LABEL)
         if (var is not None and self.X_history
                 and var.get('category', 'ingredient') != category):
-            return None, wording.TYPE_LOCKED_ERROR
+            return None, wording.type_locked(_kind_label(var))
         if var is None and category == 'process' and self.X_history and (
                 baseline is None):
             return None, wording.ADD_BASELINE_ERROR
@@ -11882,7 +11936,7 @@ class FoodOptimizer:
         remove_ingredient asks, asked without writing — so the grid can
         refuse the whole save rather than half of it."""
         if self.X_history and len(self.recipe_history) != len(self.X_history):
-            return AMOUNTS_MISSING_DELETE_ERROR
+            return wording.amounts_missing_delete(name)
         trouble = self._formula_reads_refusal(name)
         if trouble:
             return trouble
@@ -12283,7 +12337,7 @@ class FoodOptimizer:
         if var.get('category', 'ingredient') == category:
             return []
         if self.X_history:
-            raise ValueError(wording.TYPE_LOCKED_ERROR)
+            raise ValueError(wording.type_locked(_kind_label(var)))
         var['category'] = category
         if category == 'process':
             var.pop('vendor', None)
@@ -12414,7 +12468,7 @@ class FoodOptimizer:
                 # the other is asking them to fix a row they never touched.
                 blamed = (twin if _row_moved(twin[1]) and not _row_moved(spec)
                           else (row_no, spec))
-                errors.append((blamed[0], wording.MEASUREMENT_EXISTS_ERROR))
+                errors.append((blamed[0], wording.NAME_ON_TWO_ROWS))
                 continue
             seen[spec['name'].lower()] = (row_no, spec)
             rows.append((row_no, spec))
@@ -12470,20 +12524,26 @@ class FoodOptimizer:
         low, low_ok = _number_cell(row, wording.LOWEST_MEASURABLE_LABEL)
         high, high_ok = _number_cell(row, wording.HIGHEST_MEASURABLE_LABEL)
         if not low_ok or not high_ok or low is None or high is None:
-            return None, wording.NUMBER_REQUIRED_ERROR
+            return None, _number_cells_refusal(
+                row, (wording.LOWEST_MEASURABLE_LABEL,
+                      wording.HIGHEST_MEASURABLE_LABEL))
         if low >= high:
-            return None, RANGE_ENDS_ERROR
+            return None, wording.scale_ends_error(low, high)
         target, target_ok = _number_cell(row, wording.TARGET_LABEL)
         if not target_ok:
-            return None, wording.NUMBER_REQUIRED_ERROR
+            return None, _number_cells_refusal(row, (wording.TARGET_LABEL,))
         if goal == 'target':
             if target is None:
                 return None, TARGET_REQUIRED_ERROR
             if not (low <= target <= high):
                 return None, _target_outside_message(target, low, high)
         share, share_ok = _number_cell(row, wording.SHARE_COLUMN)
-        if not share_ok or share is None or share <= 0:
+        if not share_ok:
+            return None, _number_cells_refusal(row, (wording.SHARE_COLUMN,))
+        if share is None:
             return None, wording.SHARE_REQUIRED_ERROR
+        if share <= 0:
+            return None, wording.share_not_above_zero(share)
         return {
             'obj': obj, 'id': row_id if obj is not None else None,
             'name': name, 'goal': goal,

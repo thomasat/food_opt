@@ -69,10 +69,11 @@ def add_field(opt, name, scope):
     if not name or len(name) > 80 or scope not in SCOPES:
         raise ValueError(wording.CUSTOM_FIELD_INVALID)
     if name.casefold() in {str(v).casefold() for v in wording.RECORD_FIELD_LABELS.values()}:
-        raise ValueError(wording.CUSTOM_FIELD_BUILTIN)
+        raise ValueError(wording.custom_field_builtin(name))
     data = copy.deepcopy(state(opt))
     if any(f['name'].casefold() == name.casefold() and f['scope'] == scope for f in data['fields']):
-        raise ValueError(wording.CUSTOM_FIELD_EXISTS)
+        raise ValueError(wording.custom_field_exists(
+            name, wording.CUSTOM_SCOPE_NAMES[scope]))
     key = uuid.uuid4().hex
     data['fields'].append({'id': key, 'name': name, 'scope': scope, 'enabled': True})
     opt.custom_records = data
