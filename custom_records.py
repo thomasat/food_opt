@@ -342,7 +342,14 @@ def history(opt):
                     | {int(r['batch']) for r in opt.skipped if r.get('batch') is not None}, reverse=True)
     if not rounds:
         return
-    number = st.selectbox(wording.CUSTOM_ROUND_LABEL, rounds, key='custom_history_round')
+    # The latest Round first, and again whenever a newer one is recorded
+    # (S10): the box kept the Round it opened on, so Round 1 stayed chosen
+    # after Round 2 was saved. A Round picked by hand stays picked until then.
+    key, seen = 'custom_history_round', 'custom_history_round_latest'
+    if st.session_state.get(seen) != rounds[0] or st.session_state.get(key) not in rounds:
+        st.session_state[key] = rounds[0]
+        st.session_state[seen] = rounds[0]
+    number = st.selectbox(wording.CUSTOM_ROUND_LABEL, rounds, key=key)
     numbers = [int(n) for n, b in zip(opt.formulation_ids, opt.batch_history) if b == number]
     numbers += [int(r['formulation']) for r in opt.skipped if r.get('batch') == number]
     editor(opt, number, numbers, prefix='history')

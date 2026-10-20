@@ -129,3 +129,65 @@ def test_make_a_round_words():
                   wording.DOWNLOAD_BATCH_SHEETS, wording.WHOLE_BATCH_LABEL):
         assert " round" not in label, label
     assert wording.TAB_BATCH_NAME == "Make a round"     # the tab keeps its name
+
+
+# ------------------------------------------------------------------ #
+#  S10: Records for Round opens on the latest Round
+# ------------------------------------------------------------------ #
+
+def test_records_for_round_follows_the_latest_round(burger):
+    custom_records.add_field(burger, "Operator", "formulation")
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 6.0, "Firmness": 6.0}, formulation_no=1, batch_no=1)
+    at = _app("burger", wording.TAB_RESULTS)
+    assert not at.exception
+    box = at.selectbox(key="custom_history_round")
+    assert box.label == "Records for Round"
+    assert box.value == 1
+    # Round 2 is recorded while the box is on screen: it moves to Round 2.
+    FoodOptimizer("burger").tell({"Pea protein": 12.0, "Methylcellulose": 2.0},
+                                 {"Juiciness": 7.0, "Firmness": 5.0},
+                                 formulation_no=2, batch_no=2)
+    at.session_state.optimizer = FoodOptimizer("burger")
+    at.run()
+    assert at.selectbox(key="custom_history_round").value == 2
+    # A Round picked by hand stays picked.
+    at.selectbox(key="custom_history_round").set_value(1)
+    at.run()
+    at.run()
+    assert at.selectbox(key="custom_history_round").value == 1
+
+
+# ------------------------------------------------------------------ #
+#  N8: no % column when it would repeat Amount
+# ------------------------------------------------------------------ #
+
+def test_the_percent_column_is_left_out_at_100_g(burger):
+    import ui_results
+    assert ui_results._percent_repeats_amount(
+        burger, {"Pea protein": 90.0, "Methylcellulose": 10.0})
+    assert not ui_results._percent_repeats_amount(
+        burger, {"Pea protein": 20.0, "Methylcellulose": 2.0})
+    burger.tell({"Pea protein": 20.0, "Methylcellulose": 2.0},
+                {"Juiciness": 7.0, "Firmness": 6.0}, formulation_no=1, batch_no=1)
+    at = _app("burger", wording.TAB_RESULTS)
+    table = next(t.value for t in at.table if wording.AMOUNT_COLUMN in t.value.columns)
+    assert wording.RESULT_PERCENT_COLUMN in table.columns      # 22 g: it says something
+
+
+# ------------------------------------------------------------------ #
+#  S7, N6, N7: Results' words
+# ------------------------------------------------------------------ #
+
+def test_results_words():
+    assert wording.runner_up_line(1, "83.2", "2.0") == "Next best: Formulation 1, 83.2 (2.0 lower)."
+    assert wording.round_results_column("Firmness", "target", 6, "/10") == \
+        "Firmness (/10) · Target 6"
+    assert wording.round_results_column("Cook loss", "min", None, "%") == \
+        "Cook loss (%) · Lower is better"
+    assert wording.review_top_line("100") == "100 = every measurement on target"
+    assert (wording.SCORE_ATTRIBUTE_COLUMN, wording.SCORE_RATING_COLUMN,
+            wording.SCORE_TARGET_COLUMN) == ("Measurement", "Measured", "Goal")
+    for text in (wording.score_point_line(), wording.score_point_line(15),
+                 *wording.method_definitions(span=None)):
+        assert not any(w in text.lower() for w in ("attribute", "rating", "range")), text

@@ -146,7 +146,7 @@ def _spec_text(spec):
 def test_the_score_chart_names_the_tie_the_top_and_counts_the_dots(r6):
     text = _spec_text(U.improving_chart(r6, height=U.PANEL_CHART_H).to_dict())
     assert "Best: 98.3 (F16, F17 tied)" in text
-    assert "100 = every attribute on target" in text
+    assert "100 = every measurement on target" in text
     assert "Each formulation (18)" in text
     assert "Round average" in text and wording.BEST_SO_FAR_COLUMN in text
     for gone in ("Stop", "Within noise", "within noise", 'Within noise of top', "Start:"):
@@ -315,11 +315,11 @@ def test_dark_theme_uses_the_dark_tokens(r6, monkeypatch):
 
 def test_the_definitions_and_the_at_limit_entry(r6):
     assert U.definitions(r6) == [
-        "Overall score: 100 = every attribute on target. Each attribute earns its share; "
-        "each point off costs 1/15 of it.",
+        "Overall score: 100 = every measurement on target. Each measurement earns its share; "
+        "each unit off costs 1/15 of it.",
         "Round: the formulations made and tasted together.",
         "Best so far: the highest Overall score so far. Each formulation is made once and "
-        "rated once.",
+        "measured once.",
         "Top formulations: the 3 highest Overall scores so far (ties included).",
         "Suggestions: best bets to improve on the best so far, weighing how good they look "
         "and how unsure the model is.",
@@ -336,7 +336,7 @@ def test_the_definitions_and_the_at_limit_entry(r6):
 
 def test_mixed_scales_say_the_rule_generically():
     lines = wording.method_definitions(span=None)
-    assert "1/(its Range)" in lines[0]
+    assert "1/(Scale maximum − Scale minimum)" in lines[0]     # S7: Set up's words
 
 
 # ------------------------------------------------------------------ #

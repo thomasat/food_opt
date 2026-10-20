@@ -66,8 +66,9 @@ def test_round6_results_table(round6):
     table = ui_results.round_results(round6)
     assert table["round"] == 6
     assert table["columns"] == [
-        "Formulation", "Overall score", "Consistency (target 12)",
-        "Creaminess (target 5)", "Tanginess (target 5)", "Uniformity (target 13)"]
+        "Formulation", "Overall score", "Consistency (/15) · Target 12",
+        "Creaminess (/15) · Target 5", "Tanginess (/15) · Target 5",
+        "Uniformity (/15) · Target 13"]
     rows = table["frame"].values.tolist()
     assert rows == [
         ["F16 · new best (tied)", "98.3", "12", "5", "4", "13"],
@@ -125,8 +126,8 @@ def test_a_project_without_a_recorded_panel_claims_none(tmp_path, monkeypatch):
     # Taste has no target: plain. Cook loss 25 against 20 is above.
     assert table["caption"] == "" and table["key"] is True
     assert table["off"] == {(0, table["columns"][3]): "above"}
-    assert table["columns"][2:] == ["Taste (0–10, higher is better)",
-                                    "Cook loss (0–100, %, target 20)"]
+    assert table["columns"][2:] == ["Taste (0–10) · Higher is better",
+                                    "Cook loss (0–100, %) · Target 20"]
     assert sp.panel_size(opt) is None
 
 
@@ -190,15 +191,18 @@ def test_breakdown_equals_the_stored_score_for_every_pilot_formulation(store):
 
 def test_breakdown_of_f16(round6):
     shown = ui_results.score_breakdown_frame(round6, round6.index_of_formulation(16))
-    assert shown["line"] == "Each point off costs 1/15 of its share."
+    assert shown["line"] == "Each unit off costs 1/15 of its share."
+    # S7: Set up's words — Measurement, Measured, Goal.
+    assert list(shown["frame"].columns) == [
+        "Measurement", "Measured", "Goal", "Share of score", "Points earned"]
     assert shown["frame"].values.tolist() == [
-        ["Consistency", "12", "12", "25", "25.0"],
-        ["Creaminess", "5", "5", "25", "25.0"],
-        ["Tanginess", "4", "5", "25", "23.3"],
-        ["Uniformity", "13", "13", "25", "25.0"],
+        ["Consistency", "12", "Target 12", "25", "25.0"],
+        ["Creaminess", "5", "Target 5", "25", "25.0"],
+        ["Tanginess", "4", "Target 5", "25", "23.3"],
+        ["Uniformity", "13", "Target 13", "25", "25.0"],
         ["Overall score", "", "", "100", "98.3"]]
-    # Only the rating carries the direction; Points earned stays neutral.
-    assert shown["off"] == {(2, "Rating"): "below"}
+    # Only the measured value carries the direction; Points earned stays neutral.
+    assert shown["off"] == {(2, "Measured"): "below"}
 
 
 @pytest.mark.parametrize("goal", ["max", "min", "target"])
@@ -224,7 +228,11 @@ def test_breakdown_equals_the_score_for_every_goal_and_a_partial_row(tmp_path, m
     assert abs(first["Taste"]["share_of_score"] + first["Bite"]["share_of_score"] - 100.0) \
         < 1e-9
     frame = ui_results.score_breakdown_frame(opt, 0)["frame"]
-    assert frame.set_index("Attribute").loc["Crunch", "Rating"] == wording.DOES_NOT_APPLY
+    assert frame.set_index("Measurement").loc["Crunch", "Measured"] == wording.DOES_NOT_APPLY
+    # A lower-is-better goal reads as one, never as a target of its low end.
+    assert frame.set_index("Measurement").loc["Crunch", "Goal"] == "Lower is better"
+    assert frame.set_index("Measurement").loc["Taste", "Goal"] == {
+        "max": "Higher is better", "min": "Lower is better", "target": "Target 6"}[goal]
 
 
 # ------------------------------------------------------------------ #
@@ -393,12 +401,12 @@ def round5(store):
 
 def test_the_runner_up_line_is_a_plain_measurement():
     assert wording.runner_up_line(13, "93.3", "1.7") == (
-        "Formulation 13: 93.3 (1.7 lower than the best so far).")
+        "Next best: Formulation 13, 93.3 (1.7 lower).")
 
 
 def test_view_formulation_on_round5_names_the_next_best_without_noise(round5):
     line = ui_results._runner_up_line(round5)
-    assert line == "Formulation 13: 93.3 (1.7 lower than the best so far)."
+    assert line == "Next best: Formulation 13, 93.3 (1.7 lower)."
     said = " ".join([ui_results._progress_line(round5), line])
     for word in _NOISE_WORDS:
         assert word not in said, word
@@ -412,7 +420,7 @@ def test_a_close_lead_is_no_tie_and_no_noise(round6):
     assert ui_results._tie(round6, f16, f17) == ""
     assert ui_results._move_sentence(round6, 16, 17) == wording.best_moved(16, 17)
     assert ui_results._runner_up_line(round6) == (
-        "Formulation 16: 98.3 (0.5 lower than the best so far).")
+        "Next best: Formulation 16, 98.3 (0.5 lower).")
 
 
 def test_a_lead_under_a_tenth_reads_at_two_decimals(round6):
@@ -420,7 +428,7 @@ def test_a_lead_under_a_tenth_reads_at_two_decimals(round6):
     f16, f17 = round6.index_of_formulation(16), round6.index_of_formulation(17)
     round6.Y_history[f17] = float(round6.Y_history[f16]) + 0.03
     assert ui_results._runner_up_line(round6) == (
-        "Formulation 16: 98.3 (0.03 lower than the best so far).")
+        "Next best: Formulation 16, 98.3 (0.03 lower).")
 
 
 def test_no_runner_up_line_on_an_exact_tie(round6):
@@ -437,7 +445,7 @@ def test_results_on_round5_says_no_noise(round5):
     tab = at.tabs[2]
     said = " ".join([m.value for m in tab.markdown] + [c.value for c in tab.caption]
                     + [str(c.help or "") for c in tab.caption])
-    assert "Formulation 13: 93.3 (1.7 lower than the best so far)." in said
+    assert "Next best: Formulation 13, 93.3 (1.7 lower)." in said
     for word in ("noise", "needed", "within noise", "tell apart"):
         assert word not in said, word
 

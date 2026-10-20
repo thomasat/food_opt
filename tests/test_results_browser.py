@@ -38,17 +38,20 @@ def test_best_other_and_unscored_details_are_read_only(project):
     # No heading repeats the box (spec 2026-09-30 §4, review I12).
     assert not at.tabs[2].subheader
     assert wording.BEST_RULE in [c.value for c in at.tabs[2].caption]
-    assert amounts(at)[wording.RESULT_PERCENT_COLUMN].tolist() == ['30.00', '70.00', '']
+    # N8: at 100 g the % column would repeat Amount, so it is not drawn.
+    assert wording.RESULT_PERCENT_COLUMN not in amounts(at).columns
     picker.select(1).run()
     assert not at.exception
     assert not at.tabs[2].subheader
     assert wording.BEST_RULE not in [c.value for c in at.tabs[2].caption]
-    assert amounts(at)[wording.RESULT_PERCENT_COLUMN].tolist() == ['20.00', '80.00', '']
+    # N8: at 100 g the % column would repeat Amount, so it is not drawn.
+    assert wording.RESULT_PERCENT_COLUMN not in amounts(at).columns
     assert amounts(at)[wording.AMOUNT_COLUMN].tolist() == ['20.00 g', '80.00 g', '0 s']
     assert float(next(d.value for d in at.tabs[2].dataframe if 'Measured' in d.value.columns)['Measured'].iloc[0]) == 4
     at.selectbox(key='result_view_details').select(3).run()
     assert any(i.value == wording.RESULT_UNSCORED_HELP for i in at.info)
-    assert amounts(at)[wording.RESULT_PERCENT_COLUMN].tolist() == ['40.00', '60.00', '']
+    # N8: at 100 g the % column would repeat Amount, so it is not drawn.
+    assert wording.RESULT_PERCENT_COLUMN not in amounts(at).columns
     assert not any('Measured' in d.value.columns for d in at.tabs[2].dataframe)
     at.selectbox(key='result_view_details').select(BEST_CHOICE).run()
     assert wording.BEST_RULE in [c.value for c in at.tabs[2].caption]

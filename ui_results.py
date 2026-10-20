@@ -93,13 +93,24 @@ def _amount_rows(opt, recipe):
     return rows
 
 
+def _percent_repeats_amount(opt, recipe):
+    """The % column would say the Amount column again: every ingredient in
+    one unit, adding up to 100 of it (a 100 g formulation; N8)."""
+    if not opt._shows_shares():
+        return False
+    total = sum(float(recipe[v['name']]) for v in opt.variables
+                if v.get('category') != 'process' and v['name'] in recipe)
+    return round(total, 2) == 100
+
+
 def _amount_table(opt, recipe):
     rows = _amount_rows(opt, recipe)
     columns = [wording.INGREDIENT_OR_SETTING_LABEL, wording.AMOUNT_COLUMN]
-    if opt.has_ingredients():
+    percent = opt.has_ingredients() and not _percent_repeats_amount(opt, recipe)
+    if percent:
         columns.append(wording.RESULT_PERCENT_COLUMN)
     st.table(pd.DataFrame(rows, columns=columns, index=[""] * len(rows)))
-    if opt.has_ingredients():
+    if percent:
         if not opt._shows_shares():
             st.caption(wording.RESULT_PERCENT_MIXED_HELP)
         elif not any(row.get(wording.RESULT_PERCENT_COLUMN) not in ("", "—", None) for row in rows):
@@ -439,9 +450,9 @@ def results_key_markup(table):
 
 def score_breakdown_frame(opt, index):
     """How formulation `index`'s Overall score is worked out, as data:
-    {'frame', 'off' {(row, 'Rating'): 'above' | 'below'}, 'total' (the sum of the points),
-    'line'}. One row per measurement — Attribute, Rating, Target, Share,
-    Points earned — then the Overall score row, Share and Points summed.
+    {'frame', 'off' {(row, 'Measured'): 'above' | 'below'}, 'total' (the sum of the points),
+    'line'}. One row per measurement — Measurement, Measured, Goal, Share
+    of score, Points earned — then the Overall score row, Share and Points summed.
     Every number is food_bo's own (score_breakdown, the parts
     _compute_utility adds), so the total is the Overall score."""
     parts = opt.score_breakdown(index)
@@ -450,12 +461,14 @@ def score_breakdown_frame(opt, index):
             wording.SCORE_POINTS_COLUMN)
     rows, off = [], {}
     for pos, part in enumerate(parts):
+        # The Goal cell as Set up's Goal column words it: 'Target 6', or
+        # which way is better ('0 (lowest)' read as a target of 0; S7).
         if part['goal'] == 'target':
-            target = f"{part['target']:g}"
+            target = wording.target_value(part['target'])
         elif part['goal'] == 'max':
-            target = f"{part['high']:g} ({wording.SCORE_GOAL_HIGHER})"
+            target = wording.SCORE_GOAL_HIGHER
         else:
-            target = f"{part['low']:g} ({wording.SCORE_GOAL_LOWER})"
+            target = wording.SCORE_GOAL_LOWER
         rows.append({
             cols[0]: part['name'],
             cols[1]: (wording.DOES_NOT_APPLY if not part['applies']
@@ -1021,8 +1034,19 @@ def _all_formulations(opt, said_partial=False):
     frame = opt.history_frame(order=order, include_amounts=show_amounts)
     # Round-2 fixes (P2 #15): a column as wide as its name ("Coconut cream
     # (g)" was cut to "Coconut cr…"); the table scrolls sideways instead.
-    config = {c: st.column_config.Column(width=max(80, 8 * len(str(c)) + 24))
-              for c in frame.columns if len(str(c)) > 9}
+    # N7: each measurement headed as Round N results heads it ('Firmness
+    # (/10) · Target 6'); a label only, so the frame and its sort keep
+    # food_bo's column names.
+    common = _common_scale(opt)
+    labels = {opt._measurement_column(o): wording.round_results_column(
+        o['name'], o.get('goal'), o.get('target'), o.get('unit', ''),
+        None if common else (o.get('min_val', 0.0), o.get('max_val', 10.0)))
+        for o in opt.objectives}
+    config = {c: st.column_config.Column(labels.get(c),
+                                         width=max(80, 8 * len(str(labels.get(c, c))) + 24))
+              for c in frame.columns if len(str(labels.get(c, c))) > 9}
+    config.update({c: st.column_config.Column(label) for c, label in labels.items()
+                   if c in frame.columns and c not in config})
     config[wording.FORMULATION_CAP] = st.column_config.Column(
         wording.for_project(opt, wording.FORMULATION_CAP))
     st.dataframe(_table_style(opt, frame),

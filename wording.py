@@ -33,6 +33,7 @@ BATCH_SIZE_NAME = "Batch size"
 INGREDIENT = "ingredient"
 PROCESS_SETTING = "process setting"
 LIMIT = "limit"
+MEASUREMENT = "measurement"
 ROW = "row"
 
 # "Note" is both a table column header (food_bo's own dataframes carry the
@@ -1904,21 +1905,23 @@ BELOW_TARGET = "Below target"
 
 
 def round_results_column(name, goal, target=None, unit="", scale=None):
-    """A measurement's header: 'Tanginess (target 5)'; 'Juiciness (higher is
-    better)'. `unit` is shown unless it is the scale itself ('/15');
-    `scale` (low, high) only when measurements differ in scale."""
+    """A measurement's header in every Results table (N7: one format, the
+    one the entry boxes use): 'Firmness (/10) · Target 6'; 'Juiciness ·
+    Higher is better'. `unit` in the brackets, '/10' included; `scale`
+    (low, high) only when measurements differ in scale."""
     said = []
     if scale:
         said.append(_scale_text(*scale))
-    if unit and not str(unit).startswith("/"):
+    if unit:
         said.append(str(unit))
+    head = f"{name} ({', '.join(said)})" if said else name
     if goal == "target" and target is not None:
-        said.append(f"target {float(target):g}")
-    elif goal == "max":
-        said.append("higher is better")
-    elif goal == "min":
-        said.append("lower is better")
-    return f"{name} ({', '.join(said)})" if said else name
+        return f"{head} · {target_value(target)}"
+    if goal == "max":
+        return f"{head} · {SCORE_GOAL_HIGHER}"
+    if goal == "min":
+        return f"{head} · {SCORE_GOAL_LOWER}"
+    return head
 
 
 NEW_BEST = "new best"
@@ -1938,22 +1941,30 @@ SCORE_WORKED_OUT_PICK = FORMULATION_CAP
 
 
 def score_point_line(span=None):
-    """'Each point off costs 1/15 of its share.' — `span` is the Range's
-    width (Highest - Lowest) when every measurement shares one, else None."""
+    """'Each unit off costs 1/15 of its share.' — `span` is the width of the
+    measurements' scale (Scale maximum - Scale minimum) when every
+    measurement shares one, else None. 'unit', not 'point': a point is what
+    the score is counted in (S7)."""
     if span is None:
-        return "Each point off costs 1/(its Range's width) of its share."
-    return f"Each point off costs 1/{float(span):g} of its share."
+        return (f"Each unit off costs 1/({HIGHEST_MEASURABLE_LABEL} − "
+                f"{LOWEST_MEASURABLE_LABEL}) of its share.")
+    return f"Each unit off costs 1/{float(span):g} of its share."
 
 
-SCORE_ATTRIBUTE_COLUMN = "Attribute"
-SCORE_RATING_COLUMN = "Rating"
-SCORE_TARGET_COLUMN = "Target"
+# The fold's columns in Set up's own words (S7): a measurement, what was
+# measured, its goal. "Attribute" and "Rating" were a tasting panel's words,
+# and Cook loss is neither.
+SCORE_ATTRIBUTE_COLUMN = MEASUREMENT_COLUMN
+SCORE_RATING_COLUMN = "Measured"
+SCORE_TARGET_COLUMN = "Goal"
 # "Share of score", the Set up column it comes from (a bare "Share" is
 # banned vocabulary; the final-v3 mock's "Share").
 SCORE_SHARE_COLUMN = "Share of score"
 SCORE_POINTS_COLUMN = "Points earned"
-SCORE_GOAL_HIGHER = "highest"
-SCORE_GOAL_LOWER = "lowest"
+# The Goal cell of a measurement that is not a target: what scores 100 is
+# its scale's end, and the cell says which way is better.
+SCORE_GOAL_HIGHER = "Higher is better"
+SCORE_GOAL_LOWER = "Lower is better"
 
 
 # 0.8.0: a formulation teaches the suggestions only once every measurement
@@ -3910,7 +3921,7 @@ CUSTOM_AUTOSAVE_HELP = "Double-click a cell to enter a value. Entries save autom
 CUSTOM_SUBJECT = "Recorded for"
 CUSTOM_VALUE = "Value"
 CUSTOM_INGREDIENT_LABEL = "Ingredient"
-CUSTOM_ROUND_LABEL = "Round for additional records"
+CUSTOM_ROUND_LABEL = f"Records for {ROUND_CAP}"
 CUSTOM_IMPORT_FOUND = "Additional records found. Check the entries below before saving."
 CUSTOM_SAVED = "Additional records saved."
 
@@ -4276,9 +4287,10 @@ OVERALL_SCORE_HELP = (f"{OVERALL_SCORE_COLUMN}, 0–100: the sum over measuremen
 
 def runner_up_line(no, score_text, lead_text):
     """Under Best so far: the next best different formulation, as measured
-    — 'Formulation 13: 93.3 (1.7 lower than the best so far).' (owner, v3
-    final cleanup: no tasting noise, no "within noise", no rise "needed")."""
-    return f"{FORMULATION_CAP} {no}: {score_text} ({lead_text} lower than the best so far)."
+    — 'Next best: Formulation 13, 93.3 (1.7 lower).' (owner, v3 final
+    cleanup: no tasting noise, no "within noise", no rise "needed"; N6: it
+    sat under a view of another formulation with no label)."""
+    return f"Next best: {FORMULATION_CAP} {no}, {score_text} ({lead_text} lower)."
 
 
 def tie_equal(best_no, other_no, score_text):
@@ -4633,8 +4645,8 @@ def review_best_label(best, names):
 
 
 def review_top_line(top):
-    """The dotted line at the top score: '100 = every attribute on target'."""
-    return f"{top} = every attribute on target"
+    """The dotted line at the top score: '100 = every measurement on target'."""
+    return f"{top} = every {MEASUREMENT} on target"
 
 
 def review_score_caption(n=None, once=True):
@@ -4790,13 +4802,14 @@ def method_definitions(top="100", span="15", count=REVIEW_TOP_COUNT, once=True, 
     rule; None when they differ) and how many the top formulations are.
     `once`: no Repeats on file. `limits`: the at-limit tags the amounts
     chart draws ('upper', 'lower'), each defined after the five."""
-    cost = f"1/{span}" if span else "1/(its Range)"
+    cost = (f"1/{span}" if span
+            else f"1/({HIGHEST_MEASURABLE_LABEL} − {LOWEST_MEASURABLE_LABEL})")
     best = f"the highest {OVERALL_SCORE_COLUMN} so far."
     if once:
-        best += f" Each {FORMULATION} is made once and rated once."
+        best += f" Each {FORMULATION} is made once and measured once."
     return (
-        f"{OVERALL_SCORE_COLUMN}: {top} = every attribute on target. Each attribute earns its "
-        f"share; each point off costs {cost} of it.",
+        f"{OVERALL_SCORE_COLUMN}: {top} = every {MEASUREMENT} on target. Each {MEASUREMENT} "
+        f"earns its share; each unit off costs {cost} of it.",
         f"{ROUND_CAP}: the {FORMULATION}s made and tasted together.",
         f"{BEST_SO_FAR_COLUMN}: {best}",
         f"Top {FORMULATION}s: {review_top_rule(count)}.",
