@@ -1051,8 +1051,16 @@ def _all_formulations(opt, said_partial=False):
                    if c in frame.columns and c not in config})
     config[wording.FORMULATION_CAP] = st.column_config.Column(
         wording.for_project(opt, wording.FORMULATION_CAP))
+    # The Overall score straight after the Formulation: with each
+    # measurement headed in full the table scrolls sideways, and the one
+    # number every row is ranked by must never be the one scrolled away.
+    columns = list(frame.columns)
+    if wording.OVERALL_SCORE_COLUMN in columns and wording.FORMULATION_CAP in columns:
+        columns.remove(wording.OVERALL_SCORE_COLUMN)
+        columns.insert(columns.index(wording.FORMULATION_CAP) + 1,
+                       wording.OVERALL_SCORE_COLUMN)
     st.dataframe(_table_style(opt, frame),
-                     column_config=config,
+                 column_config=config, column_order=columns,
                  hide_index=True, key="all_formulations",
                  height=table_height(len(frame), max_rows=20), placeholder="")
     # What a dash means, only while a dash is in the table (audit V9): a

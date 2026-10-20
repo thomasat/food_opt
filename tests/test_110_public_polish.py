@@ -195,3 +195,20 @@ def test_results_words():
     for text in (wording.score_point_line(), wording.score_point_line(15),
                  *wording.method_definitions(span=None)):
         assert not any(w in text.lower() for w in ("attribute", "rating", "range")), text
+
+
+# ------------------------------------------------------------------ #
+#  All formulations: the Overall score is never scrolled away
+# ------------------------------------------------------------------ #
+
+def test_all_formulations_shows_the_overall_score_after_the_formulation(burger):
+    """Each measurement is headed in full ('Cook loss (0–40, %) · Lower is
+    better'), so the table scrolls sideways; the Overall score sits right
+    after the Formulation so it is always in view."""
+    burger.tell({"Pea protein": 10.0, "Methylcellulose": 1.0},
+                {"Juiciness": 6.0, "Firmness": 6.0}, formulation_no=1, batch_no=1)
+    at = _app("burger", wording.TAB_RESULTS)
+    assert not at.exception
+    [order] = [list(d.proto.column_order) for d in at.dataframe
+               if "Best so far" in list(d.proto.column_order)]
+    assert order.index(wording.OVERALL_SCORE_COLUMN) == order.index(wording.FORMULATION_CAP) + 1, order
