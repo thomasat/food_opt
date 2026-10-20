@@ -8592,26 +8592,25 @@ def test_the_stored_total_opens_the_box_in_a_new_session(open_batch):
     assert FoodOptimizer("burger").pending_batch_total == 25.0
 
 
-def test_emptying_the_box_leaves_the_round_at_the_size_it_was_made_to(
+def test_emptying_the_box_takes_the_round_back_to_its_generated_amounts(
         open_batch):
-    """An emptied box is not an undo. Since 0.5.0 the size moves the amounts
-    themselves, so there is no as-generated to go back to — the round stays
-    at 25 g and the way to another size is to type one. And an emptied box
-    is not an answer either: it comes back holding the size the round is
-    made to, rather than sitting blank over amounts it says nothing about."""
+    """E2E walk #8: the box's "?" says an empty box keeps each formulation's
+    own total, so emptying it after a size was typed takes the Round back to
+    the amounts it was generated at, with no size of its own — and the box
+    stays empty rather than putting the old number back."""
+    made = [sum(r["recipe"].values()) for r in open_batch.pending_batch]
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     at.number_input(key="scale_total").set_value(25.0)
     at.run()
+    assert list(_round_table(at)["Total (g)"]) == pytest.approx([25.0, 25.0])
     # An emptied box comes back as 0, the box's own floor.
     at.number_input(key="scale_total").set_value(0.0)
     at.run()
     assert not at.exception
-    assert at.number_input(key="scale_total").value == 25.0
-    # Nothing is rewritten: the round is still the 25 g one.
-    table = _round_table(at)
-    assert list(table["Total (g)"]) == pytest.approx([25.0, 25.0])
-    assert FoodOptimizer("burger").pending_batch_total == 25.0
+    assert at.session_state["scale_total"] is None
+    assert list(_round_table(at)["Total (g)"]) == pytest.approx(made)
+    assert FoodOptimizer("burger").pending_batch_total is None
 
 
 def test_a_project_switch_back_opens_the_other_batch_at_its_own_total(

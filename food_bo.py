@@ -6688,6 +6688,117 @@ class FoodOptimizer:
         return self._achievable_range(
             lambda name: 1.0 if name in names else 0.0)
 
+    def limited_total_reach(self, skip_percent=False):
+        """(lowest, highest) the ingredients can add up to once the Limits
+        hold as well, or None when the limits narrow nothing (and for a
+        project with a Fill to total row, whose reach has no top).
+
+        total_reach is the plain sum of Lowests and Highests, and it is
+        what the reach is called everywhere a limit is not the question.
+        The batch size boxes ask this one second, so that a size the limits
+        put out of reach is refused in the limits' own words rather than
+        accepted and then cautioned against twice. `skip_percent` leaves
+        out the limits written as a % of the default batch size, for the
+        question of a NEW default: they move with it.
+        """
+        if self._balance_row() is not None:
+            return None
+        names = {v['name'] for v in self.variables
+                 if v.get('category', 'ingredient') == 'ingredient'}
+        plain = self.total_reach()
+        limited = self._limited_total_reach(names, skip_percent)
+        if limited is None:
+            return None
+        # Never wider than the allowed amounts alone: limits only take away.
+        low, high = max(plain[0], limited[0]), min(plain[1], limited[1])
+        if abs(low - plain[0]) < 1e-9 and abs(high - plain[1]) < 1e-9:
+            return None
+        return low, high
+
+    def _limited_total_reach(self, names, skip_percent=False):
+        """(lowest, highest) the ingredients `names` can add up to once the
+        Limits hold as well — amount limits on groups of ingredients and
+        property limits — or None when there are none to narrow the plain
+        sum of Lowests and Highests, or no formulation meets them all.
+
+        The sum of Highests said 105 g was the most a project could make
+        while 'Butter + Sugar at most 45 g' held it to 95 g, and a 100 g
+        Round the box had just accepted came back with two cautions. Each
+        limit is a linear form over the rows the search moves (a rule row
+        is written out over them, and its floor of nothing is kept), so the
+        exact answer is one small linear programme each way. The batch
+        size's own limit is left out: the total is the thing being asked
+        about.
+        """
+        limits = [qc for qc in getattr(self, 'quantity_constraints', [])
+                  if qc.get('source') != 'formulation_total'
+                  and not (skip_percent and qc.get('percent'))
+                  and (qc.get('min') is not None or qc.get('max') is not None)]
+        properties = [c for c in self.constraints
+                      if (c.get('min') is not None or c.get('max') is not None)
+                      and not self.ingredients_without_property(c['metric'])]
+        if not limits and not properties:
+            return None
+        from scipy.optimize import linprog
+        columns = [v for v in self.variables
+                   if v['type'] == 'continuous' and not self.has_formula(v)]
+        index = {v['name']: i for i, v in enumerate(columns)}
+        batch = self._batch_size()
+
+        def row(form):
+            coeffs = [0.0] * len(columns)
+            for name, coeff in form.terms.items():
+                if name in index:
+                    coeffs[index[name]] += coeff
+            return coeffs, form.const + form.batch * batch
+
+        a_ub, b_ub = [], []
+
+        def at_least(form, value):          # form >= value
+            coeffs, const = row(form)
+            a_ub.append([-c for c in coeffs])
+            b_ub.append(const - float(value))
+
+        def at_most(form, value):           # form <= value
+            coeffs, const = row(form)
+            a_ub.append(coeffs)
+            b_ub.append(float(value) - const)
+
+        for qc in limits:
+            members = set(qc['ingredients'])
+            form = self._weighted_form(
+                lambda name, members=members: 1.0 if name in members else 0.0)
+            if qc.get('min') is not None:
+                at_least(form, qc['min'])
+            if qc.get('max') is not None:
+                at_most(form, qc['max'])
+        for c in properties:
+            if c.get('min') is not None:
+                at_least(self._weighted_form(
+                    self._property_coeff(c['metric'], c['min'])), 0.0)
+            if c.get('max') is not None:
+                at_most(self._weighted_form(
+                    self._property_coeff(c['metric'], c['max'])), 0.0)
+        for form in self._resolved_forms().values():
+            at_least(form, 0.0)
+        objective, const = row(self._weighted_form(
+            lambda name: 1.0 if name in names else 0.0))
+        bounds = [(float(v['bounds'][0]), float(v['bounds'][1]))
+                  for v in columns]
+        ends = []
+        for sign in (1.0, -1.0):
+            try:
+                answer = linprog([sign * c for c in objective],
+                                 A_ub=a_ub or None, b_ub=b_ub or None,
+                                 bounds=bounds, method='highs')
+            except ValueError:
+                return None
+            if answer.status != 0:
+                return None
+            # To the nanogram: a solver's 94.99999999999 refused a typed 95.
+            ends.append(round(const + sign * float(answer.fun), 9))
+        return ends[0], ends[1]
+
     def _formulation_total_index(self):
         """Where the Total of each formulation box's own limit sits in
         quantity_constraints, or None. It is found by its tag, never by its
@@ -6946,6 +7057,17 @@ class FoodOptimizer:
                 raise ValueError(wording.total_not_reachable_at_least(
                     self.batch_total_text(value),
                     self.batch_total_text(lowest)))
+            # Inside the allowed amounts, and still past what the Limits
+            # let them add up to (the limits written as a % of the default
+            # move with it, so they are not asked).
+            limited = self.limited_total_reach(skip_percent=True)
+            if limited is not None:
+                if value > limited[1] + 1e-9:
+                    raise ValueError(wording.limits_allow_at_most(
+                        self.batch_total_text(limited[1])))
+                if value < limited[0] - 1e-9:
+                    raise ValueError(wording.limits_allow_at_least(
+                        self.batch_total_text(limited[0])))
         else:
             # With a balance row every formulation adds up to the batch size
             # by construction, so the reach is that number at both ends and
@@ -8932,8 +9054,8 @@ class FoodOptimizer:
 
         A size of nothing is not a size. None and anything at or below zero
         mean the same thing here — the round has no size of its own — and
-        both leave the amounts alone: the box moved them once and there is no
-        going back to what the model proposed.
+        both leave the amounts alone. Going back to the amounts the Round
+        was generated at is unscale_round's job.
         """
         if not self.pending_batch:
             return          # no round to size; nothing to remember it by
@@ -8958,6 +9080,34 @@ class FoodOptimizer:
                     for row in rows]
         self.pending_batch = rows
         self.pending_batch_total = size
+        self.save()
+
+    def unscale_round(self):
+        """Take the open Round back to the amounts it was generated at, and
+        to no size of its own: what clearing the Batch size box does.
+
+        Each formulation is made to the total it added up to before the box
+        first moved it (batch_generated_totals, kept per formulation by
+        scale_round). The box's "?" says an empty box keeps each
+        formulation's own total, and a cleared box that left the old size's
+        amounts in place said one thing and did another. A row with no
+        generated total kept — one added after the re-size — stays as it
+        is. Does nothing for a Round the box never sized.
+        """
+        if (not self.pending_batch
+                or getattr(self, 'pending_batch_total', None) is None):
+            return
+        made = self._generated_totals().get(int(self.pending_batch_no), {})
+        rows = []
+        for row in self._batch_rows(self.pending_batch):
+            total = made.get(int(row['formulation']))
+            if total:
+                row = self._batch_row(row['formulation'],
+                                      self.scaled_recipe(row['recipe'], total),
+                                      row.get('note'))
+            rows.append(row)
+        self.pending_batch = rows
+        self.pending_batch_total = None
         self.save()
 
     def set_pending_batch(self, batch_or_none, batch_no=None, discarded=None):

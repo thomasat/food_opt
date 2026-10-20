@@ -85,12 +85,12 @@ def _seed_mark(opt, size):
     project whose new round is number 1 again), and the seed was skipped
     every time.
 
-    An EMPTIED box is not an answer. There is no size of nothing: the round
-    keeps the amounts the box already moved, and clearing the stored size
-    while leaving those amounts would be worse than either. So the box is
-    re-seeded from the round's own size on the next run — it never sits
-    blank over a round that has one, saying nothing about the numbers
-    printed under it."""
+    An EMPTIED box is an answer only for a Round this session's box has
+    sized: it goes back to its generated amounts (unscale_round), as the
+    box's "?" says. Otherwise — a box that opened at the project's default
+    — it is re-seeded from that size on the next run: it never sits blank
+    over a round that has one, saying nothing about the numbers printed
+    under it."""
     return (opt.project_name, opt.pending_batch_no, size)
 
 
@@ -128,6 +128,18 @@ def _seed_batch_size(opt):
     emptied = size is not None and typed_batch_size(opt) is None
     if st.session_state.get(_SEEDED_TOTAL) == mark and not emptied:
         return
+    if (emptied and st.session_state.get(_SEEDED_TOTAL) == mark
+            and getattr(opt, 'pending_batch_total', None) is not None):
+        # The bench cleared a box this session had filled: the Round goes
+        # back to the amounts it was generated at, as the box's "?" says.
+        # Only the project's default (if any) is then put back in it.
+        opt.unscale_round()
+        size = _prefill(opt)
+        mark = _seed_mark(opt, size)
+        if size is None:
+            # Empty, not the 0.00 a cleared box posts back: the "?" beside
+            # it says what an empty box does.
+            st.session_state[_BATCH_SIZE_KEY] = None
     st.session_state[_SEEDED_TOTAL] = mark
     if size is not None:
         st.session_state[_BATCH_SIZE_KEY] = float(size)
@@ -189,6 +201,16 @@ def _unreachable(opt, typed):
                 opt.unit_of(balance), stays)
         return wording.batch_size_too_small(opt.batch_total_text(lowest),
                                             stays)
+    # Inside the allowed amounts, and still past what the Limits let them
+    # add up to: 'Butter + Sugar at most 45 g' holds 50 + 30 + 25 g to 95 g.
+    limited = opt.limited_total_reach()
+    if limited is not None:
+        if typed > limited[1] + 1e-9:
+            return wording.batch_size_past_limits(
+                opt.batch_total_text(limited[1]), stays)
+        if typed < limited[0] - 1e-9:
+            return wording.batch_size_under_limits(
+                opt.batch_total_text(limited[0]), stays)
     return ""
 
 

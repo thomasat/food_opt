@@ -1954,6 +1954,18 @@ def batch_size_too_big(most_text, stays_text):
             f"{INGREDIENT}s make." + _stays(stays_text))
 
 
+def batch_size_past_limits(most_text, stays_text):
+    """The same box, inside the allowed amounts but above what the Limits
+    let them add up to."""
+    return (f"{BATCH_SIZE_NAME}: enter {most_text} or less, the most your "
+            "limits allow." + _stays(stays_text))
+
+
+def batch_size_under_limits(least_text, stays_text):
+    return (f"{BATCH_SIZE_NAME}: enter {least_text} or more, the least your "
+            "limits allow." + _stays(stays_text))
+
+
 def batch_size_too_small(least_text, stays_text):
     """The same box, below what the Lowest amounts already add up to."""
     return (f"{BATCH_SIZE_NAME}: enter {least_text} or more, the least these "
@@ -1985,6 +1997,18 @@ def total_not_reachable_at_least(total_text, least_text,
                                  noun=FORMULATION_TOTAL_NOUN):
     return (f"These {INGREDIENT}s make at least {least_text}; enter "
             f"{least_text} or more, or lower a {LOWEST_LABEL}.")
+
+
+def limits_allow_at_most(most_text):
+    """Set up's default batch size, inside the allowed amounts but above
+    what the Limits let them add up to ('Butter + Sugar at most 45 g')."""
+    return (f"Your limits allow at most {most_text}; enter {most_text} or "
+            "less, or change a limit.")
+
+
+def limits_allow_at_least(least_text):
+    return (f"Your limits need at least {least_text}; enter {least_text} or "
+            "more, or change a limit.")
 
 
 def total_not_reachable_at_all(total_text, noun=FORMULATION_TOTAL_NOUN):
