@@ -321,7 +321,7 @@ def _sidebar_samples():
             _open_sample(sample_projects.ROUND6)
 
 
-# Once per session, before any project is opened: a yogurt pilot copy an
+# Once per session, before any project is opened: a sample (yogurt pilot or burger example) copy an
 # earlier build wrote and nobody changed is replaced by the current one
 # (sample_projects.refresh); a changed copy is left as it is. Replacing a
 # copy gives its file a new modified time, so the project the reader last
