@@ -160,11 +160,11 @@ def _previous_size_line(opt):
 
 
 def _unreachable(opt, typed):
-    """Why this size cannot be made, or "" when it can.
+    """Why this size cannot be made, or "" when it can — said as the size to
+    type instead, with what the Round is still made to.
 
-    The same arithmetic Set up's box does, in the same sentences, with the
-    noun of THIS box: a size outside what the allowed amounts add up to has
-    no answer, and no search can find one.
+    The same arithmetic Set up's box does: a size outside what the allowed
+    amounts add up to has no answer, and no search can find one.
 
     A project with a row written = rest has no top at all — that row takes
     whatever is left, so any size the other rows fit inside can be made —
@@ -176,21 +176,18 @@ def _unreachable(opt, typed):
     if typed is None:
         return ""
     lowest, highest = opt.total_reach()
+    stays = opt.batch_total_text(opt.open_round_size())
     if typed > highest:
-        return wording.total_not_reachable_at_most(
-            opt.batch_total_text(typed), opt.batch_total_text(highest),
-            noun=wording.BATCH_SIZE_NOUN)
+        return wording.batch_size_too_big(opt.batch_total_text(highest),
+                                          stays)
     if typed < lowest:
         balance = opt.balance_row_name()
         if balance is not None:
-            return wording.balance_would_go_negative(
-                balance, opt.batch_total_text(typed),
-                opt.batch_total_text(lowest),
-                unit=opt.unit_of(balance),
-                noun=wording.BATCH_SIZE_NOUN)
-        return wording.total_not_reachable_at_least(
-            opt.batch_total_text(typed), opt.batch_total_text(lowest),
-            noun=wording.BATCH_SIZE_NOUN)
+            return wording.batch_size_leaves_rest_below_zero(
+                balance, opt.batch_total_text(lowest),
+                opt.unit_of(balance), stays)
+        return wording.batch_size_too_small(opt.batch_total_text(lowest),
+                                            stays)
     return ""
 
 
@@ -224,8 +221,7 @@ def _apply_batch_size(opt, typed):
         # bench typed with it (a reachable 120 after a refused 150 came back
         # as the old 100), and a box that changes under the hand is worse
         # than one holding a number the line beneath it explains.
-        return trouble + " " + wording.round_stays_at(
-            opt.batch_total_text(opt.open_round_size()))
+        return trouble
     opt.scale_round(typed)
     st.session_state[_SEEDED_TOTAL] = _seed_mark(opt, typed)
     return ""
@@ -514,8 +510,11 @@ def _add_own(opt):
     recipe = _own_recipe(opt)
     if recipe is None:
         # No rerun: the refusal stays on screen beside the boxes, and what
-        # was typed stays in them to be finished.
-        st.error(wording.ENTER_EVERY_AMOUNT)
+        # was typed stays in them to be finished. It names the boxes still
+        # empty, so nobody hunts down a column of them for the blank one.
+        blank = [var['name'] for var in opt.varying_variables()
+                 if st.session_state.get(_own_key(var['name'])) is None]
+        st.error(wording.enter_amounts_for(number_list(blank)))
         return
     note = str(st.session_state.get("own_note") or "").strip()
     number = opt.add_to_pending_batch(recipe, note or wording.OWN_FORMULATION_NOTE)
@@ -1484,7 +1483,7 @@ def _record_results(opt):
             and drafts.get(r['formulation'], {}).get('results')]
     ready = bool(kept)
     if to_record and len(left_out) == len(to_record):
-        st.info(wording.for_project(opt, wording.NOTHING_TO_SAVE))
+        st.info(wording.for_project(opt, wording.nothing_to_save(len(to_record))))
     # "complete", not "to record": this counts the rows that HAVE every
     # measurement, and every other screen uses "to record" for the rows that
     # do not ("Back to Round 2 · 2 to record"). One word could not mean both.
@@ -1509,14 +1508,22 @@ def _save_results(opt, kept, left_out, to_record):
     # Check every value against its range before writing anything: a
     # half-saved batch is worse than a refused one.
     typed = {}
+    # The refusal lands under the whole grid, so it names the row as the
+    # row's own heading does: 'Suggestion 1' until anything is recorded.
+    shown_as = suggestion_numbers(opt)
     for row in kept:
         number = row['formulation']
         results = {}
         for obj in opt.objectives:
             value = st.session_state.get(_result_key(number, obj['name']))
-            problem = scale_error(obj, value)
+            k = shown_as.get(int(number))
+            problem = scale_error(
+                obj, value,
+                label=(f"{wording.suggestion_column(k)}: {obj['name']}" if k
+                       else wording.formulation_measurement(number,
+                                                            obj['name'])))
             if problem:
-                st.error(problem)
+                st.error(wording.for_project(opt, problem))
                 return
             results[obj['name']] = value
         typed[number] = results
@@ -1745,7 +1752,8 @@ def _upload(opt):
                 st.error(str(e))
             except Exception:
                 st.session_state.pop("_results_upload", None)
-                st.error(wording.FILE_UNREADABLE)
+                st.error(wording.file_unreadable(
+                    getattr(sheet_file, "name", "")))
         # The rows, what the Actual cells said, and the lots: three things
         # the file carried, kept apart all the way to Save.
         sheet, weighed, lots = uploaded_parts(

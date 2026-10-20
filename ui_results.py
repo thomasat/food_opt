@@ -1415,12 +1415,14 @@ def _save_correction(opt, storage, pending):
     # copy is kept, and what was typed stays on screen to be finished.
     recipe = dict(pending['recipe'])
     amount_changes = []
+    blank = [var['name'] for var in opt.variables
+             if pending['amounts'].get(var['name']) is None]
+    if blank:
+        st.error(wording.enter_amounts_for(number_list(blank)))
+        return
     for var in opt.variables:
         name = var['name']
         value = pending['amounts'].get(name)
-        if value is None:
-            st.error(wording.ENTER_EVERY_AMOUNT)
-            return
         # Against the same value the box was seeded with, so a row older than
         # the ingredient is not reported as corrected for having been looked
         # at — and does not get a copy of the project kept for nothing.
@@ -1763,14 +1765,15 @@ def _type_in_past(opt):
 
 def _add_typed_past(opt, ordered):
     recipe = {}
+    blank = [var['name'] for var in opt.variables
+             if st.session_state.get(_past_key(var['name'])) is None]
+    if blank:
+        # No rerun: the refusal stays on screen beside the boxes, and what
+        # was typed stays in them to be finished.
+        st.error(wording.enter_amounts_for(number_list(blank)))
+        return
     for var in opt.variables:
-        value = st.session_state.get(_past_key(var['name']))
-        if value is None:
-            # No rerun: the refusal stays on screen beside the boxes, and what
-            # was typed stays in them to be finished.
-            st.error(wording.ENTER_EVERY_AMOUNT)
-            return
-        recipe[var['name']] = float(value)
+        recipe[var['name']] = float(st.session_state.get(_past_key(var['name'])))
     results = {}
     for obj in ordered:
         value = st.session_state.get(_past_measurement_key(obj['name']))
@@ -1869,18 +1872,19 @@ def _import(opt):
             st.session_state["_import_rows"] = _read_past_formulations(uploaded)
         except Exception:
             st.session_state.pop("_import_rows", None)
-            st.error(wording.FILE_UNREADABLE_RETRY)
+            st.error(wording.past_file_unreadable(
+                getattr(uploaded, "name", "")))
     rows = st.session_state.get("_import_rows")
     if rows is None:
         return
     st.dataframe(rows, hide_index=True, placeholder="")
     col_for, missing = _import_columns(opt, rows)
     if missing:
-        st.error(wording.missing_columns(", ".join(missing)))
+        st.error(wording.missing_columns(number_list(missing), len(missing)))
         return
     blank_amounts = [c for c in variables if rows[col_for[c]].isna().any()]
     if blank_amounts:
-        st.error(wording.blank_amount_columns(", ".join(blank_amounts)))
+        st.error(wording.blank_amount_columns(number_list(blank_amounts)))
         return
     if not st.button(wording.IMPORT_ALL_ROWS_BUTTON, key="import_rows"):
         return

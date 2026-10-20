@@ -303,12 +303,12 @@ def test_with_premixes_the_preparation_sheet_is_there_and_named(plain):
 
 def test_a_premix_workbook_missing_its_preparation_sheet_is_refused_plainly(plain):
     """A pre-mix Round's workbook carries its Preparation sheet; one deleted
-    by hand is refused with the Round-information message, never read
-    without the pre-mix pages."""
+    by hand is refused by that sheet's name, never read without the
+    pre-mix pages."""
     book = _book(_with_premix(plain))
     book.remove(book["Preparation"])
     _enter_taste(book, 6)
-    with pytest.raises(ValueError, match="Round information"):
+    with pytest.raises(ValueError, match="This workbook has no Preparation sheet."):
         plain.results_from_workbook(_save(book))
 
 

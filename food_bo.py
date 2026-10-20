@@ -4144,12 +4144,12 @@ class FoodOptimizer:
                 missing.append(obj['name'])
         if missing:
             raise ValueError(wording.sheet_missing_columns(
-                ", ".join(missing)))
+                number_list(missing), len(missing)))
         note_col = norm.get("note")
         skipped_col = norm.get(wording.NOT_SCORED.lower())
         if len(df) == 0:
             raise ValueError(wording.SHEET_HAS_NO_ROWS)
-        in_batch = ", ".join(str(n) for n in numbers)
+        in_batch = number_list(numbers)
         # Which formulations came back with amounts of their own.
         weighed = {int(k): v for k, v in (weighed or {}).items()}
         parsed, skipped, seen = [], [], set()
@@ -4200,7 +4200,8 @@ class FoodOptimizer:
                     val = float(val)
                 except (TypeError, ValueError):
                     raise ValueError(
-                        wording.formulation_value_not_a_number(number, name))
+                        wording.formulation_value_not_a_number(number, name,
+                                                               val))
                 obj = next(o for o in self.objectives if o['name'] == name)
                 if not (obj['min_val'] <= val <= obj['max_val']):
                     # The same sentence the results grid refuses with.
@@ -5104,8 +5105,7 @@ class FoodOptimizer:
             raise ValueError(wording.WORKBOOK_UNREADABLE)
         with book:
             if wanted not in book.sheet_names:
-                raise ValueError(wording.workbook_sheet_missing(
-                    wanted, number_list(book.sheet_names)))
+                raise ValueError(wording.workbook_sheet_missing(wanted))
             summary = book.parse(wanted, header=None)
             rows, numbers = self._transpose_batch_sheet(summary, wanted)
             if not numbers:
@@ -6213,6 +6213,15 @@ class FoodOptimizer:
         20.32 g when the round was printed at 150 g — and a limit is
         documented as a hard rule. One line, naming the first limit that does
         not hold, in the words the Limits list writes it in."""
+        broken = self._scaled_broken_limit(recipes, total, sized)
+        if not broken:
+            return ""
+        return wording.scaled_limit_caution(self.batch_total_text(total),
+                                            broken)
+
+    def _scaled_broken_limit(self, recipes, total, sized=False):
+        """The first limit these rows break at `total`, in the words the
+        Limits list writes it in, or "" when they all hold."""
         # A limit is written per formulation, exactly as the allowed amounts
         # are, so a bigger lot of the same formula is read against a bigger
         # limit: 36-43 g of solids in a 100 g patty is 90-107.5 g in a 250 g
@@ -6229,13 +6238,10 @@ class FoodOptimizer:
                 high = None if qc['max'] is None else qc['max'] * scale
                 if ((low is not None and value < low - slack)
                         or (high is not None and value > high + slack)):
-                    return wording.scaled_limit_caution(
-                        self.batch_total_text(total), self.limit_text(qc))
+                    return self.limit_text(qc)
             for constraint in self.constraints:
                 if not self._property_limit_holds(recipe, constraint):
-                    return wording.scaled_limit_caution(
-                        self.batch_total_text(total),
-                        self.property_limit_text(constraint))
+                    return self.property_limit_text(constraint)
         return ""
 
     def _property_limit_holds(self, recipe, constraint):
@@ -8782,25 +8788,31 @@ class FoodOptimizer:
                 try:
                     value = float(value)
                 except (TypeError, ValueError):
-                    raise ValueError(wording.edit_number_error(name))
+                    raise ValueError(wording.edit_number_error(
+                        row['formulation'], name))
                 if not math.isfinite(value):
-                    raise ValueError(wording.edit_number_error(name, finite=True))
+                    raise ValueError(wording.edit_number_error(
+                        row['formulation'], name))
                 caution = self.bounds_caution(name, value, factor)
                 if caution:
                     raise ValueError(wording.edit_formulation_error(row['formulation'], caution))
                 recipe[name] = value
             recipe = self.fill_formulas(recipe, size)
-            if any(not math.isfinite(float(v)) or (float(v) < -1e-8 and
-                   variables[n].get('category', 'ingredient') == 'ingredient')
-                   for n, v in recipe.items()):
-                raise ValueError(wording.edit_negative_error(row['formulation']))
+            below = [n for n, v in recipe.items()
+                     if not math.isfinite(float(v)) or (float(v) < -1e-8 and
+                     variables[n].get('category', 'ingredient') == 'ingredient')]
+            if below:
+                raise ValueError(wording.edit_negative_error(
+                    row['formulation'], number_list(below),
+                    self.unit_of(below[0])))
             if size and self.total_mismatch(row['formulation'], recipe, size):
                 raise ValueError(self.total_mismatch(row['formulation'], recipe, size)
                                  + wording.EDIT_BALANCE_HELP)
             candidate = dict(row, recipe=recipe)
-            caution = self.scaled_limit_caution([candidate], size, sized=True)
-            if caution:
-                raise ValueError(caution)
+            broken = self._scaled_broken_limit([candidate], size, sized=True)
+            if broken:
+                raise ValueError(wording.edit_breaks_limit(
+                    row['formulation'], broken))
             if recipe != row['recipe']:
                 row.setdefault('original_recipe', dict(row['recipe']))
                 row['recipe'] = recipe

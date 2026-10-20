@@ -472,16 +472,19 @@ def plural(n, word):
     return f"{n} {word}" if n == 1 else f"{n} {word}s"
 
 
-def scale_error(obj, value):
+def scale_error(obj, value, label=None):
     """The refusal for a measured value outside its range, or '' when it fits.
     Results are never clamped: a firmness of 12 on a 0-10 range is either a
-    typo or a range that is too narrow, and silently storing 10 hides both."""
+    typo or a range that is too narrow, and silently storing 10 hides both.
+
+    `label` names the cell when the line is shown away from its box —
+    'Formulation 4: Firmness' under a grid of several rows."""
     if value is None:
         return ""
     low, high = float(obj['min_val']), float(obj['max_val'])
     if low <= float(value) <= high:
         return ""
-    return outside_message(obj['name'], value, low, high, obj.get('unit'),
+    return outside_message(label or obj['name'], value, low, high, obj.get('unit'),
                            wording.YOUR_RANGE, wording.WIDEN_RANGE_HINT)
 
 

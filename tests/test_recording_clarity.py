@@ -23,7 +23,7 @@ def test_unknown_property_blocks_generation_until_explicit_zero(opt):
     opt.set_property_value('Protein','Fat',10)
     opt.add_constraint('Fat',max_val=15)
     before=opt.export_json()
-    with pytest.raises(ValueError,match='Complete Fat for: Water'):
+    with pytest.raises(ValueError,match='Enter Fat for Water under Ingredient properties, or delete the Fat limit.'):
         opt.ask(1)
     assert opt.export_json()==before
     assert not opt._check_constraints({'Protein':10,'Water':90})
@@ -71,7 +71,7 @@ def test_lot_editor_autosaves_and_prefills_workbook(opt):
 def test_incomplete_lower_limit_can_be_saved_but_not_used(opt):
     opt.add_property('Protein content')
     opt.add_constraint('Protein content',min_val=5)
-    with pytest.raises(ValueError,match='Complete Protein content'):
+    with pytest.raises(ValueError,match='Enter Protein content for Protein and Water under Ingredient properties'):
         opt.ask(1)
     assert opt.constraints[0]['min']==5
     assert opt.constraints[0]['max'] is None

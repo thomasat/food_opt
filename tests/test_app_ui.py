@@ -1794,7 +1794,9 @@ def test_blank_amount_is_refused(burger):
     _submit_button(at, wording.ADD_TO_THIS_BATCH).click()
     at.run()
     assert not at.exception
-    assert any(e.value == wording.ENTER_EVERY_AMOUNT
+    # It names the box still empty, and how to leave one out.
+    assert any(e.value == ("Enter an amount for Methylcellulose; type 0 to "
+                           "leave one out.")
                for e in at.error), [e.value for e in at.error]
     # Nothing opened, and what was typed is still there to finish.
     assert not FoodOptimizer("burger").pending_batch
@@ -2010,7 +2012,8 @@ def test_result_inputs_do_not_clamp_and_refuse_out_of_range_on_save(open_batch):
     _submit_button(at, "Save results").click()
     at.run()
     assert not at.exception
-    assert any(e.value == ("Firmness 12 N is outside your range of 0 to 10 N. "
+    # Said below the whole grid, so it names the row as its heading does.
+    assert any(e.value == ("Suggestion 1: Firmness 12 N is outside your range of 0 to 10 N. "
                            "Check the value, or adjust Scale minimum or Scale maximum in Set up.")
                for e in at.error), [e.value for e in at.error]
     assert FoodOptimizer("burger").X_history == []
@@ -2210,7 +2213,7 @@ def test_every_row_left_out_says_there_is_nothing_to_save(open_batch):
     at.checkbox(key="f1_leave_out").check()
     at.checkbox(key="f2_leave_out").check()
     at.run()
-    assert any(i.value == "Nothing to save — at least one formulation needs results."
+    assert any(i.value == "All 2 formulations are ticked Not scored. Untick one and enter results to save."
                for i in at.info), [i.value for i in at.info]
     assert _submit_button(at, "Save results").disabled
     assert FoodOptimizer("burger").pending_batch is not None
@@ -2675,8 +2678,8 @@ def test_a_typed_past_formulation_needs_every_amount(burger):
     _submit_button(at, wording.ADD_THIS_FORMULATION).click()
     at.run()
     assert not at.exception
-    assert any(e.value == wording.ENTER_EVERY_AMOUNT for e in at.error), \
-        [e.value for e in at.error]
+    assert any(e.value == wording.enter_amounts_for("Methylcellulose")
+               for e in at.error), [e.value for e in at.error]
     assert at.number_input(key="past_Pea protein").value == 12.0
     assert FoodOptimizer("burger").X_history == []
 
@@ -2874,8 +2877,8 @@ def test_a_correction_with_a_blank_amount_is_refused(scored):
     _submit_button(at, "Save correction").click()
     at.run()
     assert not at.exception
-    assert any(e.value == wording.ENTER_EVERY_AMOUNT for e in at.error), \
-        [e.value for e in at.error]
+    assert any(e.value == wording.enter_amounts_for("Pea protein")
+               for e in at.error), [e.value for e in at.error]
     assert FoodOptimizer("burger").recipe_history[0]["Pea protein"] == 10.0
 
 
@@ -7503,9 +7506,8 @@ def test_a_round_with_a_rest_row_takes_any_batch_size_it_fits_in(rest_round):
     at.number_input(key="scale_total").set_value(5.0)
     at.run()
     said = [e.value for e in at.error] + [c.value for c in at.caption]
-    assert any(wording.balance_would_go_negative(
-        "Water", "5 g", "11 g", unit="g", noun=wording.BATCH_SIZE_NOUN)
-        in line for line in said), said
+    assert any("Batch size: enter 11 g or more, or Water goes below 0 g."
+               in line for line in said), said
 
 
 def test_changing_the_default_batch_size_says_what_the_rest_row_takes(
@@ -7797,7 +7799,7 @@ def test_enter_every_amount_says_what_to_do_about_an_ingredient_left_out(
     _submit_button(at, wording.ADD_TO_THIS_BATCH).click()
     at.run()
     assert [e.value for e in at.error] == [
-        "Enter every amount. Type 0 for an ingredient you are leaving out."]
+        "Enter an amount for Methylcellulose; type 0 to leave one out."]
 
 
 def test_the_question_names_the_rows_taken_off_the_grid(burger):
@@ -8011,9 +8013,8 @@ def test_a_batch_size_the_ingredients_cannot_make_is_refused(open_batch):
     at.number_input(key="scale_total").set_value(250.0)
     at.run()
     assert not at.exception
-    assert any(c.value == ("A batch size of 250 g is not reachable: the most "
-                           "these ingredients can make is 28 g. The Round "
-                           "stays at 25 g.")
+    assert any(c.value == ("Batch size: enter 28 g or less, the most these "
+                           "ingredients make. The Round stays at 25 g.")
                for c in at.caption), [c.value for c in at.caption]
     # Not made to it: the round, the table and the sheets are all still 25 g.
     saved = FoodOptimizer("burger")
@@ -8042,11 +8043,11 @@ def test_a_reachable_size_typed_after_a_refused_one_is_made(open_batch):
     at.run()
     at.number_input(key="scale_total").set_value(250.0)
     at.run()
-    assert any("is not reachable" in c.value for c in at.caption)
+    assert any("Batch size: enter" in c.value for c in at.caption)
     at.number_input(key="scale_total").set_value(28.0)
     at.run()
     assert not at.exception
-    assert not any("is not reachable" in c.value for c in at.caption), \
+    assert not any("Batch size: enter" in c.value for c in at.caption), \
         [c.value for c in at.caption]
     assert at.number_input(key="scale_total").value == 28.0
     assert FoodOptimizer("burger").pending_batch_total == 28.0
@@ -8075,7 +8076,8 @@ def test_the_box_is_blank_and_refuses_nothing_when_no_size_is_in_force(
     assert not at.exception
     assert at.number_input(key="scale_total").value is None
     said = [c.value for c in at.caption] + [e.value for e in at.error]
-    assert not any("is not reachable" in s for s in said), said
+    assert not any("is not reachable" in s or "Batch size: enter" in s
+                   for s in said), said
     # ...and nothing was rewritten behind the blank box.
     assert [r['recipe'] for r in FoodOptimizer("unreachable_mean").pending_batch] \
         == [{"Pea protein": 20.0, "Water": 10.0},

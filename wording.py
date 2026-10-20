@@ -699,7 +699,10 @@ GENERATE_FORMULATIONS_DISABLED = "Generate formulations"
 BACK_TO_SETUP = "Back to Set up"
 
 GENERATING_SPINNER = "Choosing the next formulations…"
-GENERATE_FAILED = 'The app could not generate formulations. Try requesting fewer formulations. If the problem persists, review recently added limits.'
+# Every failed Generate that is not one of the named refusals: the limits
+# left no room, or something broke. Both ways out fit either case.
+GENERATE_FAILED = ("Could not make formulations. Ask for fewer, or widen a "
+                   f"{LIMIT} in Set up.")
 
 
 def repeat_of_formulation(no):
@@ -725,8 +728,12 @@ ADD_OWN_NO_BATCH_CAPTION = "Generate first to see suggestions too."
 ADD_OWN_NO_BATCH_HELP = "Want the app's suggestions too? Click Generate first, then add yours."
 OWN_NOTE_PLACEHOLDER = "e.g. Repeat of 4 with more salt"
 ADD_TO_THIS_BATCH = f"Add to this {ROUND_CAP}"
-ENTER_EVERY_AMOUNT = ("Enter every amount. Type 0 for an ingredient you "
-                      "are leaving out.")
+def enter_amounts_for(names_text):
+    """'Enter an amount for Salt and Water; type 0 to leave one out.' — a
+    formulation typed in with blank boxes: Add a formulation of your own,
+    a correction on Results, a past formulation. It names the boxes that
+    are still empty, so the reader does not hunt for them."""
+    return f"Enter an amount for {names_text}; type 0 to leave one out."
 # What the row says when the user typed no reason of their own. The note is
 # part of the record, so a row on the batch table is never blank about what
 # it is.
@@ -1110,7 +1117,14 @@ def suggestion_heading(k):
     return f"**{suggestion_column(k)}**"
 
 
-NOTHING_TO_SAVE = "Nothing to save — at least one formulation needs results."
+def nothing_to_save(n):
+    """Every open row is ticked Not scored, so Save results has nothing to
+    record. The count is the reader's own, and the way out is the tick."""
+    if n == 1:
+        return (f"This {FORMULATION} is ticked {NOT_SCORED}. Untick it and "
+                "enter results to save.")
+    return (f"All {n} {FORMULATION}s are ticked {NOT_SCORED}. Untick one "
+            "and enter results to save.")
 # Said by food_bo when a row arrives with nothing on it, and by the Results
 # tab when a not-scored formulation is saved with every box empty. One
 # sentence, so the refusal reads the same wherever the row was typed.
@@ -1180,10 +1194,11 @@ UPLOAD_SHEETS_ARE_BACK_HELP = ("Upload the completed workbook here. The app impo
 UPLOAD_RESULTS_FILE = "Upload results (Excel or CSV)"
 DOWNLOAD_ROUND6_RESULTS = "Download the pilot's Round 6 results"
 CHECK_THIS_FILE = "Check this file"
-FILE_UNREADABLE = (
-    "This file could not be read. Upload the workbook you downloaded above, "
-    "or a spreadsheet saved from it."
-)
+def file_unreadable(name):
+    """'Could not read Round 3.xlsx. Upload the workbook downloaded above.'
+    — an upload on Make a round that is not a workbook or a CSV at all."""
+    return (f"Could not read {name or 'this file'}. Upload the workbook "
+            "downloaded above.")
 
 
 def upload_found_caption(found_n, total_n, names_text):
@@ -1831,6 +1846,35 @@ def round_stays_at(size_text):
     return f"The {ROUND_CAP} stays at {size_text}."
 
 
+def _stays(stays_text):
+    """' The Round stays at 100 g.', or nothing for a Round made as
+    generated, which has no size to name."""
+    return " " + round_stays_at(stays_text) if stays_text else ""
+
+
+def batch_size_too_big(most_text, stays_text):
+    """Make a round's Batch size box, above what the allowed amounts can
+    add up to: the box, the number to type, why, and what the Round is
+    still made to. Set up's Default batch size box keeps its own words
+    (total_not_reachable_at_most)."""
+    return (f"{BATCH_SIZE_NAME}: enter {most_text} or less, the most these "
+            f"{INGREDIENT}s make." + _stays(stays_text))
+
+
+def batch_size_too_small(least_text, stays_text):
+    """The same box, below what the Lowest amounts already add up to."""
+    return (f"{BATCH_SIZE_NAME}: enter {least_text} or more, the least these "
+            f"{INGREDIENT}s make." + _stays(stays_text))
+
+
+def batch_size_leaves_rest_below_zero(name, least_text, unit, stays_text):
+    """The same box with a Fill to total row: too small a size leaves that
+    row with less than nothing."""
+    zero = f"0 {unit}".strip()
+    return (f"{BATCH_SIZE_NAME}: enter {least_text} or more, or {name} goes "
+            f"below {zero}." + _stays(stays_text))
+
+
 def total_not_reachable_at_most(total_text, most_text,
                                 noun=FORMULATION_TOTAL_NOUN):
     """A size above everything the allowed amounts can add up to. The two
@@ -1880,10 +1924,10 @@ def round_uses_the_default_size(no, size_text, previous_no, previous_text):
 
 def fixed_amounts_do_not_add_up(made_text, total_text):
     """Every ingredient is fixed at one amount and those amounts make the
-    wrong weight. Nothing can be widened and nothing can move, so the
-    sentence is the two numbers and no advice."""
-    return (f"The fixed amounts add up to {made_text}, not the "
-            f"{total_text} {BATCH_SIZE_NOUN}.")
+    wrong weight. Nothing can move, so the sentence is the two numbers and
+    the two things in Set up that can change."""
+    return (f"Fixed amounts add up to {made_text}, not {total_text}. Change "
+            f"one, or the {FORMULATION_TOTAL_NOUN}, in Set up.")
 
 
 def fixing_breaks_the_total(total_text):
@@ -2361,12 +2405,21 @@ def import_columns_caption_empty():
 UPLOAD_FORMULATIONS_FILE_LABEL = f"Upload {FORMULATION}s (Excel or CSV)"
 
 
-def missing_columns(names_text):
-    return f"Missing columns: {names_text}"
+def missing_columns(names_text, n=1):
+    """Results' Add past formulations file without a column the project
+    needs. The same sentence as an uploaded results file."""
+    return sheet_missing_columns(names_text, n)
 
 
 def blank_amount_columns(names_text):
-    return f"These amount columns have blank cells: {names_text}"
+    """Blank amount cells in an Add past formulations file."""
+    return f"Fill the blank cells in {names_text}; type 0 for none."
+
+
+def past_file_unreadable(name):
+    """An Add past formulations upload that is not a spreadsheet at all."""
+    return (f"Could not read {name or 'this file'}. Upload a spreadsheet with one row per "
+            f"{FORMULATION}.")
 
 
 IMPORT_ALL_ROWS_BUTTON = "Record all rows"
@@ -2580,18 +2633,16 @@ def all_formulations_file_name(project_name):
 
 INGREDIENTS_TEMPLATE_FILE_NAME = "ingredients_template.xlsx"
 
-WORKBOOK_UNREADABLE = ("This file could not be read as a workbook. Upload "
-                       "the file you downloaded from this " + ROUND + ".")
+WORKBOOK_UNREADABLE = ("Could not read this file as a workbook. Upload the "
+                       f"one downloaded for this {ROUND_CAP}.")
 
 
-def workbook_sheet_missing(wanted, found_text):
+def workbook_sheet_missing(wanted):
     """The sheet named after the open batch is not in the uploaded file —
     usually last week's workbook, downloaded twice. It names the sheet it
-    looked for and the ones it found, because both are on screen nowhere
-    else."""
-    return (f"This workbook has no sheet called {wanted}. It has "
-            f"{found_text}. Download the sheets for {wanted} and fill "
-            f"those in.")
+    looked for and which workbook to upload instead."""
+    return (f"This workbook has no {wanted} sheet. Upload the workbook "
+            f"downloaded for {wanted}.")
 
 
 def workbook_no_formulations(wanted):
@@ -2893,7 +2944,7 @@ def workbook_actual_below_zero(number, name):
     of a bowl, so it is a slip of the pen or a minus sign left in front of
     a correction, and either way the sheet says which cell."""
     return (f"{FORMULATION_CAP} {number}: the {ACTUAL_COLUMN} cell for "
-            f"{name} cannot be less than zero.")
+            f"{name} is below 0. Write what you weighed.")
 
 
 def workbook_actual_not_a_number(number, name):
@@ -2986,9 +3037,10 @@ def score_term(share_text, name):
 
 
 def formulation_measurement(number, name):
-    """'Formulation 4 Firmness' — how one cell of an uploaded sheet is named
-    inside the refusal that says its value is out of range."""
-    return f"{FORMULATION_CAP} {number} {name}"
+    """'Formulation 4: Firmness' — how one result cell is named inside the
+    refusal that says its value is out of range: an uploaded sheet, and
+    Save results on Make a round, which sits below every row."""
+    return f"{FORMULATION_CAP} {number}: {name}"
 
 
 # The two sentences the model still needs and the grid already had.
@@ -3071,33 +3123,45 @@ def file_lowest_above_highest(name, low, high):
 SHEET_NEEDS_A_FORMULATION_COLUMN = (
     f"The sheet needs a {FORMULATION_CAP} column with the numbers from the "
     f"{ROUND_CAP} sheets you downloaded.")
-SHEET_HAS_NO_ROWS = "The sheet has no result rows."
+SHEET_HAS_NO_ROWS = (f"The file has no {FORMULATION}s in it. Add one row "
+                     f"per {FORMULATION}.")
 
 
-def sheet_missing_columns(named):
-    return f"Missing columns: {named}"
+def sheet_missing_columns(named, n=1):
+    """An uploaded results file without a column for a measurement:
+    'Add a Firmness column, then upload again.'"""
+    if n == 1:
+        return f"Add a {named} column, then upload again."
+    return f"Add columns for {named}, then upload again."
 
 
 def formulation_number_not_whole(raw):
-    return f"{FORMULATION_CAP} number {raw} is not a whole number."
+    return (f"{FORMULATION_CAP} column: {raw} is not a {FORMULATION} "
+            "number. Use the numbers on the sheets.")
 
 
 def formulation_not_in_round(number, round_no, holds):
-    return (f"{FORMULATION_CAP} {number} is not in {ROUND_CAP} {round_no} "
-            f"(it has {holds}).")
+    return (f"{FORMULATION_CAP} {number} is not in {ROUND_CAP} {round_no}, "
+            f"which has {holds}. Check its number.")
 
 
 def formulation_twice_in_the_sheet(number):
-    return (f"{FORMULATION_CAP} {number} appears more than once in the "
-            f"sheet.")
+    return f"{FORMULATION_CAP} {number} is in the file twice. Keep one."
 
 
-def formulation_value_not_a_number(number, name):
-    return f"{FORMULATION_CAP} {number} {name} is not a number."
+def formulation_value_not_a_number(number, name, value=""):
+    """Text in a result cell: the formulation, the measurement, and what
+    was typed there, cut short if it runs long."""
+    shown = str(value).strip()
+    if len(shown) > 30:
+        shown = shown[:29] + "…"
+    tail = f", not “{shown}”" if shown else ""
+    return f"{FORMULATION_CAP} {number}: enter a number for {name}{tail}."
 
 
 def formulation_has_no_measurements(number):
-    return f"{FORMULATION_CAP} {number} has no measurements filled in."
+    return (f"{FORMULATION_CAP} {number} has no results. Fill them in, or "
+            f"tick {NOT_SCORED}.")
 
 
 def formulation_is_not_not_scored(number):
@@ -3120,10 +3184,9 @@ def limit_needs_one_unit(fix_sentence):
 
 # Generating, recording, deleting.
 EVERYTHING_IS_FIXED = (
-    "Every ingredient and process setting is fixed at one amount. Give at "
-    f"least one of them different {LOWEST_LABEL} and {HIGHEST_LABEL} "
-    "amounts before generating formulations.")
-ADD_A_MEASUREMENT_FIRST = "Add at least one measurement before saving results."
+    "Every row is fixed. In Set up, give one a "
+    f"{HIGHEST_LABEL} above its {LOWEST_LABEL}.")
+ADD_A_MEASUREMENT_FIRST = "Add a measurement in Set up before saving results."
 
 
 def no_measurement_named(name):
@@ -3924,7 +3987,8 @@ def premix_group_total_line(name):
 
 
 def workbook_lot_conflict(name):
-    return f"{name} has different lot numbers on two sheets. Use the same lot number for it throughout this Round."
+    return (f"{name} has two different lot numbers. Make them match, then "
+            "upload again.")
 
 
 def premix_needs_parts(name, here=False):
@@ -3987,23 +4051,36 @@ OLD_SINGLE_MODE = "bought in"
 OLD_COMPOSITION_LABEL = "% of pre-mix"
 OLD_COMPOSITION_LABEL_UNHYPHENATED = "% of premix"
 EDIT_ONLY_PENDING = "Only unrecorded formulations in this Round can be edited."
-EDIT_BALANCE_HELP = " Adjust the amounts or use a balance ingredient."
+EDIT_BALANCE_HELP = " Change its amounts to match."
 EDITED_FORMULATION = "Edited formulation"
 
 def edit_calculated_error(name):
-    return f"{name} is calculated or unavailable; edit its inputs instead."
+    return f"{name} is a calculation; change the amounts it uses."
 
-def edit_number_error(name, finite=False):
-    return f"Enter a finite number for {name}." if finite else f"Enter a number for {name}."
+def edit_number_error(number, name):
+    """A cell of the Edit formulations grid left blank, or holding
+    something that is not an amount: the row and the column."""
+    return f"{FORMULATION_CAP} {number}: enter an amount for {name}."
 
 def edit_formulation_error(number, error):
     return f"Formulation {number}: {error}"
 
-def edit_negative_error(number):
-    return f"Formulation {number}: the calculated ingredient amounts must be zero or greater."
+def edit_negative_error(number, names_text, unit=""):
+    """An edit that leaves a calculated row below nothing: which row, and
+    the fix, which is in the amounts it is worked out from."""
+    zero = f"0 {unit}".strip()
+    return (f"{FORMULATION_CAP} {number}: {names_text} would go below "
+            f"{zero}. Change the other amounts.")
+
+def edit_breaks_limit(number, limit_text):
+    """An edit that breaks a limit: the row, the limit in the words the
+    Limits list writes it in, and the fix."""
+    return (f"{FORMULATION_CAP} {number} breaks the {LIMIT} {limit_text}. "
+            "Change its amounts.")
 
 def workbook_result_conflict(number, key):
-    return f"Formulation {number}: conflicting {key} entries on the Round and formulation sheets. Keep one value or make them agree, then upload again."
+    return (f"{FORMULATION_CAP} {number} has two different {key} entries. "
+            "Make them match, then upload again.")
 
 
 SHARE_TOTAL = "Total: 100%"
@@ -4054,8 +4131,24 @@ CUSTOM_FIELD_BUILTIN = "That recording option already exists. Select it in Addit
 CUSTOM_FIELD_EXISTS = "A field with this name and scope already exists. Select it in Additional records."
 CUSTOM_VALUES_INVALID = "Recording values must be text or numbers, up to 2,000 characters per entry."
 CUSTOM_WORKBOOK_CHANGED = "These recording fields no longer match this Round. Download a new workbook and transfer your entries."
-CUSTOM_WORKBOOK_CONFLICT = "This workbook contains conflicting entries for the same recording field. Keep one value and upload again."
-CUSTOM_TEXT_ONLY = "Enter recording values as text or numbers, rather than spreadsheet formulas."
+
+
+def custom_record_conflict(field, subject):
+    """An Additional records field written twice, differently, in one
+    uploaded workbook: which field, for which row."""
+    return (f"{subject} has two different {field} entries. Make them match, "
+            "then upload again.")
+
+
+def custom_record_calculation(field, subject):
+    """An Additional records cell holding an Excel calculation."""
+    return (f"The {field} cell for {subject} is a calculation. Type the "
+            "value, then upload again.")
+
+
+def custom_record_too_long(field, subject):
+    return (f"The {field} entry for {subject} is over 2,000 characters. "
+            "Shorten it, then upload again.")
 CUSTOM_RECORDS_HEADING = "Additional records"
 CUSTOM_SHEET_HELP = "Optional text or numbers. These records are saved with the Round and do not affect scores."
 CUSTOM_AUTOSAVE_HELP = "Double-click a cell to enter a value. Entries save automatically when you leave the cell and do not affect scores."
@@ -4095,7 +4188,11 @@ LIMIT_BOUND_DETAIL = ("Leave a minimum or maximum empty for no restriction on th
                       "Ingredient amounts and other limits still apply.")
 
 def missing_property_values(metric, names):
-    return f"Complete {metric} for: {names}. Open Ingredient properties and enter the missing values (0 only if zero), or delete this property limit."
+    """Generate with a limit on a property some ingredients have no value
+    for: 'Enter Fat for Butter and Oil under Ingredient properties, or
+    delete the Fat limit.'"""
+    return (f"Enter {metric} for {names} under Ingredient properties, or "
+            f"delete the {metric} {LIMIT}.")
 
 
 # Results detail browsing and ingredient composition.
@@ -4247,25 +4344,48 @@ SHEET_LINK_FALLBACK = (
 # BOTH spellings — printed as a lot, it came back as one.
 PREMIX_LOT_ON_PREPARATION = f"See {PREPARATION_SHEET}"
 WORKBOOK_METADATA_ERROR = (
-    "This workbook is missing or has damaged Round information. Download a "
-    "new workbook and transfer your entries.")
-WORKBOOK_FORMULA_ERROR = (
-    "A formula has no saved result. Open the workbook in Excel, recalculate "
-    "and save it, then upload again; or enter the measured number directly.")
-WORKBOOK_WRONG_ROUND = (
-    "This workbook belongs to a different Round. Download the workbook for "
-    "the open Round.")
-WORKBOOK_ROUND_CHANGED = (
-    f"The {FORMULATION}s changed after this workbook was downloaded. "
-    "Download a new workbook and transfer your measurements before "
-    "uploading.")
-WORKBOOK_MISSING_SHEET = (
-    "This workbook is missing a required sheet or its Round information. "
-    "Download a new workbook.")
-WORKBOOK_RESULTS_ARE_NUMBERS = (
-    "Enter results as numbers, not Excel formulas, then upload again.")
-WORKBOOK_ACTUALS_ARE_NUMBERS = (
-    "Enter actual amounts as numbers, not Excel formulas.")
+    f"This workbook's {ROUND_CAP} details are damaged. Download it again "
+    "and copy your entries in.")
+
+
+def workbook_calculation_without_value(sheet, address):
+    """An Excel calculation in a write-in cell that was saved without its
+    value (the file never went through Excel): the cell, and both fixes."""
+    return (f"Cell {address} on {sheet} has a calculation but no value. "
+            "Type the number, or resave the file in Excel.")
+
+
+def workbook_wrong_round(file_round, open_round):
+    """'This workbook is for Round 2; Round 3 is open. Upload Round 3's
+    workbook.'"""
+    return (f"This workbook is for {ROUND_CAP} {file_round}; {ROUND_CAP} "
+            f"{open_round} is open. Upload {ROUND_CAP} {open_round}'s "
+            "workbook.")
+
+
+def workbook_formulation_changed(number):
+    """A formulation of the open Round was edited after its workbook was
+    downloaded: the sheet would file results under amounts nobody made."""
+    return (f"{FORMULATION_CAP} {number} changed after this workbook was "
+            "downloaded. Download it again and copy your results in.")
+
+
+def workbook_sheet_gone(sheet):
+    """The new layout's write-in sheet was deleted from the file."""
+    return (f"This workbook has no {sheet} sheet. Download it again and "
+            "copy your results in.")
+
+
+def workbook_results_calculation(address):
+    """A result cell on the Results sheet holding an Excel calculation."""
+    return (f"Cell {address} on the {RESULTS_SHEET} sheet is a calculation. "
+            "Type the number, then upload again.")
+
+
+def workbook_actual_calculation(number, name):
+    """An Actual cell holding an Excel calculation."""
+    return (f"{FORMULATION_CAP} {number}: the {ACTUAL_COLUMN} cell for "
+            f"{name} is a calculation. Type what you weighed.")
 
 
 # ------------------------------------------------------------------ #
