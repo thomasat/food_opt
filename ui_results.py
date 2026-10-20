@@ -1065,16 +1065,21 @@ def _all_formulations(opt, said_partial=False):
         for o in opt.objectives}
     # A column is as wide as its name up to all_formulations_cap: with
     # every measurement headed in full the last measurement's values sat
-    # off screen at 1440 px. A header cut at that width is said whole in
-    # its tooltip.
+    # off screen at 1440 px. A full header that would not fit is never cut
+    # mid-word ('· Targe'): the column keeps its short name ('Consistency
+    # (/15)') and the full header is its tooltip.
     cap = all_formulations_cap(sum(c in frame.columns for c in labels))
 
-    def width_of(c):
-        return max(80, 8 * len(str(labels.get(c, c))) + 24)
+    def width_of(text):
+        return max(80, 8 * len(str(text)) + 24)
+
+    def shown(c):
+        full = labels.get(c, c)
+        return full if width_of(full) <= cap else c
 
     config = {c: st.column_config.Column(
-                  labels.get(c), width=min(width_of(c), cap),
-                  help=str(labels.get(c, c)) if width_of(c) > cap else None)
+                  shown(c), width=min(width_of(shown(c)), cap),
+                  help=str(labels[c]) if c in labels and shown(c) != labels[c] else None)
               for c in frame.columns if len(str(labels.get(c, c))) > 9}
     config.update({c: st.column_config.Column(label) for c, label in labels.items()
                    if c in frame.columns and c not in config})

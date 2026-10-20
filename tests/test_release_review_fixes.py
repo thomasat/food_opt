@@ -226,10 +226,17 @@ def test_all_formulations_columns_are_capped_with_the_header_in_the_tooltip(goal
     cap = ui_results.all_formulations_cap(4)
     widths = {name: c.get("width") for name, c in config.items() if not c.get("hidden")}
     assert widths and all(w is None or w <= cap for w in widths.values()), widths
-    capped = [c for c in config.values() if c.get("width") == cap]
-    assert len(capped) == 4, config
-    for column in capped:
-        assert column.get("help") == column.get("label"), column
+    # A full header that would not fit is never cut mid-word: the column
+    # shows its short name and the full header is its tooltip.
+    with_tip = [c for c in config.values() if c.get("help")]
+    assert len(with_tip) == 4, config
+    for column in with_tip:
+        assert column["help"].startswith(column["label"].split(" (")[0]), column
+        assert column["help"] != column["label"], column
+        assert 8 * len(column["label"]) + 24 <= cap or column.get("width") == cap, column
+    cook = config["Cook loss (%)"]
+    assert cook["label"] == "Cook loss (%)"
+    assert cook["help"] == "Cook loss (0–40, %) · Lower is better"
     long = next(c for c in config.values()
                 if str(c.get("label", "")).startswith("Mouth-coating after swallowing"))
     assert long["help"] == "Mouth-coating after swallowing (0–15) · Target 3"
