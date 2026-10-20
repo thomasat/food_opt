@@ -309,6 +309,32 @@ def test_returning_user_lands_in_most_recent_project(project_with_history):
     assert "older" not in [h.value for h in at.sidebar.subheader]
 
 
+def test_a_fresh_session_reopens_the_project_last_opened(tmp_path, monkeypatch):
+    """S4: the yogurt pilot writes two projects, the all-10 one last, and a
+    fresh session reopened that one (the newest file). It reopens the one
+    the reader opened instead — and, once they open another, that one."""
+    monkeypatch.chdir(tmp_path)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    _submit_button(at.main, wording.OPEN_YOGURT_LABEL).click()
+    at.run()
+    assert not at.exception
+    os.utime(tmp_path / f"{sample_projects.ALL10}.pkl")   # newest file on disk
+    fresh = AppTest.from_file(APP_PATH, default_timeout=180)
+    fresh.run()
+    assert sample_projects.ROUND6 in [h.value for h in fresh.sidebar.subheader]
+    # Open the burger example: that is what the next session reopens, even
+    # though a yogurt file is written later.
+    _submit_button(fresh.sidebar, wording.SEE_EXAMPLE_SETUP_LABEL).click()
+    fresh.run()
+    assert any(s.value == "Opened the burger example." for s in fresh.success), \
+        [s.value for s in fresh.success]
+    os.utime(tmp_path / f"{sample_projects.ROUND6}.pkl")
+    again = AppTest.from_file(APP_PATH, default_timeout=180)
+    again.run()
+    assert sample_projects.BURGER in [h.value for h in again.sidebar.subheader]
+
+
 def test_pending_confirm_is_cleared_on_project_switch(project_with_history, tmp_path):
     other = FoodOptimizer("second")
     other.add_ingredient("Flour", 0, 100)
@@ -335,17 +361,24 @@ def test_pending_confirm_is_cleared_on_project_switch(project_with_history, tmp_
     assert "second" in [h.value for h in at.sidebar.subheader]
 
 
+def _open_shown(at):
+    """The project box's Open (a saved copy's row has an Open of its own)."""
+    return any(b.label == wording.OPEN_BUTTON
+               and not str(b.key).startswith("open_copy")
+               for b in at.sidebar.button)
+
+
 def test_open_button_lights_up_only_when_it_would_switch(project_with_history, tmp_path):
     """Button rule: the button that moves you forward is coloured, and a
-    button that would do nothing is greyed out. Open must be disabled while
-    the box shows the project already on screen, and primary once a
-    different project is chosen."""
+    button that would do nothing is not drawn (N3: a greyed Open under the
+    open project read as broken). Open is absent while the box shows the
+    project already on screen, and primary once a different project is
+    chosen."""
     FoodOptimizer("second").add_ingredient("Flour", 0, 100)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "my_project"
     at.run()
-    open_btn = _submit_button(at.sidebar, "Open")
-    assert open_btn.disabled and open_btn.proto.type == "secondary"
+    assert not _open_shown(at)
 
     at.selectbox(key="project_select").set_value("second")
     at.run()
@@ -355,8 +388,8 @@ def test_open_button_lights_up_only_when_it_would_switch(project_with_history, t
     open_btn.click()
     at.run()
     assert "second" in [h.value for h in at.sidebar.subheader]
-    open_btn = _submit_button(at.sidebar, "Open")
-    assert open_btn.disabled
+    at.run()      # the aborted pass's Open is still in the tree until then
+    assert not _open_shown(at)
 
 
 def test_delete_project_confirms_archives_and_leaves_the_list(project_with_history, tmp_path):
@@ -791,8 +824,7 @@ def test_the_sidebar_carries_no_coloured_button_except_open(project_with_history
     at.run()
     lit = [b.label for b in at.sidebar.button if b.proto.type == "primary"]
     assert lit == [], lit
-    open_button = _submit_button(at.sidebar, "Open")
-    assert open_button.disabled and open_button.proto.type == "secondary"
+    assert not _open_shown(at)
     at.selectbox(key="project_select").set_value("second")
     at.run()
     open_button = _submit_button(at.sidebar, "Open")
@@ -3817,7 +3849,7 @@ def test_a_hard_reset_leaves_the_project_open_and_in_the_list(project_with_histo
     at.run()
     # Nothing in the sidebar is lit: the project on screen is the one open.
     assert [b.label for b in at.sidebar.button if b.proto.type == "primary"] == []
-    assert _submit_button(at.sidebar, "Open").disabled
+    assert not _open_shown(at)
 
 
 def test_every_confirmation_counts_the_left_out_formulations(scored):
@@ -4221,22 +4253,26 @@ def test_a_project_with_no_properties_still_offers_to_name_one(burger):
     assert "Add property limit" not in _labels(at)
 
 
-def test_the_sample_project_is_created_not_opened(tmp_path, monkeypatch):
+def test_the_sample_project_says_what_it_added(tmp_path, monkeypatch):
+    """S4: the first click writes two projects into the list, and the
+    success line says so: 'Opened the yogurt pilot (2 projects added).'"""
     monkeypatch.chdir(tmp_path)
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     _submit_button(at.main, wording.OPEN_YOGURT_LABEL).click()
     at.run()
     assert not at.exception
-    assert any(s.value == wording.project_created(sample_projects.ROUND6)
+    assert wording.sample_opened(wording.YOGURT_SAMPLE_NAME, 2) == \
+        "Opened the yogurt pilot (2 projects added)."
+    assert any(s.value == wording.sample_opened(wording.YOGURT_SAMPLE_NAME, 2)
                for s in at.success), [s.value for s in at.success]
-    # Clicking it again opens the sample as it stands: it says "Opened", and
+    # Clicking it again opens the sample as it stands: nothing is added, and
     # it never claims the sample was put back, because nothing was.
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     _submit_button(at.sidebar, wording.OPEN_YOGURT_LABEL).click()
     at.run()
-    assert any(s.value == wording.project_opened(sample_projects.ROUND6)
+    assert any(s.value == "Opened the yogurt pilot."
                for s in at.success), [s.value for s in at.success]
     assert not any("restored" in s.value or "put back" in s.value
                    for s in at.success), [s.value for s in at.success]
@@ -5068,8 +5104,9 @@ def test_opening_a_project_renames_the_sidebar_box_and_greys_open(burger):
     at.run()
     assert not at.exception
     assert at.sidebar.selectbox(key="project_select").value == "second"
+    at.run()      # the aborted pass's Open is still in the tree until then
     assert [b.label for b in at.sidebar.button if b.proto.type == "primary"] == []
-    assert _submit_button(at.sidebar, "Open").disabled
+    assert not _open_shown(at)
 
 
 def test_creating_a_project_renames_the_sidebar_box_and_greys_open(burger):
@@ -9793,7 +9830,8 @@ def test_an_older_sample_on_disk_is_opened_as_it_stands_never_rebuilt(
     assert [v["name"] for v in kept.variables] == ["Oat flour"]
     assert [o["name"] for o in kept.objectives] == ["Taste"]
     assert _sample_file(tmp_path).read_text() == before
-    assert any(s.value == wording.project_opened(sample_projects.ROUND6)
+    # Only the all-10 project was missing, so only it is said to be added.
+    assert any(s.value == wording.sample_opened(wording.YOGURT_SAMPLE_NAME, 1)
                for s in at.success), [s.value for s in at.success]
 
 

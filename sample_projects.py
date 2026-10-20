@@ -109,6 +109,12 @@ def shipped_state(name):
         return json.load(fh)
 
 
+def shipped_scored(name):
+    """How many formulations the sample ships with results for (the yogurt
+    pilot's sidebar line: 15 in the Round 6 sample, 30 in the all-10 one)."""
+    return len(shipped_state(name).get("Y_history") or [])
+
+
 def _write_round6_results(storage, overwrite):
     """A copy of the Round 6 results file beside the projects, so Browse
     files opens on it. Its name is not <name>.pkl, so it is never listed as

@@ -80,6 +80,29 @@ class LocalStorage:
             return None
         return max(projects, key=lambda n: os.stat(self._path(n)).st_mtime_ns)
 
+    # The project the reader last opened, by name, in one line beside the
+    # projects. A fresh session reopens it: the newest file is not it when a
+    # sample writes two projects at once, or a refresh rewrites one.
+    _LAST_OPENED = ".last_opened"
+
+    def remember_opened(self, name):
+        """Note `name` as the project last opened. Best effort: a folder
+        that refuses the write only loses the reopen."""
+        try:
+            with open(self._LAST_OPENED, "w", encoding="utf-8") as f:
+                f.write(name)
+        except OSError:
+            pass
+
+    def last_opened(self):
+        """The project last opened, if it is still a project on disk."""
+        try:
+            with open(self._LAST_OPENED, encoding="utf-8") as f:
+                name = f.read().strip()
+        except (OSError, UnicodeDecodeError):
+            return None
+        return name if name in self.list_projects() else None
+
     def exists(self, name):
         return os.path.exists(self._path(name))
 

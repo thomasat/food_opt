@@ -200,7 +200,7 @@ OPEN_YOGURT_HELP = (
     "waiting for its results.")
 SEE_EXAMPLE_SETUP_LABEL = "Open the burger example"
 SEE_EXAMPLE_SETUP_CAPTION = "Illustrative values; shows calculations and pre-mixes."
-SAMPLES_HEADING = "**Samples**"
+SAMPLES_HEADING = "**Examples**"   # the welcome screen says "example" too
 # The sidebar fold that holds the New project box while a project is open.
 NEW_PROJECT_FOLD = "New project"
 BURGER_PROVENANCE_CAPTION = "Example setup; illustrative values, no results."
@@ -223,18 +223,31 @@ BURGER_NO_RESULTS = "No results: this example shows set-up only."
 # The label of the Set up tab's second tier, on screen and in every text that
 # points to it.
 MORE_SETTINGS_EXPANDER = "Preparation and records"
-SAMPLE_PROVENANCE_CAPTION = "Real yogurt-style pilot; earlier engine chose Rounds 3–10."
+def sample_provenance_caption(n_scored):
+    """The yogurt pilot's sidebar line: 'Real tasting data; 15 formulations
+    scored.' — `n_scored` is what the shipped project holds (15 in the
+    Round 6 sample, 30 in the all-10 one)."""
+    return f"Real tasting data; {n_scored} formulations scored."
+
+
+SAMPLE_PROVENANCE_CAPTION = sample_provenance_caption(15)   # the Round 6 sample
 # The pilot as it was run: its own limits, its panel, its process and its
-# fixed budget, each said once.
-SAMPLE_PROVENANCE_HELP = (
+# fixed budget, each said once. The total keeps four decimals: the limit is
+# 97.69051–98.69051 g, and 97.69 g fails its check (limit_text says 97.6905
+# on Set up for the same reason).
+_SAMPLE_PROVENANCE_FACTS = (
     "Rounds 1–2 were a random starting set drawn by the engine; Rounds 3–10 "
     "were chosen by an earlier version of this engine. "
     "The limits are the pilot's own: each ingredient's Lowest and Highest, "
     "and their total at 97.6905–98.6905 g per 100 g. Soy protein isolate (1 %) "
     "and tricalcium phosphate (0.31 %) were fixed in every formulation, so "
     "they are not listed. Each result is the median of a trained panel of "
-    "five; no Repeats. Each formulation was mixed, cooked at 90 °C for 8 min "
-    "and chilled. The budget was fixed at 10 Rounds of 3.")
+    "five; no repeats. Each formulation was mixed, cooked at 90 °C for 8 min "
+    "and chilled. The budget was fixed at 10 Rounds of 3")
+# The Round 6 sample shows Rounds 1–5 and 6, so its "?" says where the rest are.
+SAMPLE_PROVENANCE_HELP = (_SAMPLE_PROVENANCE_FACTS
+                          + " (Rounds 7–10 are in Yogurt pilot - all 10 Rounds).")
+SAMPLE_PROVENANCE_HELP_ALL10 = _SAMPLE_PROVENANCE_FACTS + "."
 
 
 # The project-level Method: one text area in Preparation and records, printed on the
@@ -482,6 +495,8 @@ OPEN_BUTTON = "Open"
 # ------------------------------------------------------------------ #
 # The welcome screen, no project open (owner, 2026-10-19): the two examples
 # first, under one heading; your own project second, smaller, with its steps.
+# The one line under the title on the welcome screen: what the app does.
+WELCOME_TAGLINE = "Suggests what to make next, from your results."
 WELCOME_HEADER = "## Start with an example"
 WELCOME_OWN_HEADER = "#### Or start your own project"
 
@@ -489,7 +504,7 @@ WELCOME_OWN_HEADER = "#### Or start your own project"
 def welcome_steps():
     return (
         "1. **Name a project** in the sidebar on the left.\n"
-        "2. **Set up ingredients and process settings**, then choose measurements and targets.\n"
+        "2. **Set up** ingredients, measurements and targets.\n"
         "3. **Generate formulations**, prepare each one, and record your measurements.\n"
         + WELCOME_REVIEW_STEP      # review guide: Review is the loop's fourth step
     )
@@ -571,6 +586,20 @@ def project_created(name):
 
 def project_opened(name):
     return f"Opened {name}."
+
+
+# The two samples, as their success line names them (not by file name).
+YOGURT_SAMPLE_NAME = "the yogurt pilot"
+BURGER_SAMPLE_NAME = "the burger example"
+
+
+def sample_opened(what, added=0):
+    """'Opened the yogurt pilot (2 projects added).' — `added` is how many
+    sample projects this click wrote into the project list; none is left
+    unsaid ('Opened the burger example.')."""
+    if not added:
+        return f"Opened {what}."
+    return f"Opened {what} ({added} project{'s' if added != 1 else ''} added)."
 
 
 def batch_line_open(no, n):

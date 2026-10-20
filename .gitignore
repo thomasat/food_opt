@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 *.pkl
+.last_opened
 .insights/
 .pytest_cache/
 docs/

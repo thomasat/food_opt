@@ -312,7 +312,7 @@ def test_manage_project_has_a_samples_group_with_both(at):
     _click(at.main, wording.SEE_EXAMPLE_SETUP_LABEL)
     at.run()
     [manage] = [e for e in at.sidebar.expander if e.label == wording.MANAGE_PROJECT]
-    assert "**Samples**" in [m.value for m in manage.markdown]
+    assert wording.SAMPLES_HEADING in [m.value for m in manage.markdown]
     labels = [b.label for b in manage.button]
     assert "Try the yogurt pilot" in labels and "Open the burger example" in labels
     # Burger first; the captions stay on the welcome screen and in each "?".
