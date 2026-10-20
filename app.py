@@ -275,17 +275,16 @@ def _open_sample(name=sample_projects.ROUND6):
 
 def _sidebar_samples():
     """Manage project's Samples group: the welcome screen's two ways into
-    the samples, with the same labels and captions, both secondary."""
+    the samples, with the same labels, both secondary; the captions are
+    left to the welcome screen and each button's "?"."""
     if sample_projects.burger_available():
         if st.button(wording.SEE_EXAMPLE_SETUP_LABEL, key="sample_burger_sidebar",
                      help=wording.BURGER_PROVENANCE_HELP):
             _open_sample(sample_projects.BURGER)
-        st.caption(wording.SEE_EXAMPLE_SETUP_CAPTION)
     if sample_projects.available():
         if st.button(wording.OPEN_YOGURT_LABEL, key="sample_project_sidebar",
                      help=wording.OPEN_YOGURT_HELP):
             _open_sample(sample_projects.ROUND6)
-        st.caption(wording.OPEN_YOGURT_CAPTION)
 
 
 # Once per session, before any project is opened: a yogurt pilot copy an
@@ -559,26 +558,33 @@ with st.sidebar:
         st.session_state["_loaded_project"] = _recent or existing_projects[0]
         st.session_state["_land_on_open"] = True
 
-    # Assigned before the box is created, which is the one moment Streamlit
-    # allows it: clear_on_submit does not reach a form whose handler ends in
-    # st.rerun(), so the name of the project just created stayed in the box.
-    take_clear("new_project_name", fresh="")
-    with st.form("new_project_form", clear_on_submit=True):
-        new_name = st.text_input(wording.NEW_PROJECT_NAME_LABEL, key="new_project_name",
-                                 placeholder=wording.NEW_PROJECT_PLACEHOLDER)
-        # Grey: the sidebar never competes with the tab's one lit button, and
-        # this one is on screen long before there is a name to create.
-        if st.form_submit_button(wording.CREATE_PROJECT):
-            name = new_name.strip()
-            if not _NAME_RE.fullmatch(name):
-                st.error(wording.NAME_RULE)
-            elif name in existing_projects:
-                st.error(wording.name_taken(name))
-            elif storage_backend.is_archive_name(name) or STORAGE.exists(name):
-                st.error(wording.NAME_COLLIDES_WITH_ARCHIVE)
-            else:
-                park_clear("new_project_name", "")
-                _open_project(name, create=True)
+    def _new_project_form():
+        """The New project box: open at the top of the sidebar while no
+        project is open (the welcome screen's step 1 points to it); in a
+        fold under Open project once one is."""
+        # Assigned before the box is created, which is the one moment Streamlit
+        # allows it: clear_on_submit does not reach a form whose handler ends in
+        # st.rerun(), so the name of the project just created stayed in the box.
+        take_clear("new_project_name", fresh="")
+        with st.form("new_project_form", clear_on_submit=True):
+            new_name = st.text_input(wording.NEW_PROJECT_NAME_LABEL, key="new_project_name",
+                                     placeholder=wording.NEW_PROJECT_PLACEHOLDER)
+            # Grey: the sidebar never competes with the tab's one lit button, and
+            # this one is on screen long before there is a name to create.
+            if st.form_submit_button(wording.CREATE_PROJECT):
+                name = new_name.strip()
+                if not _NAME_RE.fullmatch(name):
+                    st.error(wording.NAME_RULE)
+                elif name in existing_projects:
+                    st.error(wording.name_taken(name))
+                elif storage_backend.is_archive_name(name) or STORAGE.exists(name):
+                    st.error(wording.NAME_COLLIDES_WITH_ARCHIVE)
+                else:
+                    park_clear("new_project_name", "")
+                    _open_project(name, create=True)
+
+    if not st.session_state.get("_loaded_project"):
+        _new_project_form()
 
     if existing_projects:
         _active = st.session_state.get("_loaded_project")
@@ -603,6 +609,10 @@ with st.sidebar:
         # arming a confirmation does not rerun, so an Open drawn now would
         # still be coloured on the very run that puts a "Yes, reset" beside it.
         _open_slot = st.container()
+
+    if st.session_state.get("_loaded_project"):
+        with st.expander(wording.NEW_PROJECT_FOLD):
+            _new_project_form()
 
     project_name = st.session_state.get("_loaded_project")
     if project_name is None:
@@ -843,12 +853,12 @@ render_flash(_FLASH_BOX)
 # ================================================================== #
 
 if opt is None:
+    # The two examples first, the burger lit (owner, 2026-10-19); your own
+    # project second, with its steps and the ingredients template as a quiet
+    # link. The columns keep both buttons side by side and their captions
+    # on one or two lines.
     st.markdown(wording.WELCOME_HEADER)
-    st.markdown(wording.welcome_steps())
-    # One primary: the burger example (owner, 2026-10-19: start from a
-    # set-up to try). The yogurt pilot beside it, and the ingredients
-    # template as a quiet link under both.
-    wc1, wc2 = st.columns(2)
+    wc1, wc2, _ = st.columns([1.3, 1.3, 1])
     with wc1:
         if sample_projects.burger_available():
             if st.button(wording.SEE_EXAMPLE_SETUP_LABEL, type="primary",
@@ -861,6 +871,8 @@ if opt is None:
                          help=wording.OPEN_YOGURT_HELP):
                 _open_sample(sample_projects.ROUND6)
             st.caption(wording.OPEN_YOGURT_CAPTION)
+    st.markdown(wording.WELCOME_OWN_HEADER)
+    st.markdown(wording.welcome_steps())
     if os.path.exists(_TEMPLATE_CSV):
         st.download_button(
             wording.DOWNLOAD_TEMPLATE,

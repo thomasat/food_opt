@@ -315,9 +315,11 @@ def test_manage_project_has_a_samples_group_with_both(at):
     assert "**Samples**" in [m.value for m in manage.markdown]
     labels = [b.label for b in manage.button]
     assert "Try the yogurt pilot" in labels and "Open the burger example" in labels
+    # Burger first; the captions stay on the welcome screen and in each "?".
+    assert labels.index("Open the burger example") < labels.index("Try the yogurt pilot")
     captions = [c.value for c in manage.caption]
-    assert "Real tasting data; shows results and the Review." in captions
-    assert "Illustrative values; shows calculations and pre-mixes." in captions
+    assert wording.OPEN_YOGURT_CAPTION not in captions
+    assert wording.SEE_EXAMPLE_SETUP_CAPTION not in captions
     # Start this sample over is offered on the example setup too.
     assert wording.START_SAMPLE_OVER_LABEL in labels
     assert wording.START_OVER_LABEL not in labels

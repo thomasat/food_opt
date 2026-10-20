@@ -270,7 +270,7 @@ def test_first_run_creates_no_project_file(tmp_path, monkeypatch):
     at.run()
     assert not at.exception
     assert list(tmp_path.glob("*.pkl")) == []
-    assert any("Create your first project" in m.value for m in at.markdown), \
+    assert any("Start with an example" in m.value for m in at.markdown), \
         [m.value for m in at.markdown]
     # the welcome panel already offers the sample; the sidebar must not duplicate it on a first run
     assert not any(b.label == wording.OPEN_YOGURT_LABEL for b in at.sidebar.button), [b.label for b in at.sidebar.button]
@@ -380,7 +380,7 @@ def test_delete_project_confirms_archives_and_leaves_the_list(project_with_histo
     assert LocalStorage().list_projects() == []
     assert "my_project_deleted" in LocalStorage().list_archives()
     assert any("Deleted my_project" in i.value for i in at.info), [i.value for i in at.info]
-    assert any("Create your first project" in m.value for m in at.markdown)
+    assert any("Start with an example" in m.value for m in at.markdown)
 
 
 def test_delete_project_opens_the_most_recent_remaining_project(project_with_history, tmp_path):
@@ -576,7 +576,7 @@ def test_sample_project_button_reopens_existing_without_recreating(tmp_path, mon
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert not at.exception
-    assert any("Create your first project" in m.value for m in at.markdown)
+    assert any("Start with an example" in m.value for m in at.markdown)
 
     # Scope to the welcome-panel button explicitly: the sidebar now also has
     # a same-labelled button.
@@ -5075,8 +5075,11 @@ def test_opening_a_project_renames_the_sidebar_box_and_greys_open(burger):
 def test_creating_a_project_renames_the_sidebar_box_and_greys_open(burger):
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
-    at.sidebar.text_input[0].set_value("Probe proj")
-    at.sidebar.button[0].click()          # Create project (a form submit)
+    # With a project open, the box sits in the New project fold under Open
+    # project (owner, 2026-10-19), so it is found by key and label.
+    assert wording.NEW_PROJECT_FOLD in [e.label for e in at.sidebar.expander]
+    at.sidebar.text_input(key="new_project_name").set_value("Probe proj")
+    next(b for b in at.sidebar.button if b.label == wording.CREATE_PROJECT).click()
     at.run()
     assert not at.exception
     assert at.session_state["_loaded_project"] == "Probe proj"

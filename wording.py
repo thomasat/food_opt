@@ -201,6 +201,8 @@ OPEN_YOGURT_HELP = (
 SEE_EXAMPLE_SETUP_LABEL = "Open the burger example"
 SEE_EXAMPLE_SETUP_CAPTION = "Illustrative values; shows calculations and pre-mixes."
 SAMPLES_HEADING = "**Samples**"
+# The sidebar fold that holds the New project box while a project is open.
+NEW_PROJECT_FOLD = "New project"
 BURGER_PROVENANCE_CAPTION = "Example setup; illustrative values, no results."
 BURGER_PROVENANCE_HELP = (
     "Every amount, property, limit and target here is illustrative, not "
@@ -478,7 +480,10 @@ OPEN_BUTTON = "Open"
 # ------------------------------------------------------------------ #
 # Welcome panel (no project open yet).
 # ------------------------------------------------------------------ #
-WELCOME_HEADER = "## Create your first project"
+# The welcome screen, no project open (owner, 2026-10-19): the two examples
+# first, under one heading; your own project second, smaller, with its steps.
+WELCOME_HEADER = "## Start with an example"
+WELCOME_OWN_HEADER = "#### Or start your own project"
 
 
 def welcome_steps():
