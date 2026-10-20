@@ -206,6 +206,14 @@ def append_workbook(book, opt, rows, print_pack):
     sheet.print_area = f'A1:{get_column_letter(sheet.max_column)}{sheet.max_row}'
 
 
+def _subject_text(opt, scope, subject):
+    """'Formulation 4' for a formulation's record, the name for an
+    ingredient's."""
+    if scope == 'formulation':
+        return wording.for_project(opt, f"{wording.FORMULATION_CAP} {subject}")
+    return subject
+
+
 def read_workbook(source, opt, round_no):
     """Read only marked custom cells; validate scope and subject before import."""
     if hasattr(source, 'seek'):
@@ -235,16 +243,22 @@ def read_workbook(source, opt, round_no):
                         or known[meta['field']]['scope'] != meta['scope']
                         or meta.get('subject') not in allowed[meta['scope']]):
                     raise ValueError(wording.CUSTOM_WORKBOOK_CHANGED)
+                # Which field, for which row, in every refusal below.
+                field = known[meta['field']]['name']
+                subject = _subject_text(opt, meta['scope'], meta['subject'])
                 if cell.data_type == 'f':
-                    raise ValueError(wording.CUSTOM_TEXT_ONLY)
+                    raise ValueError(wording.custom_record_calculation(
+                        field, subject))
                 value = '' if cell.value is None else str(cell.value).strip()
                 if not value:
                     continue  # empty imported cells never erase an existing record
                 if len(value) > 2000:
-                    raise ValueError(wording.CUSTOM_VALUES_INVALID)
+                    raise ValueError(wording.custom_record_too_long(
+                        field, subject))
                 key = (meta['scope'], meta['subject'], meta['field'])
                 if key in seen and seen[key] != value:
-                    raise ValueError(wording.CUSTOM_WORKBOOK_CONFLICT)
+                    raise ValueError(wording.custom_record_conflict(
+                        field, subject))
                 seen[key] = value
     entries = [(*key, value) for key, value in seen.items()]
     if hasattr(source, 'seek'):

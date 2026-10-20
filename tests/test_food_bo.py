@@ -726,7 +726,7 @@ class TestAskTell:
         assert len(opt_configured.results_history) == 1
 
     def test_tell_no_objectives_raises(self, opt_with_ingredients):
-        with pytest.raises(ValueError, match="Add at least one measurement"):
+        with pytest.raises(ValueError, match="Add a measurement in Set up before saving results"):
             opt_with_ingredients.tell({"Water": 50, "Flour": 25, "Sugar": 10},
                                       {"Taste": 7.0})
 
@@ -1037,7 +1037,7 @@ class TestActiveSet:
     def test_ask_guards_empty_active_set(self, opt_configured):
         for name in ("Flour", "Sugar", "Water"):
             opt_configured.add_ingredient(name, 1, 1)
-        with pytest.raises(ValueError, match="fixed at one amount"):
+        with pytest.raises(ValueError, match="Every row is fixed"):
             opt_configured.ask(n_suggestions=1)
 
     def test_fixing_detects_stranded_quantity_constraint(self, opt_configured):
@@ -2984,14 +2984,14 @@ class TestParseBatchResultsByFormulation:
         otherwise drop that measurement from the whole batch without a word."""
         opt = self._opt(tmp_path, monkeypatch)
         df = pd.DataFrame({"Formulation": [7], "Hardness": [1.0]})
-        with pytest.raises(ValueError, match=r"Missing columns: L\*"):
+        with pytest.raises(ValueError, match=r"Add a L\* column, then upload again\."):
             opt.parse_batch_results(df, opt.pending_batch)
 
     def test_a_number_outside_the_trial_names_the_trial(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         df = pd.DataFrame({"Formulation": [11], "Hardness": [1.0], "L*": [5.0]})
         with pytest.raises(ValueError,
-                           match=r"Formulation 11 is not in Round 3 \(it has 7, 8, 9\)\."):
+                           match=r"Formulation 11 is not in Round 3, which has 7, 8 and 9\. Check its number\."):
             opt.parse_batch_results(df, opt.pending_batch)
 
     def test_a_blank_measurement_is_a_partial_result_not_an_error(self, tmp_path, monkeypatch):
@@ -3009,7 +3009,7 @@ class TestParseBatchResultsByFormulation:
     def test_a_row_with_nothing_filled_in_is_refused(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         df = pd.DataFrame({"Formulation": [7], "Hardness": [None], "L*": [None]})
-        with pytest.raises(ValueError, match="Formulation 7 has no measurements filled in"):
+        with pytest.raises(ValueError, match="Formulation 7 has no results. Fill them in, or tick Not scored."):
             opt.parse_batch_results(df, opt.pending_batch)
 
     def test_out_of_range_value(self, tmp_path, monkeypatch):
@@ -3028,33 +3028,33 @@ class TestParseBatchResultsByFormulation:
         with pytest.raises(ValueError) as with_unit:
             opt.parse_batch_results(df, opt.pending_batch)
         assert str(with_unit.value) == (
-            "Formulation 7 Hardness 12 N is outside your range of 0 to 10 N. "
+            "Formulation 7: Hardness 12 N is outside your range of 0 to 10 N. "
             "Check the value, or adjust Scale minimum or Scale maximum in Set up.")
         opt.update_objective("Hardness", unit="/10")
         with pytest.raises(ValueError) as slash:
             opt.parse_batch_results(df, opt.pending_batch)
         assert str(slash.value) == (
-            "Formulation 7 Hardness 12 is outside your range of 0 to 10. "
+            "Formulation 7: Hardness 12 is outside your range of 0 to 10. "
             "Check the value, or adjust Scale minimum or Scale maximum in Set up.")
 
     def test_duplicate_row_is_rejected(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         df = pd.DataFrame({"Formulation": [7, 7], "Hardness": [11.0, 12.0],
                            "L*": [70.0, 71.0]})
-        with pytest.raises(ValueError, match="appears more than once"):
+        with pytest.raises(ValueError, match="Formulation 7 is in the file twice. Keep one."):
             opt.parse_batch_results(df, opt.pending_batch)
 
     def test_non_integer_number(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         for bad in ("abc", 7.5):
             df = pd.DataFrame({"Formulation": [bad], "Hardness": [1.0], "L*": [5.0]})
-            with pytest.raises(ValueError, match="is not a whole number"):
+            with pytest.raises(ValueError, match="is not a formulation number. Use the numbers on the sheets."):
                 opt.parse_batch_results(df, opt.pending_batch)
 
     def test_empty_sheet_is_rejected(self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         df = pd.DataFrame({"Formulation": [], "Hardness": [], "L*": []})
-        with pytest.raises(ValueError, match="no result rows"):
+        with pytest.raises(ValueError, match="The file has no formulations in it"):
             opt.parse_batch_results(df, opt.pending_batch)
 
 
@@ -6104,8 +6104,9 @@ class TestTheTotalIsAlwaysReachable:
         assert opt._snap_to_total({"Water": 60.0, "Flour": 35.0}, 100.0) is None
         with pytest.raises(ValueError) as caught:
             opt.ask(n_suggestions=1)
-        assert str(caught.value) == ("The fixed amounts add up to 95 g, not "
-                                     "the 100 g batch size.")
+        assert str(caught.value) == ("Fixed amounts add up to 95 g, not "
+                                     "100 g. Change one, or the default "
+                                     "batch size, in Set up.")
 
     def test_the_opening_is_still_spread_out(self, tmp_path, monkeypatch):
         """Projecting onto the total must not collapse the design: three rows
@@ -6533,7 +6534,7 @@ class TestTheWorkbook:
         opt.set_pending_batch([{"Pea protein": 20.0, "Water": 70.0,
                                 "Salt": 10.0, "Cook temperature": 180.0}],
                               batch_no=3)
-        with pytest.raises(ValueError, match="different Round"):
+        with pytest.raises(ValueError, match="This workbook is for Round 2; Round 3 is open. Upload Round 3's workbook."):
             opt.results_from_workbook(io.BytesIO(stale))
 
     def test_a_sheet_with_no_formulation_columns_is_refused(self, tmp_path,
@@ -6560,7 +6561,7 @@ class TestTheWorkbook:
     def test_something_that_is_not_a_workbook_at_all(self, tmp_path,
                                                      monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
-        with pytest.raises(ValueError, match="could not be read as a workbook"):
+        with pytest.raises(ValueError, match="Could not read this file as a workbook"):
             opt.results_from_workbook(io.BytesIO(b"not a workbook"))
 
     def _old_layout(self, opt, extra_rows=()):
@@ -6733,7 +6734,7 @@ class TestTheWorkbook:
         out = io.BytesIO()
         book.save(out)
         out.seek(0)
-        with pytest.raises(ValueError, match="conflicting Firmness"):
+        with pytest.raises(ValueError, match="Formulation 1 has two different Firmness entries. Make them match"):
             opt.results_from_workbook(out)
 
     # ------------------------- the whole project ------------------------ #
@@ -7765,7 +7766,7 @@ class TestFixedIsLowestEqualsHighest:
         opt.add_ingredient("Water", 70, 70)
         with pytest.raises(ValueError) as refused:
             opt.ask(n_suggestions=1)
-        assert "fixed at one amount" in str(refused.value)
+        assert "Every row is fixed" in str(refused.value)
 
     # ---- equal is a fix; inverted is a refusal ----
 
@@ -8769,7 +8770,7 @@ class TestTheLockedWorkbook:
         """Nothing was ever weighed out of a bowl, and "is not a number" is
         the wrong thing to say about -80."""
         opt = self._opt(tmp_path, monkeypatch)
-        with pytest.raises(ValueError, match="cannot be less than zero"):
+        with pytest.raises(ValueError, match="Formulation 1: the Actual cell for Water is below 0. Write what you weighed."):
             opt.results_from_workbook(self._filled(opt, actual=-80.0))
 
     def test_an_actual_cell_that_is_not_a_weight_is_refused(self, tmp_path,

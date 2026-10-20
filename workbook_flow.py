@@ -62,6 +62,7 @@ def restore_metadata(book):
     if METADATA_SHEET not in book.sheetnames:
         return
     metadata = book[METADATA_SHEET]
+    gone = None
     try:
         if metadata['A1'].value != METADATA_VERSION:
             raise ValueError
@@ -75,6 +76,8 @@ def restore_metadata(book):
                     or not all(isinstance(v, str) for v in record)):
                 raise ValueError
             title, address, text = record
+            if title != METADATA_SHEET and title not in book.sheetnames:
+                gone = title    # a sheet deleted by hand: say which one
             if (title == METADATA_SHEET or title not in book.sheetnames
                     or (title, address) in seen
                     or not text.startswith(_METADATA_PREFIXES)):
@@ -85,6 +88,8 @@ def restore_metadata(book):
             cell.comment = Comment(text, 'Food Opt')
             seen.add((title, address))
     except (ValueError, TypeError, KeyError, AttributeError):
+        if gone is not None:
+            raise ValueError(wording.workbook_sheet_gone(gone)) from None
         raise ValueError(_METADATA_ERROR) from None
     book.remove(metadata)
 
@@ -304,34 +309,43 @@ def prepare_import(source, opt, batch_no):
             cell = book[title][address]
             value = cached[title][address].value
             if value is None and not cell.protection.locked:
-                raise ValueError(wording.WORKBOOK_FORMULA_ERROR)
+                raise ValueError(wording.workbook_calculation_without_value(
+                    title, address))
             cell.value = value
     marker = next((cell.comment.text[len(MARKER):] for sheet in book
                    for cell in [sheet['A1']] if cell.comment and cell.comment.text.startswith(MARKER)), None)
     if marker:
         issued = json.loads(marker)
         if issued['round'] != batch_no:
-            raise ValueError(wording.WORKBOOK_WRONG_ROUND)
+            raise ValueError(wording.workbook_wrong_round(issued['round'],
+                                                          batch_no))
         for row in opt.pending_batch or []:
             old = issued['recipes'].get(str(row['formulation']))
             if old is not None:
                 current = {n: round(float(v), 8) for n, v in opt.shown_recipe(row, opt.open_round_size())[0].items()}
                 if old != current:
-                    raise ValueError(wording.WORKBOOK_ROUND_CHANGED)
+                    raise ValueError(wording.workbook_formulation_changed(
+                        row['formulation']))
     if OVERVIEW not in book.sheetnames:
         out = io.BytesIO(); book.save(out); out.seek(0)
         return out
     # Preparation is there only when the Round has pre-mixes; a workbook
     # downloaded before v3 carries an empty one, which reads as none.
-    if not marker or RESULTS not in book.sheetnames:
-        raise ValueError(wording.WORKBOOK_MISSING_SHEET)
+    if not marker:
+        raise ValueError(wording.WORKBOOK_METADATA_ERROR)
+    if RESULTS not in book.sheetnames:
+        raise ValueError(wording.workbook_sheet_gone(RESULTS))
     original = Workbook()
     summary = original.active
     summary.title = wording.batch_sheet_name(batch_no)
     copy_cells(book[OVERVIEW], summary)
     measurements = book[RESULTS]
-    if any(c.data_type == 'f' for row in measurements for c in row if not c.protection.locked):
-        raise ValueError(wording.WORKBOOK_RESULTS_ARE_NUMBERS)
+    typed_calculation = next((c for row in measurements for c in row
+                              if c.data_type == 'f' and not c.protection.locked),
+                             None)
+    if typed_calculation is not None:
+        raise ValueError(wording.workbook_results_calculation(
+            typed_calculation.coordinate))
     # Copy only the measurement block, leaving the optional Actual matrix out.
     actual = next((c.row for row in measurements for c in row
                    if c.column == 1 and c.value == wording.ACTUAL_SHEET_HEADING), None)
@@ -353,7 +367,8 @@ def prepare_import(source, opt, batch_no):
                     value = measurements.cell(source_row, cell.column).value
                     if value is not None:
                         if measurements.cell(source_row, cell.column).data_type == 'f':
-                            raise ValueError(wording.WORKBOOK_ACTUALS_ARE_NUMBERS)
+                            raise ValueError(wording.workbook_actual_calculation(
+                                number, var['name']))
                         page.cell(i, 3, value)
     prep = book[PREPARATION] if PREPARATION in book.sheetnames else None
     starts = [(c.row, c.comment.text[len(PREP):]) for row in (prep or ()) for c in row

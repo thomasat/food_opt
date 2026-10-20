@@ -81,7 +81,7 @@ def test_legacy_results_on_both_surfaces_merge_and_conflicts_fail(project):
     assert upload.frame['Taste'].tolist() == [8, 7]
     page = book['Formulation 1']
     page.cell(result_row(page, col=2), 4, 9)
-    with pytest.raises(ValueError, match='conflicting Taste'):
+    with pytest.raises(ValueError, match='Formulation 1 has two different Taste entries'):
         project.results_from_workbook(data(book))
 
 
@@ -283,7 +283,7 @@ def test_excel_cached_measurement_formula_is_preserved(project):
     sheet = book['Results']
     sheet.cell(result_row(sheet), 2, '=4+4')
     saved = data(book)
-    with pytest.raises(ValueError, match='no saved result'):
+    with pytest.raises(ValueError, match='Cell B7 on Results has a calculation but no value'):
         project.results_from_workbook(saved)
     # Excel supplies the cached number on recalculation; openpyxl cannot
     # calculate, so emulate the standard OOXML value Excel would write. The
@@ -498,7 +498,7 @@ def test_missing_or_damaged_hidden_metadata_refused(project, damage):
         records = json.loads(metadata['A2'].value)
         records[0][0 if damage == 'sheet' else 1] = 'missing' if damage == 'sheet' else 'A1:A2'
         metadata['A2'] = json.dumps(records)
-    with pytest.raises(ValueError, match='Round information'):
+    with pytest.raises(ValueError, match="Round details are damaged|This workbook has no missing sheet"):
         project.results_from_workbook(data(book))
 
 
