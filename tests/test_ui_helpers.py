@@ -855,3 +855,70 @@ def test_the_made_as_help_says_what_each_of_the_three_answers_means():
         # list both, and a three-item list of two options is unreadable.
         assert "," not in option
     assert wording.PREMIX_MADE_AS_PORTIONED == "Pre-mix: keep proportions fixed"
+
+
+# ------------------------------------------------------------------ #
+# CSV uploads from any Excel: Windows saves cp1252, French and most of
+# Europe save ';' with decimal commas.
+# ------------------------------------------------------------------ #
+import io as _io
+
+import pandas as _pd
+
+
+def _csv(text, encoding="utf-8"):
+    return _io.BytesIO(text.encode(encoding))
+
+
+def test_read_uploaded_csv_reads_plain_utf8():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(_csv("Ingredient,Lowest\nOats,2.5\n"))
+    assert list(df.columns) == ["Ingredient", "Lowest"]
+    assert df["Lowest"].iloc[0] == 2.5
+
+
+def test_read_uploaded_csv_drops_the_bom():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(_csv("﻿Ingredient,Lowest\nOats,2.5\n"))
+    assert list(df.columns)[0] == "Ingredient"
+
+
+def test_read_uploaded_csv_reads_windows_excel_cp1252():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(_csv("Ingrédient,Température °C\nOats,4\n", "cp1252"))
+    assert list(df.columns) == ["Ingrédient", "Température °C"]
+
+
+def test_read_uploaded_csv_reads_french_excel_semicolons_and_decimal_commas():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(_csv("Ingredient;Firmness\nOats;7,4\n", "cp1252"))
+    assert list(df.columns) == ["Ingredient", "Firmness"]
+    assert df["Firmness"].iloc[0] == 7.4
+
+
+def test_read_uploaded_csv_keeps_dot_decimals_with_semicolons():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(_csv("Ingredient;Firmness\nOats;7.4\n"))
+    assert df["Firmness"].iloc[0] == 7.4
+    assert _pd.api.types.is_float_dtype(df["Firmness"])
+
+
+def test_read_uploaded_csv_reads_tabs():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(_csv("Ingredient\tLowest\nOats\t3\n"))
+    assert list(df.columns) == ["Ingredient", "Lowest"]
+    assert df["Lowest"].iloc[0] == 3
+
+
+def test_read_uploaded_csv_reads_a_single_column():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(_csv("Ingredient\nOats\nRice\n"))
+    assert list(df.columns) == ["Ingredient"]
+    assert list(df["Ingredient"]) == ["Oats", "Rice"]
+
+
+def test_every_csv_upload_reads_through_the_one_reader():
+    import pathlib
+    root = pathlib.Path(__file__).resolve().parent.parent
+    for module in ("ui_setup.py", "ui_results.py", "ui_batch.py"):
+        assert "pd.read_csv(" not in (root / module).read_text(encoding="utf-8"), module
