@@ -6,6 +6,14 @@ separate heading or command after a middle dot with a capital letter. Keep
 user-entered names, units, calculation tokens and legacy import labels unchanged.
 Prefer direct instructions and current control names over idioms.
 """
+import sys
+
+
+def on_windows():
+    """True on Windows. Read at call time, never frozen at import, so a
+    sentence names the computer the reader is on (and a test can say which)."""
+    return sys.platform == "win32"
+
 
 # ------------------------------------------------------------------ #
 # Concepts. The set of formulations issued together is a "round" on
@@ -198,7 +206,7 @@ def scaled_amounts_caution(total_text, names_text="", n_outside=0, n_total=0):
 def saved_line(when):
     """'Saved automatically at 14:32, on this Mac' — `when` is the already
     formatted time or date+time."""
-    return f"Saved automatically at {when}, on this Mac"
+    return f"Saved automatically at {when}, on this {'PC' if on_windows() else 'Mac'}"
 
 
 def best_moved(before, after):
@@ -3569,22 +3577,31 @@ _DISK_TROUBLE = {
 _DISK_OTHER = ("the file could not be written", "Try again.")
 
 
+def _disk_trouble(cause):
+    """_DISK_TROUBLE's (what, fix) for `cause`, naming the file manager of
+    the computer the reader is on."""
+    what, fix = _DISK_TROUBLE.get(cause, _DISK_OTHER)
+    if cause == 'read_only' and on_windows():
+        fix = fix.replace("Finder", "File Explorer")
+    return what, fix
+
+
 def not_saved(name, cause=None):
     """'Oat cookie was not saved: the disk is full. Free up space, then try
     again.' — the save banner's red line."""
-    what, fix = _DISK_TROUBLE.get(cause, _DISK_OTHER)
+    what, fix = _disk_trouble(cause)
     return f"{name} was not saved: {what}. {fix}"
 
 
 def nothing_changed(name, cause=None):
     """The copy taken before a change (or the rename that deletes or clears
     a project) was refused, so the change was never made."""
-    what, fix = _DISK_TROUBLE.get(cause, _DISK_OTHER)
+    what, fix = _disk_trouble(cause)
     return f"Nothing changed in {name}: {what}. {fix}"
 
 
 def copy_not_deleted(cause=None):
-    what, fix = _DISK_TROUBLE.get(cause, _DISK_OTHER)
+    what, fix = _disk_trouble(cause)
     if cause == 'in_use':
         what = "another program is using it"
     return f"An old copy could not be deleted: {what}. {fix}"
@@ -4568,8 +4585,9 @@ def sheet_navigation(premixes=True):
     Preparation only when the Round has pre-mixes and so has that sheet."""
     tabs = ((OVERVIEW_SHEET, PREPARATION_SHEET, RESULTS_SHEET) if premixes
             else (OVERVIEW_SHEET, RESULTS_SHEET))
-    return (f"Use the sheet tabs: {' → '.join(tabs)}. Tabs are at the bottom in "
-            "Excel and at the top in Numbers. ")
+    where = ("Excel" if on_windows()
+             else "Excel and at the top in Numbers")
+    return f"Use the sheet tabs: {' → '.join(tabs)}. Tabs are at the bottom in {where}. "
 
 
 PREPARATION_SHEET_TITLE = f"{PREPARATION_SHEET} — Pre-mixes for this Round"

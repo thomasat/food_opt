@@ -49,3 +49,85 @@ def test_wording_constants_match_080_snapshot():
     assert changed == set()
     missing = {k for k in frozen if k not in current and k not in ALLOWED_CHANGES}
     assert missing == set()
+
+
+# ------------------------------------------------------------------ #
+# OS terms: the Mac keeps its words; Windows gets the PC's.
+# ------------------------------------------------------------------ #
+import re
+
+import pytest
+
+MAC_TERMS = ("Finder", "this Mac", "⌘", "Cmd", "Applications", ".dmg", "~/")
+# "Numbers" the Mac app, not the word: these two use it as a table row
+# naming numeric literals (`2`, `0.5`) in the calculation guide.
+NUMBERS_NOT_THE_APP = {"CALCULATION_TERMS_TABLE", "RULE_GUIDE"}
+# Constants that hold the Mac wording and reach a screen only through a
+# platform helper (wording._disk_trouble), which the function checks below
+# cover on Windows.
+READ_THROUGH_A_HELPER = {"_DISK_TROUBLE"}
+
+
+@pytest.fixture
+def on_mac(monkeypatch):
+    monkeypatch.setattr(wording.sys, "platform", "darwin")
+
+
+@pytest.fixture
+def on_windows(monkeypatch):
+    monkeypatch.setattr(wording.sys, "platform", "win32")
+
+
+def test_saved_line_names_this_mac(on_mac):
+    assert wording.saved_line("14:32") == "Saved automatically at 14:32, on this Mac"
+
+
+def test_saved_line_names_this_pc(on_windows):
+    assert wording.saved_line("14:32") == "Saved automatically at 14:32, on this PC"
+
+
+def test_read_only_fix_names_finder_on_a_mac(on_mac):
+    assert wording.not_saved("Oat cookie", "read_only") == (
+        "Oat cookie was not saved: the FoodOptimizer folder is read-only. "
+        "Allow changes to it in Finder, then try again.")
+
+
+def test_read_only_fix_names_file_explorer_on_windows(on_windows):
+    assert wording.not_saved("Oat cookie", "read_only") == (
+        "Oat cookie was not saved: the FoodOptimizer folder is read-only. "
+        "Allow changes to it in File Explorer, then try again.")
+
+
+def test_sheet_navigation_names_numbers_on_a_mac(on_mac):
+    assert wording.sheet_navigation(premixes=False).endswith(
+        "Tabs are at the bottom in Excel and at the top in Numbers. ")
+
+
+def test_sheet_navigation_names_only_excel_on_windows(on_windows):
+    assert wording.sheet_navigation(premixes=False).endswith(
+        "Tabs are at the bottom in Excel. ")
+
+
+def _windows_texts():
+    texts = {name: str(value) for name, value in collect_wording_constants().items()
+             if name not in READ_THROUGH_A_HELPER}
+    for cause in ("full", "read_only", "in_use", None):
+        texts[f"not_saved/{cause}"] = wording.not_saved("X", cause)
+        texts[f"nothing_changed/{cause}"] = wording.nothing_changed("X", cause)
+        texts[f"copy_not_deleted/{cause}"] = wording.copy_not_deleted(cause)
+    texts["saved_line"] = wording.saved_line("14:32")
+    texts["sheet_navigation"] = wording.sheet_navigation()
+    texts["sheet_navigation/no premixes"] = wording.sheet_navigation(premixes=False)
+    texts["copy_downloaded"] = wording.copy_downloaded("a.json")
+    return texts
+
+
+def test_no_mac_terms_reach_windows(on_windows):
+    found = {}
+    for name, text in _windows_texts().items():
+        hits = [t for t in MAC_TERMS if t in text]
+        if name not in NUMBERS_NOT_THE_APP and re.search(r"\bNumbers\b", text):
+            hits.append("Numbers")
+        if hits:
+            found[name] = hits
+    assert found == {}

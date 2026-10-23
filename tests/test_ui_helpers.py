@@ -252,8 +252,10 @@ def test_table_height_grows_with_rows_and_stops_at_the_cap():
     assert table_height(50, max_rows=12) == table_height(12, max_rows=12)
 
 
-def test_saved_line_shows_the_time_today_and_the_date_before_that():
+def test_saved_line_shows_the_time_today_and_the_date_before_that(monkeypatch):
     from datetime import datetime, timedelta
+    import wording
+    monkeypatch.setattr(wording.sys, "platform", "darwin")  # the Mac's words
     now = datetime.now().astimezone()
     today = now.replace(hour=14, minute=32)
     assert saved_line(today) == "Saved automatically at 14:32, on this Mac"
