@@ -74,6 +74,9 @@ _DISK_CAUSES = {
 # OneDrive, Excel) holds the file. They arrive as EACCES, which alone would
 # read as a read-only folder.
 _WINDOWS_IN_USE = (32, 33)
+# Worth a second try as well: access denied (5) is what os.replace meets
+# when the file it replaces is held open by another program.
+_WINDOWS_RETRY = _WINDOWS_IN_USE + (5,)
 
 
 def disk_cause(error):
@@ -91,7 +94,7 @@ def _retry_locked(fn, *args, attempts=5, delay=0.1):
             return fn(*args)
         except PermissionError as e:
             if (attempt == attempts
-                    or getattr(e, "winerror", None) not in _WINDOWS_IN_USE):
+                    or getattr(e, "winerror", None) not in _WINDOWS_RETRY):
                 raise
             time.sleep(delay * attempt)
 
@@ -205,7 +208,18 @@ class LocalStorage:
         try:
             with open(tmp, 'w', encoding='utf-8') as f:
                 f.write(data)
-            _retry_locked(os.replace, tmp, path)
+            try:
+                _retry_locked(os.replace, tmp, path)
+            except PermissionError as e:
+                # On Windows the .tmp beside it was just written, so the
+                # folder is not read-only: another program is holding the
+                # project file. (A Mac refusal here is a locked file, which
+                # Finder's read-only advice fits.)
+                if getattr(e, "winerror", None) is None:
+                    raise
+                raise StorageError(wording.not_saved(name, 'in_use')) from e
+        except StorageError:
+            raise
         except OSError as e:
             raise StorageError(wording.not_saved(name, disk_cause(e))) from e
         finally:

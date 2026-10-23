@@ -267,3 +267,43 @@ def test_archive_retries_a_briefly_locked_file(tmp_path, monkeypatch):
     assert s.archive("p", "pre_delete") == "p_pre_delete"
     assert calls["n"] == 3
     assert (tmp_path / "p_pre_delete.pkl").exists()
+
+
+def _held_by_another_program():
+    """What Windows raises when os.replace lands on a file another program
+    holds open without delete-sharing (OneDrive, antivirus, a second app
+    window): PermissionError, winerror 5."""
+    error = PermissionError(13, "Access is denied")
+    error.winerror = 5
+    return error
+
+
+def test_save_retries_a_project_file_another_program_holds(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    real, calls = os.replace, {"n": 0}
+
+    def held_twice(*args):
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            raise _held_by_another_program()
+        return real(*args)
+    monkeypatch.setattr("storage.os.replace", held_twice)
+    monkeypatch.setattr("storage.time.sleep", lambda s: None)
+    LocalStorage().save("p", {"v": 1})
+    assert calls["n"] == 3
+    assert json.loads((tmp_path / "p.pkl").read_text(encoding="utf-8")) == {"v": 1}
+
+
+def test_a_save_refused_at_the_replace_is_in_use_not_read_only(tmp_path, monkeypatch):
+    """The .tmp beside it was just written, so the folder is not read-only:
+    a refusal at the replace is another program holding the project file."""
+    import wording
+
+    def always(*args):
+        raise _held_by_another_program()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("storage.os.replace", always)
+    monkeypatch.setattr("storage.time.sleep", lambda s: None)
+    with pytest.raises(StorageError) as caught:
+        LocalStorage().save("p", {"v": 1})
+    assert str(caught.value) == wording.not_saved("p", "in_use")
