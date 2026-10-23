@@ -201,3 +201,69 @@ def test_windows_reserved_names_are_reserved(name):
 def test_ordinary_names_are_not_reserved(name):
     from storage import is_reserved_name
     assert not is_reserved_name(name)
+
+
+def _sharing_violation():
+    """What Windows raises when another program (antivirus, OneDrive,
+    Excel) holds the file: PermissionError, errno EACCES, winerror 32."""
+    error = PermissionError(13, "The process cannot access the file")
+    error.winerror = 32
+    return error
+
+
+def _locked_twice(real, monkeypatch, name):
+    calls = {"n": 0}
+
+    def flaky(*args):
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            raise _sharing_violation()
+        return real(*args)
+    monkeypatch.setattr(f"storage.os.{name}", flaky)
+    monkeypatch.setattr("storage.time.sleep", lambda s: None)
+    return calls
+
+
+def test_save_retries_a_briefly_locked_file(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    calls = _locked_twice(os.replace, monkeypatch, "replace")
+    LocalStorage().save("p", {"v": 1})
+    assert calls["n"] == 3
+    assert json.loads((tmp_path / "p.pkl").read_text(encoding="utf-8")) == {"v": 1}
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_save_reports_a_file_that_stays_locked(tmp_path, monkeypatch):
+    import wording
+
+    def always(*args):
+        raise _sharing_violation()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("storage.os.replace", always)
+    monkeypatch.setattr("storage.time.sleep", lambda s: None)
+    with pytest.raises(StorageError) as caught:
+        LocalStorage().save("p", {"v": 1})
+    assert str(caught.value) == wording.not_saved("p", "in_use")
+
+
+def test_disk_cause_reads_windows_sharing_errors():
+    from storage import disk_cause
+    assert disk_cause(_sharing_violation()) == "in_use"
+    lock = PermissionError(13, "locked")
+    lock.winerror = 33
+    assert disk_cause(lock) == "in_use"
+
+
+def test_errno_names_missing_on_some_platforms_do_not_break_import():
+    import storage
+    assert None not in storage._DISK_CAUSES
+
+
+def test_archive_retries_a_briefly_locked_file(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    s = LocalStorage()
+    s.save("p", {"v": 1})
+    calls = _locked_twice(os.rename, monkeypatch, "rename")
+    assert s.archive("p", "pre_delete") == "p_pre_delete"
+    assert calls["n"] == 3
+    assert (tmp_path / "p_pre_delete.pkl").exists()
