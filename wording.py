@@ -449,12 +449,12 @@ def prefilled_outside_caption(no):
 
 
 def copy_downloaded(file_name):
-    """'Saved as "burger copy 2026-09-15.json" in your Downloads folder.'
+    """'Saved as "burger copy 2026-09-15.json".'
 
     A download is the one action in the app that leaves no mark on the
     screen: the reader clicked, nothing moved, and the heading above it
     promises a list they could not see themselves in."""
-    return f"Saved as '{file_name}' in your Downloads folder."
+    return f"Saved as '{file_name}'."
 # A saved copy that will not open. ONE sentence, whatever is wrong with
 # it: the reader is a food scientist whose copy will not open, and the
 # stored field name, its shape and the programmer's quotation marks are

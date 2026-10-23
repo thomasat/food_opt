@@ -131,3 +131,14 @@ def test_no_mac_terms_reach_windows(on_windows):
         if hits:
             found[name] = hits
     assert found == {}
+
+
+def test_copy_downloaded_names_only_the_file(on_mac):
+    """The window's save dialog lets the reader pick the folder, so the line
+    names the file and leaves the folder to the reveal that follows."""
+    assert (wording.copy_downloaded("burger copy 2026-09-15.json")
+            == "Saved as 'burger copy 2026-09-15.json'.")
+
+
+def test_copy_downloaded_is_the_same_on_windows(on_windows):
+    assert wording.copy_downloaded("a.json") == "Saved as 'a.json'."

@@ -9700,13 +9700,13 @@ def test_the_copy_sentence_points_somewhere_the_reader_can_reach(scored):
                                  "use Saved copies in the sidebar.")
 
 
-def test_saving_a_copy_says_where_it_went(burger):
+def test_saving_a_copy_names_the_file(burger):
     """A download is the one action in the app that leaves no mark: the
     reader clicked and nothing moved, under a heading promising a list."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert _unknown(at.sidebar, "download_button", wording.SAVE_A_COPY)
-    assert not any("Downloads folder" in c.value for c in at.sidebar.caption)
+    assert not any(c.value.startswith("Saved as '") for c in at.sidebar.caption)
     # AppTest cannot click a download button — it arrives as an
     # UnknownElement — so what its on_click leaves behind is set here, and
     # the line it is read for is what this pins.
@@ -9715,11 +9715,11 @@ def test_saving_a_copy_says_where_it_went(burger):
     at.run()
     assert not at.exception
     said = [c.value for c in at.sidebar.caption
-            if "Downloads folder" in c.value]
-    assert said == [f"Saved as '{name}' in your Downloads folder."], said
+            if c.value.startswith("Saved as '")]
+    assert said == [f"Saved as '{name}'."], said
     # Said once: the next run has nothing to report.
     at.run()
-    assert not any("Downloads folder" in c.value for c in at.sidebar.caption)
+    assert not any(c.value.startswith("Saved as '") for c in at.sidebar.caption)
 
 
 def test_the_apps_own_copies_are_listed_and_open_from_the_sidebar(burger,
