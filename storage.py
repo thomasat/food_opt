@@ -33,6 +33,18 @@ def is_archive_name(name):
     return ARCHIVE_SUFFIX_RE.search(name) is not None
 
 
+# Device names Windows will not save a file under, with any extension:
+# CON.pkl and con.backup.pkl are both refused.
+_WINDOWS_RESERVED = ({"CON", "PRN", "AUX", "NUL"}
+                     | {f"COM{i}" for i in range(1, 10)}
+                     | {f"LPT{i}" for i in range(1, 10)})
+
+
+def is_reserved_name(name):
+    """True when Windows reserves the part of `name` before its first dot."""
+    return name.split(".", 1)[0].rstrip(" ").upper() in _WINDOWS_RESERVED
+
+
 class StorageError(Exception):
     """A storage backend failure (network, API, write conflict).
 

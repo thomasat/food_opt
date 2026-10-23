@@ -288,6 +288,19 @@ def test_create_project_rejects_bad_name(tmp_path, monkeypatch):
     assert list(tmp_path.glob("*.pkl")) == []
 
 
+def test_create_project_refuses_a_name_windows_reserves(tmp_path, monkeypatch):
+    """CON.pkl cannot be saved on Windows, and a project made on a Mac can be
+    copied to one — so the name is refused on every computer."""
+    monkeypatch.chdir(tmp_path)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.text_input(key="new_project_name").set_value("CON")
+    _submit_button(at, "Create project").click()
+    at.run()
+    assert [e.value for e in at.error] == [wording.name_reserved("CON")]
+    assert list(tmp_path.glob("*.pkl")) == []
+
+
 @pytest.mark.parametrize("typed", ["", "   "])
 def test_create_project_with_no_name_asks_for_one(tmp_path, monkeypatch, typed):
     """An empty box broke no rule the 64-character line names (final walk

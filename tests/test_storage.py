@@ -186,3 +186,18 @@ def test_saved_at_reads_the_file_time_and_is_none_without_a_file(tmp_path, monke
     assert isinstance(stamp, datetime)
     assert stamp.tzinfo is not None                     # aware, like last_saved_at
     assert abs(stamp - datetime.now().astimezone()) < timedelta(seconds=30)
+
+
+@pytest.mark.parametrize("name", ["con", "CON", "Con.backup", "nul", "aux", "prn",
+                                  "com1", "COM9", "lpt1 ", "LPT9.x"])
+def test_windows_reserved_names_are_reserved(name):
+    """Windows will not save CON.pkl (or con.backup.pkl): the part before the
+    first dot names a device, whatever the case or trailing spaces."""
+    from storage import is_reserved_name
+    assert is_reserved_name(name)
+
+
+@pytest.mark.parametrize("name", ["COM10", "console", "Oat cookie", "com", "lpt0"])
+def test_ordinary_names_are_not_reserved(name):
+    from storage import is_reserved_name
+    assert not is_reserved_name(name)

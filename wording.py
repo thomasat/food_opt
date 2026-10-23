@@ -86,6 +86,11 @@ NAME_RULE = "Up to 64 characters. Start with a letter or a number."
 _NAME_EXTRA = " _.-"
 
 
+def name_reserved(name):
+    """Create project with a device name Windows reserves (CON, NUL, COM1…)."""
+    return f"“{name}” is a name Windows reserves. Choose another."
+
+
 def name_not_allowed(name):
     """Create project with a name the rule refuses: which part breaks it and
     the fix, worked out from the name typed (the rule alone named no
