@@ -13,7 +13,9 @@ SNAPSHOT = pathlib.Path(__file__).parent / "fixtures" / "wording_snapshot_080.js
 
 # Names whose 0.8.0 value is meant to change (or that are new). Each entry
 # says which fix changed it.
-ALLOWED_CHANGES = set()
+ALLOWED_CHANGES = {
+    "SUPPORT_EMAIL",  # new: the support address (Windows port phase 1)
+}
 
 
 def _all_text(value):
@@ -142,3 +144,11 @@ def test_copy_downloaded_names_only_the_file(on_mac):
 
 def test_copy_downloaded_is_the_same_on_windows(on_windows):
     assert wording.copy_downloaded("a.json") == "Saved as 'a.json'."
+
+
+def test_support_email_is_the_one_address_everywhere():
+    root = pathlib.Path(__file__).resolve().parent.parent
+    for path in ("desktop/FoodOptimizerApp.swift", "desktop/start_here.txt", "README.md"):
+        text = (root / path).read_text(encoding="utf-8")
+        assert wording.SUPPORT_EMAIL in text, path
+        assert "github.com/thomasat/food_opt/issues" not in text, path

@@ -9,6 +9,11 @@ Prefer direct instructions and current control names over idioms.
 import sys
 
 
+# Where a reader writes for help: the Mac and Windows windows, Start Here
+# and the README all give this one address.
+SUPPORT_EMAIL = "sohum.patnaik@fsi.org"
+
+
 def on_windows():
     """True on Windows. Read at call time, never frozen at import, so a
     sentence names the computer the reader is on (and a test can say which)."""

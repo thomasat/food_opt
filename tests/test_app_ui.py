@@ -4407,12 +4407,17 @@ def test_the_result_grid_does_not_follow_you_to_another_project(open_batch):
 
 
 def test_get_help_gives_an_address_to_write_to():
-    """A user who threw away the disk image has no other route."""
+    """A user who threw away the disk image has no other route — and a
+    private address, so the log and a description need not be public."""
     root = pathlib.Path(APP_PATH).resolve().parent
-    swift = _flowed((root / "desktop" / "FoodOptimizerApp.swift").read_text())
-    assert "https://github.com/thomasat/food_opt/issues" in swift
-    assert ("Describe the problem and what you expected. Do not attach project files, "
-            "saved copies or formulations, because that page is public.") in swift
+    swift = _flowed((root / "desktop" / "FoodOptimizerApp.swift").read_text(encoding="utf-8"))
+    assert ("Email sohum.patnaik@fsi.org. Describe the problem and what you expected. "
+            "Attaching the app's log file helps — Help › Show Log File finds it "
+            "for you.") in swift
+    assert ("Click Try again. If the problem persists, email sohum.patnaik@fsi.org "
+            "and attach the file from Help › Show Log File.") in swift
+    assert "github.com/thomasat/food_opt/issues" not in swift
+    assert "Food Intelligence Lab" not in swift
 
 
 def test_emptying_the_forms_raises_no_widget_warning_on_screen(open_batch):
