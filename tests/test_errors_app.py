@@ -348,7 +348,7 @@ def test_a_locked_project_file_says_close_the_other_program(project, monkeypatch
 def test_a_damaged_sample_file_is_a_plain_line_not_a_traceback(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     broken = tmp_path / "shipped.json"
-    broken.write_text("{ not json")
+    broken.write_text("{ not json", encoding="utf-8")
     real = sp._shipped_path
     monkeypatch.setattr(sp, "_shipped_path",
                         lambda n: broken if n == sp.BURGER else real(n))

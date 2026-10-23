@@ -125,7 +125,7 @@ KINDS = ["default", "qlogei", "qucb", "robust", "open_round"]
 
 
 def _golden():
-    return json.loads(FIXTURE.read_text())
+    return json.loads(FIXTURE.read_text(encoding="utf-8"))
 
 
 @pytest.fixture(autouse=True)
@@ -191,5 +191,5 @@ if __name__ == "__main__":
         os.chdir(tmp)
         data = {kind: _run_case(kind) for kind in KINDS}
         os.chdir(here)
-    FIXTURE.write_text(json.dumps(data, default=float, indent=1) + "\n")
+    FIXTURE.write_text(json.dumps(data, default=float, indent=1) + "\n", encoding="utf-8")
     print(f"wrote {FIXTURE}", file=sys.stderr)

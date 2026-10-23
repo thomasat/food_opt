@@ -113,7 +113,7 @@ def main():
         finally:
             os.chdir(here)
     path = OUT / f"{NAME}.json"
-    path.write_text(json.dumps(state, indent=2))
+    path.write_text(json.dumps(state, indent=2), encoding="utf-8")
     print(path, "rows", len(opt.Y_history), "open", len(opt.pending_batch or []))
 
 

@@ -152,3 +152,71 @@ def test_support_email_is_the_one_address_everywhere():
         text = (root / path).read_text(encoding="utf-8")
         assert wording.SUPPORT_EMAIL in text, path
         assert "github.com/thomasat/food_opt/issues" not in text, path
+
+
+# ------------------------------------------------------------------ #
+# Text files name their encoding: Windows' default is cp1252, not UTF-8,
+# and the app's files and tests hold ›, — and ✓.
+# ------------------------------------------------------------------ #
+import ast
+
+
+def _python_files_to_lint():
+    from tests.test_packaging_modules import REPO, _app_modules
+    files = [REPO / f"{m}.py" for m in sorted(_app_modules())]
+    files += sorted((REPO / "tests").rglob("*.py"))
+    return REPO, files
+
+
+def _mode_is_binary(call):
+    mode = call.args[1] if len(call.args) > 1 else next(
+        (k.value for k in call.keywords if k.arg == "mode"), None)
+    return isinstance(mode, ast.Constant) and isinstance(mode.value, str) and "b" in mode.value
+
+
+def _unnamed_encodings(path):
+    found = []
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if not isinstance(node, ast.Call):
+            continue
+        named = any(k.arg == "encoding" for k in node.keywords)
+        func = node.func
+        if isinstance(func, ast.Name) and func.id == "open":
+            if not named and not _mode_is_binary(node):
+                found.append(node.lineno)
+        elif isinstance(func, ast.Attribute) and func.attr in ("read_text", "write_text"):
+            if not named:
+                found.append(node.lineno)
+    return found
+
+
+def test_text_io_names_an_encoding():
+    root, files = _python_files_to_lint()
+    found = [f"{p.relative_to(root)}:{line}" for p in files for line in _unnamed_encodings(p)]
+    assert found == []
+
+
+def test_ui_fetches_nothing_from_the_internet():
+    """st.map and pydeck draw from Mapbox and Carto, and a Material page icon
+    is drawn from fonts.gstatic.com. Button icons (icon=":material/…") use
+    the font Streamlit bundles and are fine."""
+    root, files = _python_files_to_lint()
+    app_files = [p for p in files if p.parent == root]
+    found = []
+    for path in app_files:
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                names = [a.name for a in node.names] + [getattr(node, "module", None) or ""]
+                if any(n.split(".")[0] == "pydeck" for n in names):
+                    found.append(f"{path.name}:{node.lineno} pydeck")
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                continue
+            if (node.func.attr == "map" and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "st"):
+                found.append(f"{path.name}:{node.lineno} st.map")
+            if node.func.attr == "set_page_config":
+                for k in node.keywords:
+                    if (k.arg == "page_icon" and isinstance(k.value, ast.Constant)
+                            and str(k.value.value).startswith(":material/")):
+                        found.append(f"{path.name}:{node.lineno} page_icon")
+    assert found == []

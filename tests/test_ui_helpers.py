@@ -475,7 +475,7 @@ def _literal_texts(node):
 def _stray_literals(path):
     import ast
     import pathlib
-    tree = ast.parse(pathlib.Path(path).read_text())
+    tree = ast.parse(pathlib.Path(path).read_text(encoding="utf-8"))
     offenders = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -550,10 +550,10 @@ def test_the_total_box_is_parked_empty_rather_than_popped():
 
     root = pathlib.Path(__file__).resolve().parent.parent
     for name in ("app.py", "ui_setup.py", "ui_batch.py", "ui_results.py"):
-        text = (root / name).read_text()
+        text = (root / name).read_text(encoding="utf-8")
         assert 'pop("scale_total"' not in text, name
     for name in ("ui_setup.py", "ui_batch.py", "ui_results.py"):
-        assert "clear_scale_total()" in (root / name).read_text(), name
+        assert "clear_scale_total()" in (root / name).read_text(encoding="utf-8"), name
 
     # And what it parks is the empty box, for drain_clears to assign before
     # the box is drawn again.

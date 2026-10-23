@@ -22,7 +22,7 @@ class TestLocalStorage:
     def test_save_load_roundtrip(self, local):
         local.save("proj", {"a": 1})
         assert local.load("proj") == {"a": 1}
-        assert json.loads(open("proj.pkl").read()) == {"a": 1}  # JSON on disk
+        assert json.loads(open("proj.pkl", encoding="utf-8").read()) == {"a": 1}  # JSON on disk
 
     def test_load_missing_returns_none(self, local):
         assert local.load("nope") is None
@@ -92,7 +92,7 @@ def test_local_storage_refuses_to_overwrite_a_newer_file(tmp_path, monkeypatch):
     window_a.save("p", {"v": 2})
     with pytest.raises(StorageError, match="another window"):
         window_b.save("p", {"v": 3})
-    assert json.loads((tmp_path / "p.pkl").read_text())["v"] == 2
+    assert json.loads((tmp_path / "p.pkl").read_text(encoding="utf-8"))["v"] == 2
 
 
 def test_local_storage_save_after_own_save_is_fine(tmp_path, monkeypatch):
@@ -100,7 +100,7 @@ def test_local_storage_save_after_own_save_is_fine(tmp_path, monkeypatch):
     s = LocalStorage()
     s.save("p", {"v": 1})
     s.save("p", {"v": 2})
-    assert json.loads((tmp_path / "p.pkl").read_text())["v"] == 2
+    assert json.loads((tmp_path / "p.pkl").read_text(encoding="utf-8"))["v"] == 2
 
 
 def test_local_storage_reload_clears_conflict(tmp_path, monkeypatch):
@@ -112,7 +112,7 @@ def test_local_storage_reload_clears_conflict(tmp_path, monkeypatch):
     a.save("p", {"v": 2})
     b.load("p")              # user reloads
     b.save("p", {"v": 3})    # now allowed
-    assert json.loads((tmp_path / "p.pkl").read_text())["v"] == 3
+    assert json.loads((tmp_path / "p.pkl").read_text(encoding="utf-8"))["v"] == 3
 
 
 def test_is_stale_true_after_another_instance_saves_then_false_after_reload(tmp_path, monkeypatch):

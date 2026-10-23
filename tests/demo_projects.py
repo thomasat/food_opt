@@ -35,7 +35,7 @@ def load(name):
     """The demo project `name`, opened in a fresh temporary folder (the
     working folder is put back after, and the folder removed: T1 review
     M6), with save() switched off."""
-    state = json.loads((HERE / f"{name}.json").read_text())
+    state = json.loads((HERE / f"{name}.json").read_text(encoding="utf-8"))
     here = os.getcwd()
     with tempfile.TemporaryDirectory(prefix="demo-") as folder:
         os.chdir(folder)

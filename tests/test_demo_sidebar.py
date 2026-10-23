@@ -12,7 +12,7 @@ APP = pathlib.Path(__file__).resolve().parent.parent / "app.py"
 
 
 def _page_config_statement():
-    tree = ast.parse(APP.read_text())
+    tree = ast.parse(APP.read_text(encoding="utf-8"))
     for node in tree.body:
         if (isinstance(node, ast.Expr) and isinstance(node.value, ast.Call)
                 and isinstance(node.value.func, ast.Attribute)
@@ -61,6 +61,6 @@ def test_collapsed_folds_the_sidebar(monkeypatch):
 def test_the_flag_puts_nothing_on_screen():
     # The opt-in reads an environment variable only: no new string in
     # wording, and app.py names it nowhere but in the page config.
-    source = APP.read_text()
+    source = APP.read_text(encoding="utf-8")
     assert source.count("FOOD_OPT_SIDEBAR") == 2      # the comment and the read
-    assert "FOOD_OPT_SIDEBAR" not in pathlib.Path(wording.__file__).read_text()
+    assert "FOOD_OPT_SIDEBAR" not in pathlib.Path(wording.__file__).read_text(encoding="utf-8")

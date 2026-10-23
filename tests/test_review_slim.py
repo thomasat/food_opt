@@ -198,7 +198,7 @@ def scored(tmp_path_factory):
     mp = pytest.MonkeyPatch()
     mp.chdir(tmp_path_factory.mktemp("review-slim-scored"))
     with bo_views.fresh():
-        state = json.loads((D.HERE / f"{D.LINE_A}.json").read_text())
+        state = json.loads((D.HERE / f"{D.LINE_A}.json").read_text(encoding="utf-8"))
         opt = FoodOptimizer(state["project_name"])
         opt.import_json(state)
         opt._drop_pending_batch()

@@ -621,7 +621,7 @@ def test_sample_project_button_reopens_existing_without_recreating(tmp_path, mon
     # previous visitor already worked in the sample.
     state = sample_projects.shipped_state(sample_projects.ROUND6)
     state["tasting_noise"] = 2.0
-    (tmp_path / f"{sample_projects.ROUND6}.pkl").write_text(json.dumps(state))
+    (tmp_path / f"{sample_projects.ROUND6}.pkl").write_text(json.dumps(state), encoding="utf-8")
 
     # app.py never auto-opens the most-recently-used project on a shared host
     # (os.path.isdir("/mount/src")); force that guard so the welcome panel
@@ -645,7 +645,7 @@ def test_sample_project_button_reopens_existing_without_recreating(tmp_path, mon
     at.run()
     assert not at.exception
 
-    kept = json.loads((tmp_path / f"{sample_projects.ROUND6}.pkl").read_text())
+    kept = json.loads((tmp_path / f"{sample_projects.ROUND6}.pkl").read_text(encoding="utf-8"))
     assert kept["tasting_noise"] == 2.0
     assert len(FoodOptimizer(sample_projects.ROUND6).X_history) == 15
     assert sample_projects.ROUND6 in [h.value for h in at.sidebar.subheader]
@@ -3374,8 +3374,8 @@ def test_deleting_takes_a_last_trial_that_was_entirely_left_out(burger):
 
 def test_the_desktop_bundle_ships_every_module():
     root = pathlib.Path(APP_PATH).resolve().parent
-    build = (root / "desktop" / "build_dmg.sh").read_text()
-    e2e = (root / "desktop" / "test_e2e.sh").read_text()
+    build = (root / "desktop" / "build_dmg.sh").read_text(encoding="utf-8")
+    e2e = (root / "desktop" / "test_e2e.sh").read_text(encoding="utf-8")
     for module in ("ui_setup.py", "ui_batch.py", "ui_results.py"):
         assert module in build, module
         assert module in e2e, module
@@ -3400,7 +3400,7 @@ def test_first_run_copy_gives_the_honest_timing():
     root = pathlib.Path(APP_PATH).resolve().parent
     for name in ("desktop/FoodOptimizerApp.swift", "desktop/start_here.txt",
                  "desktop/README.md", "README.md"):
-        text = (root / name).read_text()
+        text = (root / name).read_text(encoding="utf-8")
         assert _FIRST_RUN_SENTENCE in _flowed(text), name
         assert "a few minutes, up to 15" not in text, name
 
@@ -3425,10 +3425,10 @@ def test_a_stale_trial_is_reported_above_the_tabs_not_in_the_sidebar(open_batch,
     the fixed message container above the tabs."""
     import json
     notice = wording.batch_discarded_notice(1)
-    state = json.loads((tmp_path / "burger.pkl").read_text())
+    state = json.loads((tmp_path / "burger.pkl").read_text(encoding="utf-8"))
     for row in state["pending_batch"]:
         row["recipe"].pop("Methylcellulose")
-    (tmp_path / "burger.pkl").write_text(json.dumps(state))
+    (tmp_path / "burger.pkl").write_text(json.dumps(state), encoding="utf-8")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
     at.run()
@@ -7766,7 +7766,7 @@ def test_restore_accepts_the_copy_every_confirmation_promises(burger, tmp_path):
     archived = storage_backend.LocalStorage().archive("burger", "pre_delete",
                                                       copy=True)
     assert archived == "burger_pre_delete"
-    kept = json.loads((tmp_path / "burger_pre_delete.pkl").read_text())
+    kept = json.loads((tmp_path / "burger_pre_delete.pkl").read_text(encoding="utf-8"))
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
     at.session_state["_restore_candidate"] = kept
@@ -9395,7 +9395,7 @@ def test_the_sample_is_written_with_shares_that_add_up_to_a_hundred(
     # Read the FILE, not the loaded object: import_json normalises on the
     # way in, so the loaded project has always looked right.
     for name in sample_projects.YOGURT_NAMES:
-        written = json.loads((tmp_path / f"{name}.pkl").read_text())
+        written = json.loads((tmp_path / f"{name}.pkl").read_text(encoding="utf-8"))
         weights = {o['name']: o['weight'] for o in written['objectives']}
         assert weights == {"Consistency": 25.0, "Creaminess": 25.0,
                            "Tanginess": 25.0, "Uniformity": 25.0}, weights
@@ -9821,7 +9821,7 @@ def test_a_copy_the_app_saved_itself_restores_through_the_sidebar(burger,
     burger.delete_formulation(1)
     assert FoodOptimizer("burger").formulation_ids == []
     # What the uploader hands on: the archive's own bytes, read as a copy.
-    kept = json.loads((tmp_path / "burger_pre_delete.pkl").read_text())
+    kept = json.loads((tmp_path / "burger_pre_delete.pkl").read_text(encoding="utf-8"))
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
     at.session_state["_restore_candidate"] = kept
@@ -10023,7 +10023,7 @@ def test_the_app_says_it_is_starting_before_its_heavy_imports():
     heavy imports, then the placeholder is cleared."""
     import ast
     root = pathlib.Path(__file__).resolve().parent.parent
-    tree = ast.parse((root / "app.py").read_text())
+    tree = ast.parse((root / "app.py").read_text(encoding="utf-8"))
 
     def line_of_call(attr, owner=None, arg_is=None):
         """The line of the FIRST matching call. ast.walk visits by node, not
@@ -10126,7 +10126,7 @@ def test_an_older_sample_on_disk_is_opened_as_it_stands_never_rebuilt(
     old = FoodOptimizer(sample_projects.ROUND6)
     old.add_ingredient("Oat flour", 0, 100)
     old.add_objective("Taste", 1.0, goal="max")
-    before = _sample_file(tmp_path).read_text()
+    before = _sample_file(tmp_path).read_text(encoding="utf-8")
 
     at = AppTest.from_file(APP_PATH, default_timeout=300)
     at.run()
@@ -10135,7 +10135,7 @@ def test_an_older_sample_on_disk_is_opened_as_it_stands_never_rebuilt(
     kept = FoodOptimizer(sample_projects.ROUND6)
     assert [v["name"] for v in kept.variables] == ["Oat flour"]
     assert [o["name"] for o in kept.objectives] == ["Taste"]
-    assert _sample_file(tmp_path).read_text() == before
+    assert _sample_file(tmp_path).read_text(encoding="utf-8") == before
     # Only the all-10 project (and the results file) was missing, so only
     # they are said to be added.
     assert any(s.value == wording.sample_opened(wording.YOGURT_SAMPLE_NAME, 1, 1)
@@ -10235,7 +10235,7 @@ def test_start_this_sample_over_puts_the_shipped_copy_back_and_keeps_the_edit(
     at = AppTest.from_file(APP_PATH, default_timeout=300)
     at.run()
     _click_sample(at)
-    other_before = _sample_file(tmp_path, sample_projects.ALL10).read_text()
+    other_before = _sample_file(tmp_path, sample_projects.ALL10).read_text(encoding="utf-8")
 
     _submit_button(at.sidebar, wording.START_SAMPLE_OVER_LABEL).click()
     at.run()
@@ -10250,8 +10250,8 @@ def test_start_this_sample_over_puts_the_shipped_copy_back_and_keeps_the_edit(
     assert copies and all(
         c.name.startswith(f"{sample_projects.ROUND6}_sample_reset")
         for c in copies)
-    assert any("Oat flour" in c.read_text() for c in copies)
-    assert _sample_file(tmp_path, sample_projects.ALL10).read_text() == other_before
+    assert any("Oat flour" in c.read_text(encoding="utf-8") for c in copies)
+    assert _sample_file(tmp_path, sample_projects.ALL10).read_text(encoding="utf-8") == other_before
 
 
 def test_opening_a_project_again_keeps_its_default_batch_size(burger):
