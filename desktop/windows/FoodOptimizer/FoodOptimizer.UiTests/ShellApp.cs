@@ -330,6 +330,19 @@ public sealed class ShellApp : IDisposable
         catch (Exception) { }
     }
 
+    /// <summary>The whole primary screen, into the results folder (never committed).</summary>
+    public static void ScreenshotScreen(string name)
+    {
+        try
+        {
+            var b = WinForms.Screen.PrimaryScreen!.Bounds;
+            using var bmp = new Bitmap(b.Width, b.Height);
+            using (var g = Graphics.FromImage(bmp)) g.CopyFromScreen(b.X, b.Y, 0, 0, bmp.Size);
+            bmp.Save(Path.Combine(Uia.Results, name + ".png"), ImageFormat.Png);
+        }
+        catch (Exception) { }
+    }
+
     /// <summary>Kills anything this stage left running (between tests).</summary>
     public static void KillStage(string stage)
     {

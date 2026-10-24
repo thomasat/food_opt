@@ -20,6 +20,7 @@ sealed class MainForm : Form
     readonly LaunchController _launch;
     readonly KeyRouter _keys;
     readonly WebRules _rules;
+    readonly Downloads _downloads;
     int _recreations;
     bool _sessionEnding;
 
@@ -47,6 +48,7 @@ sealed class MainForm : Form
         _launch = new LaunchController(this, _page, layout, paths, settings, log);
         _page.RetryRequested += async (_, _) => await _launch.RetryAsync();
         _rules = new WebRules(this, _launch, _page, log);
+        _downloads = new Downloads(this, _launch, messages, log);
     }
 
     protected override void OnLoad(EventArgs e)
@@ -107,6 +109,7 @@ sealed class MainForm : Form
         controller.ZoomFactorChanged += OnZoomChanged;
         core.ProcessFailed += OnProcessFailed;
         _rules.Attach(core, _web.Environment!);
+        _downloads.Attach(core);
         core.NavigationCompleted += (_, e) =>
         {
             if (!e.IsSuccess && e.WebErrorStatus != CoreWebView2WebErrorStatus.OperationCanceled

@@ -23,6 +23,18 @@ public class DownloadRulesTests
     }
 
     [Fact]
+    public void Suggested_name_drops_the_number_webview_added()
+    {
+        // WebView2 numbers the proposal when the name is taken in Downloads;
+        // the dialog offers the server's name, and the user may replace it.
+        var taken = new HashSet<string> { Path.Combine("D", "probe.csv"), Path.Combine("D", "Round 6 sheet.xlsx") };
+        Assert.Equal("probe.csv", DownloadRules.SuggestedFileName(Path.Combine("D", "probe (4).csv"), taken.Contains));
+        Assert.Equal("Round 6 sheet.xlsx", DownloadRules.SuggestedFileName(Path.Combine("D", "Round 6 sheet (1).xlsx"), taken.Contains));
+        Assert.Equal("notes (2).csv", DownloadRules.SuggestedFileName(Path.Combine("D", "notes (2).csv"), taken.Contains));
+        Assert.Equal("probe (x).csv", DownloadRules.SuggestedFileName(Path.Combine("D", "probe (x).csv"), taken.Contains));
+    }
+
+    [Fact]
     public void Zone_identifier_is_the_alternate_stream()
     {
         Assert.Equal(@"C:\x\a.csv:Zone.Identifier", DownloadRules.ZoneIdentifierPath(@"C:\x\a.csv"));
