@@ -150,11 +150,10 @@ def test_manifest_entries_are_checked(release_repo):
 
 def test_unknown_option_shows_usage(release_repo):
     for args in (("-Sign",), ("-Check", "-TestBuild"), ("-TestBuild", "-Version", "0.8.0"),
-                 ("-Check", "0.8.0", "more")):
+                 ("-Check", "0.8.0"), ("-Check", "-Version", "0.8.0", "more")):
+        # No positional binding: a bare word is never taken as the version
+        # or the output folder.
         _refused(run_build(release_repo, *args), _USAGE)
-    # A bare X.Y.Z is the version, as for build_dmg.sh.
-    _refused(run_build(release_repo, "-Check", "0.9.0"),
-             "refusing to build: version 0.9.0 disagrees with desktop/VERSION (0.8.0)")
 
 
 def test_a_long_image_root_is_refused(release_repo, short_tmp):

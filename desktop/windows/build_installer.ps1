@@ -13,11 +13,12 @@
 # fetched or created; 1 the build failed ("build failed: <reason>", no record).
 # Windows PowerShell 5.1 rules: ASCII only, no stderr redirection of native
 # commands (uv writes progress there), $LASTEXITCODE checked after each one.
+[CmdletBinding(PositionalBinding = $false)]
 param(
-    [string]$Version = '',
-    [switch]$Check,
-    [switch]$TestBuild,
-    [string]$OutDir = '',
+    [Parameter()][string]$Version = '',
+    [Parameter()][switch]$Check,
+    [Parameter()][switch]$TestBuild,
+    [Parameter()][string]$OutDir = '',
     [Parameter(ValueFromRemainingArguments = $true)]
     $Rest
 )
