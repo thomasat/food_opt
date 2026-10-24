@@ -16,7 +16,13 @@
     <PackageReference Include="System.Management" />
   </ItemGroup>
   <ItemGroup>
+    <!-- One shell at a time: the tests share the desktop and the stage. -->
+    <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
     <Using Include="Xunit" />
+    <Using Include="System.IO" />
+    <Using Include="System.Net.Http" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../FoodOptimizer.Core/FoodOptimizer.Core.csproj" />

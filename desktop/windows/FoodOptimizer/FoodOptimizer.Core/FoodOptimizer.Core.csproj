@@ -7,6 +7,7 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="FoodOptimizer.Tests" />
+    <InternalsVisibleTo Include="FoodOptimizer" />
   </ItemGroup>
   <ItemGroup>
     <!-- Every string the shell shows: the shared file, built in. -->
