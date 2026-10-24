@@ -12,6 +12,8 @@ Environment:
     FOODOPT_FAKE_PORT_TAKEN_ONCE     a flag file: when absent, serve creates it
                                      and fails as Streamlit does on a taken port
     FOODOPT_FAKE_HEALTH_DELAY_SECS   health answers 503 until this has passed
+    FOODOPT_FAKE_CHATTER             serve writes a numbered line to stderr
+                                     every 50 ms (as a real server logs)
 """
 import http.server
 import json
@@ -90,6 +92,17 @@ def serve(app, flags):
         def log_message(self, *args):
             pass
 
+    if os.environ.get("FOODOPT_FAKE_CHATTER"):
+        import threading
+
+        def chatter():
+            n = 0
+            while True:
+                n += 1
+                sys.stderr.write(f"fake server chatter {n}\n")
+                sys.stderr.flush()
+                time.sleep(0.05)
+        threading.Thread(target=chatter, daemon=True).start()
     server = http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler)
     server.daemon_threads = True
     if hasattr(signal, "SIGTERM"):

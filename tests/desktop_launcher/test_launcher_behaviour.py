@@ -490,3 +490,45 @@ def test_a_log_in_use_is_appended_not_rotated(py, world):
     text = world.log_text()
     assert text.startswith("old line\n") and "server healthy" in text
     assert "could not rotate launcher.log" in text
+
+
+def test_a_chatty_server_never_overwrites_the_launchers_lines(py, world):
+    """The children write to launcher.log through their own handle. Each
+    write must land at the end of the file (as launcher.sh's tee -a does),
+    never over the launcher's own lines."""
+    launch, port, pid = healthy_launch(py, world, env={"FOODOPT_FAKE_CHATTER": "1"},
+                                       args=["--stdin-lifeline"], stdin=subprocess.PIPE)
+    time.sleep(1)
+    launch.proc.stdin.close()
+    assert launch.wait(15) == 0
+    lines = world.log_text().splitlines()
+    assert any(line.endswith(f"server healthy on port {port} (pid {pid})") for line in lines), lines
+    assert any(line.endswith("the window closed - shut down") for line in lines), lines
+    chatter = [int(line.rsplit(" ", 1)[1]) for line in lines if line.startswith("fake server chatter")]
+    assert len(chatter) > 5 and chatter == sorted(chatter), chatter
+    for line in lines:
+        assert re.match(r"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d |fake server chatter \d+$)", line), line
+
+
+def test_an_unexpected_error_is_logged_and_releases_the_lock(py, world):
+    """Whatever goes wrong, the log the user attaches says so."""
+    launch = py.start(world, env={"FOODOPT_PORT_BASE": "65536"})
+    assert launch.wait(15) == 1
+    log = world.log_text()
+    assert "FATAL: unexpected error" in log and "Traceback" in log, log
+    assert not world.lock_dir.exists() and not world.status_file.exists()
+
+
+def test_a_stale_lock_whose_pid_was_reused_is_taken(py, world, foreign):
+    """A launch that died holding the lock leaves its pid behind; on Windows
+    another program soon has that pid. A process younger than the lock's pid
+    file is not its owner."""
+    world.lock_dir.mkdir(parents=True)
+    pid_file = world.lock_dir / "pid"
+    reused = foreign([sys.executable, "-c", "import time; time.sleep(60)"])
+    pid_file.write_bytes(f"{reused.pid}\n".encode())
+    old = time.time() - 60
+    os.utime(pid_file, (old, old))
+    healthy_launch(py, world)
+    assert reused.poll() is None
+    assert _gone(world.lock_dir)

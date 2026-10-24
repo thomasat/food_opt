@@ -154,6 +154,27 @@ def test_guard_stubs_streamlit_ip_lookups(when):
     assert json.loads(lines[1]) == [], out
 
 
+def test_a_failed_dll_preload_leaves_the_network_guard_on(tmp_path):
+    """A broken bundled DLL must not switch off the proxy and IP-lookup
+    guards: each duty is installed on its own."""
+    (tmp_path / "python.exe").write_bytes(b"")
+    (tmp_path / "msvcp140.dll").write_bytes(b"not a dll")
+    out = _run("""
+        import sys, urllib.request
+        g = load("sitecustomize", sys.argv[1])
+        g._installed = False
+        urllib.request._opener = None
+        g.install("win32", sys.argv[2])
+        handlers = urllib.request._opener.handlers if urllib.request._opener else []
+        proxies = [h.proxies for h in handlers if isinstance(h, urllib.request.ProxyHandler)]
+        import streamlit.net_util as n
+        print(proxies, n.get_external_ip())
+    """, GUARD, tmp_path / "python.exe")
+    assert out.returncode == 0, out
+    assert out.stdout.strip().splitlines()[-1] == "[{}] None", out
+    assert "foodopt guard" in out.stderr, out
+
+
 def test_guard_is_installed_once():
     out = _run("""
         import sys, urllib.request
