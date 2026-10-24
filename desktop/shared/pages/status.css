@@ -1,0 +1,65 @@
+/* The setup and error page, with the values of the Swift window it ports
+   (FoodOptimizerApp.swift showStepsPage and showStatus). */
+@keyframes spin { to { transform: rotate(360deg); } }
+
+body {
+  font-family: -apple-system, "Segoe UI", sans-serif;
+  background: #f7f6f2;
+  color: #2d3a2e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 96vh;
+  margin: 0;
+}
+.view { text-align: center; max-width: 460px; }
+h1 { font-weight: 600; }
+
+/* steps view */
+.steps {
+  list-style: none;
+  padding: 0;
+  margin: 26px auto 18px;
+  display: inline-block;
+  text-align: left;
+  font-size: 15px;
+}
+.step { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; }
+.mark {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.dot { color: #9aa39b; }
+.spin {
+  width: 13px;
+  height: 13px;
+  border: 2px solid #cdd6ce;
+  border-top-color: #2E6E4E;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+.tick { color: #2E6E4E; }
+.barwrap {
+  max-width: 320px;
+  height: 6px;
+  margin: 0 auto 16px;
+  background: #e2e6e1;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.bar {
+  width: 0%;
+  height: 100%;
+  background: #2E6E4E;
+  border-radius: 3px;
+  transition: width .4s ease;
+}
+.detail { font-size: 13px; color: #7c867e; margin: 0 0 8px; }
+.note { font-size: 15px; line-height: 1.5; color: #556; margin: 0; }
+.elapsed { font-size: 13px; color: #9aa39b; margin: 10px 0 0; }
+.nextup { margin-top: 34px; font-size: 13px; color: #7c867e; }
+.footer { margin-top: 26px; font-size: 12px; color: #9aa39b; }

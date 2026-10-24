@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="status.css">
+<script src="status.js"></script>
+</head>
+<body>
+<!-- The setup and error page both desktop shells show before the app.
+     It holds no text: the shell passes its OS's messages in FOODOPT_BOOT
+     and drives the page through window.FoodOpt (status.js). -->
+<div id="steps-view" class="view" style="display:none">
+  <h1 id="title"></h1>
+  <ul id="steps" class="steps"></ul>
+  <div id="barwrap" class="barwrap" style="display:none"><div id="bar" class="bar"></div></div>
+  <p id="detail" class="detail"></p>
+  <p id="note" class="note"></p>
+  <p id="elapsed" class="elapsed"></p>
+  <p id="nextup" class="nextup"></p>
+  <p id="footer" class="footer"></p>
+</div>
+</body>
+</html>
