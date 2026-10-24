@@ -165,6 +165,7 @@ def _python_files_to_lint():
     from tests.test_packaging_modules import REPO, _app_modules
     files = [REPO / f"{m}.py" for m in sorted(_app_modules())]
     files += sorted((REPO / "tests").rglob("*.py"))
+    files += sorted((REPO / "desktop" / "shared").rglob("*.py"))
     return REPO, files
 
 

@@ -207,6 +207,7 @@ def test_replacing_over_another_windows_change_offers_reload(project):
                 "Try again."),
 ])
 def test_a_refused_save_is_the_banner_not_a_traceback(project, monkeypatch, code, line):
+    monkeypatch.setattr(wording.sys, "platform", "darwin")  # the Mac's words
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
 
@@ -253,6 +254,7 @@ def test_a_new_project_refused_while_another_is_open_draws_no_traceback(project,
 
 
 def test_a_refused_copy_before_delete_changes_nothing(project, monkeypatch):
+    monkeypatch.setattr(wording.sys, "platform", "darwin")  # the Mac's words
     def refuse(*a, **k):
         raise PermissionError(errno.EACCES, "Permission denied")
     monkeypatch.setattr(os, "rename", refuse)

@@ -14,7 +14,7 @@ import os
 import re
 import shutil
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 import wording
 
@@ -171,7 +171,9 @@ class LocalStorage:
             stamp = os.stat(self._path(name)).st_mtime
         except (FileNotFoundError, OSError):
             return None
-        return datetime.fromtimestamp(stamp).astimezone()
+        # Aware from the start: Windows cannot localise a naive time from
+        # 1970's first day (OSError 22), and archives can leave such dates.
+        return datetime.fromtimestamp(stamp, timezone.utc).astimezone()
 
     def load(self, name):
         seen = self.__dict__.setdefault("_seen", {})
