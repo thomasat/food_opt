@@ -10,7 +10,9 @@ static class Program
     {
         WinShell.SetAppUserModelId(AppIdentity.AppUserModelId);
         ApplicationConfiguration.Initialize();
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
         var messages = Messages.LoadEmbedded();
+        ShellDialogs.Messages = messages;
 
         var paths = UserPaths.Resolve(Environment.GetEnvironmentVariable,
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -23,8 +25,22 @@ static class Program
         var settings = ShellSettings.Load(paths.SettingsPath);
         var layout = InstallLayout.FromExeDirectory(Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory));
 
-        using (var form = new MainForm(messages, paths, layout, settings, log))
-            Application.Run(form);
+        MainForm? window = null;
+        var crashed = 0;
+        void Crash(Exception? ex)
+        {
+            if (Interlocked.Exchange(ref crashed, 1) == 1) return;
+            log.Write("shell.crash", ex?.GetType().FullName ?? "unknown");
+            window?.EmergencyShutdown();
+            try { ShellDialogs.Info(null, messages.Text("error.stopped.title"), messages.Text("error.shell_crashed.body")); }
+            catch (Exception) { }
+            Environment.Exit(1);
+        }
+        Application.ThreadException += (_, e) => Crash(e.Exception);
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => Crash(e.ExceptionObject as Exception);
+
+        using (window = new MainForm(messages, paths, layout, settings, log))
+            Application.Run(window);
         log.Write("shell.quit");
         return 0;
     }

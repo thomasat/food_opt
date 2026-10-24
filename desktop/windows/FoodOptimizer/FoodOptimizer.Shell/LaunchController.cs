@@ -20,6 +20,7 @@ sealed class LaunchController : IDisposable
     readonly System.Windows.Forms.Timer _watch = new() { Interval = 10_000 };
     LaunchMachine? _machine;
     LauncherSession? _session;
+    bool _retrying;
     Uri? _watchUri;
     bool _watchInFlight;
     bool _disposed;
@@ -35,6 +36,12 @@ sealed class LaunchController : IDisposable
         _log = log;
         _poll.Tick += (_, _) => Poll();
         _watch.Tick += async (_, _) => await WatchAsync();
+        Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerModeChanged;
+    }
+
+    void OnPowerModeChanged(object? sender, Microsoft.Win32.PowerModeChangedEventArgs e)
+    {
+        if (e.Mode == Microsoft.Win32.PowerModes.Resume) OnUi(() => _machine?.OnResume());
     }
 
     public int? Port => _machine?.Port;
@@ -165,6 +172,50 @@ sealed class LaunchController : IDisposable
         }
     }
 
+    /// <summary>Try again: ends the old launch (its whole job, so its server
+    /// lets go of the port and the log), clears its status line and starts
+    /// a new one. A second click while this runs does nothing.</summary>
+    public async Task RetryAsync()
+    {
+        if (_retrying || _disposed) return;
+        _retrying = true;
+        try
+        {
+            _log.Write("launch.retry");
+            _poll.Stop();
+            _watch.Stop();
+            _watchUri = null;
+            _machine = null;
+            var old = _session;
+            _session = null;
+            if (old != null)
+            {
+                old.KillAll();
+                await old.WaitForExitAsync(TimeSpan.FromSeconds(5));
+                old.Dispose();
+            }
+            foreach (var name in new[] { StateFiles.Status, StateFiles.StatusTmp })
+            {
+                try { File.Delete(Path.Combine(_paths.StateDir, name)); }
+                catch (Exception) { }
+            }
+            if (!_disposed) Start();
+        }
+        finally
+        {
+            _retrying = false;
+        }
+    }
+
+    /// <summary>The app's page failed to load after it had loaded once.</summary>
+    public void OnLoadFailed()
+    {
+        if (_machine is { } m) Execute(m.OnLoadFailed());
+    }
+
+    /// <summary>Logoff is coming: from now on no page may show.</summary>
+    public void BeginShutdown() => _machine?.BeginShutdown();
+
     /// <summary>Stops the launch: no more pages, the lifeline closed, a
     /// short wait for a clean shutdown (skipped at logoff), then the job.</summary>
     public void Shutdown(bool fast)
@@ -187,6 +238,7 @@ sealed class LaunchController : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPowerModeChanged;
         _poll.Dispose();
         _watch.Dispose();
         _session?.Dispose();

@@ -16,10 +16,12 @@ sealed class WebViewHost : Control
     }
 
     public CoreWebView2Controller? Controller { get; private set; }
+    public CoreWebView2Environment? Environment { get; private set; }
     public CoreWebView2? Core => Controller?.CoreWebView2;
 
     public async Task InitializeAsync(CoreWebView2Environment env, double zoom)
     {
+        Environment = env;
         var controller = await env.CreateCoreWebView2ControllerAsync(Handle);
         controller.DefaultBackgroundColor = Background;
         controller.ZoomFactor = zoom;
@@ -34,6 +36,19 @@ sealed class WebViewHost : Control
         var c = Controller;
         Controller = null;
         try { c?.Close(); } catch (Exception) { }
+    }
+
+    /// <summary>After the browser process has gone: closes the dead view,
+    /// waits (at most 5 s) for the old environment's processes to exit, and
+    /// creates a new environment and view.</summary>
+    public async Task RecreateAsync(Func<Task<CoreWebView2Environment>> create, double zoom)
+    {
+        var old = Environment;
+        var exited = new TaskCompletionSource();
+        if (old != null) old.BrowserProcessExited += (_, _) => exited.TrySetResult();
+        CloseController();
+        await Task.WhenAny(exited.Task, Task.Delay(TimeSpan.FromSeconds(5)));
+        await InitializeAsync(await create(), zoom);
     }
 
     protected override void OnResize(EventArgs e)
