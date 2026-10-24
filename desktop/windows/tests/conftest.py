@@ -90,3 +90,64 @@ def short_tmp():
     path = pathlib.Path(tempfile.mkdtemp(prefix="p3b ", dir=base))
     yield path
     shutil.rmtree(path, ignore_errors=True)
+
+
+# ---------- the built image (Task 5) ----------
+
+def _load_build_env():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("build_env", WINDOWS / "build_env.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+build_env = _load_build_env()
+IMAGE = pathlib.Path(os.environ.get("FOODOPT_WIN_IMAGE")
+                     or REPO / "desktop" / "windows" / "build" / build_env.IMAGE_NAME)
+PY = IMAGE / "python" / "python.exe"
+SITE = IMAGE / build_env.SITE
+RECORD = IMAGE.parent / f"{build_env.IMAGE_NAME}.build.txt"
+UNSIGNED = IMAGE.parent / f"{build_env.IMAGE_NAME}.unsigned.txt"
+RECORD_KEYS = ("version", "commit", "tree_clean", "test_build", "mac_lock_sha256",
+               "windows_lock_sha256", "python_version", "python_nupkg_sha256",
+               "vc_runtime_version", "vc_redist_sha256", "uv_version", "image_files",
+               "image_bytes", "image_sha256", "longest_path_chars", "unsigned_binaries",
+               "signed")
+needs_image = pytest.mark.skipif(not PY.is_file(), reason="build first: build_installer.ps1 -TestBuild")
+_PROXY_KEYS = {"http_proxy", "https_proxy", "all_proxy", "no_proxy", "ftp_proxy"}
+
+
+def image_env(home) -> dict:
+    """The environment the launcher gives its children: no PYTHON*,
+    STREAMLIT_* or proxy variables; GIT_PYTHON_REFRESH=quiet; home = home."""
+    env = {k: v for k, v in os.environ.items()
+           if not k.upper().startswith(("PYTHON", "STREAMLIT_")) and k.lower() not in _PROXY_KEYS}
+    env["GIT_PYTHON_REFRESH"] = "quiet"
+    env["HOME"] = env["USERPROFILE"] = str(home)
+    return env
+
+
+def run_image(*args, home, cwd=None, extra_env=None, timeout=900) -> subprocess.CompletedProcess:
+    """Run the bundled python.exe as the launcher runs it: -I -X utf8 -B."""
+    env = image_env(home)
+    env.update(extra_env or {})
+    return subprocess.run([str(PY), "-I", "-X", "utf8", "-B", *[str(a) for a in args]],
+                          capture_output=True, text=True, encoding="utf-8", errors="replace",
+                          cwd=cwd, env=env, timeout=timeout, creationflags=CREATE_NO_WINDOW)
+
+
+def record() -> dict:
+    """FoodOptimizer.build.txt as {key: value}, in file order."""
+    out = {}
+    for line in RECORD.read_text(encoding="utf-8").split("\n"):
+        if line:
+            key, _, value = line.partition("=")
+            out[key] = value
+    return out
+
+
+def binaries(under=IMAGE):
+    """Every .exe, .dll and .pyd under a folder."""
+    return sorted(p for p in pathlib.Path(under).rglob("*")
+                  if p.suffix.lower() in (".exe", ".dll", ".pyd") and p.is_file())
