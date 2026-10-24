@@ -10,6 +10,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Mapping, Optional, Sequence
@@ -204,6 +205,19 @@ class _Run:
             self.request_stop("eof")
         threading.Thread(target=read_to_eof, name="stdin-lifeline", daemon=True).start()
 
+    def lock_owner_alive(self, pid: int) -> bool:
+        """The lock's pid names a live process that started before it wrote
+        the pid file. Windows reuses pids quickly: a younger process with
+        that pid is not the owner, and its lock is stale."""
+        if not procinfo.pid_alive(pid):
+            return False
+        try:
+            written = (self.lock / "pid").stat().st_mtime
+        except OSError:
+            return True
+        start = procinfo.process_start_time(pid)
+        return start is None or start <= written + 2
+
     def replace_orphan(self) -> None:
         state = self.opts.state_dir
         got = files.read_port_file(state)
@@ -306,7 +320,7 @@ class _Run:
                 self.log.say("FATAL: --lock-held but launch.lock is not ours")
                 return 1
         else:
-            ok, other = files.acquire_lock(self.lock, self.pid, alive=procinfo.pid_alive)
+            ok, other = files.acquire_lock(self.lock, self.pid, alive=self.lock_owner_alive)
             if not ok:
                 self.log.say("another launch is already in progress "
                              f"(pid {other if other is not None else 'unknown'}) - exiting")
@@ -410,5 +424,16 @@ def main(argv: Optional[Sequence[str]] = None,
                 pass
     try:
         return run.run()
+    except Exception:
+        # launcher.sh sends everything to its log; so does this: the log is
+        # what the user attaches when the app cannot open.
+        log.say("FATAL: unexpected error")
+        for line in traceback.format_exc().rstrip("\n").split("\n"):
+            log.say(line)
+        try:
+            run.cleanup()
+        except Exception:
+            pass
+        return 1
     finally:
         log.close()

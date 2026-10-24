@@ -228,6 +228,33 @@ def rotate_log(log: Path, lock_dir: Path) -> Tuple[bool, Optional[str]]:
     return True, None
 
 
+def open_append(path: Path) -> BinaryIO:
+    """An append handle every write of which lands at the end of the file,
+    even through a child's inherited copy. On Windows that needs
+    FILE_APPEND_DATA without FILE_WRITE_DATA: the C runtime's "a" mode only
+    seeks before its own writes, so a child, which writes at its handle's
+    position, would overwrite the launcher's later lines. FILE_SHARE_DELETE
+    also lets the next launch rotate a log an old server still holds."""
+    if sys.platform != "win32":
+        return open(path, "ab")
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+    k = ctypes.WinDLL("kernel32", use_last_error=True)
+    k.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p,
+                              wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    k.CreateFileW.restype = wintypes.HANDLE
+    file_append_data, file_read_attributes, synchronize = 0x0004, 0x0080, 0x00100000
+    share_all = 0x1 | 0x2 | 0x4          # read, write, delete
+    open_always, attribute_normal = 4, 0x80
+    handle = k.CreateFileW(str(path), file_append_data | file_read_attributes | synchronize,
+                           share_all, None, open_always, attribute_normal, None)
+    if handle is None or handle == wintypes.HANDLE(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    fd = msvcrt.open_osfhandle(handle, os.O_WRONLY | os.O_APPEND | getattr(os, "O_BINARY", 0))
+    return os.fdopen(fd, "ab")
+
+
 class Log:
     """launcher.sh's say(): one dated line to the stream and to the log."""
 
@@ -238,7 +265,7 @@ class Log:
 
     def open(self, path: Path) -> None:
         self.path = Path(path)
-        self._fh = open(self.path, "ab")
+        self._fh = open_append(self.path)
 
     def say(self, msg: str) -> None:
         line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}\n"
@@ -256,7 +283,7 @@ class Log:
 
     def child_handle(self) -> BinaryIO:
         """A fresh append handle on the log, for a child's stdout/stderr."""
-        return open(self.path, "ab")
+        return open_append(self.path)
 
     def close(self) -> None:
         if self._fh is not None:

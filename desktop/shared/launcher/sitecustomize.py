@@ -81,15 +81,33 @@ def install(platform=None, executable=None) -> None:
     _installed = True
     platform = sys.platform if platform is None else platform
     executable = sys.executable if executable is None else executable
+    # Three separate duties: one failing must never switch off the others.
     if platform == "win32":
-        import ctypes
-        preload_cpp_runtime(platform, executable, ctypes.WinDLL)
-    import urllib.request
-    urllib.request.install_opener(urllib.request.build_opener(urllib.request.ProxyHandler({})))
-    if _NET_UTIL in sys.modules:
-        _stub_net_util(sys.modules[_NET_UTIL])
-    elif not any(isinstance(f, _NetUtilFinder) for f in sys.meta_path):
-        sys.meta_path.insert(0, _NetUtilFinder())
+        try:
+            import ctypes
+            preload_cpp_runtime(platform, executable, ctypes.WinDLL)
+        except Exception as err:
+            _warn("C++ runtime preload", err)
+    try:
+        import urllib.request
+        urllib.request.install_opener(
+            urllib.request.build_opener(urllib.request.ProxyHandler({})))
+    except Exception as err:
+        _warn("proxy guard", err)
+    try:
+        if _NET_UTIL in sys.modules:
+            _stub_net_util(sys.modules[_NET_UTIL])
+        elif not any(isinstance(f, _NetUtilFinder) for f in sys.meta_path):
+            sys.meta_path.insert(0, _NetUtilFinder())
+    except Exception as err:
+        _warn("IP lookup guard", err)
+
+
+def _warn(what: str, err: BaseException) -> None:
+    try:
+        sys.stderr.write(f"foodopt guard: {what} failed: {err!r}\n")
+    except Exception:
+        pass
 
 
 try:

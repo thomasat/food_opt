@@ -165,13 +165,16 @@ def test_a_failed_dll_preload_leaves_the_network_guard_on(tmp_path):
         g._installed = False
         urllib.request._opener = None
         g.install("win32", sys.argv[2])
-        handlers = urllib.request._opener.handlers if urllib.request._opener else []
-        proxies = [h.proxies for h in handlers if isinstance(h, urllib.request.ProxyHandler)]
+        opener = urllib.request._opener
+        # ProxyHandler({}) handles no scheme, so the opener drops it: an
+        # installed opener with no proxy handler is the no-proxy opener.
+        proxied = [h for h in (opener.handlers if opener else [])
+                   if isinstance(h, urllib.request.ProxyHandler)]
         import streamlit.net_util as n
-        print(proxies, n.get_external_ip())
+        print(opener is not None, proxied, n.get_external_ip())
     """, GUARD, tmp_path / "python.exe")
     assert out.returncode == 0, out
-    assert out.stdout.strip().splitlines()[-1] == "[{}] None", out
+    assert out.stdout.strip().splitlines()[-1] == "True [] None", out
     assert "foodopt guard" in out.stderr, out
 
 
