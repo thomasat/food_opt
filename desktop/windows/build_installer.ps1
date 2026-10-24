@@ -192,7 +192,7 @@ function Remove-Tree([string]$path) {
 function Read-Values($lines) {
     $values = @{}
     foreach ($line in @($lines)) {
-        if ($line -match '^([a-z_]+)=(.*)$') { $values[$Matches[1]] = $Matches[2] }
+        if ($line -match '^([a-z0-9_]+)=(.*)$') { $values[$Matches[1]] = $Matches[2] }
     }
     return $values
 }
@@ -288,7 +288,9 @@ try {
     $step = 'unsigned list'
     $unsigned = New-Object System.Collections.Generic.List[string]
     $prefix = $Image.Length + 1
-    Get-ChildItem -LiteralPath $Image -Recurse -File -Include '*.exe', '*.dll', '*.pyd' | ForEach-Object {
+    # Filtered by extension here: 5.1 ignores an include filter on a literal path.
+    Get-ChildItem -LiteralPath $Image -Recurse -File |
+            Where-Object { @('.exe', '.dll', '.pyd') -contains $_.Extension.ToLowerInvariant() } | ForEach-Object {
         if ((Get-AuthenticodeSignature -LiteralPath $_.FullName).Status -ne 'Valid') {
             $unsigned.Add($_.FullName.Substring($prefix).Replace('\', '/'))
         }

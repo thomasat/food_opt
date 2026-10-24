@@ -70,3 +70,10 @@ def test_build_script_lists_no_app_files():
 
 def test_fetch_script_is_ascii_and_strict():
     _strict(FETCH)
+
+
+def test_build_script_never_filters_a_literal_path_with_include():
+    """Windows PowerShell 5.1 ignores -Include next to -LiteralPath, so the
+    unsigned list once held every unsigned file (LICENSE.txt included)."""
+    for line in _strict(BUILD).splitlines():
+        assert not ("-LiteralPath" in line and "-Include" in line), line
