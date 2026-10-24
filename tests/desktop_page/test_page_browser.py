@@ -184,3 +184,98 @@ def test_windows_first_opening_says_setting_up(open_page):
 def test_footer_shows_the_version_or_just_the_name(open_page, version, shown):
     page = open_page("mac", view=WARM, version=version)
     assert text(page, "#footer") == shown
+
+
+# ---------- error, stalled and Try again ----------
+
+KINDS = {"could_not_start": True, "missing_part": False, "unsupported": False,
+         "needs_internet": True, "no_space": True, "stopped": True}
+
+
+def _error_cases():
+    cases = [("mac", k) for k in KINDS]
+    w = texts("windows")
+    cases += [("windows", k) for k in KINDS
+              if f"error.{k}.title" in w and f"error.{k}.body" in w]
+    return cases
+
+
+@pytest.mark.parametrize("os_name,kind", _error_cases())
+def test_error_page_texts_and_retry(open_page, os_name, kind):
+    M = texts(os_name)
+    page = open_page(os_name, view=WARM)
+    call(page, f"showError({json.dumps(kind)})")
+    assert visible(page, "#message-view") and not visible(page, "#steps-view")
+    assert text(page, "#msg-title") == M[f"error.{kind}.title"]
+    assert text(page, "#msg-body") == M[f"error.{kind}.body"]
+    assert visible(page, "#retry") == KINDS[kind]
+    if KINDS[kind]:
+        assert text(page, "#retry") == M["button.try_again"]
+    assert text(page, "#msg-footer") == "Food Optimizer 0.9.0"
+    for sel in ("#msg-spinner", "#msg-step", "#msg-barwrap"):
+        assert not visible(page, sel), sel
+
+
+def test_windows_cases_cover_the_windows_errors():
+    assert {k for o, k in _error_cases() if o == "windows"} == {
+        "could_not_start", "missing_part", "unsupported", "stopped"}
+
+
+def test_could_not_start_with_the_another_copy_detail(open_page):
+    M = texts("mac")
+    page = open_page("mac", view=WARM)
+    call(page, 'showError("could_not_start", "error.could_not_start.another_copy")')
+    assert text(page, "#msg-body") == (M["error.could_not_start.another_copy"] + " "
+                                       + M["error.could_not_start.body"])
+
+
+def test_try_again_posts_retry_to_the_shell(open_page):
+    page = open_page("mac", view=WARM)
+    call(page, 'showError("stopped")')
+    page.click("#retry")
+    assert page.evaluate("window.__posted") == ["retry"]
+
+
+def test_try_again_without_a_shell_bridge_does_nothing(open_page):
+    page = open_page("mac", view=WARM, bridge=False)
+    call(page, 'showError("stopped")')
+    page.click("#retry")
+    assert page.errors == []
+
+
+def test_stalled_page_keeps_its_step_line_moving(open_page):
+    M = texts("mac")
+    page = open_page("mac", view=FIRST)
+    first = "Installing components (step 3 of 3): 500 MB of about 1,750 MB"
+    line(page, first + "|38")
+    call(page, "showStalled()")
+    assert text(page, "#msg-title") == M["stalled.title"]
+    assert text(page, "#msg-body") == M["stalled.body"]
+    assert text(page, "#msg-step") == first
+    assert width(page, "#msg-bar") == "38%"
+    assert visible(page, "#msg-spinner")
+    second = "Installing components (step 3 of 3): 600 MB of about 1,750 MB"
+    line(page, second + "|44")
+    assert text(page, "#msg-step") == second
+    assert width(page, "#msg-bar") == "44%"
+    assert not visible(page, "#steps-view")
+
+
+def test_stalled_page_without_a_percent_slides(open_page):
+    M = texts("mac")
+    page = open_page("mac", view=WARM)
+    call(page, "showStalled()")
+    assert visible(page, "#msg-slide")
+    assert not visible(page, "#msg-bar")
+    assert text(page, "#msg-step") == M["stalled.step_fallback"]
+
+
+def test_steps_after_an_error_rebuild_cleanly(open_page):
+    M = texts("mac")
+    page = open_page("mac", view=WARM)
+    run_for(page, 4000)
+    call(page, 'showError("stopped")')
+    call(page, "showSteps({firstRun: false})")
+    assert visible(page, "#steps-view") and not visible(page, "#message-view")
+    assert text(page, "#elapsed") == "0 s"
+    assert text(page, "#note") == M["steps.note.usual"]

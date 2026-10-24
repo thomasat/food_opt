@@ -9,6 +9,22 @@
                              "Updating components", "Installing components",
                              "Finishing setup"];
 
+  // The error pages: the message ids each one shows, and whether it offers
+  // Try again (FoodOptimizerApp.swift launcherEnded, startLauncher,
+  // showCouldNotStartStatus, startHealthWatch).
+  var ERRORS = {
+    could_not_start: {title: "error.could_not_start.title", body: "error.could_not_start.body", retry: true},
+    missing_part: {title: "error.missing_part.title", body: "error.missing_part.body", retry: false},
+    unsupported: {title: "error.unsupported.title", body: "error.unsupported.body", retry: false},
+    needs_internet: {title: "error.needs_internet.title", body: "error.needs_internet.body", retry: true},
+    no_space: {title: "error.no_space.title", body: "error.no_space.body", retry: true},
+    stopped: {title: "error.stopped.title", body: "error.stopped.body", retry: true}
+  };
+
+  // The sentences a shell may put before an error body (showError's
+  // detailId): what was different about this give-up.
+  var DETAILS = ["error.could_not_start.another_copy"];
+
   var DOWNLOAD = 0, LOAD = 1, OPEN = 2;
   var TICK_MS = 500;
 
@@ -156,6 +172,65 @@
     if (rebuild) { buildSteps(); } else { paintSteps(); }
   }
 
+  // ---------- message view: error pages and the long-wait page ----------
+
+  // Port of showStatus: a title, an optional spinner, step line and bar
+  // (measured, or sliding when there is no percent), the body, Try again.
+  function showMessage(o) {
+    setText("msg-title", o.title);
+    show("msg-spinner", !!o.spinner, "block");
+    setText("msg-step", o.step || "");
+    show("msg-step", o.step !== undefined && o.step !== null, "block");
+    var measured = o.progress !== undefined && o.progress !== null;
+    show("msg-barwrap", measured, "block");
+    show("msg-slide", !measured && !!o.indeterminate, "block");
+    var bar = el("msg-bar");
+    if (bar) { bar.style.width = (measured ? Math.max(0, Math.min(o.progress, 100)) : 0) + "%"; }
+    setText("msg-body", o.body);
+    setText("retry", msg("button.try_again"));
+    show("retry", !!o.retry, "inline-block");
+    setText("msg-footer", footerText());
+    show("steps-view", false);
+    show("message-view", true);
+    s.stepsShowing = false;
+    s.stalledShowing = false;
+    s.lastStatusLine = null;
+  }
+
+  function showError(kind, detailId) {
+    var e = ERRORS[kind] || ERRORS.could_not_start;
+    var body = msg(e.body);
+    if (detailId && DETAILS.indexOf(detailId) >= 0) { body = msg(detailId) + " " + body; }
+    showMessage({title: msg(e.title), body: body, retry: e.retry});
+  }
+
+  // The long-wait page. Not a steps page: later status lines update its
+  // step line and bar in place instead of painting the steps back over it.
+  function showStalled() {
+    showMessage({
+      title: msg("stalled.title"),
+      body: msg("stalled.body"),
+      spinner: true,
+      step: s.lastStepText === null ? msg("stalled.step_fallback") : s.lastStepText,
+      progress: s.lastProgress,
+      indeterminate: s.lastProgress === null
+    });
+    s.stalledShowing = true;
+  }
+
+  // Send a message to the shell: WebView2 on Windows, WKWebView on the Mac.
+  function post(message) {
+    var c = window.chrome;
+    if (c && c.webview && typeof c.webview.postMessage === "function") {
+      c.webview.postMessage(message);
+      return;
+    }
+    var w = window.webkit;
+    if (w && w.messageHandlers && w.messageHandlers.foodopt) {
+      w.messageHandlers.foodopt.postMessage(message);
+    }
+  }
+
   // ---------- the API the shells call ----------
 
   function init(boot) {
@@ -198,12 +273,18 @@
     } else {
       step = OPEN;
     }
+    if (s.stalledShowing) {
+      setText("msg-step", text);
+      var bar = el("msg-bar");
+      if (bar && s.lastProgress !== null) { bar.style.width = s.lastProgress + "%"; }
+      return;
+    }
     setActiveStep(step, text);
   }
 
   // The server is up; what is left is Streamlit answering: the last step.
   function serverStarted() {
-    setActiveStep(OPEN);
+    if (!s.stalledShowing) { setActiveStep(OPEN); }
   }
 
   function tick() {
@@ -215,10 +296,14 @@
     showSteps: showSteps,
     statusLine: statusLine,
     serverStarted: serverStarted,
-    tick: tick
+    tick: tick,
+    showStalled: showStalled,
+    showError: showError,
+    post: post
   };
 
   document.addEventListener("DOMContentLoaded", function () {
+    el("retry").addEventListener("click", function () { post("retry"); });
     if (window.FOODOPT_BOOT) { init(window.FOODOPT_BOOT); }
     setInterval(tick, TICK_MS);
   });

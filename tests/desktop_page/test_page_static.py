@@ -9,6 +9,8 @@ from tests.shared_texts import REPO, entries, read_lf
 PAGES = REPO / "desktop" / "shared" / "pages"
 STEPS_IDS = ["steps-view", "title", "steps", "barwrap", "bar", "detail", "note",
              "elapsed", "nextup", "footer"]
+MESSAGE_IDS = ["message-view", "msg-title", "msg-spinner", "msg-step", "msg-barwrap",
+               "msg-bar", "msg-slide", "msg-body", "retry", "msg-footer"]
 
 
 def _html():
@@ -36,7 +38,7 @@ def _js_literals():
 
 def test_page_has_every_element_the_script_drives():
     html = _html()
-    for i in STEPS_IDS:
+    for i in STEPS_IDS + MESSAGE_IDS:
         assert f'id="{i}"' in html, i
     for prefix in ("row", "dot", "spin", "tick", "label"):
         assert f'"{prefix}"' in _js(), prefix
@@ -78,3 +80,10 @@ def test_font_list_names_segoe_ui():
     css = read_lf(PAGES / "status.css")
     body = re.search(r"(?m)^body\s*\{(.*?)\}", css, re.S)
     assert body and 'font-family: -apple-system, "Segoe UI", sans-serif' in body.group(1)
+
+
+def test_every_page_message_is_used():
+    used = set(_PAGE_ID.findall(_js()))
+    for e in entries():
+        if e["shared"] == "pages":
+            assert e["id"] in used, e["id"]
