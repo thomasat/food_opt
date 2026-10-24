@@ -164,4 +164,173 @@ Say '========================================================='
 Say ' UNSIGNED build - internal testing only.'
 Say '========================================================='
 
-Fail 'build not implemented yet'
+$Utf8 = New-Object Text.UTF8Encoding $false
+$Record = Join-Path $OutDir 'FoodOptimizer.build.txt'
+$FilesList = Join-Path $OutDir 'FoodOptimizer.files.txt'
+$UnsignedList = Join-Path $OutDir 'FoodOptimizer.unsigned.txt'
+$CacheDir = Join-Path $WindowsDir '.cache'
+$BuildEnv = Join-Path $WindowsDir 'build_env.py'
+$Py = Join-Path $Image 'python\python.exe'
+$Pins = Get-Content -LiteralPath (Join-Path $WindowsDir 'pins.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+$started = Get-Date
+
+function Get-Sha256([string]$path) {
+    return (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
+function Write-Lf([string]$path, [string[]]$lines) {
+    $text = ''
+    foreach ($line in $lines) { $text += $line + "`n" }
+    [IO.File]::WriteAllText($path, $text, $Utf8)
+}
+
+function Remove-Tree([string]$path) {
+    if (Test-Path -LiteralPath $path) { [IO.Directory]::Delete($path, $true) }
+}
+
+# Every "key=value" line build_env.py printed, as a hashtable.
+function Read-Values($lines) {
+    $values = @{}
+    foreach ($line in @($lines)) {
+        if ($line -match '^([a-z_]+)=(.*)$') { $values[$Matches[1]] = $Matches[2] }
+    }
+    return $values
+}
+
+# Runs build_env.py with the bundled Python, echoes its output, and returns it.
+function Invoke-BuildEnv([string[]]$arguments) {
+    $out = & $Py -I -B $BuildEnv @arguments
+    $code = $LASTEXITCODE
+    foreach ($line in @($out)) { Say $line }
+    if ($code -ne 0) { throw ('build_env.py ' + $arguments[0] + ' exited ' + $code) }
+    return $out
+}
+
+function Assert-Signed([string]$path, [string]$signer) {
+    $sig = Get-AuthenticodeSignature -LiteralPath $path
+    $subject = ''
+    if ($sig.SignerCertificate -ne $null) { $subject = $sig.SignerCertificate.Subject }
+    if ($sig.Status -ne 'Valid' -or $subject -notmatch ('^CN=' + [regex]::Escape($signer) + ',')) {
+        throw ($path + ' is not signed by ' + $signer + ' (' + $sig.Status + ', ' + $subject + ')')
+    }
+}
+
+$step = 'start'
+try {
+    # Recorded before anything is written, so the record says what was built.
+    $step = 'git'
+    $commit = (Invoke-Native 'git rev-parse' 'git' @('-C', $RepoDir, 'rev-parse', 'HEAD') | Out-String).Trim()
+    $porcelain = Invoke-Native 'git status' 'git' @('-C', $RepoDir, 'status', '--porcelain', '--untracked-files=normal')
+    $treeClean = 'yes'
+    if (@($porcelain | Where-Object { $_ -ne '' }).Count -gt 0) { $treeClean = 'no' }
+    $uvVersion = ((Invoke-Native 'uv --version' 'uv' @('--version') | Out-String).Trim() -split ' ')[1]
+
+    # 1. No record from an older build may outlive this one, nor any file of
+    #    the old image (a package an older lock had, a removed app module).
+    $step = 'clean'
+    foreach ($side in @($Record, $FilesList, $UnsignedList)) {
+        if (Test-Path -LiteralPath $side) { Remove-Item -LiteralPath $side -Force }
+    }
+    try {
+        Remove-Tree $Image
+    } catch {
+        throw ('could not remove ' + $Image + ' (is its Python running?)')
+    }
+    New-Item -ItemType Directory -Path $Image -Force | Out-Null
+
+    # 2-3. python.org's NuGet package; its tools\ folder is the Python.
+    $step = 'python'
+    $nupkg = & (Join-Path $WindowsDir 'fetch_pinned.ps1') -Name python -CacheDir $CacheDir
+    if ($LASTEXITCODE -ne 0) { throw 'fetch_pinned.ps1 -Name python failed' }
+    $nupkg = (@($nupkg) | Select-Object -Last 1).Trim()
+    $stage = Join-Path $CacheDir 'stage-python'
+    Remove-Tree $stage
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($nupkg, $stage)
+    Move-Item -LiteralPath (Join-Path $stage 'tools') -Destination (Join-Path $Image 'python')
+    Remove-Tree $stage
+
+    # 4-5. The PSF's signature, and the exact version and platform. Never
+    #      platform.machine(): under emulation it reports the host's ARM64.
+    $step = 'python signature'
+    foreach ($name in @('python.exe', 'python313.dll')) {
+        Assert-Signed (Join-Path $Image "python\$name") $Pins.python.signer
+    }
+    $step = 'python version'
+    $probe = (Invoke-Native 'python.exe' $Py @('-I', '-c', 'import sys,sysconfig;print(sys.version.split()[0], sysconfig.get_platform())') | Out-String).Trim()
+    $wantedProbe = $Pins.python.version + ' win-amd64'
+    if ($probe -ne $wantedProbe) { throw ('python.exe reports ' + $probe + ', expected ' + $wantedProbe) }
+
+    # 6. The Windows lock and nothing else: sync removes what the lock lacks
+    #    (NuGet's pip); copy, so the image shares no hard links with uv's cache.
+    $step = 'uv'
+    $lock = Join-Path $DesktopDir 'requirements-windows.lock.txt'
+    Invoke-Native 'uv pip sync' 'uv' @('pip', 'sync', '--python', $Py, '--require-hashes',
+        '--only-binary', ':all:', '--link-mode', 'copy', '--no-config',
+        '--default-index', 'https://pypi.org/simple', $lock) | ForEach-Object { Say $_ }
+
+    # 7. Microsoft's C++ runtime (not bundled yet).
+    $step = 'vc runtime'
+    $vcVersion = 'none'
+    $vcSha = 'none'
+
+    # 8. Layout, strip, precompile, gate: build_env.py, with the bundled Python.
+    $step = 'assemble'
+    Invoke-BuildEnv @('assemble', $RepoDir, $Image) | Out-Null
+    $step = 'strip'
+    Invoke-BuildEnv @('strip', $Image) | Out-Null
+    $step = 'compile'
+    Invoke-BuildEnv @('compile', $Image) | Out-Null
+    $step = 'gate'
+    $gate = Read-Values (Invoke-BuildEnv @('gate', $RepoDir, $Image))
+
+    # 9. What phase 6 signs: every binary not validly signed by its vendor.
+    $step = 'unsigned list'
+    $unsigned = New-Object System.Collections.Generic.List[string]
+    $prefix = $Image.Length + 1
+    Get-ChildItem -LiteralPath $Image -Recurse -File -Include '*.exe', '*.dll', '*.pyd' | ForEach-Object {
+        if ((Get-AuthenticodeSignature -LiteralPath $_.FullName).Status -ne 'Valid') {
+            $unsigned.Add($_.FullName.Substring($prefix).Replace('\', '/'))
+        }
+    }
+    $sorted = $unsigned.ToArray()
+    [Array]::Sort($sorted, [StringComparer]::Ordinal)
+    Write-Lf $UnsignedList $sorted
+
+    # 10. The per-file manifest.
+    $step = 'files'
+    $files = Read-Values (Invoke-BuildEnv @('files', $Image, $FilesList))
+
+    # 11. The record, written last: a failed build leaves none.
+    $step = 'record'
+    $testBuildValue = 'no'
+    if ($TestBuild) { $testBuildValue = 'yes' }
+    Write-Lf $Record @(
+        "version=$ver",
+        "commit=$commit",
+        "tree_clean=$treeClean",
+        "test_build=$testBuildValue",
+        ('mac_lock_sha256=' + (Get-Sha256 (Join-Path $DesktopDir 'requirements.lock.txt'))),
+        ('windows_lock_sha256=' + (Get-Sha256 $lock)),
+        ('python_version=' + $Pins.python.version),
+        ('python_nupkg_sha256=' + (Get-Sha256 $nupkg)),
+        "vc_runtime_version=$vcVersion",
+        "vc_redist_sha256=$vcSha",
+        "uv_version=$uvVersion",
+        ('image_files=' + $files['image_files']),
+        ('image_bytes=' + $files['image_bytes']),
+        ('image_sha256=' + $files['image_sha256']),
+        ('longest_path_chars=' + $gate['longest_path_chars']),
+        ('unsigned_binaries=' + $sorted.Length),
+        'signed=no'
+    )
+} catch {
+    Fail ($step + ': ' + $_.Exception.Message)
+}
+
+$mb = [math]::Round([double]$files['image_bytes'] / 1MB)
+$seconds = [math]::Round(((Get-Date) - $started).TotalSeconds)
+Say ('Built: ' + $Image + ' (' + $files['image_files'] + ' files, ' + $mb + ' MB)')
+Say ('build time: ' + $seconds + ' s')
+Say 'UNSIGNED build - internal testing only.'
+exit 0
