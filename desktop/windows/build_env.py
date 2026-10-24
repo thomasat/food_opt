@@ -197,7 +197,10 @@ def _exclude_rx():
     return re.compile(COMPILE_EXCLUDE.replace("/", r"[/\\]"))
 
 
-def compile_all(image) -> bool:
+def compile_all(image, workers=0) -> bool:
+    """workers=0 uses every core (the build). Callers inside a long-lived
+    process whose __main__ isn't a plain script (pytest) pass workers=1:
+    spawned workers re-import the parent's __main__."""
     image = pathlib.Path(image)
     ok = True
     for root in COMPILE_ROOTS:
@@ -205,7 +208,7 @@ def compile_all(image) -> bool:
         if not folder.is_dir():
             continue
         ok = compileall.compile_dir(
-            str(folder), quiet=1, force=True, workers=0, rx=_exclude_rx(),
+            str(folder), quiet=1, force=True, workers=workers, rx=_exclude_rx(),
             invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH) and ok
     return bool(ok)
 

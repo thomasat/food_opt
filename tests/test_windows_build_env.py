@@ -176,13 +176,22 @@ def test_compile_all_then_no_gaps(fake_image):
         _touch(fake_image, rel, b"VALUE = 'x'\n")
     # A stale timestamp pyc is recompiled, not kept.
     _compile(fake_image / "app/app.py", py_compile.PycInvalidationMode.TIMESTAMP)
-    assert be.compile_all(fake_image) is True
+    assert be.compile_all(fake_image, workers=1) is True
+    assert be.pyc_gaps(fake_image) == []
+
+
+def test_compile_all_in_parallel_from_the_cli(fake_image):
+    _touch(fake_image, "app/a.py", b"A = 1\n")
+    _touch(fake_image, "shared/launcher/b.py", b"B = 2\n")
+    r = subprocess.run([sys.executable, "-I", "-B", str(BUILD_ENV), "compile", str(fake_image)],
+                       capture_output=True, text=True, encoding="utf-8")
+    assert r.returncode == 0, r.stdout + r.stderr
     assert be.pyc_gaps(fake_image) == []
 
 
 def test_compile_all_reports_a_syntax_error(fake_image):
     _touch(fake_image, "app/broken.py", b"def (:\n")
-    assert be.compile_all(fake_image) is False
+    assert be.compile_all(fake_image, workers=1) is False
 
 
 def test_pe_imports_reads_a_real_pe(tmp_path):
@@ -279,3 +288,4 @@ def test_user_facing_text_files_skip_build_output(tmp_path):
     for rel in ("desktop/windows/build/x.txt", "desktop/windows/dist/y.txt",
                 "desktop/windows/.cache/z.txt", "desktop/windows/image_files.txt"):
         assert rel not in found
+
