@@ -307,3 +307,16 @@ def test_a_save_refused_at_the_replace_is_in_use_not_read_only(tmp_path, monkeyp
     with pytest.raises(StorageError) as caught:
         LocalStorage().save("p", {"v": 1})
     assert str(caught.value) == wording.not_saved("p", "in_use")
+
+
+def test_saved_at_reads_a_file_dated_near_1970(tmp_path, monkeypatch):
+    """Windows cannot turn a naive time from 1970's first day into local
+    time (OSError 22), and files unpacked from some archives carry such
+    dates: the saved line must still have a time to show."""
+    monkeypatch.chdir(tmp_path)
+    s = LocalStorage()
+    s.save("p", {"v": 1})
+    os.utime("p.pkl", (1000, 1000))
+    when = s.saved_at("p")
+    assert when is not None and when.tzinfo is not None
+    assert abs(when.timestamp() - 1000) < 1
