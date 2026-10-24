@@ -106,6 +106,9 @@ build_env = _load_build_env()
 IMAGE = pathlib.Path(os.environ.get("FOODOPT_WIN_IMAGE")
                      or REPO / "desktop" / "windows" / "build" / build_env.IMAGE_NAME)
 PY = IMAGE / "python" / "python.exe"
+# Phase 4's published shell (dotnet publish FoodOptimizer.Shell -c Release),
+# which build_installer.ps1 copies to the image root.
+PUBLISH = REPO / "desktop" / ".cache" / "shell" / "publish" / "FoodOptimizer.Shell" / "release_win-x64"
 SITE = IMAGE / build_env.SITE
 RECORD = IMAGE.parent / f"{build_env.IMAGE_NAME}.build.txt"
 UNSIGNED = IMAGE.parent / f"{build_env.IMAGE_NAME}.unsigned.txt"
@@ -113,7 +116,7 @@ RECORD_KEYS = ("version", "commit", "tree_clean", "test_build", "mac_lock_sha256
                "windows_lock_sha256", "python_version", "python_nupkg_sha256",
                "vc_runtime_version", "vc_redist_sha256", "uv_version", "image_files",
                "image_bytes", "image_sha256", "longest_path_chars", "unsigned_binaries",
-               "signed")
+               "dotnet_sdk", "shell_files", "signed")
 needs_image = pytest.mark.skipif(not PY.is_file(), reason="build first: build_installer.ps1 -TestBuild")
 _PROXY_KEYS = {"http_proxy", "https_proxy", "all_proxy", "no_proxy", "ftp_proxy"}
 

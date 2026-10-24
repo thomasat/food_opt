@@ -8,13 +8,15 @@ Stdlib only. Paths in results are image-relative with "/".
     python build_env.py assemble <repo> <image>
     python build_env.py strip <image>
     python build_env.py compile <image>
-    python build_env.py gate <repo> <image>
+    python build_env.py shell <publish> <image>
+    python build_env.py gate <repo> <image> [--shell <publish>]
     python build_env.py files <image> <out.txt>
 
 Each command returns 0, or 1 with each problem on its own stdout line.
 """
 import compileall
 import fnmatch
+from collections.abc import Collection
 import hashlib
 import importlib.util
 import os
@@ -54,6 +56,10 @@ STRIP_RULES: tuple[tuple[str, str], ...] = (
 VC_RUNTIME_NAME = re.compile(
     r"^(msvcp140(_\w+)?|vcruntime140(_\d)?|concrt140|vccorlib140|vcomp140)\.dll$")
 PE_SUFFIXES = (".exe", ".dll", ".pyd")
+# The image's own top-level entries: the shell's published files sit beside
+# them at the root and may never share a name with one (case-insensitive).
+RESERVED_TOP = ("python", "app", "shared", "Start Here.txt")
+SHELL_EXE = "FoodOptimizer.exe"
 
 
 # ---------- what goes in ----------
@@ -103,8 +109,12 @@ def _walk(root):
             yield (here / name).relative_to(root).as_posix(), False
 
 
-def image_listing(image) -> list[str]:
+def image_listing(image, exclude: Collection[str] = ()) -> list[str]:
+    """The golden-listing view of an image. Files in `exclude` (the shell's
+    published files) are left out, and so is any folder left holding only
+    excluded files."""
     image = pathlib.Path(image)
+    excluded = set(exclude)
     entries = set()
     for rel, is_dir in _walk(image):
         if rel == "python":
@@ -112,7 +122,16 @@ def image_listing(image) -> list[str]:
             continue
         if rel.startswith("python/") or "__pycache__" in rel.split("/"):
             continue
+        if not is_dir and rel in excluded:
+            continue
         entries.add(rel + "/" if is_dir else rel)
+    if excluded:
+        held = {e.rsplit("/", 1)[0] + "/" for e in excluded if "/" in e}
+        for folder in sorted((e for e in entries if e.endswith("/") and e != "python/"),
+                             key=len, reverse=True):
+            holds_excluded = any(e.startswith(folder) for e in held)
+            if holds_excluded and not any(e != folder and e.startswith(folder) for e in entries):
+                entries.discard(folder)
     return sorted(entries)
 
 
@@ -134,6 +153,49 @@ def assemble(repo, image) -> None:
     _copy(repo / "desktop" / "windows" / "start_here.txt", image / "Start Here.txt")
     _copy(shared / "launcher" / "sitecustomize.py", site / "sitecustomize.py")
     (site / PTH_NAME).write_bytes(PTH_TEXT.encode("utf-8"))
+
+
+# ---------- the shell (phase 4's published FoodOptimizer.exe folder) ----------
+
+def shell_listing(publish) -> list[str]:
+    """Every file under the publish folder, "/" relative, codepoint-sorted."""
+    return sorted(rel for rel, is_dir in _walk(publish) if not is_dir)
+
+
+def add_shell(publish, image) -> list[str]:
+    """Copy the published shell to the image root, path for path."""
+    publish, image = pathlib.Path(publish), pathlib.Path(image)
+    files = shell_listing(publish)
+    reserved = {name.lower() for name in RESERVED_TOP}
+    for rel in files:
+        if rel.split("/")[0].lower() in reserved:
+            raise ValueError(f"shell file collides with the image: {rel}")
+    if SHELL_EXE not in files:
+        raise ValueError(f"publish folder has no {SHELL_EXE}")
+    for rel in files:
+        _copy(publish / rel, image / rel)
+    return files
+
+
+def _sha256(path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def shell_gaps(publish, image) -> list[str]:
+    """"missing <p>" / "differs <p>" for each published file the image lacks
+    or holds with other bytes."""
+    publish, image = pathlib.Path(publish), pathlib.Path(image)
+    gaps = []
+    for rel in shell_listing(publish):
+        if not (image / rel).is_file():
+            gaps.append(f"missing {rel}")
+        elif _sha256(image / rel) != _sha256(publish / rel):
+            gaps.append(f"differs {rel}")
+    return gaps
 
 
 # ---------- strip ----------
@@ -407,14 +469,18 @@ def file_manifest(image) -> tuple[str, int, int]:
 
 # ---------- CLI ----------
 
-def _gate(repo, image) -> list[str]:
+def _gate(repo, image, publish=None) -> list[str]:
     repo, image = pathlib.Path(repo), pathlib.Path(image)
     problems = [f"strip: {rel}" for rel in strip_violations(image)]
     problems += [f"pyc: {rel}" for rel in pyc_gaps(image)]
     problems += [f"long path: {v}" for v in long_path_violations(image)]
     problems += [f"vc runtime: {gap}" for gap in vc_runtime_gaps(image)]
     golden = (repo / "desktop" / "windows" / "image_files.txt").read_text(encoding="utf-8").splitlines()
-    actual = image_listing(image)
+    shell = ()
+    if publish is not None:
+        problems += [f"shell: {gap}" for gap in shell_gaps(publish, image)]
+        shell = shell_listing(publish)
+    actual = image_listing(image, exclude=shell)
     problems += [f"listing: missing {e}" for e in sorted(set(golden) - set(actual))]
     problems += [f"listing: unexpected {e}" for e in sorted(set(actual) - set(golden))]
     return problems
@@ -438,8 +504,16 @@ def main(argv=None) -> int:
             return 0
         print("compile: some files did not compile (see above)")
         return 1
-    if cmd == "gate" and len(args) == 2:
-        problems = _gate(*args)
+    if cmd == "shell" and len(args) == 2:
+        try:
+            files = add_shell(*args)
+        except ValueError as e:
+            print(f"shell: {e}")
+            return 1
+        print(f"shell_files={len(files)}")
+        return 0
+    if cmd == "gate" and (len(args) == 2 or (len(args) == 4 and args[2] == "--shell")):
+        problems = _gate(args[0], args[1], args[3] if len(args) == 4 else None)
         for line in problems:
             print(line)
         print(f"longest_path_chars={longest_relative(args[1])[0]}")
@@ -453,7 +527,8 @@ def main(argv=None) -> int:
         print(f"image_sha256={hashlib.sha256(out.read_bytes()).hexdigest()}")
         return 0
     print("usage: build_env.py assemble <repo> <image> | strip <image> | compile <image>"
-          " | gate <repo> <image> | files <image> <out.txt>")
+          " | shell <publish> <image> | gate <repo> <image> [--shell <publish>]"
+          " | files <image> <out.txt>")
     return 2
 
 
