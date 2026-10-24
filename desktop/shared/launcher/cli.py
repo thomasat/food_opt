@@ -195,10 +195,14 @@ class _Run:
     # ---------- the steps ----------
 
     def start_lifeline(self) -> None:
+        # os.read on the raw fd, never sys.stdin.buffer: a thread blocked in
+        # BufferedReader.read holds its lock, and the interpreter's shutdown,
+        # which closes sys.stdin, then dies on that lock ("_enter_buffered_busy
+        # ... daemon threads") on every exit while the shell holds stdin open.
         def read_to_eof():
             try:
-                stream = sys.stdin.buffer
-                while stream.read(65536):
+                fd = sys.stdin.fileno()
+                while os.read(fd, 65536):
                     pass
             except (OSError, ValueError, AttributeError):
                 pass
