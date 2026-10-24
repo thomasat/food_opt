@@ -289,3 +289,8 @@ def test_user_facing_text_files_skip_build_output(tmp_path):
                 "desktop/windows/.cache/z.txt", "desktop/windows/image_files.txt"):
         assert rel not in found
 
+
+def test_gate_checks_the_vc_runtime(fake_image, monkeypatch):
+    be.assemble(REPO, fake_image)
+    monkeypatch.setattr(be, "vc_runtime_gaps", lambda image: ["python/DLLs/_x.pyd: msvcp140.dll"])
+    assert "vc runtime: python/DLLs/_x.pyd: msvcp140.dll" in be._gate(REPO, fake_image)

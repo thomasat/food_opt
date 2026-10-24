@@ -269,10 +269,67 @@ try {
         '--only-binary', ':all:', '--link-mode', 'copy', '--no-config',
         '--default-index', 'https://pypi.org/simple', $lock) | ForEach-Object { Say $_ }
 
-    # 7. Microsoft's C++ runtime (not bundled yet).
+    # 7. Microsoft's C++ runtime beside python.exe: torch needs msvcp140.dll,
+    #    python.org doesn't ship it, and sklearn ships its own copy under the
+    #    same name (spike B4). One Microsoft-signed set of one version, from
+    #    Microsoft's own redistributable: /layout unpacks the bundle's
+    #    embedded payloads (no network), msiexec /a extracts the files
+    #    (nothing is installed, no admin needed).
     $step = 'vc runtime'
-    $vcVersion = 'none'
-    $vcSha = 'none'
+    $vcPin = $Pins.vc_runtime
+    $redist = & (Join-Path $WindowsDir 'fetch_pinned.ps1') -Name vc_runtime -CacheDir $CacheDir
+    if ($LASTEXITCODE -ne 0) { throw 'fetch_pinned.ps1 -Name vc_runtime failed' }
+    $redist = (@($redist) | Select-Object -Last 1).Trim()
+    Assert-Signed $redist $vcPin.signer
+    $vcStage = Join-Path $CacheDir 'stage-vc'
+    Remove-Tree $vcStage
+    $layout = Join-Path $vcStage 'layout'
+    $admin = Join-Path $vcStage 'admin'
+    $proc = Start-Process -FilePath $redist -ArgumentList @('/layout', ('"' + $layout + '"'), '/quiet', '/norestart') -Wait -PassThru
+    $msi = @()
+    if (Test-Path -LiteralPath $layout) {
+        $msi = @(Get-ChildItem -LiteralPath $layout -Recurse -File -Filter 'vc_runtimeMinimum_x64.msi')
+    }
+    if ($proc.ExitCode -ne 0 -or $msi.Count -ne 1) {
+        throw ('could not extract the VC runtime from ' + $redist + ' (/layout exit ' + $proc.ExitCode + ', ' + $msi.Count + ' vc_runtimeMinimum_x64.msi)')
+    }
+    $proc = Start-Process -FilePath 'msiexec.exe' -Wait -PassThru -ArgumentList @('/a', ('"' + $msi[0].FullName + '"'), '/qn',
+        ('TARGETDIR="' + $admin + '"'), '/L*v', ('"' + (Join-Path $vcStage 'msiexec.log') + '"'))
+    if ($proc.ExitCode -ne 0) {
+        throw ('could not extract the VC runtime from ' + $msi[0].FullName + ' (msiexec /a exit ' + $proc.ExitCode + ')')
+    }
+    $vcFiles = @()
+    foreach ($name in $vcPin.files) {
+        $found = @(Get-ChildItem -LiteralPath $admin -Recurse -File | Where-Object { $_.Name -eq $name })
+        if ($found.Count -ne 1) { throw ('expected one ' + $name + ' in the VC runtime, found ' + $found.Count) }
+        Assert-Signed $found[0].FullName $vcPin.signer
+        $v = $found[0].VersionInfo
+        $fileVersion = '{0}.{1}.{2}.{3}' -f $v.FileMajorPart, $v.FileMinorPart, $v.FileBuildPart, $v.FilePrivatePart
+        if ($fileVersion -ne $vcPin.version) {
+            throw ($name + ' is ' + $fileVersion + '; pins.json says ' + $vcPin.version)
+        }
+        $vcFiles += $found[0].FullName
+    }
+    # Never older than a copy a wheel ships (today sklearn's msvcp140.dll).
+    $pinned = [version]$vcPin.version
+    $sitePackages = Join-Path $Image 'python\Lib\site-packages'
+    Get-ChildItem -LiteralPath $sitePackages -Recurse -File |
+        Where-Object { $vcPin.files -contains $_.Name.ToLowerInvariant() } | ForEach-Object {
+            $v = $_.VersionInfo
+            $wheel = [version]('{0}.{1}.{2}.{3}' -f $v.FileMajorPart, $v.FileMinorPart, $v.FileBuildPart, $v.FilePrivatePart)
+            if ($wheel -gt $pinned) {
+                $rel = $_.FullName.Substring($Image.Length + 1).Replace('\', '/')
+                throw ('bundled ' + $vcPin.version + ' is older than ' + $rel + ' ' + $wheel + '; update pins.json')
+            }
+        }
+    # Microsoft's app-local rule: one set, from one version, so NuGet's own
+    # vcruntime140*.dll are replaced.
+    foreach ($file in $vcFiles) {
+        Copy-Item -LiteralPath $file -Destination (Join-Path $Image 'python') -Force
+    }
+    Remove-Tree $vcStage
+    $vcVersion = $vcPin.version
+    $vcSha = Get-Sha256 $redist
 
     # 8. Layout, strip, precompile, gate: build_env.py, with the bundled Python.
     $step = 'assemble'
