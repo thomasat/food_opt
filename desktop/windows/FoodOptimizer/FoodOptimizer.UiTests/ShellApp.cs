@@ -100,10 +100,12 @@ public sealed class ShellApp : IDisposable
     public AutomationElement? Dialog(string name)
     {
         var windows = new List<AutomationElement>(Uia.TopWindows(Process.Id));
-        if (MainWindow() is { } main)
+        var main = MainWindow();
+        if (main != null)
             windows.AddRange(main.FindAll(TreeScope.Children,
                 new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Window)).Cast<AutomationElement>());
-        return windows.FirstOrDefault(w => Uia.SafeClass(w) == "#32770" && Uia.NameOf(w) == name);
+        return windows.FirstOrDefault(w => Uia.NameOf(w) == name
+            && (main == null || w.Current.NativeWindowHandle != main.Current.NativeWindowHandle));
     }
 
     public IntPtr Hwnd => new(Window.Current.NativeWindowHandle);
@@ -212,6 +214,44 @@ public sealed class ShellApp : IDisposable
     {
         try { return (double?)Settings()["zoom"]; }
         catch (Exception) { return null; }
+    }
+
+    static void ClickAt(double x, double y, uint down, uint up, int data = 0)
+    {
+        SetCursorPos((int)x, (int)y);
+        Thread.Sleep(100);
+        mouse_event(down, 0, 0, data, UIntPtr.Zero);
+        mouse_event(up, 0, 0, data, UIntPtr.Zero);
+        Thread.Sleep(300);
+    }
+
+    static (double X, double Y) Center(AutomationElement e)
+    {
+        var r = e.Current.BoundingRectangle;
+        return (r.X + r.Width / 2, r.Y + r.Height / 2);
+    }
+
+    public void RightClick(AutomationElement e)
+    {
+        Activate();
+        var (x, y) = Center(e);
+        ClickAt(x, y, 0x0008, 0x0010);
+    }
+
+    /// <summary>Right-clicks a point given as fractions of the window.</summary>
+    public void RightClickWindowAt(double fx, double fy)
+    {
+        Activate();
+        var r = Window.Current.BoundingRectangle;
+        ClickAt(r.X + r.Width * fx, r.Y + r.Height * fy, 0x0008, 0x0010);
+    }
+
+    /// <summary>The mouse's back button over the middle of the window.</summary>
+    public void MouseBack()
+    {
+        Activate();
+        var (x, y) = Center(Window);
+        ClickAt(x, y, 0x0080, 0x0100, 1);
     }
 
     public string SettingsPath => Path.Combine(StateDir, "settings.json");
