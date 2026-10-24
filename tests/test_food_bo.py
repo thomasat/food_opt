@@ -4177,7 +4177,45 @@ _USER_FACING_SOURCES = ["app.py", "ui_helpers.py", "ui_setup.py", "ui_batch.py",
                         "bo_views.py"]
 # The user-facing files that are not Python. They are scanned as plain text,
 # except the Swift wrapper, where only its string literals are screen text.
-_USER_FACING_TEXT = ["desktop/start_here.txt", "desktop/README.md", "README.md"]
+def _user_facing_text_files(root):
+    """README.md and every desktop/**/*.md and *.txt a person reads, found by
+    glob so a new document (the Windows Start Here) is swept the day it
+    lands. Locks, file lists and build output are not prose; the Start Here
+    source is swept through its two renders instead."""
+    root = pathlib.Path(root)
+    found = set()
+    for pattern in ("*.md", "*.txt"):
+        for path in (root / "desktop").rglob(pattern):
+            rel = path.relative_to(root).as_posix()
+            if (rel.endswith(".lock.txt")
+                    or path.name in ("bundle_manifest.txt", "mac_bundle_files.txt")
+                    or rel.startswith(("desktop/dist/", "desktop/.cache/"))
+                    or rel == "desktop/shared/start_here.src.md"):
+                continue
+            found.add(rel)
+    return ["README.md"] + sorted(found)
+
+
+_USER_FACING_TEXT = _user_facing_text_files(pathlib.Path(__file__).resolve().parent.parent)
+_START_HERE_FILES = {"desktop/start_here.txt", "desktop/windows/start_here.txt"}
+
+
+def _shared_screen_texts(root):
+    """(label, text) for every text in desktop/shared/messages.json, per OS,
+    and every text node of the shared page."""
+    import json
+    root = pathlib.Path(root)
+    doc = json.loads((root / "desktop" / "shared" / "messages.json").read_text(encoding="utf-8"))
+    out = []
+    for entry in doc["messages"] + doc["menus"]:
+        for os_name, text in entry["text"].items():
+            if text is not None:
+                out.append((f"messages.json:{entry['id']}/{os_name}", text))
+    html = (root / "desktop" / "shared" / "pages" / "status.html").read_text(encoding="utf-8")
+    html = re.sub(r"<script.*?</script>|<style.*?</style>|<!--.*?-->", "", html, flags=re.S)
+    out += [("status.html", node.strip()) for node in re.findall(r">([^<>]*)<", html)
+            if node.strip()]
+    return out
 _USER_FACING_SWIFT = "desktop/FoodOptimizerApp.swift"
 # The launcher writes the lines the first screen shows while it is setting
 # itself up — `status "…"` and the WARM_MSG it publishes for the load step.
@@ -4889,13 +4927,13 @@ def test_no_old_vocabulary_reaches_the_user_outside_python():
     for name in _USER_FACING_TEXT:
         for i, line in enumerate(( root / name).read_text(encoding="utf-8").splitlines(), 1):
             # Both record scopes also apply to process-only trials.
-            if (name, line) in {
-                ("desktop/start_here.txt", "formulation/trial or each ingredient in the round. Enter values in the"),
-                ("README.md", "record, then choose each formulation/trial or each ingredient in the round."),
-            }:
+            if (name in _START_HERE_FILES and line ==
+                    "formulation/trial or each ingredient in the round. Enter values in the") or (
+                    name == "README.md" and line ==
+                    "record, then choose each formulation/trial or each ingredient in the round."):
                 continue
             # Process-only studies deliberately use trials in the user guide.
-            if name == "desktop/start_here.txt" and line == "and time. A project containing only process settings uses trials and does":
+            if name in _START_HERE_FILES and line == "and time. A project containing only process settings uses trials and does":
                 continue
             # v3: the Results fold, named as the screen names it.
             scanned = line.replace("worked out", "") if "score is" in line or \
@@ -4911,7 +4949,18 @@ def test_no_old_vocabulary_reaches_the_user_outside_python():
     for line in _launcher_lines(root):
         if any(pattern.search(line) for pattern in _BANNED):
             offenders.append((_USER_FACING_LAUNCHER, line))
+    for label, text in _shared_screen_texts(root):
+        if any(pattern.search(text) for pattern in _BANNED):
+            offenders.append((label, text))
     assert offenders == [], offenders
+
+
+def test_user_facing_text_files_find_the_windows_start_here():
+    found = set(_USER_FACING_TEXT)
+    assert {"README.md", "desktop/README.md", "desktop/start_here.txt",
+            "desktop/windows/start_here.txt", "desktop/windows/README.md"} <= found
+    assert not any(n.endswith(".lock.txt") for n in found)
+    assert "desktop/shared/start_here.src.md" not in found
 
 
 def test_the_launcher_and_the_window_name_the_load_step_alike():
@@ -4927,6 +4976,17 @@ def test_the_launcher_and_the_window_name_the_load_step_alike():
                      (root / _USER_FACING_LAUNCHER).read_text(encoding="utf-8")).group(1)
     assert warm.startswith(label), (warm, label)
     assert "model" not in warm.lower() and "model" not in label.lower()
+    # The shared launcher and page (Windows now, the Mac later) agree too.
+    import sys
+    from tests.shared_texts import texts
+    shared = str(root / "desktop" / "shared")
+    if shared not in sys.path:
+        sys.path.insert(0, shared)
+    from launcher.status_lines import LOAD_LINE, STARTING_LINE
+    for os_name in ("mac", "windows"):
+        assert LOAD_LINE.startswith(texts(os_name)["steps.load"]), os_name
+    assert texts("mac")["launcher.status.load"] == LOAD_LINE == warm
+    assert texts("mac")["launcher.status.starting"] == STARTING_LINE
 
 
 def test_no_screen_says_not_made():
@@ -4947,6 +5007,8 @@ def test_no_screen_says_not_made():
     offenders += [(_USER_FACING_SWIFT, literal) for literal
                   in re.findall(r'"((?:[^"\\\n]|\\.)*)"', swift)
                   if _NOT_MADE.search(literal)]
+    offenders += [(label, text) for label, text in _shared_screen_texts(root)
+                  if _NOT_MADE.search(text)]
     assert offenders == [], offenders
 
 
@@ -4967,6 +5029,8 @@ def test_no_screen_says_bench_sheet():
     offenders += [(_USER_FACING_SWIFT, literal) for literal
                   in re.findall(r'"((?:[^"\\\n]|\\.)*)"', swift)
                   if _BENCH_SHEET.search(literal)]
+    offenders += [(label, text) for label, text in _shared_screen_texts(root)
+                  if _BENCH_SHEET.search(text)]
     assert offenders == [], offenders
 
 
@@ -5002,6 +5066,8 @@ def test_no_screen_says_backup():
     offenders += [(_USER_FACING_SWIFT, literal) for literal
                   in re.findall(r'"((?:[^"\\\n]|\\.)*)"', swift)
                   if _BACKUP.search(literal)]
+    offenders += [(label, text) for label, text in _shared_screen_texts(root)
+                  if _BACKUP.search(text)]
     assert offenders == [], offenders
 
 

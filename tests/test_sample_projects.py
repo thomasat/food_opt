@@ -356,7 +356,8 @@ def test_the_results_file_is_never_a_project_or_a_copy(store):
     assert sorted(store.list_projects()) == sorted(sp.YOGURT_NAMES)
 
 
-@pytest.mark.parametrize("doc", ["README.md", "desktop/start_here.txt", "desktop/README.md"])
+@pytest.mark.parametrize("doc", ["README.md", "desktop/start_here.txt", "desktop/README.md",
+                                 "desktop/windows/start_here.txt"])
 def test_the_docs_say_what_the_screen_says(doc):
     """The walkthrough names the results file by the name it has in the
     FoodOptimizer folder, and (v3) no stop: the Review has no stop rule."""
