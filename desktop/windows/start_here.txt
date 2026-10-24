@@ -1,0 +1,134 @@
+FOOD OPTIMIZER — START HERE
+
+INSTALL
+1. Open the Food Optimizer installer you downloaded. Windows may not
+   recognize the app yet. Check the publisher is Food System Innovations,
+   then click More info, then Run anyway.
+2. Click Install. No admin rights needed.
+3. Type Food Optimizer in Start. Open it from the results.
+   First opening takes longer. Keep this window open.
+
+You need a 64-bit PC with Windows 10 (22H2) or Windows 11. The app works
+offline and never needs the internet. If your IT department installs
+software for you, ask IT to install Food Optimizer.
+
+Updating? Close Food Optimizer. Run the new installer. Your projects are
+kept.
+
+TRY THE SAMPLES
+“Open the burger example” opens an example set-up on 1 · Set up, with
+illustrative values and no results.
+
+For real results:
+1. Click “Try the yogurt pilot.” It opens “Yogurt pilot - Round 6 to
+   score” on 4 · Review. It is a real yogurt-style pilot: 15 formulations
+   scored, and Round 6 made and waiting for its results.
+2. Go to 2 · Make a round and open “Or upload results from a file.”
+3. Click “Browse files,” open your FoodOptimizer folder and choose
+   “Round 6 results (pilot).xlsx”: it is already there. Or click
+   “Download the pilot's Round 6 results,” then upload that file.
+4. Review the imported values and click “Save uploaded results.”
+5. Open 3 · Results for Round 6's ratings against their targets, then
+   4 · Review for the best so far.
+6. Under What next?, “Start Round 7” has the app suggest Round 7.
+   “See the pilot's Rounds 7–10” opens “Yogurt pilot - all 10 Rounds”:
+   what the pilot made next.
+To try it again, open Manage project and click “Start this example over.”
+Your version is kept in Saved copies.
+
+BURGER EXAMPLE
+Click “Open the burger example” to open “Example setup - plant-based
+burger” on 1 · Set up. Its values are illustrative and it has no
+results. It shows calculations (hydration water as 2.2 × the textured
+proteins, remaining water as the rest), pre-mixes, a process setting,
+records and a formulation total.
+
+YOUR FIRST ROUND
+1. Set up your own project (see below). On 2 · Make a round, click
+   “Generate formulations” and choose how many to make.
+2. Download the round sheets (Excel). The workbook has these tabs:
+   • Round overview — the plan and shared preparation method.
+   • Preparation — pre-mixes to prepare, only when the round has them.
+   • Results — measurements and any actual amounts you want to record.
+   Tabs are at the bottom in Excel. If Excel opens the workbook in
+   Protected View, click Enable Editing. Ticking "Include individual
+   formulation pages for printing" gives a different file instead: one
+   sheet per formulation, with the round sheet and a page for each
+   pre-mix.
+3. Prepare each formulation separately and enter your measurements in
+   the workbook's input cells. Return to Make a round, upload the workbook,
+   review the imported values, and click Save uploaded results. Editing the
+   workbook alone does not update the app. You can also type results
+   directly into the app.
+4. Review the results and start another round. The app uses your saved
+   results to suggest what to try next.
+
+SETTING UP YOUR OWN PROJECT
+Create a project in the sidebar. Type into the ingredient and measurement
+tables, then click Save changes. Use the same Lowest and Highest to keep
+an amount or setting fixed. Use different values to let the app vary it.
+“Import ingredients” provides a spreadsheet template and an upload option.
+
+“Pre-mix: keep proportions fixed” keeps the same ingredient percentages.
+“Blend: vary each ingredient” lets the app choose each ingredient amount
+separately, so both the proportions and the combined amount can change
+between formulations.
+
+“Preparation and records” holds the batch size, steps shared by all
+formulations, references, and recording options. Lot is entered per ingredient in Make a round → Ingredient lot numbers
+or in the workbook. Vendor and SKU are entered in the Ingredients table.
+“Record changes from the planned amounts or settings” adds workbook cells
+for what you actually used in each formulation; leave unchanged values blank.
+Choose “Add your own recording field” for other records, such as
+Operator or Expiry date. Choose whether to record a value for each
+formulation/trial or each ingredient in the round. Enter values in the
+app or on the workbook’s Results tab. These records do not affect scores.
+Use Measurements and targets for outcomes you want scored. Ingredient limits are optional restrictions
+such as a maximum fat content; the sample limits its ingredient total. An empty
+minimum or maximum adds no restriction on that side. Missing ingredient
+property values must be filled in before generating with a property limit.
+
+For a fermentation study, add numeric process settings such as temperature
+and time. A project containing only process settings uses trials and does
+not need a batch size. Named categories such as strain are not varied by
+this version. Different time points can be separate measurements, such as
+pH at 6 h and pH at 24 h.
+
+You can edit an unrecorded formulation in the round table before making it.
+Use actual amounts/settings to record what you made if it differs from the
+plan. New projects start with optional records turned off.
+
+YOUR FILES AND HELP
+Projects are saved on this PC in the FoodOptimizer folder in your user
+folder. File Explorer shows it under Quick access, and File → Open
+Projects Folder opens it. Projects are on this PC, not in OneDrive.
+Nothing else keeps a copy of them. Use “Save a copy of this project” to
+back up. “Clear project contents,” under Manage project, empties the
+project while keeping its name and saving a copy first; it is not needed
+to start a new round.
+
+Type Food Optimizer in Start to open the app again. Close the window to
+quit. View → Bigger Text increases the text size.
+
+For help: email sohum.patnaik@fsi.org
+Describe what happened and what you expected. Help → Show Log File opens
+the startup log; attach it to your email. If the app cannot open, find
+the log at:
+C:\Users\<your name>\AppData\Local\FoodOptimizer\launcher.log
+
+REVIEWING RESULTS
+Results opens on the last Round's results: Overall scores and ratings
+against their targets: orange above a target, purple below. How the score is
+worked out shows one formulation's points. Use View formulation to
+inspect another recorded formulation, including one without a score. Amount and % of
+formulation appear together. Percentages exclude process settings and are
+unavailable for ingredients in different units. All formulations compares
+results in the app; Show amounts adds ingredient amounts to that table.
+
+EDITING CALCULATIONS
+Calculation sits beside the ingredient name. Type directly in the cell,
+or select Edit calculation for a larger editor with ingredient suggestions.
+Choose Vary between limits, Fill to total, or Calculate an amount.
+Batch size is the total ingredient amount for one formulation. Fill to total
+adds the remaining amount. Use the chosen calculation,
+then select Save changes. Examples explain arithmetic, not recommended ratios.
