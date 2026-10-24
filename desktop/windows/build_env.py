@@ -266,20 +266,28 @@ def long_path_violations(image) -> list[str]:
 
 def pe_imports(path) -> set[str]:
     """Lower-cased DLL names from the import (1) and delay-import (13)
-    directories of a PE32/PE32+ file; set() for anything malformed."""
+    directories of a PE32/PE32+ file. Anything it cannot parse raises
+    ValueError naming the file: an unreadable binary must never read as
+    "imports nothing", or the VC runtime gate would pass it (3b review)."""
+    data = pathlib.Path(path).read_bytes()
     try:
-        data = pathlib.Path(path).read_bytes()
         return _pe_imports(data)
-    except (OSError, struct.error, ValueError, IndexError):
-        return set()
+    except (struct.error, ValueError, IndexError) as e:
+        raise NotAPEFile(path, str(e) or type(e).__name__) from e
+
+
+class NotAPEFile(ValueError):
+    def __init__(self, path, reason):
+        super().__init__(f"{path}: {reason}")
+        self.reason = reason
 
 
 def _pe_imports(data: bytes) -> set[str]:
     if data[:2] != b"MZ":
-        return set()
+        raise ValueError("no MZ header")
     pe = struct.unpack_from("<I", data, 0x3C)[0]
     if data[pe:pe + 4] != b"PE\0\0":
-        return set()
+        raise ValueError("no PE signature")
     sections, opt_size = struct.unpack_from("<H12xH", data, pe + 6)
     opt = pe + 24
     magic = struct.unpack_from("<H", data, opt)[0]
@@ -292,7 +300,7 @@ def _pe_imports(data: bytes) -> set[str]:
         count = struct.unpack_from("<I", data, opt + 108)[0]
         dirs = opt + 112
     else:
-        return set()
+        raise ValueError(f"unknown optional header magic {magic:#x}")
     table = opt + opt_size
     spans = []
     for i in range(sections):
@@ -358,7 +366,12 @@ def vc_runtime_gaps(image, imports_of=pe_imports) -> list[str]:
         if is_dir or not rel.lower().endswith(PE_SUFFIXES):
             continue
         full = "python/" + rel
-        wanted = {n for n in imports_of(image / full) if VC_RUNTIME_NAME.match(n)}
+        try:
+            imported = imports_of(image / full)
+        except ValueError as e:
+            gaps.append(f"{full}: unreadable PE file ({getattr(e, 'reason', e)})")
+            continue
+        wanted = {n for n in imported if VC_RUNTIME_NAME.match(n)}
         if not wanted:
             continue
         local = set(beside)

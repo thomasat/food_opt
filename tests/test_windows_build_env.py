@@ -200,12 +200,31 @@ def test_pe_imports_reads_a_real_pe(tmp_path):
     if exe is None or not exe.is_file():
         pytest.skip("pip's distlib t64.exe is not installed")
     assert "kernel32.dll" in be.pe_imports(exe)
-    text = tmp_path / "x.txt"
-    text.write_text("not a PE file\n", encoding="utf-8")
-    assert be.pe_imports(text) == set()
     truncated = tmp_path / "cut.dll"
     truncated.write_bytes(exe.read_bytes()[:300])
-    assert be.pe_imports(truncated) == set()
+    with pytest.raises(ValueError, match="cut.dll"):
+        be.pe_imports(truncated)
+
+
+@pytest.mark.parametrize("data", [b"", b"not a PE file\n", b"MZ", b"MZ" + b"\0" * 62,
+                                  b"MZ" + b"\0" * 58 + b"\x40\0\0\0" + b"PE\0\0"],
+                         ids=["empty", "text", "mz-only", "no-pe-signature", "cut-after-signature"])
+def test_pe_imports_fails_on_a_file_it_cannot_parse(tmp_path, data):
+    """3b review minor: an unparseable binary must not read as "imports
+    nothing", or the VC runtime gate would pass it."""
+    bad = tmp_path / "bad.pyd"
+    bad.write_bytes(data)
+    with pytest.raises(ValueError, match="bad.pyd"):
+        be.pe_imports(bad)
+
+
+def test_vc_runtime_gaps_name_a_binary_it_cannot_read(fake_image):
+    _touch(fake_image, "python/DLLs/_bad.pyd", b"MZ" + b"\0" * 62)
+    _touch(fake_image, "python/DLLs/_text.pyd", b"not a PE file\n")
+    assert be.vc_runtime_gaps(fake_image) == [
+        "python/DLLs/_bad.pyd: unreadable PE file (no PE signature)",
+        "python/DLLs/_text.pyd: unreadable PE file (no MZ header)",
+        "python/python.exe: unreadable PE file (no MZ header)"]   # the fixture's empty python.exe
 
 
 def test_vc_runtime_gaps_rules(fake_image):
