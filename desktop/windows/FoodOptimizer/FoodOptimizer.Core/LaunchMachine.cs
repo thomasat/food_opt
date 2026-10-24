@@ -9,6 +9,10 @@ public sealed class LaunchMachine
 {
     public const int StalledTick = 720, HealthGiveUpTicks = 360, DeferTicks = 1800, WatchStrikeLimit = 3;
 
+    /// <summary>After an exit 0, the launcher is started again this many
+    /// ticks later (5 s).</summary>
+    public const int RelaunchTicks = 10;
+
     const string AnotherCopy = "error.could_not_start.another_copy";
 
     readonly DateTime _launchStartedUtc;
@@ -17,6 +21,7 @@ public sealed class LaunchMachine
     bool _timedOut, _stalledShown, _checkInFlight;
     string? _lastStatus;
     int? _deferDeadline;
+    int? _relaunchAt;
     int _strikes;
 
     public LaunchMachine(DateTime launchStartedUtc, PageView view)
@@ -62,6 +67,15 @@ public sealed class LaunchMachine
             actions.Add(new PageShowError(PageError.CouldNotStart, AnotherCopy));
             actions.Add(new StopPolling());
             return actions;
+        }
+
+        // Another launcher held the lock. With one window per user that is a
+        // launch whose window has closed, so ours tries again until it can
+        // take over - unless a server from that launch is up meanwhile.
+        if (_relaunchAt is { } at && Ticks >= at && _armedAt == null)
+        {
+            _relaunchAt = null;
+            actions.Add(new StartLauncher());
         }
 
         var port = s.Port is { } p && Fresh(p) ? StateFiles.ParsePort(p.Text) : null;
@@ -118,8 +132,10 @@ public sealed class LaunchMachine
         if (Phase != LaunchPhase.Waiting) return None;
         if (code == 0)
         {
-            // Another launch holds the lock: wait for it, within reason.
+            // Another launch holds the lock: wait for it, within reason, and
+            // start ours again shortly in case it is a launch that is ending.
             _deferDeadline ??= Ticks + DeferTicks;
+            _relaunchAt = Ticks + RelaunchTicks;
             return None;
         }
         return Fail(code == 2 ? PageError.Unsupported : PageError.CouldNotStart);

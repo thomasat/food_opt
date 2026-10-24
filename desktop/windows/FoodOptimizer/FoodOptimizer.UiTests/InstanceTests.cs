@@ -49,6 +49,24 @@ public class InstanceTests
         }
     }
 
+    /// Before the server is up the old launcher still holds the launch lock;
+    /// the new window must wait for it, not take its exit 0 as "another copy".
+    [Fact]
+    public async Task Reopening_during_loading_opens_a_new_window()
+    {
+        var run = ShellRun.Fresh();
+        using (var first = ShellApp.Launch(run))
+        {
+            // The launcher holds the lock once it is loading the components.
+            Assert.True(Uia.WaitUntil(() => first.LauncherLog().Contains("Loading the app's components"), TimeSpan.FromSeconds(30)));
+            first.Close();
+            using var next = ShellApp.Launch(ShellRun.Same());
+            next.WaitFor(ControlType.Edit, "Type here", ShellApp.Load);
+            Assert.True(await first.WaitForExitAsync(TimeSpan.FromSeconds(10)));
+            Assert.Equal(1, Shells(run.Stage));
+        }
+    }
+
     [Fact]
     public async Task The_installer_mutex_is_held_while_running()
     {

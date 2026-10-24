@@ -66,21 +66,30 @@ sealed class LaunchController : IDisposable
             Execute(machine.OnLauncherStartFailed());
             return;
         }
+        if (!StartSession(machine)) return;
+        _poll.Start();
+    }
+
+    /// <summary>Starts a launcher for <paramref name="machine"/>; false when it could not start.</summary>
+    bool StartSession(LaunchMachine machine)
+    {
         try
         {
             var session = LauncherSession.Start(_layout.Python, LauncherCommand.Arguments(_layout, _paths), _layout.Root, _log);
+            var old = _session;
             _session = session;
+            old?.Dispose();
             session.Exited += (_, code) => OnUi(() =>
             {
                 if (_session == session && _machine == machine) Execute(machine.OnLauncherExited(code));
             });
+            return true;
         }
         catch (LauncherStartException)
         {
             Execute(machine.OnLauncherStartFailed());
-            return;
+            return false;
         }
-        _poll.Start();
     }
 
     void OnUi(Action a)
@@ -139,6 +148,9 @@ sealed class LaunchController : IDisposable
                     break;
                 case StopPolling:
                     _poll.Stop();
+                    break;
+                case StartLauncher:
+                    if (_machine is { } m) StartSession(m);
                     break;
                 case RecordSuccessfulOpen:
                     _settings.LastOpenedVersion = AppIdentity.Version;

@@ -15,6 +15,7 @@ public sealed record StartHealthWatch(Uri Uri) : ShellAction;
 public sealed record StopHealthWatch : ShellAction;
 public sealed record StopPolling : ShellAction;
 public sealed record RecordSuccessfulOpen : ShellAction;
+public sealed record StartLauncher : ShellAction;
 
 /// <summary>One poll's reads of status.txt, server.port and server.base
 /// (null: missing or unreadable).</summary>

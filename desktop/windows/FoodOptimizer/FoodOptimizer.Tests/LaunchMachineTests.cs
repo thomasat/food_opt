@@ -191,6 +191,54 @@ public class LaunchMachineTests
         Assert.Equal(LaunchPhase.Failed, m.Phase);
     }
 
+    /// Exit 0 means another launcher holds the lock. With one window per
+    /// user that is a launch whose window has just closed, so the launcher
+    /// is started again (every 5 s, until the 15-minute deadline) and takes
+    /// over once the old one has gone.
+    [Fact]
+    public void Exit_0_before_load_starts_the_launcher_again_after_five_seconds()
+    {
+        var m = New();
+        TickTo(m, 10, Nothing);
+        Assert.Empty(m.OnLauncherExited(0));
+        for (var t = 11; t < 10 + LaunchMachine.RelaunchTicks; t++)
+            Assert.DoesNotContain(new StartLauncher(), m.OnTick(Nothing));
+        Assert.Equal([new StartLauncher()], m.OnTick(Nothing));
+        Assert.DoesNotContain(new StartLauncher(), m.OnTick(Nothing));
+        Assert.Equal(10, LaunchMachine.RelaunchTicks);
+
+        TickTo(m, 30, Nothing);
+        m.OnLauncherExited(0);
+        TickTo(m, 39, Nothing);
+        Assert.Contains(new StartLauncher(), m.OnTick(Nothing));
+    }
+
+    [Fact]
+    public void Exit_0_keeps_the_first_deadline()
+    {
+        var m = New();
+        TickTo(m, 10, Nothing);
+        m.OnLauncherExited(0);
+        TickTo(m, 1000, Nothing);
+        m.OnLauncherExited(0);
+        TickTo(m, 1809, Nothing);
+        Assert.Equal(
+            [new PageShowError(PageError.CouldNotStart, "error.could_not_start.another_copy"), new StopPolling()],
+            m.OnTick(Nothing));
+    }
+
+    [Fact]
+    public void No_relaunch_while_a_server_is_armed()
+    {
+        var m = New();
+        m.OnLauncherExited(0);
+        for (var t = 0; t < 2 * LaunchMachine.RelaunchTicks; t++)
+        {
+            Assert.DoesNotContain(new StartLauncher(), m.OnTick(Server));
+            m.OnHealth(false, 18501, "abc");
+        }
+    }
+
     [Fact]
     public void Exit_0_then_a_healthy_server_loads()
     {

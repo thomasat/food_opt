@@ -49,4 +49,19 @@ public class StartupTests
             File.Move(js + ".moved", js);
         }
     }
+
+    [Fact]
+    public async Task A_web_view_that_cannot_start_says_so()
+    {
+        var run = ShellRun.Fresh();
+        Directory.CreateDirectory(run.StateDir);
+        File.WriteAllText(Path.Combine(run.StateDir, "WebView2"), "not a folder");
+        using var app = ShellApp.Launch(run);
+        var d = app.WaitForDialog(TimeSpan.FromSeconds(30));
+        Uia.WaitFor(d, ControlType.Text, "Food Optimizer stopped unexpectedly", Ten);
+        Uia.WaitFor(d, ControlType.Text, "Your projects are saved. Open Food Optimizer again.", Ten);
+        Uia.Invoke(Uia.WaitFor(d, ControlType.Button, "OK", Ten));
+        Assert.True(await app.WaitForExitAsync(TimeSpan.FromSeconds(10)));
+        Assert.True(Uia.WaitUntil(() => app.StagePythons().Count == 0, TimeSpan.FromSeconds(5)));
+    }
 }

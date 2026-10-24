@@ -114,20 +114,34 @@ sealed class MainForm : Form
         await CreateWebViewAsync();
     }
 
+    /// <summary>Creates the web view, trying again for a few seconds (a
+    /// window that just closed may still hold the WebView2 folder). If it
+    /// never starts, says so and closes rather than leave a blank window.</summary>
     async Task CreateWebViewAsync()
     {
-        try
+        const int attempts = 3;
+        for (var attempt = 1; ; attempt++)
         {
-            var env = await WebEnvironment.CreateAsync(_paths);
-            _log.Write("webview.runtime", env.BrowserVersionString);
-            await _web.InitializeAsync(env, _settings.Zoom);
-            _log.Write("zoom.applied", LaunchController.Invariant(_settings.Zoom));
-            AttachCore();
+            try
+            {
+                var env = await WebEnvironment.CreateAsync(_paths);
+                _log.Write("webview.runtime", env.BrowserVersionString);
+                await _web.InitializeAsync(env, _settings.Zoom);
+                _log.Write("zoom.applied", LaunchController.Invariant(_settings.Zoom));
+                AttachCore();
+                return;
+            }
+            catch (Exception ex)
+            {
+                _log.Write("webview.failed", ex.GetType().Name);
+                _web.CloseController();
+                if (attempt >= attempts || IsDisposed) break;
+                await Task.Delay(1000);
+            }
         }
-        catch (Exception ex)
-        {
-            _log.Write("webview.failed", ex.GetType().Name);
-        }
+        if (IsDisposed) return;
+        ShellDialogs.Info(this, _messages.Text("error.stopped.title"), _messages.Text("error.shell_crashed.body"));
+        Close();
     }
 
     /// <summary>Wires a (new) web view: the page, crash recovery and the

@@ -17,6 +17,9 @@ sealed class PageHost
     bool _pageReady;
     bool _hasPending;
     PageView? _pendingView;
+    PageView? _lastView;
+    readonly List<string> _history = [];
+    const int HistoryLimit = 200;
     int _showGeneration;
 
     public PageHost(Messages messages, InstallLayout layout, ShellLog log)
@@ -45,16 +48,24 @@ sealed class PageHost
         if (app != null)
         {
             NavigateToApp(app);
+            return;
         }
-        else if (_hasPending || ShowingApp || _queue.Count > 0)
-        {
-            var view = _pendingView;
-            _hasPending = false;
-            _pendingView = null;
-            var queued = _queue.ToArray();
-            _ = ShowPageAsync(view);
-            foreach (var js in queued) _queue.Enqueue(js);
-        }
+        // A new web view (first, or after a browser-process crash): show the
+        // page again and replay what it had been told, so a status line or
+        // an error page is never lost behind a blank view.
+        var view = _hasPending ? _pendingView : _lastView;
+        var replay = _history.ToArray();
+        _hasPending = false;
+        _pendingView = null;
+        _ = ShowPageAsync(view);
+        foreach (var js in replay) Remember(js);
+    }
+
+    void Remember(string js)
+    {
+        _queue.Enqueue(js);
+        _history.Add(js);
+        if (_history.Count > HistoryLimit) _history.RemoveAt(0);
     }
 
     public void Detach()
@@ -75,6 +86,8 @@ sealed class PageHost
     public async Task ShowPageAsync(PageView? view)
     {
         _queue.Clear();
+        _history.Clear();
+        _lastView = view;
         ShowingApp = false;
         _pageReady = false;
         ExpectingPage = true;
@@ -105,7 +118,7 @@ sealed class PageHost
     public void Run(string js)
     {
         if (ShowingApp) _ = ShowPageAsync(null);
-        _queue.Enqueue(js);
+        Remember(js);
         if (_pageReady) Flush();
     }
 
