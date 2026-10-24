@@ -4,6 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>
+    <!-- Tests pass no cancellation token to the code under test. -->
+    <NoWarn>$(NoWarn);xUnit1051</NoWarn>
     <RootNamespace>FoodOptimizer.Tests</RootNamespace>
   </PropertyGroup>
   <ItemGroup>

@@ -7,6 +7,8 @@
     <UseWindowsForms>true</UseWindowsForms>
     <UseWPF>true</UseWPF>
     <IsPackable>false</IsPackable>
+    <!-- Tests pass no cancellation token to the code under test. -->
+    <NoWarn>$(NoWarn);xUnit1051</NoWarn>
     <RootNamespace>FoodOptimizer.UiTests</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
