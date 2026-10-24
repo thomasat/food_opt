@@ -5,4 +5,8 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>FoodOptimizer.Core</RootNamespace>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- Every string the shell shows: the shared file, built in. -->
+    <EmbeddedResource Include="../../../shared/messages.json" LogicalName="messages.json" />
+  </ItemGroup>
 </Project>
