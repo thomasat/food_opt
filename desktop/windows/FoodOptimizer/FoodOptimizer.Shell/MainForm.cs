@@ -34,6 +34,8 @@ sealed class MainForm : Form
         _settings = settings;
         _log = log;
         Text = messages.Text("window.title");
+        using (var icon = typeof(MainForm).Assembly.GetManifestResourceStream("icon.ico"))
+            if (icon != null) Icon = new Icon(icon);
         BackColor = Background;
         StartPosition = FormStartPosition.Manual;
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -49,6 +51,35 @@ sealed class MainForm : Form
         _page.RetryRequested += async (_, _) => await _launch.RetryAsync();
         _rules = new WebRules(this, _launch, _page, log);
         _downloads = new Downloads(this, _launch, messages, log);
+    }
+
+    /// <summary>This window's single-instance claim; released first on close
+    /// so reopening the app while this one shuts down opens a new window.</summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public SingleInstance? Instance { get; set; }
+
+    /// <summary>A second launch asked for this window (any thread).</summary>
+    public void BringBack()
+    {
+        if (IsDisposed || !IsHandleCreated) return;
+        try
+        {
+            BeginInvoke(() =>
+            {
+                if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+                Show();
+                Activate();
+                NativeMethods.SetForegroundWindow(Handle);
+            });
+        }
+        catch (InvalidOperationException) { }
+    }
+
+    protected override void OnDpiChanged(DpiChangedEventArgs e)
+    {
+        base.OnDpiChanged(e);
+        var (minW, minH) = WindowPlacement.MinimumSize(e.DeviceDpiNew);
+        MinimumSize = new Size(minW, minH);
     }
 
     protected override void OnLoad(EventArgs e)
@@ -299,6 +330,7 @@ sealed class MainForm : Form
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
+        Instance?.Release();
         base.OnFormClosing(e);
         if (e.Cancel) return;
         var screen = Screen.FromControl(this).DeviceName;

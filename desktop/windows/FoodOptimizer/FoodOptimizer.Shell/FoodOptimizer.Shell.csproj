@@ -11,7 +11,16 @@
     <PublishSingleFile>false</PublishSingleFile>
     <PublishReadyToRun>true</PublishReadyToRun>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <!-- What Task Manager, the file's Properties and the installer show. -->
+    <AssemblyTitle>Food Optimizer</AssemblyTitle>
+    <Product>Food Optimizer</Product>
+    <Company>Food System Innovations</Company>
+    <ApplicationIcon>../../icon.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="../../icon.ico" LogicalName="icon.ico" />
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" />
   </ItemGroup>

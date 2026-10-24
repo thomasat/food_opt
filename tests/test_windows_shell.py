@@ -158,3 +158,51 @@ def test_webview_settings_are_the_spec_list():
         assert re.search(r"\.%s\s*=\s*%s;" % (name, value), host), name
     env = read_lf(SHELL / "FoodOptimizer.Shell" / "WebEnvironment.cs")
     assert "IsCustomCrashReportingEnabled = true" in env
+
+
+ICON = REPO / "desktop" / "windows" / "icon.ico"
+ICON_SIZES = {16, 20, 24, 32, 40, 48, 64, 256}
+
+
+def test_icon_has_every_size():
+    import struct
+    data = ICON.read_bytes()
+    reserved, kind, count = struct.unpack_from("<HHH", data, 0)
+    assert (reserved, kind) == (0, 1)
+    sizes = set()
+    for i in range(count):
+        w, h = struct.unpack_from("<BB", data, 6 + 16 * i)
+        assert w == h
+        sizes.add(w or 256)
+    assert sizes == ICON_SIZES
+
+
+def test_icon_matches_the_logo():
+    import pytest
+    pytest.importorskip("PIL")
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("make_icon", REPO / "desktop" / "windows" / "make_icon.py")
+    make_icon = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(make_icon)
+    assert make_icon.main(["--check"]) == 0
+
+
+def _csproj_property(text: str, name: str) -> str:
+    m = re.search(r"<%s>([^<]*)</%s>" % (name, name), text)
+    assert m, name
+    return m.group(1)
+
+
+def test_exe_identity_names_food_optimizer():
+    proj = SHELL / "FoodOptimizer.Shell" / "FoodOptimizer.Shell.csproj"
+    text = read_lf(proj)
+    title = texts("windows")["window.title"]
+    assert _csproj_property(text, "AssemblyTitle") == title
+    assert _csproj_property(text, "Product") == title
+    assert _csproj_property(text, "Company") == "Food System Innovations"
+    icon = (proj.parent / _csproj_property(text, "ApplicationIcon")).resolve()
+    assert icon == ICON.resolve()
+    assert _csproj_property(text, "ApplicationManifest") == "app.manifest"
+    manifest = read_lf(proj.parent / "app.manifest")
+    assert 'level="asInvoker"' in manifest
+    assert "{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}" in manifest
