@@ -1,23 +1,92 @@
 #!/bin/bash
-# Builds "Food Optimizer.app" and packages it into a .dmg.
-# Usage: ./desktop/build_dmg.sh [version]      (default 0.1.0)
+# Builds "Food Optimizer.app" and packages it into a .dmg. The version is
+# desktop/VERSION; there is no other.
+#   ./desktop/build_dmg.sh [X.Y.Z]          release build -> dist/FoodOptimizer-X.Y.Z.dmg
+#                                           (X.Y.Z, if given, must equal desktop/VERSION)
+#   ./desktop/build_dmg.sh --check [X.Y.Z]  the release guards only; builds nothing
+#   ./desktop/build_dmg.sh --test-build     internal build, guards off
+#                                           -> dist/FoodOptimizer-X.Y.Z-test.dmg
+# A release build refuses a tree with uncommitted changes and a HEAD that is
+# not tag vX.Y.Z: build from a clean worktree at the tag. Every refusal exits 2.
 # Distribution builds: set SIGN_IDENTITY ("Developer ID Application: ...")
 # and NOTARY_PROFILE (a `xcrun notarytool store-credentials` profile name).
 set -euo pipefail
 
-VERSION="${1:-0.1.0}"
-APP_NAME="Food Optimizer"
+USAGE="usage: build_dmg.sh [X.Y.Z] | --check [X.Y.Z] | --test-build"
+usage() { echo "$USAGE" >&2; exit 2; }
+refuse() { echo "refusing to build: $*" >&2; exit 2; }
 
+# ---------- arguments ----------
+MODE="release"
+WANTED=""
+case "${1:-}" in
+  --check)
+    MODE="check"
+    [ $# -le 2 ] || usage
+    WANTED="${2:-}"
+    ;;
+  --test-build)
+    MODE="test"
+    [ $# -eq 1 ] || usage
+    ;;
+  -*) usage ;;
+  *)
+    [ $# -le 1 ] || usage
+    WANTED="${1:-}"
+    ;;
+esac
+case "$WANTED" in -*) usage ;; esac
+
+APP_NAME="Food Optimizer"
 DESKTOP_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(dirname "$DESKTOP_DIR")"
 DIST_DIR="$DESKTOP_DIR/dist"
 APP_DIR="$DIST_DIR/$APP_NAME.app"
-DMG_PATH="$DIST_DIR/FoodOptimizer-$VERSION.dmg"
+
+# ---------- version ----------
+# One X.Y.Z line. Exactly one trailing newline is taken off; a carriage
+# return (a file saved on Windows) or anything else fails.
+VERSION_RE='^[0-9]+\.[0-9]+\.[0-9]+$'
+VERSION=""
+if [ -f "$DESKTOP_DIR/VERSION" ]; then
+  VERSION="$(cat "$DESKTOP_DIR/VERSION"; printf x)"
+  VERSION="${VERSION%x}"
+  VERSION="${VERSION%$'\n'}"
+fi
+[[ "$VERSION" =~ $VERSION_RE ]] || refuse "desktop/VERSION must hold one X.Y.Z line"
+
+# ---------- release guards (release builds and --check) ----------
+if [ "$MODE" != "test" ]; then
+  if [ -n "$WANTED" ] && [ "$WANTED" != "$VERSION" ]; then
+    refuse "version $WANTED disagrees with desktop/VERSION ($VERSION)"
+  fi
+  # Ignored paths (dist/, .cache/) don't count; untracked ones do.
+  STATUS="$(git -C "$REPO_DIR" status --porcelain --untracked-files=normal)" \
+    || refuse "not a git checkout (build from a clean worktree at the tag)"
+  [ -z "$STATUS" ] || refuse "uncommitted changes (build from a clean worktree at the tag)"
+  HEAD_SHA="$(git -C "$REPO_DIR" rev-parse HEAD)"
+  TAG_SHA="$(git -C "$REPO_DIR" rev-parse -q --verify "refs/tags/v$VERSION^{commit}")" || TAG_SHA=""
+  if [ "$HEAD_SHA" != "$TAG_SHA" ]; then
+    refuse "HEAD is not tag v$VERSION (tag first: git tag -a v$VERSION $(git -C "$REPO_DIR" rev-parse --short HEAD))"
+  fi
+  if [ "$MODE" = "check" ]; then
+    echo "ready to build $VERSION from v$VERSION"
+    exit 0
+  fi
+  DMG_NAME="FoodOptimizer-$VERSION"
+else
+  echo "=========================================================" >&2
+  echo " TEST BUILD - not for release (no version or tree checks)." >&2
+  echo "=========================================================" >&2
+  DMG_NAME="FoodOptimizer-$VERSION-test"
+fi
+DMG_PATH="$DIST_DIR/$DMG_NAME.dmg"
+RECORD="$DIST_DIR/$DMG_NAME.build.txt"
 
 UV_BIN="$("$DESKTOP_DIR/fetch_uv.sh")"
 
 # ---------- assemble the bundle ----------
-rm -rf "$APP_DIR" "$DMG_PATH"
+rm -rf "$APP_DIR" "$DMG_PATH" "$RECORD"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 
 # launcher.sh lives in Resources, NOT MacOS: codesign treats everything in
@@ -112,4 +181,25 @@ if [ -n "${SIGN_IDENTITY:-}" ]; then
   fi
 fi
 
+# ---------- build record (written last, after stapling) ----------
+yes_no() { if [ -n "$1" ]; then echo yes; else echo no; fi; }
+NOTARIZED=""
+if [ -n "${SIGN_IDENTITY:-}" ] && [ -n "${NOTARY_PROFILE:-}" ]; then NOTARIZED=1; fi
+TREE_CLEAN=no
+if NOW="$(git -C "$REPO_DIR" status --porcelain --untracked-files=normal 2>/dev/null)" \
+    && [ -z "$NOW" ]; then
+  TREE_CLEAN=yes
+fi
+{
+  echo "version=$VERSION"
+  echo "commit=$(git -C "$REPO_DIR" rev-parse HEAD 2>/dev/null || echo unknown)"
+  echo "tree_clean=$TREE_CLEAN"
+  echo "mac_lock_sha256=$(shasum -a 256 "$DESKTOP_DIR/requirements.lock.txt" | awk '{print $1}')"
+  echo "windows_lock_sha256=none"
+  echo "dmg_sha256=$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')"
+  echo "signed=$(yes_no "${SIGN_IDENTITY:-}")"
+  echo "notarized=$(yes_no "$NOTARIZED")"
+} > "$RECORD"
+
 echo "Built: $DMG_PATH"
+echo "Build record: $RECORD"

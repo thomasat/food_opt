@@ -109,3 +109,112 @@ def test_desktop_readme_names_no_stale_version():
     allowed = {"X.Y.Z", "X.Y.Z-test", read_version()}
     named = re.findall(r'FoodOptimizer-([^ ")]+?)\.dmg', text)
     assert set(named) <= allowed, named
+
+
+# ---------- build_dmg.sh guards (Task 4) ----------
+
+BUILD_SCRIPT = REPO / "desktop" / "build_dmg.sh"
+_GIT_ID = ["-c", "user.name=t", "-c", "user.email=t@example.com",
+           "-c", "commit.gpgsign=false", "-c", "tag.gpgSign=false"]
+_REFUSE_HEAD = "refusing to build: HEAD is not tag v0.8.0 (tag first: git tag -a v0.8.0 "
+_REFUSE_DIRTY = ("refusing to build: uncommitted changes "
+                 "(build from a clean worktree at the tag)")
+_REFUSE_VERSION = "refusing to build: desktop/VERSION must hold one X.Y.Z line"
+_USAGE = "usage: build_dmg.sh [X.Y.Z] | --check [X.Y.Z] | --test-build"
+
+
+def _repo_git(repo, *args):
+    return subprocess.run(["git", *_GIT_ID, *args], cwd=repo, check=True,
+                          capture_output=True, text=True).stdout
+
+
+def _commit_all(repo, message):
+    _repo_git(repo, "add", "-A")
+    _repo_git(repo, "commit", "-q", "-m", message)
+
+
+@pytest.fixture
+def release_repo(tmp_path):
+    """A throwaway checkout holding the real build script, tagged v0.8.0."""
+    repo = tmp_path / "repo"
+    (repo / "desktop").mkdir(parents=True)
+    (repo / "desktop" / "build_dmg.sh").write_bytes(BUILD_SCRIPT.read_bytes())
+    (repo / "desktop" / "VERSION").write_bytes(b"0.8.0\n")
+    (repo / "desktop" / ".gitignore").write_bytes(b"dist/\n.cache/\n")
+    (repo / "app.py").write_bytes(b"print('app')\n")
+    _repo_git(repo, "init", "-q")
+    _commit_all(repo, "release")
+    _repo_git(repo, "tag", "v0.8.0")
+    return repo
+
+
+def run_build(repo, *args):
+    return subprocess.run(["bash", str(repo / "desktop" / "build_dmg.sh"), *args],
+                          capture_output=True, text=True, timeout=60)
+
+
+def _refused(result, message):
+    assert result.returncode == 2, (result.returncode, result.stdout, result.stderr)
+    assert message in result.stderr, result.stderr
+
+
+def test_check_passes_on_a_clean_tagged_tree(release_repo):
+    result = run_build(release_repo, "--check")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[0] == "ready to build 0.8.0 from v0.8.0"
+
+
+def test_check_refuses_a_disagreeing_version(release_repo):
+    for arg in ("0.9.0", "v0.8.0"):
+        _refused(run_build(release_repo, "--check", arg),
+                 f"refusing to build: version {arg} disagrees with "
+                 "desktop/VERSION (0.8.0)")
+
+
+def test_check_refuses_a_head_that_is_not_the_tag(release_repo):
+    (release_repo / "app.py").write_bytes(b"print('later')\n")
+    _commit_all(release_repo, "one past the tag")
+    _refused(run_build(release_repo, "--check"), _REFUSE_HEAD)
+
+
+def test_check_refuses_uncommitted_changes(release_repo):
+    (release_repo / "app.py").write_bytes(b"print('edited')\n")
+    _refused(run_build(release_repo, "--check"), _REFUSE_DIRTY)
+    _repo_git(release_repo, "checkout", "--", "app.py")
+    assert run_build(release_repo, "--check").returncode == 0
+    (release_repo / "notes.py").write_bytes(b"")
+    _refused(run_build(release_repo, "--check"), _REFUSE_DIRTY)
+
+
+def test_ignored_build_output_is_not_a_change(release_repo):
+    (release_repo / "desktop" / "dist").mkdir()
+    (release_repo / "desktop" / "dist" / "old.dmg").write_bytes(b"x")
+    (release_repo / "desktop" / ".cache").mkdir()
+    (release_repo / "desktop" / ".cache" / "x").write_bytes(b"x")
+    result = run_build(release_repo, "--check")
+    assert result.returncode == 0, result.stderr
+
+
+def test_version_file_must_be_x_y_z(release_repo):
+    for raw in (b"0.8.0\r\n", b"0.8\n"):
+        (release_repo / "desktop" / "VERSION").write_bytes(raw)
+        _commit_all(release_repo, f"version {raw!r}")
+        _repo_git(release_repo, "tag", "-f", "v0.8.0")
+        _refused(run_build(release_repo, "--check"), _REFUSE_VERSION)
+
+
+def test_a_release_build_refuses_before_building(release_repo):
+    _refused(run_build(release_repo, "0.9.0"),
+             "refusing to build: version 0.9.0 disagrees with desktop/VERSION (0.8.0)")
+    assert not (release_repo / "desktop" / "dist").exists()
+    assert not (release_repo / "desktop" / ".cache").exists()
+
+
+def test_unknown_option_shows_usage(release_repo):
+    _refused(run_build(release_repo, "--sign"), _USAGE)
+
+
+def test_build_script_takes_its_version_from_the_file():
+    text = BUILD_SCRIPT.read_text(encoding="utf-8")
+    assert not re.findall(r"\b\d+\.\d+\.\d+\b", text)
+    assert '"$DESKTOP_DIR/VERSION"' in text

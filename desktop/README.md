@@ -5,13 +5,26 @@ Design spec: `docs/superpowers/specs/2026-08-13-desktop-packaging-design.md`.
 
 ## Build
 
+The version is `desktop/VERSION` (one `X.Y.Z` line); nothing else sets it.
+
 ```bash
-./desktop/build_dmg.sh X.Y.Z        # version is the only argument
+./desktop/build_dmg.sh --check      # can I build? guards only, builds nothing
+./desktop/build_dmg.sh              # release build of desktop/VERSION
+./desktop/build_dmg.sh --test-build # internal testing only
 ```
 
-Output: `desktop/dist/FoodOptimizer-X.Y.Z.dmg`. Unsigned builds print a
-loud warning and are for internal testing only — never send one to a
-recipient.
+- A **release build** writes `desktop/dist/FoodOptimizer-X.Y.Z.dmg`. It
+  refuses (exit 2) a tree with uncommitted changes, a HEAD that is not tag
+  `vX.Y.Z`, and a version argument that disagrees with `desktop/VERSION`:
+  build it from a clean worktree at the tag (see the ritual below).
+  `--check` runs the same guards and prints `ready to build X.Y.Z from vX.Y.Z`.
+- A **test build** skips the guards, prints a loud `TEST BUILD - not for
+  release` warning and writes `desktop/dist/FoodOptimizer-X.Y.Z-test.dmg`.
+  `test_e2e.sh` makes one. Never send it to a recipient.
+- Every build writes a **build record** beside the dmg,
+  `desktop/dist/FoodOptimizer-X.Y.Z.build.txt`: version, commit, whether the
+  tree was clean, both lock hashes, the dmg's sha256, signed, notarized.
+- Unsigned builds print a loud warning and are for internal testing only.
 
 The build compiles the native window wrapper (`FoodOptimizerApp.swift`)
 with `swiftc`, so the build machine needs the Xcode Command Line Tools
@@ -46,7 +59,7 @@ Then every distribution build:
 ```bash
 export SIGN_IDENTITY="Developer ID Application: Your Name (YOURTEAMID)"
 export NOTARY_PROFILE=foodopt-notary
-./desktop/build_dmg.sh X.Y.Z
+./desktop/build_dmg.sh              # in a clean worktree at the tag
 ```
 
 ## Updating dependencies
@@ -65,24 +78,49 @@ machines automatically.
 Releases are published as **GitHub Releases** — each version gets a
 permanent download URL. Never commit dmg files to the repo.
 
-The full ritual for version X.Y.Z:
+The ritual for version X.Y.Z (Mac half):
 
-```bash
-# 0. Only if requirements.txt changed since the last release:
-./desktop/update_lock.sh            # then commit the updated lock
+1. Only if `requirements.txt` changed since the last release: run
+   `./desktop/update_lock.sh` and commit the result.
+2. Release PR (true merge): bump `desktop/VERSION`, the README download
+   links, and write `desktop/release_notes/X.Y.Z.md`, the text of the
+   release page. The tests check all three agree.
+3. Tag first; the build comes from the tag:
 
-# 1. Build (set SIGN_IDENTITY + NOTARY_PROFILE first for real distributions)
-./desktop/build_dmg.sh X.Y.Z
+   ```bash
+   git tag -a vX.Y.Z <sha>
+   git push origin vX.Y.Z
+   ```
 
-# 2. Verify
-./desktop/test_e2e.sh               # must end "0 failed"
-# ...plus the manual checklist below before sending to real recipients.
+4. Build and verify in a clean worktree at the tag, signing set up:
 
-# 3. Make sure the release is cut from main (merge + push first), then:
-gh release create vX.Y.Z "desktop/dist/FoodOptimizer-X.Y.Z.dmg" \
-  --title "Food Optimizer X.Y.Z" \
-  --notes "See 'Start Here.txt' inside the download for install steps."
-```
+   ```bash
+   git worktree add ../food_opt-vX.Y.Z vX.Y.Z
+   cd ../food_opt-vX.Y.Z
+   export SIGN_IDENTITY="Developer ID Application: Your Name (YOURTEAMID)"
+   export NOTARY_PROFILE=foodopt-notary
+   ./desktop/build_dmg.sh            # refuses a dirty tree or a HEAD that is not the tag
+   ./desktop/test_e2e.sh             # must end "0 failed"
+   ```
+
+   ...plus the manual checklist below before sending to real recipients.
+5. Draft the release, then compare GitHub's asset digest with `dmg_sha256`
+   in `desktop/dist/FoodOptimizer-X.Y.Z.build.txt`:
+
+   ```bash
+   gh release create vX.Y.Z desktop/dist/FoodOptimizer-X.Y.Z.dmg --draft --verify-tag \
+     --title "Food Optimizer X.Y.Z" --notes-file desktop/release_notes/X.Y.Z.md
+   gh release view vX.Y.Z --json assets
+   ```
+
+6. Publish, then check the README link answers:
+
+   ```bash
+   gh release edit vX.Y.Z --draft=false --latest
+   curl -I https://github.com/thomasat/food_opt/releases/download/vX.Y.Z/FoodOptimizer-X.Y.Z.dmg
+   ```
+
+   Keep the time between steps 2 and 6 short: the README link 404s in between.
 
 The link to send people (also shown on the release page):
 

@@ -11,8 +11,10 @@ LEVEL1_ONLY=0
 DESKTOP_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_NAME="Food Optimizer"
 DIST_APP="$DESKTOP_DIR/dist/$APP_NAME.app"
-TEST_VERSION="0.0.1"
-DMG="$DESKTOP_DIR/dist/FoodOptimizer-$TEST_VERSION.dmg"
+# A test build is named apart from a release dmg, so a run never deletes one.
+TEST_VERSION="$(cat "$DESKTOP_DIR/VERSION")"
+DMG="$DESKTOP_DIR/dist/FoodOptimizer-$TEST_VERSION-test.dmg"
+RECORD="${DMG%.dmg}.build.txt"
 VOL="/Volumes/$APP_NAME"
 
 PASS=0
@@ -134,7 +136,14 @@ else
 fi
 
 echo "== Level 1: build =="
-if "$DESKTOP_DIR/build_dmg.sh" "$TEST_VERSION"; then ok "build_dmg.sh runs"; else fail "build_dmg.sh runs"; fi
+if "$DESKTOP_DIR/build_dmg.sh" --test-build; then ok "build_dmg.sh runs"; else fail "build_dmg.sh runs"; fi
+# The record is what a release is checked against on GitHub (dmg_sha256).
+DMG_SHA="$(shasum -a 256 "$DMG" 2>/dev/null | awk '{print $1}')"
+if [ -n "$DMG_SHA" ] && grep -qx "dmg_sha256=$DMG_SHA" "$RECORD" 2>/dev/null; then
+  ok "build record names the dmg"
+else
+  fail "build record names the dmg"
+fi
 
 assert "launcher executable"  test -x "$DIST_APP/Contents/Resources/launcher.sh"
 # Scripts in Contents/MacOS break codesign (unsigned nested code); guard it.
@@ -200,7 +209,7 @@ if [ "$LEVEL1_ONLY" = "1" ]; then
   hdiutil detach "$VOL" >/dev/null 2>&1 || true
   echo "== DONE (level 1 only): $PASS passed, $FAIL failed =="
   [ "$FAIL" -eq 0 ] || exit 1
-  rm -f "$DMG"   # test-version dmg; on success dist/ keeps only release dmgs
+  rm -f "$DMG" "$RECORD"   # test build; on success dist/ keeps only release dmgs
   exit 0
 fi
 
@@ -857,4 +866,4 @@ hdiutil detach "$VOL" >/dev/null 2>&1 || true
 
 echo "== DONE: $PASS passed, $FAIL failed =="
 [ "$FAIL" -eq 0 ] || exit 1
-rm -f "$DMG"   # test-version dmg; on success dist/ keeps only release dmgs
+rm -f "$DMG" "$RECORD"   # test build; on success dist/ keeps only release dmgs
