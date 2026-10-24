@@ -1,44 +1,71 @@
-# Windows port (planned — not built yet)
+# Food Optimizer for Windows
 
-Mirror of the macOS approach. The design, launcher logic, UX flows, copy,
-and test structure all transfer; only the window wrapper is rewritten
-(Swift/AppKit does not exist on Windows). Estimated effort: under a week,
-mostly mechanical — the thinking is done on the macOS side.
+Status: Windows build in progress; environment only; unsigned, internal.
 
-1. **Window wrapper:** a small C# app hosting **WebView2** (preinstalled
-   on Windows 10/11) — the direct equivalent of
-   `../FoodOptimizerApp.swift`, which doubles as its spec (~250 lines):
-   instant window with setup status page + spinner, poll `server.port`
-   then health endpoint, load the app, native menus/shortcuts, save
-   dialog + reveal-in-Explorer for downloads, file-picker uploads,
-   friendly pages for exit code 2 (unsupported) / 3 (needs internet) /
-   4 (not enough disk space) / server death, quit terminates the launcher and awaits
-   its cleanup. Cannot be Python: it must run before the venv exists.
-2. **Launcher:** `launcher.ps1` — line-by-line port of `../launcher.sh`
-   (same exit codes, port file, marker/lock/saved-copy logic, idle watchdog).
-   Paths: environment under `%LOCALAPPDATA%\FoodOptimizer`, projects in
-   `%USERPROFILE%\FoodOptimizer` (home-folder root for parity with macOS,
-   where ~/Documents is privacy-gated; Windows has no TCC, so those
-   permission traps do not exist there).
-3. **uv:** bundle `uv-x86_64-pc-windows-msvc.zip`'s `uv.exe`, pinned +
-   SHA256-verified like `../fetch_uv.sh`.
-4. **Lock:** Windows needs its own compiled lock
-   (`requirements-windows.lock.txt`), generated with
-   `uv pip compile --generate-hashes --python-platform x86_64-pc-windows-msvc`.
-5. **Installer:** Inno Setup script (`setup.iss`) producing
-   `FoodOptimizer-Setup.exe`: installs the app folder + Start Menu
-   shortcut launching the wrapper exe. Icon from `../logo/` (convert to
-   .ico).
-6. **No-warnings requirement (budget this):** unsigned installers
-   trigger Microsoft SmartScreen. An Authenticode code-signing
-   certificate — or Azure Trusted Signing (~$10/mo) — is the Windows
-   equivalent of the Apple Developer ID. Required before distributing
-   to recipients.
-7. **Build both installers with one action:** a GitHub Actions workflow
-   with two jobs — `macos-14` (Apple Silicon) builds + tests the dmg,
-   `windows-latest` builds + tests the exe — both attached to the same
-   GitHub release on every version tag. Neither OS can build the other's
-   installer, so CI is the one-command path to shipping both.
-8. **Test suite:** port `../test_e2e.sh` to PowerShell with the same
-   structure (static checks, build checks, throwaway-profile end-to-end
-   against the launcher).
+The design is `docs/superpowers/specs/2026-10-23-windows-port-design.md`.
+The shell, the installer and signing come in later phases; this folder
+builds the bundled Python environment they will ship.
+
+## Build the environment
+
+Needs Git, uv and Windows PowerShell 5.1 (build time only; nothing in the
+built folder runs PowerShell, uv or the network).
+
+```
+powershell -NoProfile -ExecutionPolicy Bypass -File desktop\windows\build_installer.ps1 -Check
+powershell -NoProfile -ExecutionPolicy Bypass -File desktop\windows\build_installer.ps1 -TestBuild
+powershell -NoProfile -ExecutionPolicy Bypass -File desktop\windows\build_installer.ps1 [-Version X.Y.Z]
+```
+
+- `-Check` runs the release checks only: a clean tree, HEAD at tag
+  `v<desktop/VERSION>`, a valid `bundle_manifest.txt`. It builds nothing.
+- `-TestBuild` skips the release checks and prints `TEST BUILD - not for release`.
+- A release build (no switch) refuses unless the release checks pass.
+- `-OutDir DIR` changes the output folder (default `desktop\windows\build`).
+  The image folder `<OutDir>\FoodOptimizer\` must be at most 80 characters.
+  Each build replaces it, so the build refuses a folder there that holds
+  anything but an earlier build.
+- Every build prints `UNSIGNED build - internal testing only.`
+
+Exit codes: `0` built (or `-Check` passed); `2` refused before anything was
+fetched or created; `1` the build failed (`build failed: <step>: <reason>`,
+and no build record is written).
+
+Output, in `<OutDir>`:
+
+- `FoodOptimizer\`: the image. `python\` (python.org 3.13.7 x64 from NuGet,
+  with the Windows lock installed, stripped and precompiled), `app\` (every
+  `bundle_manifest.txt` entry), `shared\` (the launcher, the status page,
+  `messages.json`) and `Start Here.txt`.
+- `FoodOptimizer.build.txt`: the build record (commit, both lock hashes,
+  pinned download hashes, image hash, `signed=no`).
+- `FoodOptimizer.files.txt`: the sha256 of every file in the image.
+- `FoodOptimizer.unsigned.txt`: the binaries not signed by their vendor,
+  which the signing phase signs.
+
+Downloads are pinned in `pins.json` and cached in `desktop\windows\.cache\`;
+a cached file is re-hashed on every run and deleted if its hash is wrong.
+Change a pin only by editing `pins.json` after checking, in the VM, that the
+new file's `Get-AuthenticodeSignature` is `Valid` for the pinned signer and
+that its version is what the pin says.
+
+Not yet bundled: Microsoft's C++ runtime (`msvcp140*.dll`). Its
+redistributable no longer unpacks with `/layout`; the alternative needs the
+owner's approval.
+
+## Test it
+
+The tests in `desktop\windows\tests` run in the Windows VM against the
+built image. Make a test environment on top of the bundled Python (it
+writes nothing into the image):
+
+```
+uv venv C:\work\p3b-venv --python desktop\windows\build\FoodOptimizer\python\python.exe --system-site-packages
+uv pip install --python C:\work\p3b-venv\Scripts\python.exe -c desktop\requirements-windows.lock.txt "pytest>=9,<10" matplotlib
+uv pip uninstall --python C:\work\p3b-venv\Scripts\python.exe numpy packaging pillow python-dateutil six colorama
+set FOODOPT_SLOW_TESTS=1& set PYTHONDONTWRITEBYTECODE=1& C:\work\p3b-venv\Scripts\python.exe -m pytest desktop\windows\tests -q -p no:cacheprovider
+```
+
+The uninstall step keeps the image's own copies of those packages in use.
+On the Mac the same folder's tests skip; `tests/test_windows_*.py` check the
+build scripts and `build_env.py` there.
