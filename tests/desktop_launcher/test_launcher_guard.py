@@ -5,6 +5,7 @@ import http.server
 import importlib.util
 import json
 import os
+import site
 import socket
 import subprocess
 import sys
@@ -30,21 +31,42 @@ def _load(name, path):
     return mod
 
 
+# The children run with -S: no site, so no sitecustomize, which the bundled
+# Python's site imports (the guard itself) in every process. This process's
+# site-packages folders are added back by hand, .pth files and all.
 _LOAD_BY_PATH = textwrap.dedent("""
-    import importlib.util, sys
+    import importlib.util, site, sys
+    for _dir in %r:
+        site.addsitedir(_dir)
     def load(name, path):
         spec = importlib.util.spec_from_file_location(name, path)
         mod = importlib.util.module_from_spec(spec)
         sys.modules[name] = mod
         spec.loader.exec_module(mod)
         return mod
-""")
+""") % (site.getsitepackages(),)
 
 
 def _run(code, *args, env=None, cwd=None, timeout=120):
-    return subprocess.run([sys.executable, "-I", "-c", _LOAD_BY_PATH + textwrap.dedent(code),
+    return subprocess.run([sys.executable, "-I", "-S", "-c",
+                           _LOAD_BY_PATH + textwrap.dedent(code),
                            *map(str, args)],
                           capture_output=True, text=True, env=env, cwd=cwd, timeout=timeout)
+
+
+def test_guard_test_children_start_without_an_ambient_guard():
+    """The bundled Python's site imports the guard as sitecustomize in every
+    process; the children here must not have it, or the unguarded control
+    runs are guarded and every load is a second one."""
+    out = _run("""
+        import sys
+        print(sys.modules.get("sitecustomize"), [type(f).__name__ for f in sys.meta_path
+                                                  if hasattr(f, "foodopt_net_util_finder")
+                                                  or type(f).__name__ == "_NetUtilFinder"])
+        import streamlit
+    """)
+    assert out.returncode == 0, out
+    assert out.stdout.strip() == "None []", out
 
 
 # ---------- the C++ runtime preload ----------
@@ -152,6 +174,21 @@ def test_guard_stubs_streamlit_ip_lookups(when):
     lines = out.stdout.strip().splitlines()
     assert lines[:1] == ["None None"], out
     assert json.loads(lines[1]) == [], out
+
+
+def test_loading_the_guard_twice_keeps_one_ip_lookup_finder():
+    """The bundled Python's site already loads sitecustomize; a second load
+    must not add a second finder (two of them call each other forever)."""
+    out = _run("""
+        import sys
+        load("sitecustomize", sys.argv[1])
+        load("sitecustomize", sys.argv[1])
+        import streamlit.net_util as n
+        finders = [f for f in sys.meta_path if type(f).__name__ == "_NetUtilFinder"]
+        print(len(finders), n.get_internal_ip(), n.get_external_ip())
+    """, GUARD)
+    assert out.returncode == 0, out
+    assert out.stdout.strip().splitlines()[-1] == "1 None None", out
 
 
 def test_a_failed_dll_preload_leaves_the_network_guard_on(tmp_path):

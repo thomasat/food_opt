@@ -532,3 +532,16 @@ def test_a_stale_lock_whose_pid_was_reused_is_taken(py, world, foreign):
     healthy_launch(py, world)
     assert reused.poll() is None
     assert _gone(world.lock_dir)
+
+
+def test_an_early_exit_with_the_lifeline_exits_cleanly(py, world):
+    """The lifeline's stdin reader must not crash the interpreter's shutdown
+    (Windows: "_enter_buffered_busy … daemon threads", 0xC0000005) when the
+    launcher exits while the shell still holds stdin open."""
+    world.lock_dir.mkdir(parents=True)
+    (world.lock_dir / "pid").write_bytes(f"{os.getpid()}\n".encode())
+    launch = py.start(world, args=["--stdin-lifeline"], stdin=subprocess.PIPE)
+    assert launch.wait(15) == 0, launch.output()
+    assert (f"another launch is already in progress (pid {os.getpid()}) - exiting"
+            in launch.output())
+    assert "Fatal Python error" not in launch.output(), launch.output()
