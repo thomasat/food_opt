@@ -70,3 +70,23 @@ def authenticode(paths) -> dict:
         assert r.returncode == 0, r.stdout + r.stderr
         data = json.loads(outp.read_text(encoding="utf-8"))
     return {k: tuple(v) for k, v in data.items()}
+
+
+def own_git_env(extra=None) -> dict:
+    """os.environ without GIT_*: inside a git hook, GIT_DIR and GIT_INDEX_FILE
+    would point every git call at the outer checkout."""
+    env = {k: v for k, v in os.environ.items() if not k.upper().startswith("GIT_")}
+    env.update(extra or {})
+    return env
+
+
+@pytest.fixture
+def short_tmp():
+    """A fresh folder with a space in its name, on a short path: pytest's
+    tmp_path is already longer than the 80-character image-root budget."""
+    import shutil
+    base = pathlib.Path(os.environ.get("SystemDrive", "C:") + "\\") / "fo-t"
+    base.mkdir(exist_ok=True)
+    path = pathlib.Path(tempfile.mkdtemp(prefix="p3b ", dir=base))
+    yield path
+    shutil.rmtree(path, ignore_errors=True)
