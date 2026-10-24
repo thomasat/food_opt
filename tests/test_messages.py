@@ -111,3 +111,109 @@ def test_machinery_rules():
     assert is_machinery("display:none") and is_machinery("q")
     assert not is_machinery("File") and not is_machinery("Try again")
     assert messages_doc()["_comment"]
+
+
+# ---------- the Windows side ----------
+
+def test_every_entry_names_its_windows_text():
+    for e in entries():
+        assert "windows" in e["text"], e["id"]
+
+
+def test_windows_strings_from_the_spec_table():
+    w, m = texts("windows"), texts("mac")
+    assert w["error.unsupported.title"] == "This PC is not supported"
+    assert w["error.unsupported.body"] == "Needs 64-bit Windows 10 (22H2) or Windows 11."
+    assert w["error.missing_part.body"] == "Part of the app is missing. Reinstall Food Optimizer."
+    assert w["help.no_log.body"] == ("The log is created when the app starts up. "
+                                     "Close and reopen Food Optimizer, then try again.")
+    assert w["stalled.body"] == "Still loading. Please keep this window open."
+    assert w["steps.title.setting_up"] == "Setting up Food Optimizer"
+    assert w["steps.note.first_opening"] == "First opening takes longer. Keep this window open."
+    assert w["webview2.missing.title"] == "Food Optimizer can't open"
+    assert w["webview2.missing.body"] == "Ask IT to install Microsoft Edge WebView2 Runtime."
+    for i in ("help.get_help.body", "error.could_not_start.body", "error.stopped.body"):
+        assert w[i] == m[i], i
+
+
+def test_mac_only_entries_have_no_windows_text():
+    by_id = {e["id"]: e for e in entries()}
+    mac_only = ["steps.title.updating", "steps.download", "steps.note.first_run",
+                "steps.note.upgrade", "menu.file.close_window"]
+    mac_only += [i for i in by_id if i.startswith(("error.needs_internet.", "error.no_space.",
+                                                   "menu.edit", "menu.window"))]
+    mac_only += [i for i in by_id if i.startswith("launcher.status.")
+                 and i not in ("launcher.status.load", "launcher.status.starting")]
+    assert len(mac_only) > 20
+    for i in mac_only:
+        assert by_id[i]["text"]["windows"] is None, i
+
+
+_SENTENCE = re.compile(r"(?<=[.!?])\s+")
+
+
+def test_new_windows_strings_follow_the_copy_rules():
+    for e in entries():
+        win, mac = e["text"]["windows"], e["text"]["mac"]
+        if not isinstance(win, str) or win == mac:
+            continue
+        words = len(win.split())
+        if e["kind"] in ("label", "button", "menu"):
+            assert words <= 5, e["id"]
+        elif e["kind"] == "title":
+            assert words <= 8, e["id"]
+        else:
+            for sentence in _SENTENCE.split(win):
+                assert len(sentence.split()) <= 10, (e["id"], sentence)
+
+
+_MAC_TERMS = re.compile(r"Finder|this Mac|⌘|Cmd|Applications|~/|\bMac\b|\bdmg\b|\bNumbers\b")
+_WINDOWS_TERMS = ("this PC", "File Explorer", "Ctrl", "Windows", "WebView2", "Reinstall")
+
+
+def test_no_mac_terms_in_windows_texts():
+    for i, t in texts("windows").items():
+        assert not _MAC_TERMS.search(t), (i, t)
+
+
+def test_no_windows_terms_in_mac_texts():
+    for i, t in texts("mac").items():
+        assert not any(term in t for term in _WINDOWS_TERMS), (i, t)
+
+
+def test_mac_menu_keys_match_swift():
+    from tests.mac_sources import swift_menu_items
+    pairs = set(swift_menu_items())
+    for e in messages_doc()["menus"]:
+        for key in e["keys"]["mac"]:
+            assert (e["text"]["mac"], key) in pairs, (e["id"], key)
+
+
+def test_windows_menu_layout_is_the_spec_menu():
+    layout = messages_doc()["menu_layout"]["windows"]
+    assert layout == [
+        {"menu": "menu.file", "items": ["menu.file.open_projects", "-", "menu.app.quit"]},
+        {"menu": "menu.view", "items": ["menu.view.bigger", "menu.view.smaller",
+                                        "menu.view.actual"]},
+        {"menu": "menu.help", "items": ["menu.help.start_here", "menu.help.get_help",
+                                        "menu.help.show_log", "-", "menu.app.about"]},
+    ]
+    w = texts("windows")
+    for block in layout:
+        for i in [block["menu"], *block["items"]]:
+            assert i == "-" or i in w, i
+
+
+def _windows_menu_ids():
+    layout = messages_doc()["menu_layout"]["windows"]
+    return [i for b in layout for i in [b["menu"], *b["items"]] if i != "-"]
+
+
+def test_every_menu_id_is_used_by_the_windows_shell():
+    cs = sorted((REPO / "desktop" / "windows" / "FoodOptimizer").glob("**/*.cs"))
+    if not cs:
+        pytest.skip("phase 4 adds the C# shell")
+    from tests.shared_texts import read_lf
+    source = "\n".join(read_lf(p) for p in cs)
+    for i in _windows_menu_ids():
+        assert i in source, i
