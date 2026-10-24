@@ -128,13 +128,11 @@ public class FailureTests
     }
 
     /// A launch lock still held by a launcher that is going away (its window
-    /// just closed) must not leave the new window waiting 15 minutes.
-    /// Skipped until phase 2's launcher exits cleanly with --stdin-lifeline:
-    /// today its "another launch is in progress" exit dies in Python's
-    /// finalisation (daemon lifeline thread holds the stdin lock: "Fatal
-    /// Python error: _enter_buffered_busy"), so the shell sees a crash code,
-    /// not 0. The relaunch on exit 0 is unit-tested in LaunchMachineTests.
-    [Fact(Skip = "phase 2 launcher: early exit with --stdin-lifeline crashes (0xC0000005) instead of returning 0")]
+    /// just closed) must not leave the new window waiting 15 minutes. Needs
+    /// phase 2's launcher to exit 0 with --stdin-lifeline (fixed in ed7489a;
+    /// it used to die in finalisation, "_enter_buffered_busy"). The relaunch
+    /// on exit 0 is unit-tested in LaunchMachineTests.
+    [Fact]
     public void A_lock_held_by_a_launch_that_is_ending_is_taken_over()
     {
         var run = ShellRun.Fresh();
