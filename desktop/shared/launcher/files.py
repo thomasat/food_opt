@@ -53,12 +53,15 @@ def atomic_write(path: Path, data: bytes, attempts: int = 5, delay: float = 0.05
 
 # ---------- status.txt ----------
 
+def status_line(text: str, percent: Optional[int]) -> bytes:
+    return f"{text}|{'' if percent is None else percent}\n".encode("utf-8")
+
+
 def write_status(state_dir: Path, text: str, percent: Optional[int]) -> bool:
     """Publish one "<text>|<percent>" line. False, never an exception, when
     it cannot be written: a status line is never worth a failed launch."""
-    line = f"{text}|{'' if percent is None else percent}\n"
     try:
-        atomic_write(Path(state_dir) / STATUS_FILE, line.encode("utf-8"))
+        atomic_write(Path(state_dir) / STATUS_FILE, status_line(text, percent))
         return True
     except OSError:
         return False

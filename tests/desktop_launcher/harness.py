@@ -256,4 +256,4 @@ class PythonImpl:
         return _popen(world, cmd, _env(world, env), stdin)
 
 
-IMPLS: list = [BashImpl()]
+IMPLS: list = [BashImpl(), PythonImpl()]
