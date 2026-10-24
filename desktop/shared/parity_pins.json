@@ -1,0 +1,64 @@
+{
+  "_comment": "Hash pins pairing Mac sections with the shared ports that mirror them. When a test says a section is stale: mirror the change on the other side, then run python desktop/shared/parity_pins.py --pair <pair> --note \"<what was mirrored>\" in the same commit.",
+  "sections": {
+    "mac.swift.page_texts": {
+      "file": "desktop/FoodOptimizerApp.swift",
+      "start": "    let setupStepPrefixes = [",
+      "end": "    let appVersion = ",
+      "sha256": "5c37791f549b32c44cc133cfb7383b102e2572c214a182e07100dd1e8d37ad82"
+    },
+    "mac.swift.page": {
+      "file": "desktop/FoodOptimizerApp.swift",
+      "start": "    // ---------- status pages ----------",
+      "end": "    // ---------- launcher lifecycle ----------",
+      "sha256": "9097b4261fb6f31bdd6d2d0e8bdff22d16bab798f830d716b02e06ca8dfeed23"
+    },
+    "mac.swift.page_events": {
+      "file": "desktop/FoodOptimizerApp.swift",
+      "start": "    func launcherEnded(code: Int32) {",
+      "end": "    // Closing the window quits the app; quitting stops the server.",
+      "sha256": "68ecee9fa49bbf55ad55623dcdf52caa352c4a4746d62bab5134f0cb329dd89d"
+    },
+    "mac.launcher.runtime_head": {
+      "file": "desktop/launcher.sh",
+      "start": "# ---------- log (rotate once) ----------",
+      "end": "# ---------- first-run / upgrade setup ----------",
+      "sha256": "128faadec090efd25159a3d19154c5792066e96eb0dd71c6d7a7a2f42503099d"
+    },
+    "mac.launcher.runtime_tail": {
+      "file": "desktop/launcher.sh",
+      "start": "# ---------- start the server ----------",
+      "end": null,
+      "sha256": "67d02d1e62cfc33777054f31065e161cce5de5e7a5b44e8878ec3d823a49ef2b"
+    },
+    "shared.pages": {
+      "dir": "desktop/shared/pages",
+      "glob": "*",
+      "sha256": "06eac248b19e31854e9d7e487f300983bde4684f6719c70e8641bdeba3d0696d"
+    },
+    "shared.launcher": {
+      "dir": "desktop/shared/launcher",
+      "glob": "**/*.py",
+      "sha256": "c7188857f48e59cfbf177aceed20db99bbb8a020c96265b72b8e18c439eb6fed"
+    }
+  },
+  "pairs": {
+    "page": {
+      "sections": [
+        "mac.swift.page_texts",
+        "mac.swift.page",
+        "mac.swift.page_events",
+        "shared.pages"
+      ],
+      "note": "phase 2: shared page ported from the Swift window"
+    },
+    "launcher": {
+      "sections": [
+        "mac.launcher.runtime_head",
+        "mac.launcher.runtime_tail",
+        "shared.launcher"
+      ],
+      "note": "phase 2: Python launcher ported from launcher.sh run-time half; Windows: timed-out port probe is free, append-only log handles, logged unexpected errors, independent guard duties, stale-lock start-time check; Python-only (nothing in launcher.sh to mirror): lifeline reads the raw stdin fd, guard install is idempotent across loads"
+    }
+  }
+}

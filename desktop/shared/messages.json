@@ -1,0 +1,873 @@
+{
+  "_comment": "Every string the desktop shells and the launcher show, per OS. text.<os> is the text (null: not shown on that OS); mac names the Swift or launcher.sh literal the Mac text mirrors (tests/test_messages.py checks it); shared says who shows it: pages (desktop/shared/pages), shell (the native window), launcher:<NAME> (desktop/shared/launcher/status_lines.py) or mac-only. Placeholders are {name}. keys lists each menu item's shortcuts per OS; menu_layout is the order the Windows shell builds its menus in.",
+  "messages": [
+    {
+      "id": "steps.title.starting",
+      "kind": "title",
+      "text": {
+        "mac": "Starting Food Optimizer",
+        "windows": "Starting Food Optimizer"
+      },
+      "mac": "FoodOptimizerApp.swift:stepsPageTitle",
+      "shared": "pages"
+    },
+    {
+      "id": "steps.title.updating",
+      "kind": "title",
+      "text": {
+        "mac": "Updating Food Optimizer",
+        "windows": null
+      },
+      "mac": "FoodOptimizerApp.swift:stepsPageTitle",
+      "shared": "pages"
+    },
+    {
+      "id": "steps.title.setting_up",
+      "kind": "title",
+      "text": {
+        "mac": "Setting up Food Optimizer",
+        "windows": "Setting up Food Optimizer"
+      },
+      "mac": "FoodOptimizerApp.swift:stepsPageTitle",
+      "shared": "pages"
+    },
+    {
+      "id": "steps.download",
+      "kind": "label",
+      "text": {
+        "mac": "Downloading the app's components",
+        "windows": null
+      },
+      "mac": "FoodOptimizerApp.swift:downloadStepLabel",
+      "shared": "pages"
+    },
+    {
+      "id": "steps.load",
+      "kind": "label",
+      "text": {
+        "mac": "Loading the app's components",
+        "windows": "Loading the app's components"
+      },
+      "mac": "FoodOptimizerApp.swift:let loadStepLabel",
+      "shared": "pages"
+    },
+    {
+      "id": "steps.open",
+      "kind": "label",
+      "text": {
+        "mac": "Opening your projects",
+        "windows": "Opening your projects"
+      },
+      "mac": "FoodOptimizerApp.swift:openStepLabel",
+      "shared": "pages"
+    },
+    {
+      "id": "steps.note.usual",
+      "kind": "line",
+      "text": {
+        "mac": "Preparing the app. Please keep this window open.",
+        "windows": "Preparing the app. Please keep this window open."
+      },
+      "mac": "FoodOptimizerApp.swift:usualWaitLine",
+      "shared": "pages"
+    },
+    {
+      "id": "steps.note.still_loading",
+      "kind": "line",
+      "text": {
+        "mac": "Still loading. Please keep this window open.",
+        "windows": "Still loading. Please keep this window open."
+      },
+      "mac": "FoodOptimizerApp.swift:stillLoadingLine",
+      "shared": "pages"
+    },
+    {
+      "id": "steps.note.first_opening",
+      "kind": "line",
+      "text": {
+        "mac": null,
+        "windows": "First opening takes longer. Keep this window open."
+      },
+      "mac": null,
+      "shared": "pages"
+    },
+    {
+      "id": "steps.note.first_run",
+      "kind": "body",
+      "text": {
+        "mac": "The first time it opens, Food Optimizer downloads about 1 GB. Setup time depends on your connection and computer. Leave this window open.",
+        "windows": null
+      },
+      "mac": "FoodOptimizerApp.swift:setupBody",
+      "shared": "pages"
+    },
+    {
+      "id": "steps.note.upgrade",
+      "kind": "body",
+      "text": {
+        "mac": "Food Optimizer is downloading an update. Setup time depends on your connection and computer. Leave this window open.",
+        "windows": null
+      },
+      "mac": "FoodOptimizerApp.swift:setupBody",
+      "shared": "pages"
+    },
+    {
+      "id": "steps.next_up",
+      "kind": "line",
+      "text": {
+        "mac": "Define your ingredients, process settings, and measurements. Then generate your first set of formulations.",
+        "windows": "Define your ingredients, process settings, and measurements. Then generate your first set of formulations."
+      },
+      "mac": "FoodOptimizerApp.swift:nextUpLine",
+      "shared": "pages"
+    },
+    {
+      "id": "steps.elapsed",
+      "kind": "line",
+      "text": {
+        "mac": "{seconds} s",
+        "windows": "{seconds} s"
+      },
+      "mac": "FoodOptimizerApp.swift:func showStepsPage",
+      "shared": "pages"
+    },
+    {
+      "id": "footer.name",
+      "kind": "label",
+      "text": {
+        "mac": "Food Optimizer",
+        "windows": "Food Optimizer"
+      },
+      "mac": "FoodOptimizerApp.swift:func showStepsPage",
+      "shared": "pages"
+    },
+    {
+      "id": "error.could_not_start.title",
+      "kind": "title",
+      "text": {
+        "mac": "The app could not start",
+        "windows": "The app could not start"
+      },
+      "mac": "FoodOptimizerApp.swift:showCouldNotStartStatus",
+      "shared": "pages"
+    },
+    {
+      "id": "error.could_not_start.body",
+      "kind": "body",
+      "text": {
+        "mac": "Click Try again. If the problem persists, email sohum.patnaik@fsi.org and attach the file from Help › Show Log File.",
+        "windows": "Click Try again. If the problem persists, email sohum.patnaik@fsi.org and attach the file from Help › Show Log File."
+      },
+      "mac": "FoodOptimizerApp.swift:showCouldNotStartStatus",
+      "shared": "pages"
+    },
+    {
+      "id": "error.could_not_start.another_copy",
+      "kind": "body",
+      "text": {
+        "mac": "Another copy of the app seemed to be starting, but it never finished.",
+        "windows": "Another copy of the app seemed to be starting, but it never finished."
+      },
+      "mac": "FoodOptimizerApp.swift:func poll",
+      "shared": "pages"
+    },
+    {
+      "id": "error.missing_part.title",
+      "kind": "title",
+      "text": {
+        "mac": "The app could not start",
+        "windows": "The app could not start"
+      },
+      "mac": "FoodOptimizerApp.swift:func startLauncher",
+      "shared": "pages"
+    },
+    {
+      "id": "error.missing_part.body",
+      "kind": "body",
+      "text": {
+        "mac": "Part of the app is missing. Download Food Optimizer again and replace this copy.",
+        "windows": "Part of the app is missing. Reinstall Food Optimizer."
+      },
+      "mac": "FoodOptimizerApp.swift:func startLauncher",
+      "shared": "pages"
+    },
+    {
+      "id": "error.unsupported.title",
+      "kind": "title",
+      "text": {
+        "mac": "This Mac is not supported",
+        "windows": "This PC is not supported"
+      },
+      "mac": "FoodOptimizerApp.swift:func launcherEnded",
+      "shared": "pages"
+    },
+    {
+      "id": "error.unsupported.body",
+      "kind": "body",
+      "text": {
+        "mac": "Food Optimizer needs a Mac with an Apple chip and macOS 13 or later.",
+        "windows": "Needs 64-bit Windows 10 (22H2) or Windows 11."
+      },
+      "mac": "FoodOptimizerApp.swift:func launcherEnded",
+      "shared": "pages"
+    },
+    {
+      "id": "error.needs_internet.title",
+      "kind": "title",
+      "text": {
+        "mac": "Setup needs the internet, just this once",
+        "windows": null
+      },
+      "mac": "FoodOptimizerApp.swift:func launcherEnded",
+      "shared": "pages"
+    },
+    {
+      "id": "error.needs_internet.body",
+      "kind": "body",
+      "text": {
+        "mac": "The first launch downloads about 1 GB. Connect to the internet, then click Try again.",
+        "windows": null
+      },
+      "mac": "FoodOptimizerApp.swift:func launcherEnded",
+      "shared": "pages"
+    },
+    {
+      "id": "error.no_space.title",
+      "kind": "title",
+      "text": {
+        "mac": "Not enough free space to set up",
+        "windows": null
+      },
+      "mac": "FoodOptimizerApp.swift:func launcherEnded",
+      "shared": "pages"
+    },
+    {
+      "id": "error.no_space.body",
+      "kind": "body",
+      "text": {
+        "mac": "Setup needs about 6 GB free on this Mac. Free up space, then click Try again.",
+        "windows": null
+      },
+      "mac": "FoodOptimizerApp.swift:func launcherEnded",
+      "shared": "pages"
+    },
+    {
+      "id": "error.stopped.title",
+      "kind": "title",
+      "text": {
+        "mac": "Food Optimizer stopped unexpectedly",
+        "windows": "Food Optimizer stopped unexpectedly"
+      },
+      "mac": "FoodOptimizerApp.swift:func startHealthWatch",
+      "shared": "pages"
+    },
+    {
+      "id": "error.stopped.body",
+      "kind": "body",
+      "text": {
+        "mac": "Your projects are saved. Click Try again.",
+        "windows": "Your projects are saved. Click Try again."
+      },
+      "mac": "FoodOptimizerApp.swift:func startHealthWatch",
+      "shared": "pages"
+    },
+    {
+      "id": "stalled.title",
+      "kind": "title",
+      "text": {
+        "mac": "Still setting up",
+        "windows": "Still setting up"
+      },
+      "mac": "FoodOptimizerApp.swift:func poll",
+      "shared": "pages"
+    },
+    {
+      "id": "stalled.body",
+      "kind": "body",
+      "text": {
+        "mac": "The downloads are taking a while — slow connections can take longer than usual. Leave this window open; the app will appear as soon as it's ready.",
+        "windows": "Still loading. Please keep this window open."
+      },
+      "mac": "FoodOptimizerApp.swift:func poll",
+      "shared": "pages"
+    },
+    {
+      "id": "stalled.step_fallback",
+      "kind": "line",
+      "text": {
+        "mac": "Still working",
+        "windows": "Still working"
+      },
+      "mac": "FoodOptimizerApp.swift:func poll",
+      "shared": "pages"
+    },
+    {
+      "id": "button.try_again",
+      "kind": "button",
+      "text": {
+        "mac": "Try again",
+        "windows": "Try again"
+      },
+      "mac": "FoodOptimizerApp.swift:func showStatus",
+      "shared": "pages"
+    },
+    {
+      "id": "launcher.status.load",
+      "kind": "line",
+      "text": {
+        "mac": "Loading the app's components",
+        "windows": "Loading the app's components"
+      },
+      "mac": "launcher.sh:WARM_MSG",
+      "shared": "launcher:LOAD_LINE"
+    },
+    {
+      "id": "launcher.status.starting",
+      "kind": "line",
+      "text": {
+        "mac": "Starting the app",
+        "windows": "Starting the app"
+      },
+      "mac": "launcher.sh:status",
+      "shared": "launcher:STARTING_LINE"
+    },
+    {
+      "id": "launcher.status.download_python",
+      "kind": "line",
+      "text": {
+        "mac": "Downloading Python (step 1 of 3)",
+        "windows": null
+      },
+      "mac": "launcher.sh:status",
+      "shared": "mac-only"
+    },
+    {
+      "id": "launcher.status.updating",
+      "kind": "line",
+      "text": {
+        "mac": "Updating components",
+        "windows": null
+      },
+      "mac": "launcher.sh:status",
+      "shared": "mac-only"
+    },
+    {
+      "id": "launcher.status.creating_env",
+      "kind": "line",
+      "text": {
+        "mac": "Creating environment ({step})",
+        "windows": null
+      },
+      "mac": "launcher.sh:status",
+      "shared": "mac-only"
+    },
+    {
+      "id": "launcher.status.installing",
+      "kind": "line",
+      "text": {
+        "mac": "Installing components ({step}): {mb} MB of about {total} MB",
+        "windows": null
+      },
+      "mac": "launcher.sh:MSG",
+      "shared": "mac-only"
+    },
+    {
+      "id": "launcher.status.finishing",
+      "kind": "line",
+      "text": {
+        "mac": "Finishing setup ({step})",
+        "windows": null
+      },
+      "mac": "launcher.sh:status",
+      "shared": "mac-only"
+    },
+    {
+      "id": "window.title",
+      "kind": "title",
+      "text": {
+        "mac": "Food Optimizer",
+        "windows": "Food Optimizer"
+      },
+      "mac": "FoodOptimizerApp.swift:applicationDidFinishLaunching",
+      "shared": "shell"
+    },
+    {
+      "id": "dialog.title",
+      "kind": "title",
+      "text": {
+        "mac": "Food Optimizer",
+        "windows": "Food Optimizer"
+      },
+      "mac": "FoodOptimizerApp.swift:runJavaScriptAlertPanelWithMessage",
+      "shared": "shell"
+    },
+    {
+      "id": "about.body",
+      "kind": "line",
+      "text": {
+        "mac": null,
+        "windows": "Food Optimizer {version}"
+      },
+      "mac": null,
+      "shared": "shell"
+    },
+    {
+      "id": "help.get_help.title",
+      "kind": "title",
+      "text": {
+        "mac": "Food Optimizer support",
+        "windows": "Food Optimizer support"
+      },
+      "mac": "FoodOptimizerApp.swift:func getHelp",
+      "shared": "shell"
+    },
+    {
+      "id": "help.get_help.body",
+      "kind": "body",
+      "text": {
+        "mac": "Email sohum.patnaik@fsi.org. Describe the problem and what you expected. Attaching the app's log file helps — Help › Show Log File finds it for you.",
+        "windows": "Email sohum.patnaik@fsi.org. Describe the problem and what you expected. Attaching the app's log file helps — Help › Show Log File finds it for you."
+      },
+      "mac": "FoodOptimizerApp.swift:func getHelp",
+      "shared": "shell"
+    },
+    {
+      "id": "help.no_log.title",
+      "kind": "title",
+      "text": {
+        "mac": "There is no log file yet",
+        "windows": "There is no log file yet"
+      },
+      "mac": "FoodOptimizerApp.swift:func showLogFile",
+      "shared": "shell"
+    },
+    {
+      "id": "help.no_log.body",
+      "kind": "body",
+      "text": {
+        "mac": "The log is created when the app starts up. Quit and open Food Optimizer again, then try this menu item once more.",
+        "windows": "The log is created when the app starts up. Close and reopen Food Optimizer, then try again."
+      },
+      "mac": "FoodOptimizerApp.swift:func showLogFile",
+      "shared": "shell"
+    },
+    {
+      "id": "download.failed.title",
+      "kind": "title",
+      "text": {
+        "mac": "The file could not be saved",
+        "windows": "The file could not be saved"
+      },
+      "mac": "FoodOptimizerApp.swift:didFailWithError",
+      "shared": "shell"
+    },
+    {
+      "id": "download.failed.body",
+      "kind": "body",
+      "text": {
+        "mac": "Try again and pick another folder, such as your FoodOptimizer folder.",
+        "windows": "Try again and pick another folder, such as your FoodOptimizer folder."
+      },
+      "mac": "FoodOptimizerApp.swift:didFailWithError",
+      "shared": "shell"
+    },
+    {
+      "id": "webview2.missing.title",
+      "kind": "title",
+      "text": {
+        "mac": null,
+        "windows": "Food Optimizer can't open"
+      },
+      "mac": null,
+      "shared": "shell"
+    },
+    {
+      "id": "webview2.missing.body",
+      "kind": "body",
+      "text": {
+        "mac": null,
+        "windows": "Ask IT to install Microsoft Edge WebView2 Runtime."
+      },
+      "mac": null,
+      "shared": "shell"
+    }
+  ],
+  "menus": [
+    {
+      "id": "menu.app.about",
+      "kind": "menu",
+      "text": {
+        "mac": "About Food Optimizer",
+        "windows": "About Food Optimizer"
+      },
+      "keys": {
+        "mac": [],
+        "windows": []
+      },
+      "mac": "FoodOptimizerApp.swift:func buildMenus",
+      "shared": "shell"
+    },
+    {
+      "id": "menu.app.quit",
+      "kind": "menu",
+      "text": {
+        "mac": "Quit Food Optimizer",
+        "windows": "Exit"
+      },
+      "keys": {
+        "mac": [
+          "q"
+        ],
+        "windows": []
+      },
+      "mac": "FoodOptimizerApp.swift:func buildMenus",
+      "shared": "shell"
+    },
+    {
+      "id": "menu.file",
+      "kind": "menu",
+      "text": {
+        "mac": "File",
+        "windows": "File"
+      },
+      "keys": {
+        "mac": [],
+        "windows": []
+      },
+      "mac": "FoodOptimizerApp.swift:func buildMenus",
+      "shared": "shell"
+    },
+    {
+      "id": "menu.file.open_projects",
+      "kind": "menu",
+      "text": {
+        "mac": "Open Projects Folder",
+        "windows": "Open Projects Folder"
+      },
+      "keys": {
+        "mac": [
+          "o"
+        ],
+        "windows": [
+          "Ctrl+O"
+        ]
+      },
+      "mac": "FoodOptimizerApp.swift:func buildMenus",
+      "shared": "shell"
+    },
+    {
+      "id": "menu.file.close_window",
+      "kind": "menu",
+      "text": {
+        "mac": "Close Window",
+        "windows": null
+      },
+      "keys": {
+        "mac": [
+          "w"
+        ],
+        "windows": []
+      },
+      "mac": "FoodOptimizerApp.swift:func buildMenus",
+      "shared": "shell"
+    },
+    {
+      "id": "menu.edit",
+      "kind": "menu",
+      "text": {
+        "mac": "Edit",
+        "windows": null
+      },
+      "keys": {
+        "mac": [],
+        "windows": []
+      },
+      "mac": "FoodOptimizerApp.swift:func buildMenus",
+      "shared": "shell"
+    },
+    {
+      "id": "menu.edit.undo",
+      "kind": "menu",
+      "text": {
+        "mac": "Undo",
+        "windows": null
+      },
+      "keys": {
+        "mac": [
+          "z"
+        ],
+        "windows": []
+      },
+      "mac": "FoodOptimizerApp.swift:func buildMenus",
+      "shared": "shell"
+    },
+    {
+      "id": "menu.edit.redo",
+      "kind": "menu",
+      "text": {
+        "mac": "Redo",
+        "windows": null
+      },
+      "keys": {
+        "mac": [
+          "Z"
+        ],
+        "windows": []
+      },
+      "mac": "FoodOptimizerApp.swift:func buildMenus",
+      "shared": "shell"
+    },
+    {
+      "id": "menu.edit.cut",
+      "kind": "menu",
+      "text": {
+        "mac": "Cut",
+        "windows": null
+      },
+      "keys": {
+        "mac": [
+          "x"
+        ],
+        "windows": []
+      },
+      "mac": "FoodOptimizerApp.swift:func buildMenus",
+      "shared": "shell"
+    },
+    {
+      "id": "menu.edit.copy",
+      "kind": "menu",
+      "text": {
+        "mac": "Copy",
+        "windows": null
+      },
+      "keys": {
+        "mac": [
+          "c"
+        ],
+        "windows": []
+      },
+      "mac": "FoodOptimizerApp.swift:func buildMenus",
+      "shared": "shell"
+    },
+    {
+      "id": "menu.edit.paste",
+      "kind": "menu",
+      "text": {
+        "mac": "Paste",
+        "windows": null
+      },
+      "keys": {
+        "mac": [
+          "v"
+        ],
+        "windows": []
+      },
+      "mac": "FoodOptimizerApp.swift:func buildMenus",
+      "shared": "shell"
+    },
+    {
+      "id": "menu.edit.select_all",
+      "kind": "menu",
+      "text": {
+        "mac": "Select All",
+        "windows": null
+      },
+      "keys": {
+        "mac": [
+          "a"
+        ],
+        "windows": []
+      },
+      "mac": "FoodOptimizerApp.swift:func buildMenus",
+      "shared": "shell"
+    },
+    {
+      "id": "menu.view",
+      "kind": "menu",
+      "text": {
+        "mac": "View",
+        "windows": "View"
+      },
+      "keys": {
+        "mac": [],
+        "windows": []
+      },
+      "mac": "FoodOptimizerApp.swift:func buildMenus",
+      "shared": "shell"
+    },
+    {
+      "id": "menu.view.bigger",
+      "kind": "menu",
+      "text": {
+        "mac": "Bigger Text",
+        "windows": "Bigger Text"
+      },
+      "keys": {
+        "mac": [
+          "+",
+          "="
+        ],
+        "windows": [
+          "Ctrl+=",
+          "Ctrl++",
+          "Ctrl+Add"
+        ]
+      },
+      "mac": "FoodOptimizerApp.swift:func buildMenus",
+      "shared": "shell"
+    },
+    {
+      "id": "menu.view.smaller",
+      "kind": "menu",
+      "text": {
+        "mac": "Smaller Text",
+        "windows": "Smaller Text"
+      },
+      "keys": {
+        "mac": [
+          "-"
+        ],
+        "windows": [
+          "Ctrl+-",
+          "Ctrl+Subtract"
+        ]
+      },
+      "mac": "FoodOptimizerApp.swift:func buildMenus",
+      "shared": "shell"
+    },
+    {
+      "id": "menu.view.actual",
+      "kind": "menu",
+      "text": {
+        "mac": "Actual Size",
+        "windows": "Actual Size"
+      },
+      "keys": {
+        "mac": [
+          "0"
+        ],
+        "windows": [
+          "Ctrl+0"
+        ]
+      },
+      "mac": "FoodOptimizerApp.swift:func buildMenus",
+      "shared": "shell"
+    },
+    {
+      "id": "menu.window",
+      "kind": "menu",
+      "text": {
+        "mac": "Window",
+        "windows": null
+      },
+      "keys": {
+        "mac": [],
+        "windows": []
+      },
+      "mac": "FoodOptimizerApp.swift:func buildMenus",
+      "shared": "shell"
+    },
+    {
+      "id": "menu.window.minimize",
+      "kind": "menu",
+      "text": {
+        "mac": "Minimize",
+        "windows": null
+      },
+      "keys": {
+        "mac": [
+          "m"
+        ],
+        "windows": []
+      },
+      "mac": "FoodOptimizerApp.swift:func buildMenus",
+      "shared": "shell"
+    },
+    {
+      "id": "menu.help",
+      "kind": "menu",
+      "text": {
+        "mac": "Help",
+        "windows": "Help"
+      },
+      "keys": {
+        "mac": [],
+        "windows": []
+      },
+      "mac": "FoodOptimizerApp.swift:func buildMenus",
+      "shared": "shell"
+    },
+    {
+      "id": "menu.help.start_here",
+      "kind": "menu",
+      "text": {
+        "mac": null,
+        "windows": "Start Here"
+      },
+      "keys": {
+        "mac": [],
+        "windows": []
+      },
+      "mac": null,
+      "shared": "shell"
+    },
+    {
+      "id": "menu.help.get_help",
+      "kind": "menu",
+      "text": {
+        "mac": "Get Help",
+        "windows": "Get Help"
+      },
+      "keys": {
+        "mac": [],
+        "windows": []
+      },
+      "mac": "FoodOptimizerApp.swift:func buildMenus",
+      "shared": "shell"
+    },
+    {
+      "id": "menu.help.show_log",
+      "kind": "menu",
+      "text": {
+        "mac": "Show Log File",
+        "windows": "Show Log File"
+      },
+      "keys": {
+        "mac": [],
+        "windows": []
+      },
+      "mac": "FoodOptimizerApp.swift:func buildMenus",
+      "shared": "shell"
+    }
+  ],
+  "menu_layout": {
+    "windows": [
+      {
+        "menu": "menu.file",
+        "items": [
+          "menu.file.open_projects",
+          "-",
+          "menu.app.quit"
+        ]
+      },
+      {
+        "menu": "menu.view",
+        "items": [
+          "menu.view.bigger",
+          "menu.view.smaller",
+          "menu.view.actual"
+        ]
+      },
+      {
+        "menu": "menu.help",
+        "items": [
+          "menu.help.start_here",
+          "menu.help.get_help",
+          "menu.help.show_log",
+          "-",
+          "menu.app.about"
+        ]
+      }
+    ]
+  }
+}
