@@ -180,3 +180,16 @@ def test_a_test_build_skips_the_release_guards_and_warns(release_repo):
     assert _REFUSE_DIRTY not in result.stderr
     assert re.search(r"build failed: ", result.stdout + result.stderr)
     assert result.returncode == 1
+
+
+def test_a_folder_that_is_not_an_image_is_never_deleted(release_repo, short_tmp):
+    """-OutDir pointed at a home folder: its FoodOptimizer folder holds the
+    user's projects, and the build must refuse instead of replacing it."""
+    out = short_tmp / "home"
+    project = out / "FoodOptimizer" / "Round 1.json"
+    project.parent.mkdir(parents=True)
+    project.write_bytes(b"{}")
+    _refused(run_build(release_repo, "-TestBuild", "-OutDir", out),
+             f"refusing to build: {out / 'FoodOptimizer'} is not an earlier build "
+             "(it holds Round 1.json); choose another -OutDir")
+    assert project.read_bytes() == b"{}"
