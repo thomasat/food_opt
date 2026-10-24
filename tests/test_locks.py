@@ -2,12 +2,17 @@
 lock's bytes unless its packages change, and the committed locks agree."""
 import hashlib
 import os
+import inspect
 import pathlib
 import re
 import shutil
 import subprocess
 
 import pytest
+
+# The build scripts are Mac-only bash; their behaviour tests skip on Windows.
+MAC_SCRIPT_CONDITION = "sys.platform == 'win32'"
+mac_script = pytest.mark.skipif(MAC_SCRIPT_CONDITION, reason="Mac build script")
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 MAC_LOCK = REPO / "desktop" / "requirements.lock.txt"
@@ -100,6 +105,7 @@ def lock_sandbox(tmp_path):
     return LockSandbox(tmp_path)
 
 
+@mac_script
 def test_a_comment_only_change_keeps_the_mac_lock_bytes(lock_sandbox):
     lines = MAC_LOCK.read_text(encoding="utf-8").splitlines(keepends=True)
     lines[1] = "#    ./desktop/update_lock.sh\n"
@@ -113,6 +119,7 @@ def test_a_comment_only_change_keeps_the_mac_lock_bytes(lock_sandbox):
             "desktop/requirements.lock.txt") in result.stdout
 
 
+@mac_script
 def test_a_version_change_rewrites_the_mac_lock(lock_sandbox):
     text = MAC_LOCK.read_text(encoding="utf-8")
     assert "altair==6.2.2" in text
@@ -125,6 +132,7 @@ def test_a_version_change_rewrites_the_mac_lock(lock_sandbox):
     assert "re-measure EXPECTED_SETUP_MB" in result.stdout
 
 
+@mac_script
 def test_the_windows_lock_is_compiled_for_windows_against_the_new_mac_lock(lock_sandbox):
     text = MAC_LOCK.read_text(encoding="utf-8")
     lock_sandbox.mac_out.write_text(text.replace("altair==6.2.2", "altair==6.2.3"),
@@ -141,6 +149,7 @@ def test_the_windows_lock_is_compiled_for_windows_against_the_new_mac_lock(lock_
     assert lock_sandbox.c_copy.read_bytes() == lock_sandbox.mac_out.read_bytes()
 
 
+@mac_script
 def test_a_failed_compile_touches_neither_lock(lock_sandbox):
     text = MAC_LOCK.read_text(encoding="utf-8")
     lock_sandbox.mac_out.write_text(text.replace("altair==6.2.2", "altair==6.2.3"),
@@ -152,6 +161,7 @@ def test_a_failed_compile_touches_neither_lock(lock_sandbox):
     assert _sha256(lock_sandbox.mac_lock) == MAC_LOCK_SHA256
 
 
+@mac_script
 def test_the_windows_lock_names_the_committed_mac_lock(lock_sandbox):
     """uv writes the -c file's path into its `# via` lines; the compile's
     temporary copy must not reach the committed Windows lock."""
@@ -163,6 +173,7 @@ def test_the_windows_lock_names_the_committed_mac_lock(lock_sandbox):
     assert "mac.lock" not in text
 
 
+@mac_script
 @pytest.mark.parametrize("platform", ["Linux x86_64", "Darwin x86_64"])
 def test_refuses_off_apple_silicon(lock_sandbox, platform):
     result = lock_sandbox.run(platform=platform)
@@ -213,3 +224,21 @@ def test_mac_lock_bytes_change_only_on_purpose():
     comment, makes every Mac user redo the ~1 GB online setup. Update
     MAC_LOCK_SHA256 only in a release that bumps dependencies anyway."""
     assert _sha256(MAC_LOCK) == MAC_LOCK_SHA256
+
+
+def test_mac_script_tests_skip_on_windows():
+    """The behaviour tests run Mac-only bash scripts; on Windows they would
+    check nothing and fail the Windows pytest gate."""
+    unmarked = []
+    for name, fn in sorted(globals().items()):
+        if not (name.startswith("test_") and callable(fn)):
+            continue
+        params = inspect.signature(fn).parameters
+        if not ({"release_repo", "lock_sandbox"} & set(params)
+                or name == "test_fixture_repos_ignore_an_outer_git_dir"):
+            continue
+        marks = getattr(fn, "pytestmark", [])
+        if not any(m.name == "skipif" and m.args == (MAC_SCRIPT_CONDITION,)
+                   for m in marks):
+            unmarked.append(name)
+    assert not unmarked, unmarked
