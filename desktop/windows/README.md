@@ -23,6 +23,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File desktop\windows\build_instal
 - A release build (no switch) refuses unless the release checks pass.
 - `-OutDir DIR` changes the output folder (default `desktop\windows\build`).
   The image folder `<OutDir>\FoodOptimizer\` must be at most 80 characters.
+  Each build replaces it, so the build refuses a folder there that holds
+  anything but an earlier build.
 - Every build prints `UNSIGNED build - internal testing only.`
 
 Exit codes: `0` built (or `-Check` passed); `2` refused before anything was

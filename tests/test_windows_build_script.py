@@ -23,6 +23,7 @@ REFUSALS = (
     "refusing to build: needs Windows PowerShell 5.1 or later",
     "refusing to build: $tool not found on PATH",
     "refusing to build: image folder is $n characters; at most 80 (clone to a shorter path)",
+    "refusing to build: $Image is not an earlier build (it holds $held); choose another -OutDir",
     "usage: build_installer.ps1 [-Version X.Y.Z] [-Check] [-TestBuild] [-OutDir DIR]",
 )
 

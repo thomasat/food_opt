@@ -151,6 +151,18 @@ if ($n -gt $ROOT_BUDGET) {
     Refuse "refusing to build: image folder is $n characters; at most 80 (clone to a shorter path)"
 }
 
+# The build replaces <OutDir>\FoodOptimizer, so it must be an earlier build
+# (or empty): never a home folder's projects or the shell's source folder.
+if (Test-Path -LiteralPath $Image) {
+    $earlier = @('python', 'app', 'shared', 'Start Here.txt')
+    $foreign = @(Get-ChildItem -LiteralPath $Image -Force | Where-Object { $earlier -notcontains $_.Name })
+    if (-not (Test-Path -LiteralPath $Image -PathType Container)) { $foreign = @(Get-Item -LiteralPath $Image) }
+    if ($foreign.Count -gt 0) {
+        $held = $foreign[0].Name
+        Refuse "refusing to build: $Image is not an earlier build (it holds $held); choose another -OutDir"
+    }
+}
+
 # ---------- 8. -Check ----------
 if ($Check) {
     Say "ready to build $ver from v$ver"
