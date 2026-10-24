@@ -1,0 +1,53 @@
+# The test suite on Windows and macOS for every push and pull request.
+# Test-only: no secrets, no builds, no releases (Windows port phase 1).
+name: tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13.7"   # desktop/launcher.sh's pin
+
+      - uses: astral-sh/setup-uv@v6
+
+      # The versions the app ships. macOS: the desktop lock as committed.
+      # Windows: the same resolution for Windows, constrained to the Mac
+      # lock (adds only Windows-only packages), as desktop/update_lock.sh
+      # will in phase 3a. +cpu torch exists only on PyTorch's index; PyPI's
+      # Windows torch is CPU-only already.
+      - name: Install the locked dependencies
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            sed -e '/^--extra-index-url/d' \
+                -e 's/^torch==\([0-9.[:alnum:]]*\)+cpu$/torch==\1/' \
+                -e '/^pytest/d' requirements.txt \
+              | uv pip compile - --python-version 3.13 \
+                  --python-platform x86_64-pc-windows-msvc --generate-hashes \
+                  -c desktop/requirements.lock.txt -o ci-lock.txt
+          else
+            cp desktop/requirements.lock.txt ci-lock.txt
+          fi
+          uv pip install --system -r ci-lock.txt
+          uv pip install --system pytest matplotlib
+
+      # No PYTHONUTF8: Windows runs in its default encoding, so a text file
+      # opened without encoding="utf-8" fails here first.
+      - name: Run the tests
+        run: python -m pytest tests/ -q -p no:cacheprovider

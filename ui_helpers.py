@@ -5,10 +5,13 @@ st.rerun(), so `st.success("Saved"); st.rerun()` shows nothing. The audit found
 14 such sites. flash() queues the message in session state; render_flash() at
 the top of the script shows it on the next run.
 """
+import csv
+import io
 import json
 import re
 from datetime import datetime
 
+import pandas as pd
 import streamlit as st
 
 import sample_projects
@@ -922,3 +925,23 @@ def reset_grids():
         st.session_state.pop(premix_errors_key(name), None)
     st.session_state.pop(_PREMIX_GRIDS, None)
     st.session_state.pop(ING_PENDING_KEY, None)
+
+
+def read_uploaded_csv(uploaded):
+    """An uploaded CSV, read the way the spreadsheet that wrote it meant:
+    UTF-8 (with or without the BOM Excel adds) or Windows' cp1252; commas,
+    semicolons or tabs between columns; and decimal commas when a
+    semicolon-separated file (French and most European Excel) uses them."""
+    raw = uploaded.getvalue()
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = raw.decode("cp1252")
+    lines = text.splitlines()
+    try:
+        sep = csv.Sniffer().sniff("\n".join(lines[:5]), delimiters=",;\t").delimiter
+    except csv.Error:
+        sep = ","
+    body = "\n".join(lines[1:])
+    decimal = "," if sep == ";" and re.search(r"\d,\d", body) else "."
+    return pd.read_csv(io.StringIO(text), sep=sep, decimal=decimal)

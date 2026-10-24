@@ -101,7 +101,7 @@ CASES = {"exempt_and_waiting": exempt_and_waiting, "imported_blank": imported_bl
 
 
 def fixture():
-    return json.loads(FIXTURE.read_text())
+    return json.loads(FIXTURE.read_text(encoding="utf-8"))
 
 
 def same(got, want):
@@ -131,5 +131,5 @@ if __name__ == "__main__":
         data = {case: json.loads(json.dumps(run(make()), default=float))
                 for case, make in CASES.items()}
         os.chdir(here)
-    FIXTURE.write_text(json.dumps(data, indent=1) + "\n")
+    FIXTURE.write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")
     print(f"wrote {FIXTURE}", file=sys.stderr)

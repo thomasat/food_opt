@@ -6,14 +6,14 @@ import re
 import tomllib
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-BUILD = (REPO / "desktop" / "build_dmg.sh").read_text()
+BUILD = (REPO / "desktop" / "build_dmg.sh").read_text(encoding="utf-8")
 LOCAL = {p.stem for p in REPO.glob("*.py")}
 
 
 def _local_imports(path):
     """Top-level local modules a file imports, including inside functions."""
     found = set()
-    for node in ast.walk(ast.parse(path.read_text())):
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
         if isinstance(node, ast.Import):
             names = [a.name for a in node.names]
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
@@ -68,6 +68,6 @@ def test_build_script_ships_the_sample_data():
 
 
 def test_source_runs_disable_usage_stats():
-    cfg = tomllib.loads((REPO / ".streamlit" / "config.toml").read_text())
+    cfg = tomllib.loads((REPO / ".streamlit" / "config.toml").read_text(encoding="utf-8"))
     assert cfg["browser"]["gatherUsageStats"] is False
     assert cfg["server"]["address"] == "127.0.0.1"

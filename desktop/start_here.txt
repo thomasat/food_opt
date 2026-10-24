@@ -108,10 +108,10 @@ a new round.
 Open the app again from Applications. Close its window to quit.
 View → Bigger Text increases the text size.
 
-For help: https://github.com/thomasat/food_opt/issues
-Describe what happened and what you expected. This page is public: avoid
-sharing confidential project data. Help → Show Log File opens the startup
-log; review it before attaching it. If the app cannot open, find the log at:
+For help: email sohum.patnaik@fsi.org
+Describe what happened and what you expected. Help → Show Log File opens
+the startup log; attach it to your email. If the app cannot open, find
+the log at:
 ~/Library/Application Support/FoodOptimizer/launcher.log
 
 REVIEWING RESULTS

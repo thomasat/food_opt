@@ -50,7 +50,7 @@ NAMES = (PATTY, PATTY_ROUND3, PATTY_ROUND7_OPEN, BAR_CLEAN, BAR_DRIFT, BAR_NOISY
 
 def state(name):
     """The fixture's saved state, a fresh dict each call."""
-    return json.loads((HERE / f"{name}.json").read_text())
+    return json.loads((HERE / f"{name}.json").read_text(encoding="utf-8"))
 
 
 def truncate_state(saved, last_round):

@@ -4193,7 +4193,7 @@ _LAUNCHER_SCREEN_TEXT = re.compile(
 def _launcher_lines(root):
     """Every sentence desktop/launcher.sh puts on the first screen, with the
     bar's own `|percent` tail and its shell variables taken off."""
-    text = (root / _USER_FACING_LAUNCHER).read_text()
+    text = (root / _USER_FACING_LAUNCHER).read_text(encoding="utf-8")
     out = []
     for literal in _LAUNCHER_SCREEN_TEXT.findall(text):
         line = literal.split("|")[0]
@@ -4592,7 +4592,7 @@ def _how_it_works():
 def _string_constants(path):
     """Every string literal in a Python file, minus docstrings — those are
     notes to the next engineer, not screen text."""
-    tree = ast.parse(pathlib.Path(path).read_text())
+    tree = ast.parse(pathlib.Path(path).read_text(encoding="utf-8"))
     docstrings = set()
     for node in ast.walk(tree):
         body = getattr(node, "body", None)
@@ -4705,7 +4705,7 @@ def test_the_ftue_allowance_is_scoped():
     for name in _USER_FACING_SOURCES:
         if name == "wording.py":
             continue
-        uses = _wording_uses(ast.parse((root / name).read_text()))
+        uses = _wording_uses(ast.parse((root / name).read_text(encoding="utf-8")))
         assert all(name == "ui_insights.py" and where in _FTUE_DRAWERS
                    for where, _ in uses), (name, uses)
 
@@ -4793,7 +4793,7 @@ def _food_bo_prose_literals(source=None):
     `source` lets a test sweep an altered copy of the file."""
     root = pathlib.Path(__file__).resolve().parent.parent
     if source is None:
-        source = (root / "food_bo.py").read_text()
+        source = (root / "food_bo.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     skip = set()
     for node in ast.walk(tree):
@@ -4861,7 +4861,7 @@ def test_the_food_bo_sweep_reads_more_than_the_raise_sites():
     nowhere near a `raise`, is what the sweep has to catch — so the sweep
     itself is run over a copy of the file with one planted."""
     root = pathlib.Path(__file__).resolve().parent.parent
-    source = (root / "food_bo.py").read_text()
+    source = (root / "food_bo.py").read_text(encoding="utf-8")
     sentence = "the ingredients that can still vary"
     planted = source.replace(
         "    def per_amount_text(self):",
@@ -4887,7 +4887,7 @@ def test_no_old_vocabulary_reaches_the_user_outside_python():
     root = pathlib.Path(__file__).resolve().parent.parent
     offenders = []
     for name in _USER_FACING_TEXT:
-        for i, line in enumerate(( root / name).read_text().splitlines(), 1):
+        for i, line in enumerate(( root / name).read_text(encoding="utf-8").splitlines(), 1):
             # Both record scopes also apply to process-only trials.
             if (name, line) in {
                 ("desktop/start_here.txt", "formulation/trial or each ingredient in the round. Enter values in the"),
@@ -4902,7 +4902,7 @@ def test_no_old_vocabulary_reaches_the_user_outside_python():
                 line.startswith("worked out shows") else line
             if any(pattern.search(scanned) for pattern in _BANNED):
                 offenders.append((name, i, line))
-    swift = (root / _USER_FACING_SWIFT).read_text()
+    swift = (root / _USER_FACING_SWIFT).read_text(encoding="utf-8")
     for fragment in _SWIFT_NOT_PROSE:
         swift = swift.replace(fragment, "")
     for literal in re.findall(r'"((?:[^"\\\n]|\\.)*)"', swift):
@@ -4920,11 +4920,11 @@ def test_the_launcher_and_the_window_name_the_load_step_alike():
     line for it cannot drift apart: they drifted, and the warm-up — the slow
     part of a cold start — was drawn under "Opening your projects"."""
     root = pathlib.Path(__file__).resolve().parent.parent
-    swift = (root / _USER_FACING_SWIFT).read_text()
+    swift = (root / _USER_FACING_SWIFT).read_text(encoding="utf-8")
     label = re.search(r'let loadStepLabel = "((?:[^"\\\n]|\\.)*)"',
                       swift).group(1)
     warm = re.search(r'WARM_MSG="((?:[^"\\\n]|\\.)*)"',
-                     (root / _USER_FACING_LAUNCHER).read_text()).group(1)
+                     (root / _USER_FACING_LAUNCHER).read_text(encoding="utf-8")).group(1)
     assert warm.startswith(label), (warm, label)
     assert "model" not in warm.lower() and "model" not in label.lower()
 
@@ -4941,9 +4941,9 @@ def test_no_screen_says_not_made():
                       if _NOT_MADE.search(text)]
     for name in _USER_FACING_TEXT:
         offenders += [(name, i) for i, line
-                      in enumerate((root / name).read_text().splitlines(), 1)
+                      in enumerate((root / name).read_text(encoding="utf-8").splitlines(), 1)
                       if _NOT_MADE.search(line)]
-    swift = (root / _USER_FACING_SWIFT).read_text()
+    swift = (root / _USER_FACING_SWIFT).read_text(encoding="utf-8")
     offenders += [(_USER_FACING_SWIFT, literal) for literal
                   in re.findall(r'"((?:[^"\\\n]|\\.)*)"', swift)
                   if _NOT_MADE.search(literal)]
@@ -4961,9 +4961,9 @@ def test_no_screen_says_bench_sheet():
                       if _BENCH_SHEET.search(text)]
     for name in _USER_FACING_TEXT:
         offenders += [(name, i) for i, line
-                      in enumerate((root / name).read_text().splitlines(), 1)
+                      in enumerate((root / name).read_text(encoding="utf-8").splitlines(), 1)
                       if _BENCH_SHEET.search(line)]
-    swift = (root / _USER_FACING_SWIFT).read_text()
+    swift = (root / _USER_FACING_SWIFT).read_text(encoding="utf-8")
     offenders += [(_USER_FACING_SWIFT, literal) for literal
                   in re.findall(r'"((?:[^"\\\n]|\\.)*)"', swift)
                   if _BENCH_SHEET.search(literal)]
@@ -4996,9 +4996,9 @@ def test_no_screen_says_backup():
                       if _BACKUP.search(text)]
     for name in _USER_FACING_TEXT:
         offenders += [(name, i) for i, line
-                      in enumerate((root / name).read_text().splitlines(), 1)
+                      in enumerate((root / name).read_text(encoding="utf-8").splitlines(), 1)
                       if _BACKUP.search(line)]
-    swift = (root / _USER_FACING_SWIFT).read_text()
+    swift = (root / _USER_FACING_SWIFT).read_text(encoding="utf-8")
     offenders += [(_USER_FACING_SWIFT, literal) for literal
                   in re.findall(r'"((?:[^"\\\n]|\\.)*)"', swift)
                   if _BACKUP.search(literal)]

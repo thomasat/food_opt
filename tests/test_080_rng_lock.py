@@ -95,7 +95,7 @@ def test_generate_asks_through_the_lock():
     for path in sorted(root.glob("*.py")):
         if path.name in ("food_bo.py", "benchmark.py", "theory.py"):
             continue
-        tree = ast.parse(path.read_text())
+        tree = ast.parse(path.read_text(encoding="utf-8"))
         asks = {id(n) for n in ast.walk(tree) if isinstance(n, ast.Call)
                 and isinstance(n.func, ast.Attribute) and n.func.attr == "ask"}
         placed = set()

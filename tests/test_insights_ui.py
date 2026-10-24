@@ -268,7 +268,7 @@ def test_num_never_uses_scientific_notation():
 def test_round_and_tab_words_come_from_constants(monkeypatch):
     # G3: rename the round word and the tab, and every Insights string follows.
     import importlib
-    src = open(wording.__file__).read()
+    src = open(wording.__file__, encoding="utf-8").read()
     assert 'f"2 · {TAB_BATCH_NAME}"' in src or "TAB_BATCH_NAME" in src
     assert wording.TAB_BATCH.endswith(wording.TAB_BATCH_NAME)
 
