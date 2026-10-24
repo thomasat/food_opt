@@ -58,7 +58,11 @@ class _StubbingLoader(importlib.abc.Loader):
 
 
 class _NetUtilFinder(importlib.abc.MetaPathFinder):
-    """Stubs streamlit.net_util the moment it is imported."""
+    """Stubs streamlit.net_util the moment it is imported. A second load of
+    this file defines a second class, so install() looks for the marker,
+    not the class: two finders would call each other forever."""
+
+    foodopt_net_util_finder = True
 
     def find_spec(self, name, path, target=None):
         if name != _NET_UTIL:
@@ -97,7 +101,7 @@ def install(platform=None, executable=None) -> None:
     try:
         if _NET_UTIL in sys.modules:
             _stub_net_util(sys.modules[_NET_UTIL])
-        elif not any(isinstance(f, _NetUtilFinder) for f in sys.meta_path):
+        elif not any(getattr(f, "foodopt_net_util_finder", False) for f in sys.meta_path):
             sys.meta_path.insert(0, _NetUtilFinder())
     except Exception as err:
         _warn("IP lookup guard", err)

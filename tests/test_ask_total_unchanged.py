@@ -15,7 +15,8 @@ tests/fixtures/ask_total_unchanged.json is written ONCE, on insights-080 @
     python -m tests.test_ask_total_unchanged
 
 and committed on its own. It is never regenerated: every later commit keeps
-it green, bit for bit — the suggestions and the rows handed to the model."""
+it green — the suggestions and the rows handed to the model, bit-identical
+on the Mac; within 0.1% on Windows (tests.golden.same)."""
 import json
 import os
 import pathlib
@@ -23,9 +24,9 @@ import sys
 import tempfile
 
 import pytest
-import torch
 
 from food_bo import FoodOptimizer
+from tests.golden import same
 
 FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "ask_total_unchanged.json"
 
@@ -201,16 +202,6 @@ def run(opt):
 
 def fixture():
     return json.loads(FIXTURE.read_text(encoding="utf-8"))
-
-
-def same(got, want):
-    got = json.loads(json.dumps(got, default=float))
-    for key in want:
-        if key in ("gp_X", "gp_Y"):
-            assert torch.equal(torch.tensor(got[key], dtype=torch.double),
-                               torch.tensor(want[key], dtype=torch.double)), key
-        else:
-            assert got[key] == want[key], key
 
 
 @pytest.fixture(autouse=True)

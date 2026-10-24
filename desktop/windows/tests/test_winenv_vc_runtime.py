@@ -41,7 +41,9 @@ def test_vc_runtime_is_one_microsoft_signed_set():
     for path in paths:
         assert path.is_file(), path
     signatures = authenticode(paths)
-    assert {s for s in signatures.values()} == {("Valid", "Microsoft Corporation")}
+    # Microsoft signs the runtime DLLs as its Software Compatibility Publisher.
+    assert {s for s in signatures.values()} == {("Valid", PINS["vc_runtime"]["dll_signer"])}
+    assert PINS["vc_runtime"]["dll_signer"] == "Microsoft Windows Software Compatibility Publisher"
     versions = {file_version(p) for p in paths}
     assert versions == {PINS["vc_runtime"]["version"]} == {record()["vc_runtime_version"]}
     assert record()["vc_redist_sha256"] == PINS["vc_runtime"]["sha256"]

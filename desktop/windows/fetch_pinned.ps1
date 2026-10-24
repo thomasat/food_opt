@@ -4,7 +4,7 @@
 # mismatch removes it and fails, so a corrupted or tampered cache is never
 # trusted.
 #
-#   fetch_pinned.ps1 -Name python|vc_runtime [-CacheDir DIR]
+#   fetch_pinned.ps1 -Name python|vc_runtime|wix [-CacheDir DIR]
 #
 # Exit codes: 0 verified (path printed), 1 download or verification failed,
 # 2 bad arguments.
@@ -27,8 +27,8 @@ function Get-Sha256([string]$path) {
     return (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
-if (@('python', 'vc_runtime') -notcontains $Name) {
-    Fail 2 'usage: fetch_pinned.ps1 -Name python|vc_runtime [-CacheDir DIR]'
+if (@('python', 'vc_runtime', 'wix') -notcontains $Name) {
+    Fail 2 'usage: fetch_pinned.ps1 -Name python|vc_runtime|wix [-CacheDir DIR]'
 }
 if ($CacheDir -eq '') {
     $CacheDir = Join-Path $PSScriptRoot '.cache'

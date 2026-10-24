@@ -52,6 +52,26 @@ def test_pins_are_https_and_sha256():
     assert pins["python"]["file"] == f"python.{pins['python']['version']}.nupkg"
 
 
+def test_wix_pin_is_a_wixtoolset_release_with_dark():
+    """The VC redistributable's Burn container is unpacked with WiX's
+    dark.exe -x (owner, 2026-10-24: /layout no longer lays out the MSIs).
+    dark.exe 3.14 is not Authenticode-signed, so the zip's sha256 is the pin."""
+    wix = _pins()["wix"]
+    assert wix["url"].startswith("https://github.com/wixtoolset/wix3/releases/download/")
+    assert wix["url"].endswith("/wix314-binaries.zip")
+    assert re.fullmatch(r"[0-9a-f]{64}", wix["sha256"])
+    assert re.fullmatch(r"3\.14\.\d+\.\d+", wix["version"])
+    assert wix["file"] == f"wix-{wix['version']}-binaries.zip"
+    assert "signer" not in wix
+
+
+def test_vc_dlls_are_pinned_to_microsofts_runtime_signer():
+    """The redistributable and its MSI are signed CN=Microsoft Corporation;
+    the runtime DLLs inside it CN=Microsoft Windows Software Compatibility
+    Publisher (O=Microsoft Corporation), as seen on VC_redist 14.51.36247."""
+    assert _pins()["vc_runtime"]["dll_signer"] == "Microsoft Windows Software Compatibility Publisher"
+
+
 def test_vc_files_cover_what_sitecustomize_preloads():
     expected = set(_msvcp_dlls()) | {"vcruntime140.dll", "vcruntime140_1.dll"}
     assert set(_pins()["vc_runtime"]["files"]) == expected
