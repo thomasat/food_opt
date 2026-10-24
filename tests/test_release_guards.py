@@ -48,9 +48,7 @@ def _check_lf(paths):
 def test_shipped_text_checks_out_with_lf():
     """The bundle and the Mac lock are compared byte for byte (the launcher
     hashes the lock), so a Windows checkout must not turn LF into CRLF."""
-    _check_lf(_HASHED_TEXT)
-    if not MANIFEST.exists():
-        pytest.skip("bundle_manifest.txt arrives in Task 5")
+    _check_lf(_HASHED_TEXT + ["desktop/shared/bundle_manifest.txt"])
     _check_lf(MANIFEST.read_text(encoding="utf-8").splitlines())
 
 
@@ -133,6 +131,15 @@ def _commit_all(repo, message):
     _repo_git(repo, "commit", "-q", "-m", message)
 
 
+def _write_manifest(repo, raw):
+    (repo / "desktop" / "shared" / "bundle_manifest.txt").write_bytes(raw)
+
+
+def _retag(repo, message):
+    _commit_all(repo, message)
+    _repo_git(repo, "tag", "-f", "v0.8.0")
+
+
 @pytest.fixture
 def release_repo(tmp_path):
     """A throwaway checkout holding the real build script, tagged v0.8.0."""
@@ -142,6 +149,10 @@ def release_repo(tmp_path):
     (repo / "desktop" / "VERSION").write_bytes(b"0.8.0\n")
     (repo / "desktop" / ".gitignore").write_bytes(b"dist/\n.cache/\n")
     (repo / "app.py").write_bytes(b"print('app')\n")
+    (repo / "desktop" / "shared").mkdir()
+    (repo / "data" / "x").mkdir(parents=True)
+    (repo / "data" / "x" / "Name with spaces.json").write_bytes(b"{}\n")
+    _write_manifest(repo, b"app.py\ndata/x/Name with spaces.json\n")
     _repo_git(repo, "init", "-q")
     _commit_all(repo, "release")
     _repo_git(repo, "tag", "v0.8.0")
@@ -218,3 +229,54 @@ def test_build_script_takes_its_version_from_the_file():
     text = BUILD_SCRIPT.read_text(encoding="utf-8")
     assert not re.findall(r"\b\d+\.\d+\.\d+\b", text)
     assert '"$DESKTOP_DIR/VERSION"' in text
+
+
+# ---------- the manifest build_dmg.sh copies (Task 5) ----------
+
+def test_check_counts_the_manifest(release_repo):
+    result = run_build(release_repo, "--check")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[1] == "manifest: 2 files"
+
+
+def test_manifest_without_final_newline_keeps_its_last_entry(release_repo):
+    _write_manifest(release_repo, b"app.py\ndata/x/Name with spaces.json")
+    _retag(release_repo, "manifest without a final newline")
+    result = run_build(release_repo, "--check")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[1] == "manifest: 2 files"
+
+
+def test_manifest_with_crlf_is_refused(release_repo):
+    _write_manifest(release_repo, b"app.py\r\ndata/x/Name with spaces.json\r\n")
+    _retag(release_repo, "manifest saved on Windows")
+    _refused(run_build(release_repo, "--check"),
+             "refusing to build: bundle_manifest.txt has Windows line endings")
+
+
+def test_manifest_entry_missing_from_the_repo_is_refused(release_repo):
+    _write_manifest(release_repo, b"app.py\ndata/x/Name with spaces.json\nui_gone.py\n")
+    _retag(release_repo, "manifest names a missing file")
+    _refused(run_build(release_repo, "--check"),
+             "refusing to build: listed in bundle_manifest.txt but missing "
+             "from the repo: ui_gone.py")
+
+
+def test_manifest_entry_outside_the_repo_is_refused(release_repo):
+    (release_repo.parent / "x.py").write_bytes(b"")
+    _write_manifest(release_repo, b"../x.py\napp.py\n")
+    _retag(release_repo, "manifest leaves the repo")
+    _refused(run_build(release_repo, "--check"),
+             "refusing to build: bundle_manifest.txt entry must be a "
+             "repo-relative path: ../x.py")
+
+
+def test_manifest_missing_or_empty_is_refused(release_repo):
+    _write_manifest(release_repo, b"")
+    _retag(release_repo, "empty manifest")
+    _refused(run_build(release_repo, "--check"),
+             "refusing to build: bundle_manifest.txt is empty")
+    (release_repo / "desktop" / "shared" / "bundle_manifest.txt").unlink()
+    _retag(release_repo, "no manifest")
+    _refused(run_build(release_repo, "--check"),
+             "refusing to build: bundle_manifest.txt is missing")

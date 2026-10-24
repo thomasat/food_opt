@@ -55,6 +55,28 @@ if [ -f "$DESKTOP_DIR/VERSION" ]; then
 fi
 [[ "$VERSION" =~ $VERSION_RE ]] || refuse "desktop/VERSION must hold one X.Y.Z line"
 
+# ---------- bundle manifest ----------
+# The files both apps ship, one repo-relative path per line (names may hold
+# spaces), each copied to Contents/Resources/<same path>. A redirect, not a
+# pipe, so BUNDLE_FILES survives the loop; `|| [ -n "$line" ]` keeps a last
+# line that has no newline.
+MANIFEST="$DESKTOP_DIR/shared/bundle_manifest.txt"
+[ -f "$MANIFEST" ] || refuse "bundle_manifest.txt is missing"
+if grep -q $'\r' "$MANIFEST"; then
+  refuse "bundle_manifest.txt has Windows line endings"
+fi
+BUNDLE_FILES=()
+while IFS= read -r line || [ -n "$line" ]; do
+  case "$line" in
+    "" | /* | .. | ../* | */.. | */../*)
+      refuse "bundle_manifest.txt entry must be a repo-relative path: $line" ;;
+  esac
+  [ -f "$REPO_DIR/$line" ] \
+    || refuse "listed in bundle_manifest.txt but missing from the repo: $line"
+  BUNDLE_FILES+=("$line")
+done < "$MANIFEST"
+[ "${#BUNDLE_FILES[@]}" -gt 0 ] || refuse "bundle_manifest.txt is empty"
+
 # ---------- release guards (release builds and --check) ----------
 if [ "$MODE" != "test" ]; then
   if [ -n "$WANTED" ] && [ "$WANTED" != "$VERSION" ]; then
@@ -71,6 +93,7 @@ if [ "$MODE" != "test" ]; then
   fi
   if [ "$MODE" = "check" ]; then
     echo "ready to build $VERSION from v$VERSION"
+    echo "manifest: ${#BUNDLE_FILES[@]} files"
     exit 0
   fi
   DMG_NAME="FoodOptimizer-$VERSION"
@@ -104,18 +127,11 @@ xcrun swiftc -O -target arm64-apple-macos13.0 \
   -o "$APP_DIR/Contents/MacOS/FoodOptimizer"
 chmod 755 "$APP_DIR/Contents/MacOS/FoodOptimizer"
 
-# theory.py is deliberately not bundled: nothing in the app imports it, and
-# it needs matplotlib, which left requirements.txt with the deploy cleanup.
-for f in app.py food_bo.py storage.py ui_helpers.py ui_setup.py ui_batch.py ui_results.py insights.py ui_insights.py bo_views.py calculation_editor.py wording.py workbook_flow.py sample_projects.py custom_records.py; do
-  cp "$REPO_DIR/$f" "$APP_DIR/Contents/Resources/$f"
+RES="$APP_DIR/Contents/Resources"
+for f in "${BUNDLE_FILES[@]}"; do
+  mkdir -p "$(dirname "$RES/$f")"
+  cp "$REPO_DIR/$f" "$RES/$f"
 done
-mkdir -p "$APP_DIR/Contents/Resources/data/samples/yogurt_pilot"
-cp "$REPO_DIR/data/ingredients_template.csv" "$APP_DIR/Contents/Resources/data/ingredients_template.csv"
-for f in "Yogurt pilot - Round 6 to score.json" "Yogurt pilot - all 10 Rounds.json" "Round 6 results (pilot).xlsx"; do
-  cp "$REPO_DIR/data/samples/yogurt_pilot/$f" "$APP_DIR/Contents/Resources/data/samples/yogurt_pilot/$f"
-done
-mkdir -p "$APP_DIR/Contents/Resources/data/samples/burger_setup"
-cp "$REPO_DIR/data/samples/burger_setup/Example setup - plant-based burger.json" "$APP_DIR/Contents/Resources/data/samples/burger_setup/Example setup - plant-based burger.json"
 cp "$DESKTOP_DIR/requirements.lock.txt" "$APP_DIR/Contents/Resources/requirements.lock.txt"
 cp "$DESKTOP_DIR/icon.icns" "$APP_DIR/Contents/Resources/icon.icns"
 

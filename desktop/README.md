@@ -30,6 +30,23 @@ The build compiles the native window wrapper (`FoodOptimizerApp.swift`)
 with `swiftc`, so the build machine needs the Xcode Command Line Tools
 (`xcode-select --install`). Recipients need nothing extra.
 
+## What ships
+
+`desktop/shared/bundle_manifest.txt` lists the files both apps ship: one
+repo-relative path per line, sorted, LF line endings, no comments. The Mac
+build copies each to `Contents/Resources/<same path>`; `build_dmg.sh` names
+no app file itself. `desktop/mac_bundle_files.txt` is the exact listing of
+the built `Contents/`, and `test_e2e.sh` fails on any difference.
+
+To ship a new module or data file:
+
+1. add it to `desktop/shared/bundle_manifest.txt`;
+2. add `Resources/<path>` (and any new folder) to `desktop/mac_bundle_files.txt`;
+3. run `./desktop/test_e2e.sh`.
+
+The golden list is edited by hand on purpose: a file reaching the bundle
+is a decision, not a side effect.
+
 ## Test
 
 ```bash

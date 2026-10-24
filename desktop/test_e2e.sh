@@ -93,17 +93,17 @@ if grep -qi '^pytest==' "$LOCK"; then fail "lock excludes pytest"; else ok "lock
 
 echo "== Level 1: bundle list covers app.py's local imports =="
 # app.py fails to import in the packaged app if a module it (or a ui_*.py it
-# imports) imports at module level isn't in build_dmg.sh's bundle list. Derive
-# the required local modules straight from the source instead of hand-listing
-# them, so this catches the next missed module too.
+# imports) imports at module level isn't in shared/bundle_manifest.txt, the
+# list build_dmg.sh copies. Derive the required local modules straight from
+# the source instead of hand-listing them, so this catches the next missed
+# module too.
 REPO_DIR="$(dirname "$DESKTOP_DIR")"
-BUNDLE_FOR_LINE="$(grep -m1 '^for f in .*; do$' "$DESKTOP_DIR/build_dmg.sh")"
-BUNDLE_FILES="$(printf '%s\n' "$BUNDLE_FOR_LINE" | sed -e 's/^for f in //' -e 's/; do$//')"
+BUNDLE_FILES="$(cat "$DESKTOP_DIR/shared/bundle_manifest.txt")"
 MISSING="$(REPO_DIR="$REPO_DIR" BUNDLE_FILES="$BUNDLE_FILES" python3 <<'PYEOF'
 import ast, os
 
 repo_dir = os.environ["REPO_DIR"]
-bundle = set(os.environ["BUNDLE_FILES"].split())
+bundle = set(os.environ["BUNDLE_FILES"].splitlines())  # names hold spaces
 
 
 def top_level_local_imports(path):
@@ -159,20 +159,20 @@ if file "$DIST_APP/Contents/MacOS/FoodOptimizer" | grep -q "Mach-O 64-bit execut
 else
   fail "native wrapper is arm64 Mach-O"
 fi
-for f in app.py food_bo.py storage.py ui_helpers.py ui_setup.py ui_batch.py ui_results.py insights.py ui_insights.py bo_views.py calculation_editor.py wording.py workbook_flow.py custom_records.py sample_projects.py data/ingredients_template.csv requirements.lock.txt icon.icns; do
-  assert "Resources/$f present" test -f "$DIST_APP/Contents/Resources/$f"
-done
-for f in "Yogurt pilot - Round 6 to score.json" "Yogurt pilot - all 10 Rounds.json" "Round 6 results (pilot).xlsx"; do
-  assert "Resources/data/samples/yogurt_pilot/$f present" test -f "$DIST_APP/Contents/Resources/data/samples/yogurt_pilot/$f"
-done
-assert "Resources/data/samples/burger_setup/Example setup - plant-based burger.json present" test -f "$DIST_APP/Contents/Resources/data/samples/burger_setup/Example setup - plant-based burger.json"
-assert "no sample_ingredients.csv in the bundle" test ! -e "$DIST_APP/Contents/Resources/data/sample_ingredients.csv"
-assert "Info.plist present"   test -f "$DIST_APP/Contents/Info.plist"
-
-# The bundle deliberately ships Resources/data/ingredients_template.csv and yogurt pilot
-# sample data; anything else under a data dir is stray.
-STRAY="$(find "$DIST_APP" \( -name '*.pkl' -o -name '__pycache__' -o -name 'results' -o -name 'plots' \) 2>/dev/null; find "$DIST_APP/Contents/Resources/data" -type f \( ! -name 'ingredients_template.csv' ! -path '*/yogurt_pilot/*' ! -path '*/burger_setup/*' \) 2>/dev/null; find "$DIST_APP" -name data -not -path '*/Contents/Resources/data' 2>/dev/null)"
-if [ -z "$STRAY" ]; then ok "no stray files in bundle"; else fail "no stray files in bundle ($STRAY)"; fi
+# The bundle is exactly the golden list: the manifest's files under
+# Resources plus the Mac-only ones, every directory with a trailing /.
+# _CodeSignature is the only part left out (signed builds only).
+bundle_listing() {  # every entry under Contents/, dirs with a trailing /, _CodeSignature excluded
+  (cd "$1/Contents" && find . -mindepth 1 -not -path './_CodeSignature' -not -path './_CodeSignature/*' |
+    while IFS= read -r p; do p="${p#./}"; if [ -d "$p" ] && [ ! -L "$p" ]; then printf '%s/\n' "$p"; else printf '%s\n' "$p"; fi; done |
+    LC_ALL=C sort)
+}
+if LISTING_DIFF="$(bundle_listing "$DIST_APP" | diff "$DESKTOP_DIR/mac_bundle_files.txt" - 2>&1)"; then
+  ok "bundle holds exactly mac_bundle_files.txt"
+else
+  fail "bundle holds exactly mac_bundle_files.txt"
+  printf '%s\n' "$LISTING_DIFF" | sed 's/^/    /'
+fi
 
 SIZE=$(stat -f%z "$DMG")
 if [ "$SIZE" -lt 62914560 ]; then ok "dmg under 60MB ($SIZE bytes)"; else fail "dmg under 60MB ($SIZE bytes)"; fi
