@@ -144,6 +144,11 @@ if [ -n "$DMG_SHA" ] && grep -qx "dmg_sha256=$DMG_SHA" "$RECORD" 2>/dev/null; th
 else
   fail "build record names the dmg"
 fi
+for lock in requirements.lock.txt requirements-windows.lock.txt; do
+  case "$lock" in requirements.lock.txt) KEY=mac_lock_sha256 ;; *) KEY=windows_lock_sha256 ;; esac
+  LOCK_SHA="$(shasum -a 256 "$DESKTOP_DIR/$lock" | awk '{print $1}')"
+  assert "build record names $lock" grep -qx "$KEY=$LOCK_SHA" "$RECORD"
+done
 
 assert "launcher executable"  test -x "$DIST_APP/Contents/Resources/launcher.sh"
 # Scripts in Contents/MacOS break codesign (unsigned nested code); guard it.

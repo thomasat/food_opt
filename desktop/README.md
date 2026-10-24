@@ -81,14 +81,21 @@ export NOTARY_PROFILE=foodopt-notary
 
 ## Updating dependencies
 
-When `requirements.txt` changes, regenerate the lock and commit it:
+When `requirements.txt` changes, run `./desktop/update_lock.sh` and commit
+both locks it writes:
 
-```bash
-./desktop/update_lock.sh
-```
-
-The launcher detects the changed lock hash and re-runs setup on users'
-machines automatically.
+- **Run it on an Apple Silicon Mac.** It refuses anywhere else, because the
+  Mac lock is resolved for the machine it runs on.
+- **The Mac lock (`desktop/requirements.lock.txt`) is rewritten only when its
+  packages or hashes change.** `launcher.sh` hashes the whole file, so any
+  byte change, even a comment, makes every Mac user redo the ~1 GB online
+  setup.
+- **The Windows lock (`desktop/requirements-windows.lock.txt`) is derived
+  from the Mac lock:** the same versions, plus the packages only Windows
+  needs (`colorama`, `watchdog`). `tests/test_locks.py` checks they agree.
+- **Commit both.** When the Mac lock changed, the script says so: re-measure
+  `EXPECTED_SETUP_MB` in `launcher.sh` and update `MAC_LOCK_SHA256` in
+  `tests/test_locks.py`.
 
 ## Publishing a release (the download link you send people)
 

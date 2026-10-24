@@ -199,6 +199,7 @@ fi
 
 # ---------- build record (written last, after stapling) ----------
 yes_no() { if [ -n "$1" ]; then echo yes; else echo no; fi; }
+sha_or_none() { if [ -f "$1" ]; then shasum -a 256 "$1" | awk '{print $1}'; else echo none; fi; }
 NOTARIZED=""
 if [ -n "${SIGN_IDENTITY:-}" ] && [ -n "${NOTARY_PROFILE:-}" ]; then NOTARIZED=1; fi
 TREE_CLEAN=no
@@ -210,8 +211,8 @@ fi
   echo "version=$VERSION"
   echo "commit=$(git -C "$REPO_DIR" rev-parse HEAD 2>/dev/null || echo unknown)"
   echo "tree_clean=$TREE_CLEAN"
-  echo "mac_lock_sha256=$(shasum -a 256 "$DESKTOP_DIR/requirements.lock.txt" | awk '{print $1}')"
-  echo "windows_lock_sha256=none"
+  echo "mac_lock_sha256=$(sha_or_none "$DESKTOP_DIR/requirements.lock.txt")"
+  echo "windows_lock_sha256=$(sha_or_none "$DESKTOP_DIR/requirements-windows.lock.txt")"
   echo "dmg_sha256=$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')"
   echo "signed=$(yes_no "${SIGN_IDENTITY:-}")"
   echo "notarized=$(yes_no "$NOTARIZED")"
