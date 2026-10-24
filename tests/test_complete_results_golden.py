@@ -8,7 +8,8 @@ code, by
 
 and committed. It is never regenerated: every later commit on the branch
 keeps this file green, which is the proof that a project with no blanks and
-no measurement added partway scores and suggests exactly what it did."""
+no measurement added partway scores and suggests exactly what it did:
+bit-identical on the Mac; within 0.1% on Windows (tests.golden.same)."""
 import json
 import os
 import pathlib
@@ -16,9 +17,9 @@ import sys
 import tempfile
 
 import pytest
-import torch
 
 from food_bo import FoodOptimizer
+from tests.golden import same
 
 FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "complete_results_golden.json"
 
@@ -135,14 +136,7 @@ def _isolate_cwd(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("kind", KINDS)
 def test_scores_and_suggestions_are_bit_identical(kind):
-    want = _golden()[kind]
-    got = json.loads(json.dumps(_run_case(kind), default=float))
-    for key in want:
-        if key in ("gp_X", "gp_Y"):
-            assert torch.equal(torch.tensor(got[key], dtype=torch.double),
-                               torch.tensor(want[key], dtype=torch.double)), key
-        else:
-            assert got[key] == want[key], key
+    same(_run_case(kind), _golden()[kind])
 
 
 def _reference_utility(objectives, results):
