@@ -95,8 +95,16 @@ public sealed class ShellApp : IDisposable
         Uia.TopWindows(Process.Id).FirstOrDefault(w => Uia.SafeClass(w).StartsWith("WindowsForms", StringComparison.Ordinal));
 
     /// <summary>A top-level window of this process named <paramref name="name"/> (a dialog).</summary>
-    public AutomationElement? Dialog(string name) =>
-        Uia.TopWindows(Process.Id).FirstOrDefault(w => Uia.SafeClass(w) == "#32770" && Uia.NameOf(w) == name);
+    /// UI Automation lists an owned dialog under its owner window, so both
+    /// the desktop's children and the main window's are searched.
+    public AutomationElement? Dialog(string name)
+    {
+        var windows = new List<AutomationElement>(Uia.TopWindows(Process.Id));
+        if (MainWindow() is { } main)
+            windows.AddRange(main.FindAll(TreeScope.Children,
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Window)).Cast<AutomationElement>());
+        return windows.FirstOrDefault(w => Uia.SafeClass(w) == "#32770" && Uia.NameOf(w) == name);
+    }
 
     public IntPtr Hwnd => new(Window.Current.NativeWindowHandle);
 
@@ -133,6 +141,77 @@ public sealed class ShellApp : IDisposable
         }
         keybd_event(VK_CONTROL, 0, 2, UIntPtr.Zero);
         Thread.Sleep(300);
+    }
+
+    /// <summary>The menu bar's top-level items.</summary>
+    public IReadOnlyList<string> MenuBarItems()
+    {
+        var bar = Uia.All(Window, ControlType.MenuBar).First(b => Uia.NameOf(b) != "System Menu Bar" && Uia.NameOf(b) != "System");
+        return bar.FindAll(TreeScope.Children, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem))
+            .Cast<AutomationElement>().Select(Uia.NameOf).ToList();
+    }
+
+    AutomationElement TopMenu(string name)
+    {
+        var bar = Uia.All(Window, ControlType.MenuBar).First(b => Uia.NameOf(b) != "System Menu Bar" && Uia.NameOf(b) != "System");
+        return bar.FindAll(TreeScope.Children, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem))
+            .Cast<AutomationElement>().First(e => Uia.NameOf(e) == name);
+    }
+
+    /// <summary>Opens a menu; its items (separators left out).</summary>
+    public IReadOnlyList<AutomationElement> OpenMenu(string name)
+    {
+        Activate();
+        var top = TopMenu(name);
+        ((ExpandCollapsePattern)top.GetCurrentPattern(ExpandCollapsePattern.Pattern)).Expand();
+        IReadOnlyList<AutomationElement> items = [];
+        Uia.WaitUntil(() =>
+        {
+            items = top.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem))
+                .Cast<AutomationElement>().ToList();
+            if (items.Count == 0)
+                items = Uia.TopWindows(Process.Id)
+                    .SelectMany(w => w.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem)).Cast<AutomationElement>())
+                    .Where(e => !MenuBarItems().Contains(Uia.NameOf(e)))
+                    .ToList();
+            return items.Count > 0;
+        }, TimeSpan.FromSeconds(5));
+        return items;
+    }
+
+    public void CloseMenus() => WinForms.SendKeys.SendWait("{ESC}{ESC}");
+
+    /// <summary>Opens a menu and clicks one of its items.</summary>
+    public void Menu(string menu, string item)
+    {
+        var e = OpenMenu(menu).First(i => Uia.NameOf(i) == item);
+        Uia.Invoke(e);
+        Thread.Sleep(300);
+    }
+
+    /// <summary>A dialog of this process with the caption Food Optimizer, once it appears.</summary>
+    public AutomationElement WaitForDialog(TimeSpan timeout)
+    {
+        AutomationElement? d = null;
+        if (!Uia.WaitUntil(() => (d = Dialog("Food Optimizer")) != null, timeout))
+            throw new Xunit.Sdk.XunitException("no Food Optimizer dialog");
+        return d!;
+    }
+
+    public static string Clipboard()
+    {
+        var text = "";
+        var t = new Thread(() => text = WinForms.Clipboard.GetText());
+        t.SetApartmentState(ApartmentState.STA);
+        t.Start();
+        t.Join();
+        return text;
+    }
+
+    public double? SavedZoom()
+    {
+        try { return (double?)Settings()["zoom"]; }
+        catch (Exception) { return null; }
     }
 
     public string SettingsPath => Path.Combine(StateDir, "settings.json");

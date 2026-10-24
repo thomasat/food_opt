@@ -133,3 +133,28 @@ def test_powershell_scripts_are_ascii():
     assert scripts
     for p in scripts:
         p.read_bytes().decode("ascii")
+
+
+WEBVIEW_SETTINGS = {
+    "AreBrowserAcceleratorKeysEnabled": "false",
+    "AreDevToolsEnabled": "false",
+    "IsStatusBarEnabled": "false",
+    "IsSwipeNavigationEnabled": "false",
+    "IsGeneralAutofillEnabled": "false",
+    "IsPasswordAutosaveEnabled": "false",
+    "IsBuiltInErrorPageEnabled": "false",
+    "IsReputationCheckingRequired": "false",
+    "AreDefaultScriptDialogsEnabled": "false",
+    "AreHostObjectsAllowed": "false",
+    "IsZoomControlEnabled": "true",
+    "AreDefaultContextMenusEnabled": "true",
+    "IsWebMessageEnabled": "true",
+}
+
+
+def test_webview_settings_are_the_spec_list():
+    host = _strip_comments(read_lf(SHELL / "FoodOptimizer.Shell" / "WebViewHost.cs"))
+    for name, value in WEBVIEW_SETTINGS.items():
+        assert re.search(r"\.%s\s*=\s*%s;" % (name, value), host), name
+    env = read_lf(SHELL / "FoodOptimizer.Shell" / "WebEnvironment.cs")
+    assert "IsCustomCrashReportingEnabled = true" in env

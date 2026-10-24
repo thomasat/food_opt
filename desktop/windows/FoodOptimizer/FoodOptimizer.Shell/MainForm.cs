@@ -18,6 +18,7 @@ sealed class MainForm : Form
     readonly WebViewHost _web = new() { Dock = DockStyle.Fill };
     readonly PageHost _page;
     readonly LaunchController _launch;
+    readonly KeyRouter _keys;
     int _recreations;
     bool _sessionEnding;
 
@@ -34,7 +35,13 @@ sealed class MainForm : Form
         BackColor = Background;
         StartPosition = FormStartPosition.Manual;
         AutoScaleMode = AutoScaleMode.Dpi;
+        _keys = KeyRouter.FromMessages(messages);
+        // A command runs after the click returns, so a dialog it opens never
+        // blocks the menu (or UI Automation's Invoke).
+        var menu = MenuBuilder.Build(messages, id => BeginInvoke(() => Execute(id)));
         Controls.Add(_web);
+        Controls.Add(menu);
+        MainMenuStrip = menu;
         _page = new PageHost(messages, layout, log);
         _launch = new LaunchController(this, _page, layout, paths, settings, log);
         _page.RetryRequested += async (_, _) => await _launch.RetryAsync();
@@ -79,6 +86,7 @@ sealed class MainForm : Form
             var env = await WebEnvironment.CreateAsync(_paths);
             _log.Write("webview.runtime", env.BrowserVersionString);
             await _web.InitializeAsync(env, _settings.Zoom);
+            _log.Write("zoom.applied", LaunchController.Invariant(_settings.Zoom));
             AttachCore();
         }
         catch (Exception ex)
@@ -92,6 +100,9 @@ sealed class MainForm : Form
     void AttachCore()
     {
         var core = _web.Core!;
+        var controller = _web.Controller!;
+        controller.AcceleratorKeyPressed += OnAcceleratorKey;
+        controller.ZoomFactorChanged += OnZoomChanged;
         core.ProcessFailed += OnProcessFailed;
         core.NavigationCompleted += (_, e) =>
         {
@@ -103,6 +114,109 @@ sealed class MainForm : Form
             }
         };
         _page.Attach(core, _launch.Loaded ? _launch.AppUri : null);
+    }
+
+    static bool Down(int vk) => NativeMethods.GetKeyState(vk) < 0;
+
+    static char? LayoutChar(int vk)
+    {
+        var c = NativeMethods.MapVirtualKeyW((uint)vk, NativeMethods.MAPVK_VK_TO_CHAR) & 0x7FFF;
+        return c == 0 ? null : (char)c;
+    }
+
+    /// <summary>Our shortcuts while the web content has the focus.</summary>
+    void OnAcceleratorKey(object? sender, CoreWebView2AcceleratorKeyPressedEventArgs e)
+    {
+        if (e.KeyEventKind != CoreWebView2KeyEventKind.KeyDown) return;
+        var vk = (int)e.VirtualKey;
+        var id = _keys.Route(vk, LayoutChar(vk), Down(NativeMethods.VK_CONTROL), Down(NativeMethods.VK_SHIFT), Down(NativeMethods.VK_MENU));
+        if (id == null) return;
+        e.Handled = true;
+        BeginInvoke(() => Execute(id));
+    }
+
+    /// <summary>Our shortcuts while the menu bar or the form has the focus.</summary>
+    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+    {
+        var vk = (int)(keyData & Keys.KeyCode);
+        var id = _keys.Route(vk, LayoutChar(vk), (keyData & Keys.Control) != 0, (keyData & Keys.Shift) != 0, (keyData & Keys.Alt) != 0);
+        if (id != null)
+        {
+            Execute(id);
+            return true;
+        }
+        return base.ProcessCmdKey(ref msg, keyData);
+    }
+
+    /// <summary>Keeps Ctrl+wheel zoom on our steps and range, and saves it.</summary>
+    void OnZoomChanged(object? sender, object e)
+    {
+        if (_web.Controller is not { } c) return;
+        var z = Zoom.Clamp(c.ZoomFactor);
+        if (!Zoom.Same(z, c.ZoomFactor))
+        {
+            c.ZoomFactor = z;
+            return;
+        }
+        SaveZoom(z);
+    }
+
+    void SaveZoom(double z)
+    {
+        if (Zoom.Same(z, _settings.Zoom)) return;
+        _settings.Zoom = z;
+        _settings.Save(_paths.SettingsPath);
+        _log.Write("zoom.applied", LaunchController.Invariant(z));
+    }
+
+    /// <summary>A zoom command: set it, and save it whether or not the
+    /// web view reports the change.</summary>
+    void SetZoom(double z)
+    {
+        if (_web.Controller is not { } c) return;
+        c.ZoomFactor = z;
+        SaveZoom(Zoom.Clamp(c.ZoomFactor));
+    }
+
+    /// <summary>Runs a menu command.</summary>
+    void Execute(string id)
+    {
+        _log.Write("command.run", id);
+        var zoom = _web.Controller?.ZoomFactor ?? _settings.Zoom;
+        switch (id)
+        {
+            case MenuIds.OpenProjects:
+                Directory.CreateDirectory(_paths.ProjectsDir);
+                WinShell.Open(_paths.ProjectsDir);
+                break;
+            case MenuIds.Quit:
+                Close();
+                break;
+            case MenuIds.Bigger:
+                SetZoom(Zoom.Bigger(zoom));
+                break;
+            case MenuIds.Smaller:
+                SetZoom(Zoom.Smaller(zoom));
+                break;
+            case MenuIds.Actual:
+                SetZoom(Zoom.Default);
+                break;
+            case MenuIds.StartHere:
+                if (File.Exists(_layout.StartHere)) WinShell.Open(_layout.StartHere);
+                else ShellDialogs.Info(this, _messages.Text("error.missing_part.title"), _messages.Text("error.missing_part.body"));
+                break;
+            case MenuIds.GetHelp:
+                ShellDialogs.Info(this, _messages.Text("help.get_help.title"), _messages.Text("help.get_help.body"));
+                break;
+            case MenuIds.ShowLog:
+                if (File.Exists(_paths.LauncherLog)) WinShell.RevealInExplorer(_paths.LauncherLog);
+                else ShellDialogs.Info(this, _messages.Text("help.no_log.title"), _messages.Text("help.no_log.body"));
+                break;
+            case MenuIds.About:
+                ShellDialogs.Info(this, _messages.Text(MenuIds.About),
+                    _messages.Format("about.body", ("version", AppIdentity.Version)));
+                break;
+        }
     }
 
     void OnProcessFailed(object? sender, CoreWebView2ProcessFailedEventArgs e)

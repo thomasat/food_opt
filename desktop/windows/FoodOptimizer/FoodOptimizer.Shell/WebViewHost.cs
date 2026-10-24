@@ -24,6 +24,21 @@ sealed class WebViewHost : Control
         Environment = env;
         var controller = await env.CreateCoreWebView2ControllerAsync(Handle);
         controller.DefaultBackgroundColor = Background;
+        // Before any navigation: the window is an app, not a browser.
+        var s = controller.CoreWebView2.Settings;
+        s.AreBrowserAcceleratorKeysEnabled = false;
+        s.AreDevToolsEnabled = false;
+        s.IsStatusBarEnabled = false;
+        s.IsSwipeNavigationEnabled = false;
+        s.IsGeneralAutofillEnabled = false;
+        s.IsPasswordAutosaveEnabled = false;
+        s.IsBuiltInErrorPageEnabled = false;
+        s.IsReputationCheckingRequired = false;
+        s.AreDefaultScriptDialogsEnabled = false;
+        s.AreHostObjectsAllowed = false;
+        s.IsZoomControlEnabled = true;
+        s.AreDefaultContextMenusEnabled = true;
+        s.IsWebMessageEnabled = true;
         controller.ZoomFactor = zoom;
         controller.Bounds = ClientRectangle;
         controller.IsVisible = FindForm()?.WindowState != FormWindowState.Minimized;

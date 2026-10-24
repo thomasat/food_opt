@@ -34,4 +34,21 @@ static class ShellDialogs
         page.Buttons.Add(new TaskDialogButton(Messages.Text("dialog.ok")));
         Show(owner, page);
     }
+
+    /// <summary>OK / Cancel; true for OK.</summary>
+    public static bool Confirm(IWin32Window owner, string message)
+    {
+        var page = Page("", message);
+        var ok = new TaskDialogButton(Messages.Text("dialog.ok"));
+        page.Buttons.Add(ok);
+        page.Buttons.Add(new TaskDialogButton(Messages.Text("dialog.cancel")));
+        return Show(owner, page) == ok;
+    }
+
+    /// <summary>The text typed, or null for Cancel.</summary>
+    public static string? Prompt(IWin32Window owner, string message, string? defaultText)
+    {
+        using var form = new PromptForm(Messages, message, defaultText);
+        return form.ShowDialog(owner) == DialogResult.OK ? form.Value : null;
+    }
 }

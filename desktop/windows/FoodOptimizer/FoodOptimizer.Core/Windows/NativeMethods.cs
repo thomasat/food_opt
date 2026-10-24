@@ -117,4 +117,17 @@ internal static partial class NativeMethods
 
     [LibraryImport("shcore.dll")]
     public static partial int GetDpiForMonitor(IntPtr monitor, int dpiType, out uint dpiX, out uint dpiY);
+
+    public const int VK_SHIFT = 0x10, VK_CONTROL = 0x11, VK_MENU = 0x12;
+    public const uint MAPVK_VK_TO_CHAR = 2;
+
+    [LibraryImport("user32.dll")]
+    public static partial short GetKeyState(int virtualKey);
+
+    [LibraryImport("user32.dll", EntryPoint = "MapVirtualKeyW")]
+    public static partial uint MapVirtualKeyW(uint code, uint mapType);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool SetForegroundWindow(IntPtr hwnd);
 }
