@@ -49,9 +49,14 @@ Change a pin only by editing `pins.json` after checking, in the VM, that the
 new file's `Get-AuthenticodeSignature` is `Valid` for the pinned signer and
 that its version is what the pin says.
 
-Not yet bundled: Microsoft's C++ runtime (`msvcp140*.dll`). Its
-redistributable no longer unpacks with `/layout`; the alternative needs the
-owner's approval.
+Microsoft's C++ runtime (`msvcp140*.dll`, `vcruntime140*.dll`) comes from
+Microsoft's own redistributable (`VC_redist.x64.exe`, pinned). WiX 3.14's
+`dark.exe -x` unpacks it (the redistributable's own `/layout` no longer
+writes its MSIs), and `msiexec /a` extracts the seven DLLs without
+installing anything. Each must be `Valid` for Microsoft's runtime signer
+(`dll_signer` in `pins.json`), at the pinned version, and no older than a
+copy inside the wheels. `dark.exe` is not signed, so the WiX zip's sha256 is
+its only pin: when changing it, hash a second download from another machine.
 
 ## Test it
 

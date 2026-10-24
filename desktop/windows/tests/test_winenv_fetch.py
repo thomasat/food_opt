@@ -65,6 +65,16 @@ def test_a_download_that_does_not_match_is_discarded(tmp_path):
     assert not list(cache.iterdir())
 
 
+@slow
+def test_wix_is_fetched_and_verified(tmp_path):
+    """WiX's dark.exe unpacks the VC redistributable (owner, 2026-10-24)."""
+    r = _fetch(tmp_path / "cache dir", name="wix")
+    assert r.returncode == 0, r.stderr
+    path = pathlib.Path(r.stdout.strip())
+    assert path == tmp_path / "cache dir" / PINS["wix"]["file"]
+    assert _sha256(path) == PINS["wix"]["sha256"]
+
+
 def test_unknown_name_is_refused(tmp_path):
     r = _fetch(tmp_path / "cache", name="nope")
     assert r.returncode == 2

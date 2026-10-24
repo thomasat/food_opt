@@ -12,6 +12,7 @@
     "file": "VC_redist.x64-14.51.36247.0.exe",
     "sha256": "843068991daaa1f73ad9f6239bce4d0f6a07a51f18c37ea2a867e9beca71295c",
     "signer": "Microsoft Corporation",
+    "dll_signer": "Microsoft Windows Software Compatibility Publisher",
     "files": [
       "msvcp140.dll",
       "msvcp140_1.dll",
@@ -21,5 +22,11 @@
       "vcruntime140.dll",
       "vcruntime140_1.dll"
     ]
+  },
+  "wix": {
+    "version": "3.14.1.8722",
+    "url": "https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip",
+    "file": "wix-3.14.1.8722-binaries.zip",
+    "sha256": "6ac824e1642d6f7277d0ed7ea09411a508f6116ba6fae0aa5f2c7daa2ff43d31"
   }
 }
