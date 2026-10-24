@@ -93,8 +93,9 @@ def test_streamlit_flags_are_the_spec_list():
 
 
 def test_child_command(tmp_path):
-    assert childenv.child_command(Path("/py"), Path("/c.py"), "serve", "app.py", "--x") == [
-        "/py", "-I", "-X", "utf8", "-B", "/c.py", "serve", "app.py", "--x"]
+    py, child = Path("/py"), Path("/c.py")
+    assert childenv.child_command(py, child, "serve", "app.py", "--x") == [
+        str(py), "-I", "-X", "utf8", "-B", str(child), "serve", "app.py", "--x"]
 
 
 def test_new_base_path_is_unguessable():
