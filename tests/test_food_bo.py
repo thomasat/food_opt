@@ -4187,6 +4187,9 @@ def _user_facing_text_files(root):
     for pattern in ("*.md", "*.txt"):
         for path in (root / "desktop").rglob(pattern):
             rel = path.relative_to(root).as_posix()
+            # Published release notes are kept verbatim (owner, 2026-10-24).
+            if rel.startswith("desktop/release_notes/"):
+                continue
             if (rel.endswith(".lock.txt")
                     or path.name in ("bundle_manifest.txt", "mac_bundle_files.txt")
                     or rel.startswith(("desktop/dist/", "desktop/.cache/"))
@@ -4961,6 +4964,17 @@ def test_user_facing_text_files_find_the_windows_start_here():
             "desktop/windows/start_here.txt", "desktop/windows/README.md"} <= found
     assert not any(n.endswith(".lock.txt") for n in found)
     assert "desktop/shared/start_here.src.md" not in found
+
+
+def test_published_release_notes_are_not_swept(tmp_path):
+    """Owner, 2026-10-24: published release notes are kept verbatim, so the
+    vocabulary sweep skips desktop/release_notes/ (and only that folder)."""
+    for rel in ("README.md", "desktop/README.md", "desktop/release_notes/0.8.0.md",
+                "desktop/release_notes/older/0.7.2.txt", "desktop/windows/notes.md"):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text("ranges\n", encoding="utf-8")
+    assert _user_facing_text_files(tmp_path) == [
+        "README.md", "desktop/README.md", "desktop/windows/notes.md"]
 
 
 def test_the_launcher_and_the_window_name_the_load_step_alike():
