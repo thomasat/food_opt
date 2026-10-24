@@ -150,3 +150,19 @@ def test_choose_port_without_a_base_avoids_8501(monkeypatch):
     offered = iter([8501, free])
     monkeypatch.setattr(ports, "_any_free_port", lambda: next(offered))
     assert ports.choose_port(None) == free
+
+
+def test_a_connect_probe_that_times_out_still_counts_as_free(monkeypatch):
+    """Windows answers a connect to a closed loopback port only after about
+    2 s of retries, so the 0.2 s probe times out there; only a connect that
+    is accepted means the port is taken."""
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+
+    def slow_refusal(self, address):
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(ports.socket.socket, "connect", slow_refusal)
+    assert ports.port_is_free(port)

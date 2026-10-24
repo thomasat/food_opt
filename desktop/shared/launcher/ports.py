@@ -9,7 +9,9 @@ AVOID = 8501   # Streamlit's default; a developer's own server may hold it
 
 def port_is_free(port: int) -> bool:
     """A bind to 127.0.0.1:port succeeds (no SO_REUSEADDR) and nothing
-    answers a connect there within 0.2 s."""
+    accepts a connect there within 0.2 s. A refused connect and one that
+    times out both count as free: Windows only reports a closed loopback
+    port as refused after about 2 s of retries."""
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         s.bind(("127.0.0.1", port))
@@ -21,7 +23,7 @@ def port_is_free(port: int) -> bool:
     c.settimeout(0.2)
     try:
         c.connect(("127.0.0.1", port))
-    except ConnectionRefusedError:
+    except (ConnectionRefusedError, TimeoutError):
         return True
     except OSError:
         return False

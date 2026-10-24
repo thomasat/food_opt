@@ -39,7 +39,7 @@
     "shared.launcher": {
       "dir": "desktop/shared/launcher",
       "glob": "**/*.py",
-      "sha256": "9373f11f7dd8141fae4f0ee041ec4172e10a0163df04f8f25231a7c6c2aa9956"
+      "sha256": "56bb4097bad59cf11f9d29bac1c3d3911f5bc5a4b68c62226a4d9eedb01dda40"
     }
   },
   "pairs": {
@@ -58,7 +58,7 @@
         "mac.launcher.runtime_tail",
         "shared.launcher"
       ],
-      "note": "phase 2: Python launcher ported from launcher.sh run-time half"
+      "note": "phase 2: Python launcher ported from launcher.sh run-time half; Windows: a timed-out port probe counts as free"
     }
   }
 }

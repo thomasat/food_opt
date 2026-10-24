@@ -320,7 +320,8 @@ def test_streamlit_port_error_moves_to_another_port(py, world):
 
 
 def test_the_base_path_file_and_the_server_agree(py, world):
-    launch = py.start(world)
+    # With the lifeline, stop() is a clean shutdown on Windows too.
+    launch = py.start(world, args=["--stdin-lifeline"], stdin=subprocess.PIPE)
     torn = []
     end = time.monotonic() + 20
     while time.monotonic() < end and world.health() != 200:
