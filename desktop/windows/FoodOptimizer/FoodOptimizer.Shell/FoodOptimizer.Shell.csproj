@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- FoodOptimizer.exe: the window around the shared launcher and page. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>FoodOptimizer</AssemblyName>
+    <RootNamespace>FoodOptimizer.Shell</RootNamespace>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>false</PublishSingleFile>
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <!-- What Task Manager, the file's Properties and the installer show. -->
+    <AssemblyTitle>Food Optimizer</AssemblyTitle>
+    <Product>Food Optimizer</Product>
+    <Company>Food System Innovations</Company>
+    <ApplicationIcon>../../icon.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="../../icon.ico" LogicalName="icon.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../FoodOptimizer.Core/FoodOptimizer.Core.csproj" />
+  </ItemGroup>
+  <!-- The WebView2 package references its WPF control too; a WinForms-only
+       app doesn't use it, and its WindowsBase reference conflicts. -->
+  <Target Name="DropWebView2Wpf" BeforeTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <Reference Remove="@(Reference)" Condition="'%(Filename)' == 'Microsoft.Web.WebView2.Wpf'" />
+    </ItemGroup>
+  </Target>
+</Project>
