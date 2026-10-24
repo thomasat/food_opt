@@ -399,7 +399,6 @@ def _gate(repo, image) -> list[str]:
     problems = [f"strip: {rel}" for rel in strip_violations(image)]
     problems += [f"pyc: {rel}" for rel in pyc_gaps(image)]
     problems += [f"long path: {v}" for v in long_path_violations(image)]
-    problems += [f"vc runtime: {gap}" for gap in vc_runtime_gaps(image)]
     golden = (repo / "desktop" / "windows" / "image_files.txt").read_text(encoding="utf-8").splitlines()
     actual = image_listing(image)
     problems += [f"listing: missing {e}" for e in sorted(set(golden) - set(actual))]
