@@ -4188,8 +4188,8 @@ def _user_facing_text_files(root):
         for path in (root / "desktop").rglob(pattern):
             rel = path.relative_to(root).as_posix()
             if (rel.endswith(".lock.txt")
-                    or path.name in ("bundle_manifest.txt", "mac_bundle_files.txt")
-                    or rel.startswith(("desktop/dist/", "desktop/.cache/"))
+                    or path.name in ("bundle_manifest.txt", "mac_bundle_files.txt", "image_files.txt")
+                    or {"build", "dist", ".cache"} & set(rel.split("/")[1:-1])
                     or rel == "desktop/shared/start_here.src.md"):
                 continue
             found.add(rel)
