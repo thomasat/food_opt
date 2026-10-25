@@ -29,6 +29,7 @@ from botorch.models import SingleTaskGP
 from botorch.models.transforms.input import Warp
 from botorch.models.transforms.outcome import Standardize
 from botorch.optim import optimize_acqf
+from botorch.optim.initializers import gen_batch_initial_conditions
 from botorch.sampling.normal import SobolQMCNormalSampler
 from botorch.utils.transforms import normalize, unnormalize
 from gpytorch.kernels import (
@@ -1634,6 +1635,34 @@ def _build_covar(cfg, dim):
     else:
         base = MaternKernel(nu=2.5, ard_num_dims=dim)
     return ScaleKernel(base)
+
+
+# Two restarts of the acquisition optimiser whose values agree to this
+# relative tolerance are the same quality of suggestion. Which one is
+# suggested is decided by the candidates themselves, compared rounded to
+# ACQ_TIE_DECIMALS (normalised units), never by the last bits of a float:
+# Windows rounds those differently from the Mac (0.9.0).
+ACQ_TIE_RTOL = 1e-4
+ACQ_TIE_DECIMALS = 3
+
+
+def _pick_restart(candidates, values):
+    """The restart a suggestion is taken from: of those within ACQ_TIE_RTOL
+    of the best value (a floor of 1 in absolute terms, for log values near
+    zero), the lexicographically smallest candidate."""
+    values = values.detach().reshape(-1)
+    best = float(values.max())
+    floor = best - ACQ_TIE_RTOL * max(1.0, abs(best))
+    tied = [j for j in range(len(values)) if float(values[j]) >= floor]
+    return min(tied, key=lambda j: tuple(
+        round(float(x), ACQ_TIE_DECIMALS) for x in candidates[j].reshape(-1)))
+
+
+def _top_starts(*args, options=None, **kwargs):
+    """optimize_acqf's starting points: the best raw samples, not a
+    Boltzmann draw among them that a last-bit change could flip."""
+    return gen_batch_initial_conditions(
+        *args, options={**(options or {}), "topn": True}, **kwargs)
 
 
 def _generated_totals_from(raw):
@@ -8476,21 +8505,52 @@ class FoodOptimizer:
         # (and folds them into the linear constraints), so the candidate is the true
         # argmax over the restricted domain X_S rather than a full-space argmax with
         # coordinates zeroed after the fact.
-        candidate_norm, _ = optimize_acqf(
-            acq_function=acq_func,
-            bounds=torch.stack([torch.zeros(dim), torch.ones(dim)]).double(),
-            q=n_suggestions,
-            num_restarts=20,
-            raw_samples=1024,
-            sequential=True,
-            inequality_constraints=self._get_botorch_constraints(),
-            fixed_features=self._get_fixed_features() or None,
-        )
+        candidate_norm = self._optimize_reproducibly(acq_func, n_suggestions, dim)
 
         return [
             self._decode(unnormalize(candidate_norm[i], bounds_tensor).detach().numpy().flatten())
             for i in range(n_suggestions)
         ]
+
+    def _optimize_reproducibly(self, acq_func, q, dim):
+        """optimize_acqf(sequential=True), made so that a last-bit change in
+        the numbers cannot move a suggestion (0.9.0; on Windows they round
+        differently, and suggestions moved by up to 17 %):
+
+        * every restart is its own scipy problem. BoTorch otherwise sums all
+          twenty into one, whenever its batched fast path is off (always with
+          a Formulation total, and everywhere with the locked scipy), so one
+          restart's rounding moved every other's stopping point;
+        * the restarts start from the best raw samples (_top_starts);
+        * of restarts with near-equal values, the candidate decides
+          (_pick_restart).
+
+        One suggestion at a time, each optimised with the ones before it
+        pending, exactly as BoTorch's sequential loop does."""
+        options = dict(
+            bounds=torch.stack([torch.zeros(dim), torch.ones(dim)]).double(),
+            q=1,
+            num_restarts=20,
+            raw_samples=1024,
+            return_best_only=False,
+            inequality_constraints=self._get_botorch_constraints(),
+            fixed_features=self._get_fixed_features() or None,
+            options={"max_optimization_problem_aggregation_size": 1},
+            ic_generator=_top_starts,
+        )
+        base_pending = acq_func.X_pending
+        chosen = []
+        for _ in range(q):
+            if chosen:
+                pending = torch.cat(chosen, dim=-2)
+                if base_pending is not None:
+                    pending = torch.cat([base_pending, pending], dim=-2)
+                acq_func.set_X_pending(pending)
+            candidates, values = optimize_acqf(acq_function=acq_func, **options)
+            pick = _pick_restart(candidates, values)
+            chosen.append(candidates[pick].detach().reshape(1, -1))
+        acq_func.set_X_pending(base_pending)
+        return torch.cat(chosen, dim=-2)
 
     def tell(self, recipe_dict, results_dict, formulation_no=None,
              batch_no=None, note=None):
