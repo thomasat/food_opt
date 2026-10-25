@@ -4184,12 +4184,19 @@ def _user_facing_text_files(root):
     source is swept through its two renders instead."""
     root = pathlib.Path(root)
     found = set()
+    version_file = root / "desktop" / "VERSION"
+    current = (tuple(int(p) for p in version_file.read_text(encoding="utf-8").strip().split("."))
+               if version_file.is_file() else None)
     for pattern in ("*.md", "*.txt"):
         for path in (root / "desktop").rglob(pattern):
             rel = path.relative_to(root).as_posix()
-            # Published release notes are kept verbatim (owner, 2026-10-24).
+            # Published release notes are kept verbatim (owner, 2026-10-24);
+            # the notes of the version being released (not older than
+            # desktop/VERSION) are new copy and are swept (phase 6).
             if rel.startswith("desktop/release_notes/"):
-                continue
+                m = re.fullmatch(r"desktop/release_notes/(\d+)\.(\d+)\.(\d+)\.md", rel)
+                if not (m and current is not None and tuple(map(int, m.groups())) >= current):
+                    continue
             if (rel.endswith(".lock.txt")
                     or path.name in ("bundle_manifest.txt", "mac_bundle_files.txt", "image_files.txt")
                     or {"build", "dist", ".cache"} & set(rel.split("/")[1:-1])
@@ -4975,6 +4982,18 @@ def test_published_release_notes_are_not_swept(tmp_path):
         (tmp_path / rel).write_text("ranges\n", encoding="utf-8")
     assert _user_facing_text_files(tmp_path) == [
         "README.md", "desktop/README.md", "desktop/windows/notes.md"]
+
+
+def test_unpublished_release_notes_are_swept(tmp_path):
+    """Phase 6: only published notes (older than desktop/VERSION) are kept
+    verbatim; the notes of the version being released are new copy and
+    follow the vocabulary like any other page."""
+    (tmp_path / "desktop" / "release_notes" / "older").mkdir(parents=True)
+    (tmp_path / "desktop" / "VERSION").write_text("0.9.0\n", encoding="utf-8")
+    for rel in ("README.md", "desktop/release_notes/0.8.0.md", "desktop/release_notes/0.9.0.md",
+                "desktop/release_notes/older/0.7.2.txt"):
+        (tmp_path / rel).write_text("ranges\n", encoding="utf-8")
+    assert _user_facing_text_files(tmp_path) == ["README.md", "desktop/release_notes/0.9.0.md"]
 
 
 def test_the_launcher_and_the_window_name_the_load_step_alike():

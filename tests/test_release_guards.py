@@ -90,9 +90,68 @@ def test_version_file_is_one_x_y_z_line():
 def test_readme_download_links_name_the_version():
     text = (REPO / "README.md").read_text(encoding="utf-8")
     dmgs = re.findall(r"FoodOptimizer-(\d+\.\d+\.\d+)\.dmg", text)
+    exes = re.findall(r"FoodOptimizer-(\d+\.\d+\.\d+)-Windows\.exe", text)
+    sheets = re.findall(r"FoodOptimizer-(\d+\.\d+\.\d+)-IT-sheet\.pdf", text)
     tags = re.findall(r"releases/download/v(\d+\.\d+\.\d+)/", text)
-    assert dmgs and tags, (dmgs, tags)
-    assert set(dmgs) | set(tags) == {read_version()}, (dmgs, tags)
+    assert dmgs and exes and tags, (dmgs, exes, tags)
+    assert set(dmgs) | set(exes) | set(sheets) | set(tags) == {read_version()}, (dmgs, exes, sheets, tags)
+    links = re.findall(r"\]\((https://[^)]+)\)", text)
+    assert any(link.endswith(".dmg") for link in links) and any(link.endswith("-Windows.exe") for link in links)
+
+
+def _release_docs():
+    import importlib.util
+    import sys
+    spec = importlib.util.spec_from_file_location("foodopt_release_docs", REPO / "desktop" / "release_docs.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules.setdefault("foodopt_release_docs", module)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_readme_links_are_the_release_assets():
+    rd = _release_docs()
+    version = read_version()
+    allowed = {f"{rd.URL_BASE}/v{version}/{name}" for name in rd.assets(version).values()}
+    for path in (REPO / "README.md", NOTES_DIR / f"{version}.md"):
+        urls = re.findall(r"https://[^\s)\]>\"']*releases/download/[^\s)\]>\"']*", path.read_text(encoding="utf-8"))
+        assert urls, path
+        assert set(urls) <= allowed, (path.name, set(urls) - allowed)
+
+
+def test_windows_readme_names_no_stale_installer():
+    text = (REPO / "desktop" / "windows" / "README.md").read_text(encoding="utf-8")
+    version = read_version()
+    named = set(re.findall(r"FoodOptimizer-(\S+?)-Windows", text))
+    assert named <= {version, "X.Y.Z", f"{version}-test", "0.0.1", "<ver>"}, named
+
+
+def test_both_readmes_carry_the_same_windows_requirements():
+    win = (REPO / "desktop" / "windows" / "README.md").read_text(encoding="utf-8")
+    block = win[win.index("## System requirements (copy-paste"):]
+    line = next(l for l in block.splitlines()[1:] if l.strip())
+    assert line.startswith("Needs Windows 10 or 11 (64-bit)")
+    assert line in (REPO / "README.md").read_text(encoding="utf-8")
+
+
+def _at_release_tag():
+    probe = subprocess.run(["git", "describe", "--exact-match", "--tags", "HEAD"], cwd=REPO,
+                           capture_output=True, text=True)
+    return probe.returncode == 0 and probe.stdout.strip() == f"v{read_version()}"
+
+
+release_tag_only = pytest.mark.skipif(not _at_release_tag(), reason="release tag only")
+
+
+@release_tag_only
+def test_no_pending_marker_at_a_release_tag():
+    """At the release tag, no published text may still hold a PENDING(...)
+    marker: README, the release notes, the IT sheet, the email and the
+    Windows README."""
+    version = read_version()
+    for rel in ("README.md", f"desktop/release_notes/{version}.md", "desktop/windows/for_it_teams.md",
+                "desktop/windows/download_email.md", "desktop/windows/README.md"):
+        assert "PENDING(" not in (REPO / rel).read_text(encoding="utf-8"), rel
 
 
 def test_release_notes_match_the_version():

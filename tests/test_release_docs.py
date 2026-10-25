@@ -399,3 +399,54 @@ def test_render_writes_the_email_with_the_sender_lines_on_top(tmp_path):
     assert lines[:3] == ["Subject: Food Optimizer 0.9.0 for Windows", "Attach: FoodOptimizer-0.9.0-IT-sheet.pdf", ""]
     assert lines[3] == "Food Optimizer for Windows ([pending: exe_mb] MB)"
     assert "<!--" not in text
+
+
+# ---------- the release notes and the root README (Task 8) ----------
+
+NOTES = REPO / "desktop" / "release_notes" / f"{VERSION}.md"
+README = REPO / "README.md"
+UPDATE_LINE = "**Updating from an earlier version?** Close the app, run the new installer. Your projects are kept."
+
+
+def test_notes_say_what_changed_in_three_lines():
+    text = NOTES.read_text(encoding="utf-8")
+    section = text[text.index("## What is new in"):]
+    section = section[:section.index("\n## ", 5)]
+    bullets = [line[2:] for line in section.splitlines() if line.startswith("- ")]
+    assert len(bullets) == 3, bullets
+    for bullet in bullets:
+        for sentence in re.split(r"(?<=[.!?])\s+", bullet.strip()):
+            assert len(sentence.split()) <= 15, sentence
+    assert any("0.8.0" in b and "differ" in b for b in bullets), bullets
+
+
+def test_notes_have_the_update_line_and_both_downloads():
+    text = NOTES.read_text(encoding="utf-8")
+    assert UPDATE_LINE in text
+    assert "{{dmg_sha256}}" in text and "{{exe_sha256}}" in text
+    a = rd.assets(VERSION)
+    for name in (a["dmg"], a["exe"]):
+        assert f"{rd.URL_BASE}/v{VERSION}/{name}" in text, name
+
+
+def test_notes_point_support_to_email():
+    text = NOTES.read_text(encoding="utf-8")
+    assert "sohum.patnaik@fsi.org" in text
+    assert "github.com/thomasat/food_opt/issues" not in text
+
+
+def test_readme_and_notes_pending_markers():
+    for path in (README, NOTES):
+        assert {m.group(1) for m in rd.PENDING.finditer(path.read_text(encoding="utf-8"))} == {
+            "exact SmartScreen words on a signed build"}, path.name
+
+
+def test_notes_and_readme_carry_start_heres_smartscreen_line():
+    smart = _start_here_smartscreen()
+    for path in (README, NOTES):
+        assert smart in " ".join(path.read_text(encoding="utf-8").split()), path.name
+
+
+def test_notes_fields_are_known_values():
+    fields = set(rd.FIELD.findall(NOTES.read_text(encoding="utf-8")))
+    assert fields and fields <= rd.VALUE_KEYS

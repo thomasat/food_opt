@@ -1,6 +1,6 @@
 # Food Optimizer
 
-[**Download Food Optimizer 0.8.0 for Mac**](https://github.com/thomasat/food_opt/releases/download/v0.8.0/FoodOptimizer-0.8.0.dmg)
+[**Download Food Optimizer 0.9.0 for Mac**](https://github.com/thomasat/food_opt/releases/download/v0.9.0/FoodOptimizer-0.9.0.dmg) · [**Download Food Optimizer 0.9.0 for Windows**](https://github.com/thomasat/food_opt/releases/download/v0.9.0/FoodOptimizer-0.9.0-Windows.exe)
 
 Food Optimizer helps food scientists explore ingredient compositions and process settings. Define what can vary, choose measurements and targets, then generate formulations to prepare and evaluate. The app uses recorded results to suggest what to try next.
 
@@ -8,7 +8,7 @@ Food Optimizer helps food scientists explore ingredient compositions and process
 
 Requires **Apple silicon (M1 or newer)** and **macOS 13 Ventura or newer**. Check your Mac in **Apple menu → About This Mac**.
 
-1. Download and open **FoodOptimizer-0.8.0.dmg**.
+1. Download and open **FoodOptimizer-0.9.0.dmg**.
 2. Drag **Food Optimizer** onto **Applications** in the window that opens.
 3. Open **Applications**, then double-click **Food Optimizer**.
 4. Keep the app open and stay connected to the internet while setup completes. The window shows progress.
@@ -16,6 +16,20 @@ Requires **Apple silicon (M1 or newer)** and **macOS 13 Ventura or newer**. Chec
 First-time setup downloads about **1 GB** and needs about **6 GB of free space**. Setup time depends on your connection and computer. You can use the app offline afterward; a future update may need another download.
 
 **Updating?** Quit Food Optimizer before replacing it in Applications. Your saved projects are kept.
+
+## Install on Windows
+
+Needs Windows 10 or 11 (64-bit) and 2 GB free. Works offline.
+
+1. Download and open **FoodOptimizer-0.9.0-Windows.exe**. Windows may not recognize the app yet. Check the publisher is Food System Innovations, then click More info, then Run anyway.
+2. Click **Install**. No admin rights needed.
+3. Open **Food Optimizer** from Start.
+
+<!-- PENDING(exact SmartScreen words on a signed build) -->
+
+**Blocked?** Your IT can install it for everyone. Send them the [IT sheet](https://github.com/thomasat/food_opt/releases/download/v0.9.0/FoodOptimizer-0.9.0-IT-sheet.pdf).
+
+**Updating?** Close Food Optimizer. Run the new installer. Your projects are kept.
 
 ## Start with the example
 
