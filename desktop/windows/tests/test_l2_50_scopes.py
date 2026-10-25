@@ -83,7 +83,7 @@ def test_intune_install_and_uninstall_as_system(installer, l2_home, cleanup):
     assert l2.uninstall(PROGRAM_FILES, "system") == 0
     assert l2.wait_for(lambda: not PROGRAM_FILES.exists(), 30)
     assert l2.uninstall_entry("machine") is None
-    # SYSTEM cannot clean a user's state folder (the IT sheet says so).
+    # SYSTEM cannot clean a user's state folder (desktop/windows/README.md, "For IT teams (reference)").
     assert (l2_home.state / "marker").read_bytes() == b"user state"
 
 
