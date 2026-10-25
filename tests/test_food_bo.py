@@ -6031,8 +6031,10 @@ class TestTheTotalIsAlwaysReachable:
                     <= 20 + 1e-9), row
             assert opt._check_constraints(row), row
             # Still the total the box says, within the band the limit is
-            # enforced as.
-            assert sum(row.values()) == pytest.approx(100.0, rel=0.005)
+            # enforced as. A row the optimiser left exactly on the band's
+            # edge sums to 99.49999999999999: the extra 1e-9 is that
+            # rounding, not a broken limit.
+            assert abs(sum(row.values()) - 100.0) <= 0.005 * 100.0 + 1e-9, row
 
     def test_a_projection_that_would_break_a_limit_is_not_taken(
             self, tmp_path, monkeypatch):
