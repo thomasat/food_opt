@@ -395,4 +395,39 @@ public class LaunchMachineTests
         m.CancelShutdown();
         Assert.Equal(LaunchPhase.Loaded, m.Phase);
     }
+
+    [Fact]
+    public void A_health_result_during_a_cancelled_logoff_does_not_strand_the_check()
+    {
+        var m = New();
+        Assert.Contains(m.OnTick(Server), a => a is CheckHealth);
+        m.BeginShutdown();
+        Assert.Empty(m.OnHealth(true, 18501, "abc"));
+        m.CancelShutdown();
+        Assert.Equal(LaunchPhase.Waiting, m.Phase);
+        Assert.Contains(m.OnTick(Server), a => a is CheckHealth);
+    }
+
+    [Fact]
+    public void A_launcher_exit_during_a_cancelled_logoff_is_applied_on_cancel()
+    {
+        var want = New().OnLauncherExited(1);
+        var m = New();
+        m.BeginShutdown();
+        Assert.Empty(m.OnLauncherExited(1));
+        Assert.Equal(want, m.CancelShutdown());
+        Assert.Equal(LaunchPhase.Failed, m.Phase);
+    }
+
+    [Fact]
+    public void A_stalled_tick_inside_a_cancelled_logoff_still_fires_after()
+    {
+        var m = New();
+        TickTo(m, LaunchMachine.StalledTick - 1, Nothing);
+        m.BeginShutdown();
+        Assert.Empty(m.OnTick(Nothing));
+        m.CancelShutdown();
+        Assert.Contains(m.OnTick(Nothing), a => a is PageShowStalled);
+        Assert.DoesNotContain(m.OnTick(Nothing), a => a is PageShowStalled);
+    }
 }

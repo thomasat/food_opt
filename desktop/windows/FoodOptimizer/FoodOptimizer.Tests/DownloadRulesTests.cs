@@ -20,6 +20,10 @@ public class DownloadRulesTests
         Assert.Equal("probe.csv", DownloadRules.SuggestedFileName("probe.csv"));
         Assert.Equal("download", DownloadRules.SuggestedFileName(""));
         Assert.Equal("download", DownloadRules.SuggestedFileName(@"C:\x\"));
+        Assert.Equal("Round 6 sheet.xlsx", DownloadRules.SuggestedFileName(@"C:\x\Round 6 sheet.xlsx", contentDisposition: null));
+        Assert.Equal("probe.csv", DownloadRules.SuggestedFileName("probe.csv", contentDisposition: null));
+        Assert.Equal("download", DownloadRules.SuggestedFileName("", contentDisposition: null));
+        Assert.Equal("download", DownloadRules.SuggestedFileName(@"C:\x\", contentDisposition: null));
     }
 
     [Fact]
@@ -32,6 +36,10 @@ public class DownloadRulesTests
         Assert.Equal("Round 6 sheet.xlsx", DownloadRules.SuggestedFileName(Path.Combine("D", "Round 6 sheet (1).xlsx"), taken.Contains));
         Assert.Equal("notes (2).csv", DownloadRules.SuggestedFileName(Path.Combine("D", "notes (2).csv"), taken.Contains));
         Assert.Equal("probe (x).csv", DownloadRules.SuggestedFileName(Path.Combine("D", "probe (x).csv"), taken.Contains));
+        Assert.Equal("probe.csv", DownloadRules.SuggestedFileName(Path.Combine("D", "probe (4).csv"), null, taken.Contains));
+        Assert.Equal("Round 6 sheet.xlsx", DownloadRules.SuggestedFileName(Path.Combine("D", "Round 6 sheet (1).xlsx"), null, taken.Contains));
+        Assert.Equal("notes (2).csv", DownloadRules.SuggestedFileName(Path.Combine("D", "notes (2).csv"), null, taken.Contains));
+        Assert.Equal("probe (x).csv", DownloadRules.SuggestedFileName(Path.Combine("D", "probe (x).csv"), null, taken.Contains));
     }
 
     [Theory]
