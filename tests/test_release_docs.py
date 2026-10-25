@@ -283,15 +283,37 @@ def _pdf_text(md, tmp_path, footer):
     return [page.get_text() for page in doc]
 
 
-def test_pdf_keeps_commands_exact(tmp_path):
-    md = "# Commands\n\n" + "".join(f"```\n{c}\n```\n\n" for c in COMMANDS)
+SHEET = REPO / "desktop" / "windows" / "for_it_teams.md"
+# The real sheet's draft rendered to 10 Letter pages (2026-10-25); one page
+# of slack before a layout change has to be looked at.
+SHEET_PAGES = 11
+
+
+def _fenced(md):
+    out = []
+    for indent, body in re.findall(r"^( *)```\n(.*?)^\1```$", md, re.M | re.S):
+        out += [line[len(indent):] for line in body.strip("\n").splitlines()]
+    return out
+
+
+@pytest.mark.parametrize("case", ["fixture", "it-sheet"])
+def test_pdf_keeps_commands_exact(tmp_path, case):
+    if case == "fixture":
+        md = "# Commands\n\n" + "".join(f"```\n{c}\n```\n\n" for c in COMMANDS)
+        commands = COMMANDS
+    else:
+        md = rd.fill(SHEET.read_text(encoding="utf-8"), rd.values("0.9.0"), release=False)
+        commands = [line for line in _fenced(md) if "/VERYSILENT" in line or "_is1" in line or "Get-" in line]
+        assert len(commands) >= 7, commands
     pages = _pdf_text(md, tmp_path, footer="Fixture footer")
     flat = re.sub(r"\s+", "", "".join(pages))
-    for command in COMMANDS:
+    for command in commands:
         assert re.sub(r"\s+", "", command) in flat, command
-    for bad in ("–", "—", "“", "”", "­"):
+    for bad in ("\u2013", "\u2014", "\u201c", "\u201d", "\u00ad"):
         assert bad not in "".join(pages), repr(bad)
     assert "Fixture footer" in pages[0]
+    if case == "it-sheet":
+        assert len(pages) <= SHEET_PAGES, len(pages)
 
 
 def test_pdf_fetches_nothing(tmp_path):

@@ -251,7 +251,7 @@ h1 { font-size: 18pt; margin: 0 0 8pt; } h2 { font-size: 13pt; margin: 16pt 0 6p
        border-bottom: 1px solid #999; padding-bottom: 2pt; break-after: avoid; }
 h3 { font-size: 11pt; break-after: avoid; }
 pre, code { font-family: Menlo, Consolas, "Courier New", monospace; font-size: 9pt;
-            white-space: pre-wrap; word-break: break-all; }
+            white-space: pre-wrap; overflow-wrap: anywhere; }
 pre { background: #f3f3f3; border: 1px solid #ccc; padding: 6pt; break-inside: avoid; }
 table { border-collapse: collapse; width: 100%; margin: 6pt 0; break-inside: auto; }
 th, td { border: 1px solid #999; padding: 3pt 5pt; text-align: left; vertical-align: top; }
