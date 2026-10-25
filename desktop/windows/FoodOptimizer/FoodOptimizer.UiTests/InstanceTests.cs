@@ -35,6 +35,24 @@ public class InstanceTests
     }
 
     [Fact]
+    public async Task A_second_launch_restores_a_maximized_window_maximized()
+    {
+        var run = ShellRun.Fresh();
+        using var first = ShellApp.Launch(run);
+        var pattern = (WindowPattern)first.Window.GetCurrentPattern(WindowPattern.Pattern);
+        pattern.SetWindowVisualState(WindowVisualState.Maximized);
+        Assert.True(Uia.WaitUntil(() => pattern.Current.WindowVisualState == WindowVisualState.Maximized, TimeSpan.FromSeconds(5)));
+        pattern.SetWindowVisualState(WindowVisualState.Minimized);
+        Assert.True(Uia.WaitUntil(() => pattern.Current.WindowVisualState == WindowVisualState.Minimized, TimeSpan.FromSeconds(5)));
+        using var second = ShellApp.StartExe(run);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await second.WaitForExitAsync(cts.Token);
+        Assert.Equal(0, second.ExitCode);
+        Assert.True(Uia.WaitUntil(() => pattern.Current.WindowVisualState == WindowVisualState.Maximized, TimeSpan.FromSeconds(10)),
+            $"state {pattern.Current.WindowVisualState}");
+    }
+
+    [Fact]
     public async Task Reopening_while_closing_opens_a_new_window()
     {
         var run = ShellRun.Fresh();

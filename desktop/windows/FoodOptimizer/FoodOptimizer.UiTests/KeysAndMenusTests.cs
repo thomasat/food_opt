@@ -207,6 +207,27 @@ public class KeysAndMenusTests
         CloseWindow(w!);
     }
 
+    /// A command that fails says so, and the app keeps working.
+    [Fact]
+    public void Open_projects_folder_when_the_path_is_a_file_says_so()
+    {
+        var run = ShellRun.Fresh();
+        Directory.CreateDirectory(run.TempRoot);
+        var file = Path.Combine(run.TempRoot, "projects.txt");
+        File.WriteAllText(file, "not a folder");
+        using var app = ShellApp.Launch(run with { Env = new Dictionary<string, string> { ["FOODOPT_PROJECTS_DIR"] = file } });
+        app.Menu("File", "Open Projects Folder");
+        var d = app.WaitForDialog(Ten);
+        Uia.WaitFor(d, ControlType.Text, "Open Projects Folder did not work", Three);
+        CloseDialogWithOk(d);
+        Assert.True(Uia.WaitUntil(() => app.Dialog("Food Optimizer") == null, Three));
+        Assert.True(File.Exists(file));
+        app.Menu("Help", "About Food Optimizer");
+        var about = app.WaitForDialog(Ten);
+        Uia.WaitFor(about, ControlType.Text, "Food Optimizer " + AppIdentity.Version, Three);
+        CloseDialogWithOk(about);
+    }
+
     [Fact]
     public void Start_here_opens_the_text_file()
     {

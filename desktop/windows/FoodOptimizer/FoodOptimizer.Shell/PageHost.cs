@@ -50,9 +50,15 @@ sealed class PageHost
             NavigateToApp(app);
             return;
         }
-        // A new web view (first, or after a browser-process crash): show the
-        // page again and replay what it had been told, so a status line or
-        // an error page is never lost behind a blank view.
+        // A new web view (first, or after a browser-process crash).
+        ShowAgain();
+    }
+
+    /// <summary>Shows the last page view again and replays what it had been
+    /// told, so a status line or an error page is never lost behind a blank
+    /// view (a new web view, or a renderer that died).</summary>
+    public void ShowAgain()
+    {
         var view = _hasPending ? _pendingView : _lastView;
         var replay = _history.ToArray();
         _hasPending = false;

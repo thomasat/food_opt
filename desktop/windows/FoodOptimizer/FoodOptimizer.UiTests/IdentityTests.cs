@@ -31,6 +31,15 @@ public class IdentityTests
         Assert.Equal(0x8664, r.ReadUInt16());
     }
 
+    /// The window sets the taskbar ID itself (not only the process-wide
+    /// one), so it groups with the Start menu shortcut.
+    [Fact]
+    public void The_window_carries_the_app_id()
+    {
+        using var app = ShellApp.Launch(ShellRun.Fresh());
+        Assert.Equal(AppIdentity.AppUserModelId, AppIdProbe.OfWindow(app.Hwnd));
+    }
+
     [Fact]
     public void The_exe_has_an_icon()
     {

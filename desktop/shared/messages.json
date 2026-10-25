@@ -520,6 +520,26 @@
       },
       "mac": null,
       "shared": "shell"
+    },
+    {
+      "id": "error.command_failed.title",
+      "kind": "title",
+      "text": {
+        "mac": null,
+        "windows": "{command} did not work"
+      },
+      "mac": null,
+      "shared": "shell"
+    },
+    {
+      "id": "error.command_failed.body",
+      "kind": "body",
+      "text": {
+        "mac": null,
+        "windows": "Windows said: {reason}"
+      },
+      "mac": null,
+      "shared": "shell"
     }
   ],
   "menus": [

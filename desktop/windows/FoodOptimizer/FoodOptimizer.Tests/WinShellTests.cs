@@ -40,10 +40,10 @@ public sealed class WinShellTests : IDisposable
     }
 
     [Fact]
-    public void Open_of_a_missing_target_is_false()
+    public void Open_of_a_missing_target_says_why()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only");
-        Assert.False(WinShell.Open(Path.Combine(_dir, "no such file.txt")));
+        Assert.False(string.IsNullOrWhiteSpace(WinShell.Open(Path.Combine(_dir, "no such file.txt"))));
         Assert.False(WinShell.RevealInExplorer(Path.Combine(_dir, "no such file.txt")));
     }
 }

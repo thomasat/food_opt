@@ -169,6 +169,22 @@ public class FailureTests
         app.WaitFor(ControlType.Text, "Needs 64-bit Windows 10 (22H2) or Windows 11.", Thirty);
     }
 
+    /// A renderer crash on an error page shows the page again, not a blank
+    /// view or the steps it began with.
+    [Fact]
+    public void A_renderer_crash_on_an_error_page_shows_it_again()
+    {
+        var run = ShellRun.Fresh() with { Env = new Dictionary<string, string> { ["FOODOPT_TEST_ARCH"] = "x86" } };
+        using var app = ShellApp.Launch(run);
+        app.WaitFor(ControlType.Text, "This PC is not supported", Thirty);
+        var renderers = WebViews(app).Where(p => p.CommandLine.Contains("--type=renderer")).ToList();
+        Assert.NotEmpty(renderers);
+        foreach (var r in renderers) Process.GetProcessById(r.Pid).Kill();
+        Assert.True(Uia.WaitUntil(() => app.Log().Any(l => l.Contains("webview.renderer_exited")), Thirty));
+        app.WaitFor(ControlType.Text, "This PC is not supported", Thirty);
+        app.WaitFor(ControlType.Text, "Needs 64-bit Windows 10 (22H2) or Windows 11.", Thirty);
+    }
+
     /// A logoff another app vetoed: the window must still show a server
     /// that dies afterwards, as if the logoff never began.
     [Fact]

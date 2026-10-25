@@ -23,6 +23,10 @@ sealed class MainForm : Form
     readonly Downloads _downloads;
     int _recreations;
     bool _sessionEnding;
+    bool _closing;
+    // A logoff asked about (WM_QUERYENDSESSION) and not yet over: only its
+    // cancellation may undo the shutdown it began, never a user's close.
+    bool _logoffQueried;
 
     const int WM_QUERYENDSESSION = 0x11, WM_ENDSESSION = 0x16;
 
@@ -66,13 +70,23 @@ sealed class MainForm : Form
         {
             BeginInvoke(() =>
             {
-                if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+                // SW_RESTORE brings back the state before minimizing (maximized stays maximized).
+                if (WindowState == FormWindowState.Minimized) NativeMethods.ShowWindow(Handle, NativeMethods.SW_RESTORE);
                 Show();
                 Activate();
                 NativeMethods.SetForegroundWindow(Handle);
             });
         }
         catch (InvalidOperationException) { }
+    }
+
+    /// <summary>The window carries the shortcut's taskbar ID itself, before
+    /// it is shown.</summary>
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        if (!WinShell.SetWindowAppUserModelId(Handle, AppIdentity.AppUserModelId))
+            _log.Write("appid.window_failed");
     }
 
     protected override void OnDpiChanged(DpiChangedEventArgs e)
@@ -203,13 +217,9 @@ sealed class MainForm : Form
     void OnZoomChanged(object? sender, object e)
     {
         if (_web.Controller is not { } c) return;
-        var z = Zoom.Clamp(c.ZoomFactor);
-        if (!Zoom.Same(z, c.ZoomFactor))
-        {
-            c.ZoomFactor = z;
-            return;
-        }
-        SaveZoom(z);
+        var (reapply, save) = Zoom.OnReported(c.ZoomFactor, _settings.Zoom);
+        if (reapply is { } r) c.ZoomFactor = r;
+        if (save is { } z) SaveZoom(z);
     }
 
     void SaveZoom(double z)
@@ -229,17 +239,42 @@ sealed class MainForm : Form
         SaveZoom(Zoom.Clamp(c.ZoomFactor));
     }
 
-    /// <summary>Runs a menu command.</summary>
+    /// <summary>Runs a menu command. One that fails says so, naming the
+    /// command and Windows' reason, and the app goes on.</summary>
     void Execute(string id)
     {
         _log.Write("command.run", id);
+        string? reason;
+        var failure = nameof(System.ComponentModel.Win32Exception);
+        try
+        {
+            reason = Run(id);
+        }
+        catch (Exception ex)
+        {
+            reason = ex.Message;
+            failure = ex.GetType().Name;
+        }
+        if (reason == null) return;
+        _log.Write("command.failed", id + " " + failure);
+        // A brace in Windows' text (a {GUID} path) is not a placeholder.
+        var command = _messages.Text(id).Replace("&", "", StringComparison.Ordinal);
+        reason = reason.Replace('{', '(').Replace('}', ')');
+        ShellDialogs.Info(this,
+            _messages.Format("error.command_failed.title", ("command", command)),
+            _messages.Format("error.command_failed.body", ("reason", reason)));
+    }
+
+    /// <summary>The command itself: null when it worked, else Windows'
+    /// reason it did not.</summary>
+    string? Run(string id)
+    {
         var zoom = _web.Controller?.ZoomFactor ?? _settings.Zoom;
         switch (id)
         {
             case MenuIds.OpenProjects:
                 Directory.CreateDirectory(_paths.ProjectsDir);
-                WinShell.Open(_paths.ProjectsDir);
-                break;
+                return WinShell.Open(_paths.ProjectsDir);
             case MenuIds.Quit:
                 Close();
                 break;
@@ -253,8 +288,8 @@ sealed class MainForm : Form
                 SetZoom(Zoom.Default);
                 break;
             case MenuIds.StartHere:
-                if (File.Exists(_layout.StartHere)) WinShell.Open(_layout.StartHere);
-                else ShellDialogs.Info(this, _messages.Text("error.missing_part.title"), _messages.Text("error.missing_part.body"));
+                if (File.Exists(_layout.StartHere)) return WinShell.Open(_layout.StartHere);
+                ShellDialogs.Info(this, _messages.Text("error.missing_part.title"), _messages.Text("error.missing_part.body"));
                 break;
             case MenuIds.GetHelp:
                 ShellDialogs.Info(this, _messages.Text("help.get_help.title"), _messages.Text("help.get_help.body"));
@@ -268,6 +303,7 @@ sealed class MainForm : Form
                     _messages.Format("about.body", ("version", AppIdentity.Version)));
                 break;
         }
+        return null;
     }
 
     void OnProcessFailed(object? sender, CoreWebView2ProcessFailedEventArgs e)
@@ -276,7 +312,13 @@ sealed class MainForm : Form
         {
             case CoreWebView2ProcessFailedKind.RenderProcessExited:
                 _log.Write("webview.renderer_exited", e.Reason.ToString());
-                try { _web.Core?.Reload(); } catch (Exception) { }
+                // The app reloads; our own page is shown again with what it
+                // had been told (a reload would lose an error it showed).
+                if (_page.ShowingApp)
+                {
+                    try { _web.Core?.Reload(); } catch (Exception) { }
+                }
+                else _page.ShowAgain();
                 break;
             case CoreWebView2ProcessFailedKind.BrowserProcessExited:
                 _log.Write("webview.browser_exited", e.Reason.ToString());
@@ -313,12 +355,14 @@ sealed class MainForm : Form
     }
 
     /// <summary>Logoff and shutdown: quit at once, and show no error page.
-    /// A logoff that is cancelled (WM_ENDSESSION with wParam 0) changes nothing.</summary>
+    /// A logoff that is cancelled (WM_ENDSESSION with wParam 0) changes
+    /// nothing; it never undoes a close the user began.</summary>
     protected override void WndProc(ref Message m)
     {
         if (m.Msg == WM_QUERYENDSESSION)
         {
             _log.Write("session.ending");
+            _logoffQueried = !_closing;
             _launch.BeginShutdown();
             m.Result = 1;
             return;
@@ -331,8 +375,9 @@ sealed class MainForm : Form
                 _launch.Shutdown(fast: true);
                 Close();
             }
-            else
+            else if (_logoffQueried)
             {
+                _logoffQueried = false;
                 _log.Write("session.end_cancelled");
                 _launch.CancelShutdown();
             }
@@ -354,6 +399,8 @@ sealed class MainForm : Form
     {
         base.OnFormClosing(e);
         if (e.Cancel) return;
+        _closing = true;
+        _logoffQueried = false;
         var screen = Screen.FromControl(this).DeviceName;
         var bounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
         _settings.Window = WindowPlacement.ToSaved(screen,
