@@ -460,3 +460,44 @@ def test_no_variable_shadows_a_parameter():
     assigned = {m.lower() for m in re.findall(r"foreach \(\$(\w+) in", text)}
     assigned |= {m.lower() for m in re.findall(r"^\s*\$(\w+)\s*=", text, re.M)}
     assert params & assigned <= {"outdir", "version"}, params & assigned
+
+
+# ---------- the README's exit-code table (Task 12) ----------
+
+def _l2_constant(name):
+    """A literal constant of desktop/windows/tests/l2_support.py, read by
+    AST: the module needs Windows to import."""
+    import ast
+    tree = ast.parse((WINDOWS / "tests" / "l2_support.py").read_text(encoding="utf-8"))
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == name for t in node.targets):
+            return ast.literal_eval(node.value)
+    raise AssertionError(f"no literal {name} in l2_support.py")
+
+
+def test_exit_code_table_matches_l2_support():
+    codes, intune = _l2_constant("EXIT_CODES"), _l2_constant("INTUNE")
+    assert set(codes) == set(intune)
+    assert all(isinstance(c, int) for c in codes.values()), codes
+    text = (WINDOWS / "README.md").read_text(encoding="utf-8")
+    rows = {int(m.group(1)): m.group(3).strip()
+            for m in re.finditer(r"^\| `?(-?\d+)`? \| (.+?) \| (\w+) \|$", text, re.M)}
+    for name, code in codes.items():
+        assert rows.get(code) == intune[name], (name, code, rows)
+    assert set(rows) == set(codes.values())
+
+
+def test_new_scripts_follow_the_powershell_rules():
+    """Phase 5's own scripts follow 3b's Windows PowerShell 5.1 rules."""
+    for name in ("run_level2.ps1", "make_test_installer.ps1"):
+        raw = (WINDOWS / "tests" / name).read_bytes()
+        assert all(b < 0x80 for b in raw) and b"\r" not in raw, name
+        text = raw.decode("ascii")
+        for line in ("Set-StrictMode -Version 2", "$ErrorActionPreference = 'Stop'",
+                     "$ProgressPreference = 'SilentlyContinue'"):
+            assert line in text, (name, line)
+        # No stderr redirection of a native command in PowerShell itself; a
+        # .cmd line written as a string literal may redirect.
+        code = re.sub(r"'[^'\n]*'", "''", text)
+        assert "2>&1" not in code, name
+        assert "$LASTEXITCODE" in text, name
