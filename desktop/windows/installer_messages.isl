@@ -1,9 +1,9 @@
 ; Food Optimizer's installer copy (owner-approved 2026-10-24), layered on
 ; Inno Setup's Default.isl by setup.iss:
 ;   MessagesFile: "compiler:Default.isl,installer_messages.isl"
-; Every message a user can reach is rewritten to the copy rules: status
-; <= 10 words a sentence, titles <= 8, labels <= 5. tests/test_windows_installer.py
-; pins each value. ASCII only, LF line endings. [name] is Food Optimizer,
+; Every message our install and uninstall flows reach is rewritten to the
+; copy rules: status <= 10 words a sentence, titles <= 8, labels <= 5.
+; tests/test_windows_installer.py pins each value. ASCII only, LF line endings. [name] is Food Optimizer,
 ; [ver] its version, %1 Inno's argument, %n a new line, & an accelerator.
 
 [Messages]
@@ -56,6 +56,13 @@ LdrCannotExecTemp=The installer could not start. Free some disk space, then try 
 ErrorReplacingExistingFile=A file could not be replaced. Close Food Optimizer, then try again.
 DiskSpaceWarningTitle=Not enough space
 DiskSpaceWarning=Needs %1 KB free. This drive has %2 KB.%n%nContinue anyway?
+WizardUninstalling=Uninstalling
+StatusUninstalling=Uninstalling %1
+SetupAlreadyRunning=The installer is already open.
+AbortRetryIgnoreSelectAction=Choose what to do
+AbortRetryIgnoreRetry=&Try again
+AbortRetryIgnoreIgnore=&Continue anyway
+AbortRetryIgnoreCancel=Stop installing
 
 [CustomMessages]
 DesktopShortcut=Add a desktop shortcut
