@@ -1,13 +1,16 @@
 """Golden: what a project with no blanks scores and suggests, captured on the
 code BEFORE the complete-results change (0.8.0, insights-080 @ c418337).
 
-tests/fixtures/complete_results_golden.json is written ONCE, on the unchanged
-code, by
+tests/fixtures/complete_results_golden.json was written on the unchanged
+code, and its suggestions re-recorded once, with the owner's approval, for
+0.9.0's suggestion-stability change (windows-port-p1, on 834dc1b;
+tests/test_suggestion_stability.py), under the locked dependency versions
+of desktop/requirements.lock.txt, by
 
     python -m tests.test_complete_results_golden
 
-and committed. It is never regenerated: every later commit on the branch
-keeps this file green, which is the proof that a project with no blanks and
+It is not regenerated otherwise: every later commit on the branch keeps
+this file green, which is the proof that a project with no blanks and
 no measurement added partway scores and suggests exactly what it did:
 bit-identical on the Mac; within 0.1% on Windows (tests.golden.same)."""
 import json
