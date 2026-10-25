@@ -78,13 +78,26 @@ def _url(role):
 
 # ---------- the release page ----------
 
+# Under the Mac link (owner, 2026-10-25): who can install it. The Mac
+# launcher refuses anything else (arm64, macOS 13+; desktop/README.md's
+# requirements block says the same).
+MAC_NEEDS = "Needs a Mac with Apple silicon, macOS 13 or later."
+
+
+def test_mac_requirement_line_is_what_the_mac_app_enforces():
+    readme = flowed((REPO / "desktop" / "README.md").read_text(encoding="utf-8"))
+    assert "Apple silicon" in readme and "macOS 13" in readme
+    launcher = (REPO / "desktop" / "launcher.sh").read_text(encoding="utf-8")
+    assert '"arm64"' in launcher and "-lt 13" in launcher
+
 def test_notes_are_the_owners_four_parts():
     """Two download links, what is new, the update line, the IT lines:
     nothing else (no sizes, no steps, no checksums, no Assets paragraph)."""
     text = _visible(NOTES.read_text(encoding="utf-8"))
     assert re.findall(r"^## (.+)$", text, re.M) == [f"What is new in {VERSION}", "For IT teams"]
     head = text[:text.index("## What is new")]
-    assert _lines(head) == [f"**[Download for Mac]({_url('dmg')})**", f"**[Download for Windows]({_url('exe')})**"]
+    assert _lines(head) == [f"**[Download for Mac]({_url('dmg')})**", MAC_NEEDS,
+                            f"**[Download for Windows]({_url('exe')})**", _start_here_smartscreen()]
     for gone in ("{{", "MB", "Assets", "Checksums", "SHA-256", "Source code", "IT sheet", "SBOM"):
         assert gone not in text, gone
 
@@ -163,7 +176,7 @@ def test_notes_links_are_the_two_downloads():
 
 def test_notes_pending_markers():
     assert {m.group(1) for m in PENDING.finditer(NOTES.read_text(encoding="utf-8"))} == {
-        "publisher shown on the signed build"}
+        "publisher shown on the signed build", "exact SmartScreen words on a signed build"}
 
 
 def test_notes_sentences_are_short():
