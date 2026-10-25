@@ -114,6 +114,76 @@ def test_all_users_install_replaces_a_per_user_copy(installer, l2_home, cleanup)
     assert keep.read_bytes() == b"\x80\x04keep"
 
 
+def _custom_dir_copy(installer, home):
+    """A per-user copy installed with /DIR beside the user folder, and a
+    project the IT install must keep."""
+    folder = home.base / "Custom FO"
+    result = l2.install(installer, "user", dir=folder, env=home.env)
+    assert result.rc == 0, result.log[-3000:]
+    assert l2.uninstall_entry("user")["InstallLocation"] == str(folder) + "\\"
+    home.projects.mkdir(parents=True, exist_ok=True)
+    keep = home.projects / "Keep me.pkl"
+    keep.write_bytes(b"\x80\x04keep")
+    return folder, keep
+
+
+def test_all_users_install_replaces_a_per_user_dir_copy(installer, l2_home, cleanup):
+    folder, keep = _custom_dir_copy(installer, l2_home)
+    result = l2.install(installer, "system", all_users=True)
+    assert result.rc == 0, result.log[-3000:]
+    assert not folder.exists(), result.log[-3000:]
+    assert f"replaced per-user copy: deleted {folder}" in result.log
+    assert l2.uninstall_entry("user") is None
+    assert keep.read_bytes() == b"\x80\x04keep"
+
+
+def test_an_it_install_leaves_a_folder_that_is_no_longer_a_copy(installer, l2_home, cleanup):
+    """Review Focus 3: the user's /DIR folder no longer holds Food Optimizer
+    (its files were moved out and the user's own put in): the IT install
+    leaves the folder and what is in it."""
+    folder, keep = _custom_dir_copy(installer, l2_home)
+    (folder / "FoodOptimizer.exe").unlink()
+    (folder / "unins000.dat").unlink()
+    mine = folder / "Mine.txt"
+    mine.write_bytes(b"mine")
+    result = l2.install(installer, "system", all_users=True)
+    assert result.rc == 0, result.log[-3000:]
+    assert mine.read_bytes() == b"mine", result.log[-3000:]
+    assert f"replaced per-user copy: deleted {folder}" not in result.log
+    assert keep.read_bytes() == b"\x80\x04keep"
+
+
+_SHELL_FOLDERS = r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders"
+
+
+def test_all_users_install_finds_a_redirected_start_menu(installer, l2_home, cleanup):
+    """The user's Start menu lives elsewhere (folder redirection): the IT
+    install deletes the per-user shortcuts where that user's Start menu is."""
+    import winreg
+    programs = l2_home.base / "Start Menu" / "Programs"
+    programs.mkdir(parents=True)
+    key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, _SHELL_FOLDERS, 0,
+                         winreg.KEY_READ | winreg.KEY_SET_VALUE)
+    with key:
+        try:
+            before = winreg.QueryValueEx(key, "Programs")
+        except FileNotFoundError:
+            before = None
+        winreg.SetValueEx(key, "Programs", 0, winreg.REG_EXPAND_SZ, str(programs))
+        try:
+            assert l2.install(installer, "user", env=l2_home.env).rc == 0
+            assert (programs / "Food Optimizer.lnk").is_file()
+            result = l2.install(installer, "system", all_users=True)
+            assert result.rc == 0, result.log[-3000:]
+            for name in ("Food Optimizer.lnk", "Food Optimizer - Start Here.lnk"):
+                assert not (programs / name).exists(), result.log[-3000:]
+        finally:
+            if before is None:
+                winreg.DeleteValue(key, "Programs")
+            else:
+                winreg.SetValueEx(key, "Programs", 0, before[1], before[0])
+
+
 def test_it_install_waits_for_a_running_copy(installer, l2_home, cleanup):
     assert l2.install(installer, "user", dir=l2_home.root, env=l2_home.env).rc == 0
     before = l2.manifest(l2_home.root)

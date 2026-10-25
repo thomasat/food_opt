@@ -281,6 +281,7 @@ def test_install_delete_clears_the_bundled_folders():
         {"Type": "filesandordirs", "Name": "{app}\\python"},
         {"Type": "filesandordirs", "Name": "{app}\\app"},
         {"Type": "filesandordirs", "Name": "{app}\\shared"},
+        {"Type": "filesandordirs", "Name": "{app}\\runtimes"},
         {"Type": "files", "Name": "{app}\\*.dll"}]
     assert section_entries("UninstallDelete") == [{"Type": "dirifempty", "Name": "{app}"}]
 
@@ -560,6 +561,49 @@ def test_a_folder_that_is_not_ours_is_refused():
     assert "CustomMessage('FolderNotOurs')" in body
     assert body.index("refused: folder_not_ours") < body.index("refused: needs_space")
     assert parse_isl(ISL)["CustomMessages"]["FolderNotOurs"] == "This folder holds other files. Use an empty folder."
+
+
+def test_the_state_folder_is_never_the_projects_folder():
+    """Review Focus 2: FOODOPT_STATE_DIR may name the projects folder, or a
+    folder holding it, written in another case or with a trailing \\. The
+    uninstall then keeps the state folder rather than delete projects."""
+    body = _function("CurUninstallStepChanged")
+    guard = re.search(r"if SameOrInside\(ProjectsDir, Dir\) then\s+"
+                      r"Log\('state folder kept \(it holds the projects folder\): ' \+ Dir\)\s+else ", body)
+    assert guard, body
+    assert guard.start() < body.index("DelTree(")
+    same = _function("SameOrInside")
+    assert same.startswith("function SameOrInside(const Inner, Outer: String): Boolean;")
+    assert "RemoveBackslashUnlessRoot" in same and "AnsiLowercase" in same
+
+
+def test_per_user_copies_are_found_by_their_install_location():
+    """A per-user copy installed with /DIR is found through its uninstall
+    entry, and deleted only while it still holds Food Optimizer (Review
+    Focus 3); the entry is read before it is deleted."""
+    body = _function("ReplacePerUserCopies")
+    read = re.search(r"RegQueryStringValue\(HKU, Sid \+ '\\' \+ UninstallKey, 'InstallLocation', (\w+)\)", body)
+    assert read, body
+    assert read.start() < body.index("RegDeleteKeyIncludingSubkeys")
+    copy = _function("IsOurCopy")
+    assert re.search(r"FileExists\(.*?'FoodOptimizer\.exe'\) and\s+FileExists\(.*?'unins000\.dat'\)", copy)
+    assert "IsOurCopy(Location)" in body
+    assert "Log('replaced per-user copy: deleted ' + " in _code_section()
+
+
+def test_start_menu_is_read_from_user_shell_folders():
+    """A redirected Start menu or desktop is read from the user's own User
+    Shell Folders; the usual paths are only the fallbacks."""
+    text = ISS.read_text(encoding="ascii")
+    fallbacks = re.findall(r"UserShellFolder\(Sid, '(\w+)', Profile, ([^;]*)\);", text)
+    assert {name for name, _ in fallbacks} >= {"Programs", "Desktop"}, fallbacks
+    total = text.count("Start Menu\\Programs")
+    assert total >= 1
+    assert sum(fb.count("Start Menu\\Programs") for _, fb in fallbacks) == total
+    helper = _function("UserShellFolder")
+    assert helper.startswith("function UserShellFolder(const Sid, Name, Profile, Fallback: String): String;")
+    assert "User Shell Folders" in helper and "RegQueryStringValue(HKU, " in helper
+    assert "'%USERPROFILE%'" in helper and "'%APPDATA%'" in helper
 
 
 def test_a_failed_build_leaves_no_installer_or_record():

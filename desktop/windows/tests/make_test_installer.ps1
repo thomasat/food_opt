@@ -4,7 +4,8 @@
 #
 #   old     FoodOptimizer-0.0.1-Windows-old.exe: version 0.0.1, with files an
 #           older lock and app had (a stale package, an old module, a stale
-#           shell DLL) that an upgrade must not leave behind.
+#           shell DLL at the root and under runtimes) that an upgrade must
+#           not leave behind.
 #   broken  FoodOptimizer-<ver>-Windows-broken.exe: gpytorch raises on import,
 #           as if security software blocked a file, so the pre-warm fails.
 #
@@ -66,12 +67,15 @@ $ver = ([IO.File]::ReadAllText((Join-Path (Split-Path -Parent $WindowsDir) 'VERS
 $site = Join-Path $copy 'python\Lib\site-packages'
 if ($Variant -eq 'old') {
     # 2. What an older lock and app left: a package, its metadata, two
-    #    modules and a shell DLL.
+    #    modules and two shell DLLs.
     Write-Lf (Join-Path $site 'stale_pkg\__init__.py') "STALE = True`n"
     Write-Lf (Join-Path $site 'stale_pkg-1.0.dist-info\METADATA') "Metadata-Version: 2.1`nName: stale-pkg`nVersion: 1.0`n"
     Write-Lf (Join-Path $copy 'app\old_module.py') "OLD = True`n"
     Write-Lf (Join-Path $copy 'shared\launcher\old_helper.py') "OLD = True`n"
     Copy-Item -LiteralPath (Join-Path $copy 'python\python3.dll') -Destination (Join-Path $copy 'stale_shell.dll') -Force
+    $native = Join-Path $copy 'runtimes\win-x64\native'
+    New-Item -ItemType Directory -Force -Path $native | Out-Null
+    Copy-Item -LiteralPath (Join-Path $copy 'python\python3.dll') -Destination (Join-Path $native 'FoodOptimizer.Stale.dll') -Force
     $appVersion = '0.0.1'
     $name = 'FoodOptimizer-0.0.1-Windows-old'
 } else {

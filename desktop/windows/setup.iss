@@ -86,11 +86,12 @@ Source: "{#ImageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs c
 
 [InstallDelete]
 ; An upgrade starts from a clean Python and app: a package an older lock had
-; must not linger. *.dll at the root: a shell runtime file a newer shell no
-; longer ships.
+; must not linger. runtimes and the root's *.dll: a shell runtime file a
+; newer shell no longer ships.
 Type: filesandordirs; Name: "{app}\python"
 Type: filesandordirs; Name: "{app}\app"
 Type: filesandordirs; Name: "{app}\shared"
+Type: filesandordirs; Name: "{app}\runtimes"
 Type: files; Name: "{app}\*.dll"
 
 [Icons]
@@ -145,6 +146,17 @@ begin
   Result := EnvOr('FOODOPT_STATE_DIR', ExpandConstant('{localappdata}') + '\FoodOptimizer');
 end;
 
+{ Whether Inner is Outer or a folder inside it, whatever the case and
+  with or without a trailing backslash. }
+function SameOrInside(const Inner, Outer: String): Boolean;
+var
+  I, O: String;
+begin
+  I := AnsiLowercase(RemoveBackslashUnlessRoot(Inner));
+  O := AnsiLowercase(RemoveBackslashUnlessRoot(Outer));
+  Result := (I = O) or (Pos(AddBackslash(O), I) = 1);
+end;
+
 function IsRunningAsSystem: Boolean;
 begin
   Result := (CompareText(GetUserNameString, 'SYSTEM') = 0) or
@@ -176,16 +188,51 @@ begin
   end;
 end;
 
+{ A folder of a user's User Shell Folders (their hive loaded), with
+  %USERPROFILE% and %APPDATA% expanded for that user; Fallback when the
+  hive isn't loaded or the value is missing. }
+function UserShellFolder(const Sid, Name, Profile, Fallback: String): String;
+begin
+  if not RegQueryStringValue(HKU, Sid + '\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders',
+      Name, Result) or (Result = '') then begin
+    Result := Fallback;
+    exit;
+  end;
+  StringChangeEx(Result, '%USERPROFILE%', Profile, True);
+  if (CompareText(Name, 'AppData') <> 0) and (Pos('%APPDATA%', Result) > 0) then
+    StringChangeEx(Result, '%APPDATA%',
+      UserShellFolder(Sid, 'AppData', Profile, Profile + '\AppData\Roaming'), True);
+end;
+
+{ Whether a folder still holds a Food Optimizer install (not only files a
+  user moved there). }
+function IsOurCopy(const Dir: String): Boolean;
+begin
+  Result := FileExists(AddBackslash(Dir) + 'FoodOptimizer.exe') and
+    FileExists(AddBackslash(Dir) + 'unins000.dat');
+end;
+
+procedure DeleteCopy(const Dir: String);
+begin
+  if DelTree(Dir, True, True, True) then
+    Log('replaced per-user copy: deleted ' + Dir)
+  else
+    Log('replaced per-user copy: could not delete ' + Dir);
+end;
+
 { An all-users install replaces every per-user copy: a per-user and an
   all-users install can't coexist (spec section 5). It runs once the
   all-users copy is in place, so a cancelled or failed IT install leaves
-  the user's copy alone. Never touches projects or state. A user whose
-  hive isn't loaded keeps an orphan Apps entry. }
+  the user's copy alone. A copy installed with /DIR is found through the
+  user's uninstall entry, and deleted only while it still holds Food
+  Optimizer. Never touches projects or state. A user whose hive isn't
+  loaded keeps an orphan Apps entry and any /DIR copy. }
 procedure ReplacePerUserCopies;
 var
   Sids: TArrayOfString;
   I: Integer;
-  Sid, Profile, Dir, Desktop, ShellFolders: String;
+  Sid, Profile, Dir, Location, Programs: String;
+  Loaded: Boolean;
 begin
   if not RegGetSubkeyNames(HKLM64, ProfileListKey, Sids) then begin
     Log('replaced per-user copy: no profile list');
@@ -200,29 +247,28 @@ begin
     if not RegQueryStringValue(HKLM64, ProfileListKey + '\' + Sid, 'ProfileImagePath', Profile) then
       continue;
     StringChangeEx(Profile, '%SystemDrive%', GetEnv('SystemDrive'), True);
-    Dir := Profile + '\AppData\Local\Programs\Food Optimizer';
-    if FileExists(Dir + '\FoodOptimizer.exe') then begin
-      if DelTree(Dir, True, True, True) then
-        Log('replaced per-user copy: deleted ' + Dir)
+    Loaded := RegKeyExists(HKU, Sid);
+    if Loaded and RegQueryStringValue(HKU, Sid + '\' + UninstallKey, 'InstallLocation', Location) and
+        (Location <> '') then begin
+      Location := RemoveBackslashUnlessRoot(Location);
+      if IsOurCopy(Location) then
+        DeleteCopy(Location)
       else
-        Log('replaced per-user copy: could not delete ' + Dir);
+        Log('replaced per-user copy: no copy left in ' + Location);
     end;
-    DeleteLogged(Profile + '\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Food Optimizer.lnk');
-    DeleteLogged(Profile + '\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Food Optimizer - Start Here.lnk');
-    if RegKeyExists(HKU, Sid) then begin
-      if RegKeyExists(HKU, Sid + '\' + UninstallKey) then begin
-        if RegDeleteKeyIncludingSubkeys(HKU, Sid + '\' + UninstallKey) then
-          Log('replaced per-user copy: deleted the uninstall entry of ' + Sid)
-        else
-          Log('replaced per-user copy: could not delete the uninstall entry of ' + Sid);
-      end;
-      ShellFolders := Sid + '\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders';
-      if RegQueryStringValue(HKU, ShellFolders, 'Desktop', Desktop) then begin
-        StringChangeEx(Desktop, '%USERPROFILE%', Profile, True);
-        DeleteLogged(Desktop + '\Food Optimizer.lnk');
-      end;
-    end else
-      DeleteLogged(Profile + '\Desktop\Food Optimizer.lnk');
+    Dir := Profile + '\AppData\Local\Programs\Food Optimizer';
+    if FileExists(Dir + '\FoodOptimizer.exe') then
+      DeleteCopy(Dir);
+    Programs := UserShellFolder(Sid, 'Programs', Profile, Profile + '\AppData\Roaming\Microsoft\Windows\Start Menu\Programs');
+    DeleteLogged(Programs + '\Food Optimizer.lnk');
+    DeleteLogged(Programs + '\Food Optimizer - Start Here.lnk');
+    DeleteLogged(UserShellFolder(Sid, 'Desktop', Profile, Profile + '\Desktop') + '\Food Optimizer.lnk');
+    if Loaded and RegKeyExists(HKU, Sid + '\' + UninstallKey) then begin
+      if RegDeleteKeyIncludingSubkeys(HKU, Sid + '\' + UninstallKey) then
+        Log('replaced per-user copy: deleted the uninstall entry of ' + Sid)
+      else
+        Log('replaced per-user copy: could not delete the uninstall entry of ' + Sid);
+    end;
   end;
 end;
 
@@ -479,7 +525,9 @@ begin
     UnpinFromQuickAccess(ProjectsDir);
   if CurUninstallStep = usPostUninstall then begin
     Dir := RemoveBackslashUnlessRoot(StateDir);
-    if CompareText(ExtractFileName(Dir), 'FoodOptimizer') = 0 then begin
+    if SameOrInside(ProjectsDir, Dir) then
+      Log('state folder kept (it holds the projects folder): ' + Dir)
+    else if CompareText(ExtractFileName(Dir), 'FoodOptimizer') = 0 then begin
       for I := 1 to 5 do begin
         if not DirExists(Dir) then
           break;
