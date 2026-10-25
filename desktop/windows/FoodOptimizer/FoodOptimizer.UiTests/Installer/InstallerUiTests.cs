@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Management;
 using System.Runtime.InteropServices;
 using System.Windows.Automation;
 using FoodOptimizer.Core;
@@ -257,14 +258,10 @@ public class InstallerUiTests
             var project = Path.Combine(run.ProjectsDir, "My project.pkl");
             File.WriteAllBytes(project, [0x80, 0x04, 0x4b, 0x01]);
 
-            var info = new ProcessStartInfo(Path.Combine(run.Stage, "unins000.exe")) { UseShellExecute = false };
-            foreach (var (k, v) in env) info.Environment[k] = v;
-            using var unins = Process.Start(info)!;
-            using var w = new UninstallWatch(unins);
+            using var w = UninstallWatch.Start(run.Stage, env);
             var confirm = w.Wizard.WaitForDialog("Uninstall Food Optimizer? Your projects are kept.", TimeSpan.FromSeconds(60));
-            w.Wizard.Click(confirm, "Yes");
-            var done = w.Wizard.WaitForDialog("under FoodOptimizer", TimeSpan.FromSeconds(600));
-            w.Wizard.Click(done, "OK");
+            w.Wizard.Dismiss(confirm, "Yes");
+            w.Finish(w.Wizard.WaitForDialog("under FoodOptimizer", TimeSpan.FromSeconds(600)));
             Assert.True(Uia.WaitUntil(() => !Directory.Exists(run.Stage), TimeSpan.FromSeconds(60), 500));
             Assert.Equal(new byte[] { 0x80, 0x04, 0x4b, 0x01 }, File.ReadAllBytes(project));
             Assert.Empty(w.Wizard.NotAllowed(Version, run.Stage));
@@ -288,12 +285,9 @@ public class InstallerUiTests
             using var app = ShellApp.Launch(run);
             Assert.True(Uia.WaitUntil(() => InstallerRun.ShowsDocument(app.Window, title), TimeSpan.FromSeconds(300), 1000));
 
-            var info = new ProcessStartInfo(Path.Combine(run.Stage, "unins000.exe")) { UseShellExecute = false };
-            foreach (var (k, v) in env) info.Environment[k] = v;
-            using var unins = Process.Start(info)!;
-            using var w = new UninstallWatch(unins);
+            using var w = UninstallWatch.Start(run.Stage, env);
             var confirm = w.Wizard.WaitForDialog("Uninstall Food Optimizer? Your projects are kept.", TimeSpan.FromSeconds(60));
-            w.Wizard.Click(confirm, "Yes");
+            w.Wizard.Dismiss(confirm, "Yes");
             var d = w.Wizard.WaitForDialog("Close Food Optimizer, then click OK.", TimeSpan.FromSeconds(60));
             app.Close();
             Assert.True(await app.WaitForExitAsync(TimeSpan.FromSeconds(10)));
@@ -308,7 +302,7 @@ public class InstallerUiTests
                 return (done = w.Wizard.FindDialog("under FoodOptimizer")) != null;
             }, TimeSpan.FromSeconds(600), 250), "no dialog saying 'under FoodOptimizer' within 600 s");
             Assert.Contains("Uninstalling", progress);
-            w.Wizard.Click(done!, "OK");
+            w.Finish(done!);
             Assert.True(Uia.WaitUntil(() => !Directory.Exists(run.Stage), TimeSpan.FromSeconds(60), 500));
             Assert.Empty(w.Wizard.NotAllowed(Version, run.Stage));
             Uia.Record("uninstall_progress_texts", string.Join(" | ", progress));
@@ -359,13 +353,75 @@ public class InstallerUiTests
         }
     }
 
-    /// <summary>The uninstaller's dialogs, read like the wizard's.</summary>
-    sealed class UninstallWatch(Process unins) : IDisposable
+    /// <summary>An interactive uninstall of one copy: its dialogs, read like
+    /// the wizard's, and its processes (unins000.exe and the second phase
+    /// it copies to %TEMP%), which the test waits for and never leaves
+    /// running.</summary>
+    sealed class UninstallWatch : IDisposable
     {
-        public SetupWizard Wizard { get; } = SetupWizardFor(unins);
+        readonly string _dir;
+        readonly DateTime _began;
 
-        static SetupWizard SetupWizardFor(Process p) => SetupWizard.Attach(p);
+        UninstallWatch(string dir, DateTime began, SetupWizard wizard)
+        {
+            _dir = dir;
+            _began = began;
+            Wizard = wizard;
+        }
 
-        public void Dispose() => Wizard.Dispose();
+        public SetupWizard Wizard { get; }
+
+        public static UninstallWatch Start(string dir, IDictionary<string, string> env)
+        {
+            var before = SetupWizard.TopWindows();
+            var began = DateTime.Now;
+            var info = new ProcessStartInfo(Path.Combine(dir, "unins000.exe")) { UseShellExecute = false };
+            foreach (var (k, v) in env) info.Environment[k] = v;
+            return new UninstallWatch(dir, began, SetupWizard.Attach(Process.Start(info)!, before));
+        }
+
+        /// <summary>The uninstaller processes this uninstall started: named
+        /// unins*, _unins* or _iu*, their command line naming this copy's
+        /// folder, started after it began.</summary>
+        public IReadOnlyList<(int Pid, string Name)> Processes()
+        {
+            var found = new List<(int, string)>();
+            using var searcher = new ManagementObjectSearcher(
+                "SELECT ProcessId, Name, CommandLine, CreationDate FROM Win32_Process");
+            foreach (ManagementObject o in searcher.Get())
+            {
+                using (o)
+                {
+                    var name = o["Name"] as string ?? "";
+                    if (!(name.StartsWith("unins", StringComparison.OrdinalIgnoreCase)
+                        || name.StartsWith("_unins", StringComparison.OrdinalIgnoreCase)
+                        || name.StartsWith("_iu", StringComparison.OrdinalIgnoreCase))) continue;
+                    if (!(o["CommandLine"] as string ?? "").Contains(_dir, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (o["CreationDate"] is not string created || ManagementDateTimeConverter.ToDateTime(created) < _began) continue;
+                    found.Add((Convert.ToInt32(o["ProcessId"]), name));
+                }
+            }
+            return found;
+        }
+
+        /// <summary>OK on the last dialog: it closes and every uninstaller
+        /// process ends.</summary>
+        public void Finish(AutomationElement last)
+        {
+            Wizard.Dismiss(last, "OK");
+            if (!Uia.WaitUntil(() => Processes().Count == 0, TimeSpan.FromSeconds(60), 500))
+                throw new Xunit.Sdk.XunitException("the uninstaller still runs 60 s after its last OK: "
+                    + string.Join(", ", Processes().Select(p => $"{p.Name} {p.Pid}")));
+        }
+
+        public void Dispose()
+        {
+            foreach (var (pid, _) in Processes())
+            {
+                try { Process.GetProcessById(pid).Kill(); }
+                catch (Exception) { }
+            }
+            Wizard.Dispose();
+        }
     }
 }
