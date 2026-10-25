@@ -240,6 +240,14 @@ def check_release(version, win, mac, dist, l2, *, tag_commit: str | None = None)
             raise ValueError(f"{key}: {a[role]} does not match its record")
     if l2 is None:
         raise ValueError(f"no Level 2 report.json in {dist}")
+    # The sheet's "all loopback" line comes from this report: it must be
+    # this installer's run, and that run must have seen no other traffic.
+    if l2.get("installer_sha256") != win.get("installer_sha256"):
+        raise ValueError(f"report.json installer_sha256={l2.get('installer_sha256')}: not this installer's "
+                         "Level 2 run")
+    if l2.get("wfp_outside") != 0:
+        raise ValueError(f"wfp_outside={l2.get('wfp_outside')} (report.json): the audit must count 0 "
+                         "connections outside loopback")
 
 
 # ---------- HTML and PDF ----------
@@ -252,6 +260,8 @@ h1 { font-size: 18pt; margin: 0 0 8pt; } h2 { font-size: 13pt; margin: 16pt 0 6p
 h3 { font-size: 11pt; break-after: avoid; }
 pre, code { font-family: Menlo, Consolas, "Courier New", monospace; font-size: 9pt;
             white-space: pre-wrap; overflow-wrap: anywhere; }
+pre, pre code { white-space: pre; overflow-wrap: normal; }
+pre code { font-size: inherit; }
 pre { background: #f3f3f3; border: 1px solid #ccc; padding: 6pt; break-inside: avoid; }
 table { border-collapse: collapse; width: 100%; margin: 6pt 0; break-inside: auto; }
 th, td { border: 1px solid #999; padding: 3pt 5pt; text-align: left; vertical-align: top; }
@@ -263,11 +273,30 @@ mark { background: #ffe08a; }
 """
 
 
+# A code block never wraps (a wrapped command pastes as two); a long one
+# gets a smaller font instead, sized so its longest line fits the narrowest
+# place a block sits (inside a nested list item on US Letter, 18 mm margins).
+PRE_WIDTH_PT = 430
+MONO_ADVANCE = 0.61     # Menlo/Consolas advance width, in em
+PRE_MAX_PT = 9.0
+
+
+def _fit_pre(match) -> str:
+    text = html_lib.unescape(re.sub(r"<[^>]+>", "", match.group(2)))
+    longest = max((len(line) for line in text.splitlines()), default=0)
+    size = PRE_MAX_PT
+    if longest:
+        size = min(PRE_MAX_PT, int(PRE_WIDTH_PT / (MONO_ADVANCE * longest) * 10) / 10)
+    return f'<pre style="font-size: {size}pt">{match.group(1)}{match.group(2)}'
+
+
 def to_html(md: str, title: str, *, draft: bool) -> str:
     """One self-contained page: no typographic replacements (commands stay
-    byte for byte), HTML comments dropped, inline CSS, nothing external."""
+    byte for byte), HTML comments dropped, inline CSS, nothing external,
+    and every code block on unwrapped lines."""
     from markdown_it import MarkdownIt
     body = MarkdownIt("commonmark", {"typographer": False}).enable("table").render(COMMENT.sub("", md))
+    body = re.sub(r"<pre>(<code[^>]*>)(.*?</code>)", _fit_pre, body, flags=re.S)
     if draft:
         body = re.sub(r"\[pending: [^\]]*\]", lambda m: f"<mark>{m.group(0)}</mark>", body)
     banner = '<div class="draft">DRAFT - not for distribution</div>\n' if draft else ""
@@ -325,6 +354,15 @@ def _email_text(filled: str) -> str:
     return "\n".join(head) + "\n\n" + filled[m.end():].strip() + "\n"
 
 
+def _template_at_tag(rel: str, version: str) -> str:
+    """A release text as committed at tag v<version>, never the working tree."""
+    r = subprocess.run(["git", "-C", str(REPO), "show", f"refs/tags/v{version}:{rel}"],
+                       capture_output=True)
+    if r.returncode != 0:
+        raise ValueError(f"{rel} is not in tag v{version}")
+    return r.stdout.decode("utf-8")
+
+
 def _title(md: str) -> str:
     m = re.search(r"^# (.+)$", md, re.M)
     return m.group(1).strip() if m else "Food Optimizer"
@@ -351,13 +389,15 @@ def render(version, *, dist=None, out=None, release=False, templates=None, tag_c
             raise ValueError("a release render needs --dist")
         check_release(version, win, mac, dist, l2, tag_commit=tag_commit)
     if templates is None:
-        templates = {}
-        for role, path in TEMPLATES.items():
-            if path.is_file():
-                templates[role] = path.read_text(encoding="utf-8")
         notes = DESKTOP / "release_notes" / f"{version}.md"
-        if notes.is_file():
-            templates["notes"] = notes.read_text(encoding="utf-8")
+        paths = {**TEMPLATES, "notes": notes}
+        if release:
+            # What the tag holds: an uncommitted edit cannot publish.
+            templates = {role: _template_at_tag(path.relative_to(REPO).as_posix(), version)
+                         for role, path in paths.items()}
+        else:
+            templates = {role: path.read_text(encoding="utf-8") for role, path in paths.items()
+                         if path.is_file()}
     if release:
         for role in ("it_sheet", "email", "notes"):
             if role not in templates:

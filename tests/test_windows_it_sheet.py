@@ -346,3 +346,15 @@ def test_every_evidence_row_names_a_real_test():
 def test_every_claim_section_has_evidence():
     covered = {section for section, _, _ in _evidence_rows()}
     assert set(SECTIONS) - NO_EVIDENCE_NEEDED <= covered, set(SECTIONS) - NO_EVIDENCE_NEEDED - covered
+
+
+def test_allow_listing_names_every_signer_in_the_install():
+    """The binaries keep their vendors' signatures (CPython's PSF, Microsoft's
+    C++ and .NET runtimes); only the unsigned ones are re-signed. A rule for
+    Food System Innovations alone would block python.exe."""
+    pins = json.loads((WINDOWS / "pins.json").read_text(encoding="utf-8"))
+    section = _flat(_section("Allow-listing"))
+    for signer in ("Food System Innovations", pins["python"]["signer"], pins["vc_runtime"]["dll_signer"],
+                   "Microsoft Corporation"):
+        assert signer in section, signer
+    assert "every binary it installs" not in section

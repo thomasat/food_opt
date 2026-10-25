@@ -74,7 +74,8 @@ def make_dist(tmp, version=VERSION, win=None, mac=None, report=True):
     (dist / a["sbom"]).write_text(json.dumps(_bom()), encoding="utf-8")
     if report:
         (dist / "report.json").write_text(json.dumps({"wfp_events_by_process": {
-            "python.exe": 20, "FoodOptimizer.exe": 3}}), encoding="utf-8")
+            "python.exe": 20, "FoodOptimizer.exe": 3}, "wfp_outside": 0,
+            "installer_sha256": _sha(dist / a["exe"])}), encoding="utf-8")
     w = {k: "x" for k in WIN_KEYS}
     w.update(version=version, commit=COMMIT, tree_clean="yes", test_build="no", installer=a["exe"],
              installer_bytes=str((dist / a["exe"]).stat().st_size), installer_sha256=_sha(dist / a["exe"]),
@@ -217,9 +218,10 @@ def test_a_clean_release_input_passes_the_checks(tmp_path):
     dist = make_dist(tmp_path)
     win = rd.read_record(dist / f"FoodOptimizer-{VERSION}-Windows.build.txt")
     mac = rd.read_record(dist / f"FoodOptimizer-{VERSION}.build.txt")
-    rd.check_release(VERSION, win, mac, dist, {"wfp_events_by_process": {}}, tag_commit=COMMIT)
+    l2 = {"wfp_events_by_process": {}, "wfp_outside": 0, "installer_sha256": win["installer_sha256"]}
+    rd.check_release(VERSION, win, mac, dist, l2, tag_commit=COMMIT)
     with pytest.raises(ValueError, match=r"v%s" % re.escape(VERSION)):
-        rd.check_release(VERSION, win, mac, dist, {}, tag_commit="f" * 40)
+        rd.check_release(VERSION, win, mac, dist, l2, tag_commit="f" * 40)
 
 
 def test_release_render_writes_nothing_when_refused(tmp_path, capsys):
@@ -307,8 +309,12 @@ def test_pdf_keeps_commands_exact(tmp_path, case):
         assert len(commands) >= 7, commands
     pages = _pdf_text(md, tmp_path, footer="Fixture footer")
     flat = re.sub(r"\s+", "", "".join(pages))
+    lines = {line.strip() for page in pages for line in page.splitlines()}
     for command in commands:
         assert re.sub(r"\s+", "", command) in flat, command
+        # One line in the PDF, byte for byte: a wrapped command pastes as
+        # two (cmd runs the first half alone; Intune's field breaks).
+        assert command.strip() in lines, command
     for bad in ("\u2013", "\u2014", "\u201c", "\u201d", "\u00ad"):
         assert bad not in "".join(pages), repr(bad)
     assert "Fixture footer" in pages[0]
@@ -450,3 +456,43 @@ def test_notes_and_readme_carry_start_heres_smartscreen_line():
 def test_notes_fields_are_known_values():
     fields = set(rd.FIELD.findall(NOTES.read_text(encoding="utf-8")))
     assert fields and fields <= rd.VALUE_KEYS
+
+
+
+# ---------- final-review fixes ----------
+
+def test_release_render_refuses_an_unverified_level_2_report(tmp_path):
+    """The sheet's "all loopback" line comes from report.json, so the report
+    must be this installer's (its sha256) and must have seen no connection
+    outside loopback."""
+    a = rd.assets(VERSION)
+    for report, field in (({"wfp_events_by_process": {"python.exe": 3}}, "report.json installer_sha256"),
+                          (None, "wfp_outside")):
+        dist = make_dist(tmp_path / field.replace(" ", "_"))
+        sha = _sha(dist / a["exe"])
+        body = report if report is not None else {"wfp_events_by_process": {"python.exe": 3},
+                                                  "installer_sha256": sha, "wfp_outside": 2}
+        (dist / "report.json").write_text(json.dumps(body), encoding="utf-8")
+        with pytest.raises(ValueError, match=re.escape(field)):
+            rd.render(VERSION, dist=dist, out=tmp_path / "out", release=True, templates=CLEAN_TEMPLATES,
+                      tag_commit=COMMIT)
+    assert not (tmp_path / "out").exists()
+
+
+def test_release_render_reads_the_templates_at_the_tag(tmp_path, monkeypatch):
+    """A release fills the texts committed at tag v<ver>, never the working
+    tree: an uncommitted edit that deletes the markers cannot publish."""
+    dist = make_dist(tmp_path)
+    seen = []
+
+    def at_tag(rel, version):
+        seen.append((rel, version))
+        return "# Sheet\n\nPENDING(at the tag)\n"
+    monkeypatch.setattr(rd, "_template_at_tag", at_tag)
+    for path in list(rd.TEMPLATES.values()):
+        assert path.is_file()
+    with pytest.raises(ValueError, match=re.escape("pending: at the tag")):
+        rd.render(VERSION, dist=dist, out=tmp_path / "out", release=True, tag_commit=COMMIT)
+    assert {rel for rel, _ in seen} >= {"desktop/windows/for_it_teams.md", f"desktop/release_notes/{VERSION}.md"}
+    assert all(v == VERSION for _, v in seen)
+    assert not (tmp_path / "out").exists()

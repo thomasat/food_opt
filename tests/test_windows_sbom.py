@@ -427,3 +427,25 @@ def test_every_windows_wheel_has_a_known_licence():
     overrides = sbom._overrides(DECLARED)
     for key in lock:
         sbom.licence_of(dists[key], overrides)
+
+
+# ---------- final-review fixes (Review Focus 2) ----------
+
+@pytest.mark.parametrize("lines", [
+    ["License: MIT", "Classifier: License :: OSI Approved :: GNU General Public License v3 (GPLv3)"],
+    ["License: BSD-3-Clause",
+     "Classifier: License :: OSI Approved :: GNU Lesser General Public License v2 or later (LGPLv2+)"],
+    ["License-Expression: MIT", "Classifier: License :: OSI Approved :: GNU General Public License v2 (GPLv2)"],
+], ids=["license-field", "spdx-field", "expression"])
+def test_a_gpl_classifier_is_never_hidden(tmp_path, lines):
+    dist = _dist(tmp_path, "pkg", "1.0", lines)
+    assert "GPL-family" in sbom.family(sbom.licence_of(dist, {}))
+
+
+def test_a_bare_or_proprietary_classifier_is_no_licence(tmp_path):
+    for i, lines in enumerate((["License: GPLv2 or BSD-ish text that is long enough to not be a short name at all",
+                                "Classifier: License :: OSI Approved"],
+                               ["Classifier: License :: Other/Proprietary License"])):
+        dist = _dist(tmp_path / str(i), "pkg", "1.0", lines)
+        with pytest.raises(sbom.UnknownLicence, match="no licence for pkg 1.0"):
+            sbom.licence_of(dist, {})

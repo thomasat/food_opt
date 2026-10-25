@@ -196,8 +196,13 @@ FoodOptimizer.exe                        the window (.NET, WebView2)
 
 ## Allow-listing
 
-- AppLocker: a publisher rule for Food System Innovations covers the installer and every binary it installs. For all-users installs, a path rule `%PROGRAMFILES%\Food Optimizer\*` also works. AppLocker's default rules block running an installer from Downloads, so a user's own install needs the publisher rule.
-- App Control for Business: a signer rule on the identity EKU of Food System Innovations' certificate.
+- The binaries in the install folder keep their vendors' signatures, and only the ones their vendors left unsigned are re-signed. Allow all four signers:
+  - Food System Innovations: the installer, the uninstaller, `FoodOptimizer.exe` and the re-signed files;
+  - Python Software Foundation: the bundled `python.exe`, `pythonw.exe`, `python313.dll` and CPython's own modules;
+  - Microsoft Windows Software Compatibility Publisher: the Microsoft C++ runtime DLLs beside `python.exe`;
+  - Microsoft Corporation: the .NET runtime files.
+- AppLocker: publisher rules for those four signers. For all-users installs, a path rule `%PROGRAMFILES%\Food Optimizer\*` also works. AppLocker's default rules block running an installer from Downloads, so a user's own install needs the publisher rules.
+- App Control for Business: a signer rule on the identity EKU of Food System Innovations' certificate, plus signer rules for the three vendors above.
 - Microsoft Defender for Endpoint: a certificate indicator (Allow) for the publisher, or file indicators for the hashes in `{{files_list_name}}`.
 - The attack surface reduction rule "Block executable files from running unless they meet a prevalence, age, or trusted list criterion" (`01443614-cd74-433a-b99e-2ecdc07bfc25`) may block a new release's files until their reputation builds; the certificate indicator above allows them.
 - EDR: the expected process tree is in "What runs".

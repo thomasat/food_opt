@@ -255,12 +255,40 @@ def _name_family(name: str) -> str:
     return "Other"
 
 
+def _classifier_label(c: str) -> str:
+    return re.sub(r"\s+License$", "", c.split("::")[-1].strip()) + " (classifier)"
+
+
 def licence_of(dist: Dist, overrides: Mapping[str, dict]) -> Licence:
-    """The first of: License-Expression; an override (with evidence) for
-    the name; the License classifiers, when every one names one licence;
-    a License: field that is an SPDX id or expression; the classifiers
-    with the ambiguous ones as names; a short License: name with a family
-    keyword. Otherwise UnknownLicence."""
+    """The displayed licence is the first of: License-Expression; an
+    override (with evidence) for the name; the License classifiers, when
+    every one names one licence; a License: field that is an SPDX id or
+    expression; the classifiers with the ambiguous ones as names; a short
+    License: name with a family keyword. Otherwise UnknownLicence.
+
+    A GPL-family licence named by any other source (a classifier, the
+    License: field) is added to it, so the GPL is never hidden behind the
+    source that won. A bare "License :: OSI Approved" names no licence, and
+    a licence known only as Other (e.g. "Other/Proprietary License") is
+    unknown."""
+    meta = dist.metadata
+    classifiers = [c.strip() for c in meta.get_all("Classifier") or []
+                   if c.strip().startswith("License ::") and c.count("::") >= 2]
+    lic = _displayed_licence(dist, overrides, classifiers)
+    if family(lic) == ["Other"] and lic.source == "classifier":
+        raise UnknownLicence(f"no licence for {dist.name} {dist.version} (classifiers say only {lic.name})")
+    if "GPL-family" not in family(lic):
+        field = (meta.get("License") or "").strip()
+        extra = [_classifier_label(c) for c in classifiers if _GPL.search(c)]
+        if field and "\n" not in field and len(field) <= SHORT_NAME and _GPL.search(field):
+            extra.append(field)
+        if extra:
+            name = "; ".join([n for n in [lic.name] if n] + extra)
+            lic = Licence(lic.ids, lic.expression, name, lic.source)
+    return lic
+
+
+def _displayed_licence(dist: Dist, overrides: Mapping[str, dict], classifiers: list[str]) -> Licence:
     meta = dist.metadata
     expression = (meta.get("License-Expression") or "").strip()
     if expression:
@@ -271,7 +299,6 @@ def licence_of(dist: Dist, overrides: Mapping[str, dict]) -> Licence:
         if lic is None:
             lic = Licence((), None, override["licence"], "override")
         return lic
-    classifiers = [c.strip() for c in meta.get_all("Classifier") or [] if c.strip().startswith("License ::")]
     exact = [CLASSIFIER_SPDX[c] for c in classifiers if c in CLASSIFIER_SPDX]
     vague = [c for c in classifiers if c not in CLASSIFIER_SPDX]
     if classifiers and not vague:
@@ -281,11 +308,7 @@ def licence_of(dist: Dist, overrides: Mapping[str, dict]) -> Licence:
     if field.strip() and _known_expression(field.strip()):
         return _from_text(field, "License")
     if vague:
-        names = []
-        for c in vague:
-            label = c.split("::")[-1].strip()
-            label = re.sub(r"\s+License$", "", label)
-            names.append(f"{label} (classifier)")
+        names = [_classifier_label(c) for c in vague]
         return Licence(tuple(dict.fromkeys(exact)), None, "; ".join(names), "classifier")
     lic = _from_text(field, "License")
     if lic is not None:
