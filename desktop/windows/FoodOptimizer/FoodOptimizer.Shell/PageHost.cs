@@ -63,8 +63,25 @@ sealed class PageHost
         var replay = _history.ToArray();
         _hasPending = false;
         _pendingView = null;
-        _ = ShowPageAsync(view);
+        if (_core is { } core && _bootScriptId != null && view == _lastView && !ShowingApp)
+            Reopen(core);
+        else
+            _ = ShowPageAsync(view);
         foreach (var js in replay) Remember(js);
+    }
+
+    /// <summary>This web view still has the boot script for the page:
+    /// navigates to it again at once. After a renderer crash only a
+    /// navigation made right away replaces the crash page.</summary>
+    void Reopen(CoreWebView2 core)
+    {
+        _queue.Clear();
+        _history.Clear();
+        _pageReady = false;
+        ExpectingPage = true;
+        _showGeneration++;
+        try { core.Navigate(PageBridge.StatusPageUrl); }
+        catch (Exception e) { _log.Write("page.show_failed", e.GetType().Name); }
     }
 
     void Remember(string js)
@@ -108,6 +125,7 @@ sealed class PageHost
         try
         {
             if (_bootScriptId != null) core.RemoveScriptToExecuteOnDocumentCreated(_bootScriptId);
+            _bootScriptId = null;
             _bootScriptId = await core.AddScriptToExecuteOnDocumentCreatedAsync(
                 PageBridge.BootScript(_messages, AppIdentity.Version, view));
             if (generation != _showGeneration || core != _core) return;

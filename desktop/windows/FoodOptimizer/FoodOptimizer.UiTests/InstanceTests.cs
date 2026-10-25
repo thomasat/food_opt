@@ -22,6 +22,10 @@ public class InstanceTests
         var run = ShellRun.Fresh();
         using var first = ShellApp.Launch(run);
         var pattern = (WindowPattern)first.Window.GetCurrentPattern(WindowPattern.Pattern);
+        // A small screen opens the window maximized; this test is about a
+        // normal one (a maximized one is the next test).
+        pattern.SetWindowVisualState(WindowVisualState.Normal);
+        Assert.True(Uia.WaitUntil(() => pattern.Current.WindowVisualState == WindowVisualState.Normal, TimeSpan.FromSeconds(5)));
         pattern.SetWindowVisualState(WindowVisualState.Minimized);
         Thread.Sleep(800);
         using var second = ShellApp.StartExe(run);
