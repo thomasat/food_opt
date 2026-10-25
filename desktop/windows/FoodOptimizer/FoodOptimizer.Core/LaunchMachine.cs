@@ -23,6 +23,7 @@ public sealed class LaunchMachine
     int? _deferDeadline;
     int? _relaunchAt;
     int _strikes;
+    LaunchPhase _phaseBeforeShutdown;
 
     public LaunchMachine(DateTime launchStartedUtc, PageView view)
     {
@@ -174,5 +175,16 @@ public sealed class LaunchMachine
     public void OnResume() => _strikes = 0;
 
     /// <summary>Quitting or logging off: no page may show from now on.</summary>
-    public void BeginShutdown() => Phase = LaunchPhase.ShuttingDown;
+    public void BeginShutdown()
+    {
+        if (Phase == LaunchPhase.ShuttingDown) return;
+        _phaseBeforeShutdown = Phase;
+        Phase = LaunchPhase.ShuttingDown;
+    }
+
+    /// <summary>A logoff that was cancelled: back to the phase it replaced.</summary>
+    public void CancelShutdown()
+    {
+        if (Phase == LaunchPhase.ShuttingDown) Phase = _phaseBeforeShutdown;
+    }
 }

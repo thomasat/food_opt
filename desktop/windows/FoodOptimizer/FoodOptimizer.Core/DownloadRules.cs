@@ -24,6 +24,93 @@ public static partial class DownloadRules
         return name;
     }
 
+    /// <summary>The name the server gave in Content-Disposition, else the
+    /// <see cref="SuggestedFileName(string, Func{string, bool}?)"/> rule. A
+    /// name the server gave is kept as is, even when it ends in " (2)".</summary>
+    public static string SuggestedFileName(string resultFilePath, string? contentDisposition, Func<string, bool>? exists = null) =>
+        DispositionFileName(contentDisposition) ?? SuggestedFileName(resultFilePath, exists);
+
+    /// <summary>The file name in a Content-Disposition header: filename*
+    /// (RFC 5987, percent-decoded) when it is valid, else filename (quoted or
+    /// token). Null when there is none, it is empty, or it holds \ / : or ..</summary>
+    public static string? DispositionFileName(string? contentDisposition)
+    {
+        if (string.IsNullOrWhiteSpace(contentDisposition)) return null;
+        string? plain = null, extended = null;
+        foreach (var part in SplitParameters(contentDisposition).Skip(1))
+        {
+            var eq = part.IndexOf('=');
+            if (eq < 0) continue;
+            var key = part[..eq].Trim();
+            var value = part[(eq + 1)..].Trim();
+            if (key.Equals("filename*", StringComparison.OrdinalIgnoreCase)) extended ??= DecodeExtended(value);
+            else if (key.Equals("filename", StringComparison.OrdinalIgnoreCase)) plain ??= Unquote(value);
+        }
+        var name = extended ?? plain;
+        return IsSafeName(name) ? name : null;
+    }
+
+    static bool IsSafeName(string? name) =>
+        !string.IsNullOrEmpty(name) && name.IndexOfAny(['\\', '/', ':']) < 0 && !name.Contains("..");
+
+    // Split on ';' outside double quotes; a backslash inside quotes escapes.
+    static IEnumerable<string> SplitParameters(string header)
+    {
+        var current = new System.Text.StringBuilder();
+        bool quoted = false, escaped = false;
+        foreach (var c in header)
+        {
+            if (c == ';' && !quoted)
+            {
+                yield return current.ToString();
+                current.Clear();
+                continue;
+            }
+            current.Append(c);
+            if (escaped) escaped = false;
+            else if (quoted && c == '\\') escaped = true;
+            else if (c == '"') quoted = !quoted;
+        }
+        yield return current.ToString();
+    }
+
+    static string Unquote(string value)
+    {
+        if (value.Length < 2 || value[0] != '"' || value[^1] != '"') return value;
+        var sb = new System.Text.StringBuilder();
+        for (var i = 1; i < value.Length - 1; i++)
+        {
+            if (value[i] == '\\' && i + 1 < value.Length - 1) i++;
+            sb.Append(value[i]);
+        }
+        return sb.ToString();
+    }
+
+    // charset'language'percent-encoded; only UTF-8 is read. Null if invalid.
+    static string? DecodeExtended(string value)
+    {
+        var parts = value.Split('\'', 3);
+        if (parts.Length != 3 || !parts[0].Equals("UTF-8", StringComparison.OrdinalIgnoreCase)) return null;
+        var bytes = new List<byte>();
+        var text = parts[2];
+        for (var i = 0; i < text.Length; i++)
+        {
+            if (text[i] != '%')
+            {
+                if (text[i] > 0x7f) return null;
+                bytes.Add((byte)text[i]);
+            }
+            else if (i + 2 < text.Length && byte.TryParse(text.AsSpan(i + 1, 2), System.Globalization.NumberStyles.AllowHexSpecifier, null, out var b))
+            {
+                bytes.Add(b);
+                i += 2;
+            }
+            else return null;
+        }
+        try { return new System.Text.UTF8Encoding(false, true).GetString(bytes.ToArray()); }
+        catch (ArgumentException) { return null; }
+    }
+
     [GeneratedRegex(@"^(.+) \(\d+\)(\.[^.]*)?$")]
     private static partial Regex Numbered();
 

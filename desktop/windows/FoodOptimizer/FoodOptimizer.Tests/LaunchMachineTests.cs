@@ -352,4 +352,47 @@ public class LaunchMachineTests
         Assert.Empty(m.OnTick(Server));
         Assert.Empty(m.OnTick(new PollSnapshot(Fresh("Starting the app|"), null, null)));
     }
+
+    [Fact]
+    public void Cancelled_logoff_restores_loaded()
+    {
+        var m = Loaded();
+        m.BeginShutdown();
+        m.CancelShutdown();
+        Assert.Equal(LaunchPhase.Loaded, m.Phase);
+        Assert.Empty(m.OnWatch(false));
+        Assert.Empty(m.OnWatch(false));
+        Assert.Equal([new StopHealthWatch(), new PageShowError(PageError.Stopped, null)], m.OnWatch(false));
+    }
+
+    [Fact]
+    public void Cancel_then_begin_shutdown_again_is_shutting_down()
+    {
+        var m = Loaded();
+        m.BeginShutdown();
+        m.CancelShutdown();
+        m.BeginShutdown();
+        Assert.Equal(LaunchPhase.ShuttingDown, m.Phase);
+        Assert.Empty(m.OnWatch(false));
+        Assert.Empty(m.OnWatch(false));
+        Assert.Empty(m.OnWatch(false));
+    }
+
+    [Fact]
+    public void Cancel_without_a_shutdown_changes_nothing()
+    {
+        var m = New();
+        m.CancelShutdown();
+        Assert.Equal(LaunchPhase.Waiting, m.Phase);
+    }
+
+    [Fact]
+    public void A_second_begin_shutdown_keeps_the_first_phase_to_restore()
+    {
+        var m = Loaded();
+        m.BeginShutdown();
+        m.BeginShutdown();
+        m.CancelShutdown();
+        Assert.Equal(LaunchPhase.Loaded, m.Phase);
+    }
 }

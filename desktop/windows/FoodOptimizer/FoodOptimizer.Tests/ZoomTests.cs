@@ -33,4 +33,13 @@ public class ZoomTests
         Assert.True(Zoom.Same(1.1, 1.1009));
         Assert.False(Zoom.Same(1.1, 1.102));
     }
+
+    [Theory]
+    [InlineData(3.0, 2.3, 2.5, 2.5)]
+    [InlineData(1.1, 1.0, null, 1.1)]
+    [InlineData(2.5, 2.5, null, null)]
+    [InlineData(0.333333, 0.5, 0.5, null)]
+    [InlineData(1.1000000001, 1.1, null, null)]
+    public void OnReported_reapplies_and_saves(double reported, double saved, double? reapply, double? save) =>
+        Assert.Equal((reapply, save), Zoom.OnReported(reported, saved));
 }
