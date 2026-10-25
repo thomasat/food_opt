@@ -182,7 +182,10 @@ def test_an_it_install_never_deletes_through_a_link(installer, l2_home, cleanup)
     makes a junction to the all-users folder and writes their own uninstall
     entry naming it as InstallLocation. The next IT install (a repair or an
     upgrade) must not delete through the link: the all-users copy stays
-    whole, the log names the link, and the user's entry is kept."""
+    whole, the log names the link, and the user's entry is kept. Inno's own
+    RedirectionGuard already stops SYSTEM following a junction a limited
+    user made, where Windows has it; /NOREDIRECTIONGUARD stands for a PC
+    without it, so the installer's own check is what is tested."""
     import winreg
     first = l2.install(installer, "system", all_users=True)
     assert first.rc == 0, first.log[-3000:]
@@ -191,7 +194,7 @@ def test_an_it_install_never_deletes_through_a_link(installer, l2_home, cleanup)
     try:
         with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, l2.UNINSTALL_SUBKEY, 0, winreg.KEY_SET_VALUE) as key:
             winreg.SetValueEx(key, "InstallLocation", 0, winreg.REG_SZ, str(junction) + "\\")
-        result = l2.install(installer, "system", all_users=True)
+        result = l2.install(installer, "system", all_users=True, extra=["/NOREDIRECTIONGUARD"])
         assert result.rc == 0, result.log[-3000:]
         assert (PROGRAM_FILES / "FoodOptimizer.exe").is_file(), result.log[-3000:]
         assert (PROGRAM_FILES / "python" / "python.exe").is_file(), result.log[-3000:]
