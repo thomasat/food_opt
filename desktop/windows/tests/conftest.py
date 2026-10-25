@@ -154,3 +154,130 @@ def binaries(under=IMAGE):
     """Every .exe, .dll and .pyd under a folder."""
     return sorted(p for p in pathlib.Path(under).rglob("*")
                   if p.suffix.lower() in (".exe", ".dll", ".pyd") and p.is_file())
+
+
+# ---------- Level 2: the packaged app, installed (phase 5) ----------
+
+L2_BASE = pathlib.Path(os.environ.get("SystemDrive", "C:") + "\\") / "FOL2"
+L2_USER_FOLDER = "Jos\u00e9 M\u00fcller"          # spaces and accents (Review Focus 5)
+_L2_SKIP = "set FOODOPT_L2_INSTALLER (run_level2.ps1)"
+_home_ids = iter(range(1, 10 ** 6))
+
+
+class L2Home:
+    """A user folder for one test: state and projects as the shell and the
+    installer see them through FOODOPT_STATE_DIR / FOODOPT_PROJECTS_DIR,
+    and an install root beside them. Short ids keep the root well inside
+    the 80-character budget."""
+
+    def __init__(self, tag: str):
+        self.base = L2_BASE / tag
+        self.home = self.base / L2_USER_FOLDER
+        self.state = self.home / "AppData" / "Local" / "FoodOptimizer"
+        self.projects = self.home / "FoodOptimizer"
+        self.root = self.home / "Food Optimizer"
+        self.env = {"FOODOPT_STATE_DIR": str(self.state), "FOODOPT_PROJECTS_DIR": str(self.projects)}
+
+    def make(self):
+        import shutil
+        L2_BASE.mkdir(exist_ok=True)
+        user = os.environ.get("USERNAME", "")
+        if user:
+            subprocess.run(["icacls", str(L2_BASE), "/grant", f"{user}:(OI)(CI)M"], capture_output=True,
+                           creationflags=CREATE_NO_WINDOW)
+        if self.base.exists():
+            shutil.rmtree(self.base, ignore_errors=True)
+        self.home.mkdir(parents=True)
+        return self
+
+
+def _l2():
+    import l2_support
+    return l2_support
+
+
+@pytest.fixture(scope="session")
+def installer():
+    path = os.environ.get("FOODOPT_L2_INSTALLER")
+    if not path:
+        pytest.skip(_L2_SKIP)
+    return pathlib.Path(path)
+
+
+@pytest.fixture(scope="session")
+def dist_record(installer) -> dict:
+    """The release record beside the installer (<name>.build.txt)."""
+    out = {}
+    for line in installer.with_suffix(".build.txt").read_text(encoding="utf-8").split("\n"):
+        if line:
+            key, _, value = line.partition("=")
+            out[key] = value
+    return out
+
+
+@pytest.fixture
+def l2_home(request):
+    return L2Home(f"t{next(_home_ids):02d}").make()
+
+
+def _ours(location: str) -> bool:
+    return bool(location) and os.path.normcase(location).startswith(os.path.normcase(str(L2_BASE)) + "\\")
+
+
+def ensure_clean_machine():
+    """No Food Optimizer in either scope and none running. Level 2's own
+    installs (under C:\\FOL2) are uninstalled; anything else only with
+    FOODOPT_L2_CLEANUP=1 (run_level2.ps1 -Cleanup)."""
+    l2 = _l2()
+    for scope, kind in (("user", "user"), ("machine", "system")):
+        entry = l2.uninstall_entry(scope)
+        if entry is None:
+            continue
+        location = entry.get("InstallLocation", "")
+        if not (_ours(location) or os.environ.get("FOODOPT_L2_CLEANUP") == "1"):
+            pytest.fail("Food Optimizer is installed on this PC; rerun with -Cleanup")
+        if location:
+            l2.kill_under(location)
+            if pathlib.Path(location, "unins000.exe").is_file():
+                l2.uninstall(location, kind)
+        if l2.uninstall_entry(scope) is not None:
+            pytest.fail(f"could not uninstall the {scope} copy at {location}")
+    for root in (L2_BASE, pathlib.Path(os.environ["LOCALAPPDATA"]) / "Programs" / "Food Optimizer",
+                 pathlib.Path(os.environ["ProgramFiles"]) / "Food Optimizer"):
+        running = l2.processes_under(root)
+        if running and os.environ.get("FOODOPT_L2_CLEANUP") == "1":
+            l2.kill_under(root)
+            running = l2.processes_under(root)
+        if running:
+            pytest.fail(f"Food Optimizer is running from {root}: {running}; rerun with -Cleanup")
+
+
+@pytest.fixture
+def clean_machine(installer):
+    ensure_clean_machine()
+    yield
+
+
+class PerUser:
+    def __init__(self, home, result, manifest):
+        self.home, self.result, self.manifest = home, result, manifest
+
+    @property
+    def root(self):
+        return self.home.root
+
+
+@pytest.fixture(scope="session")
+def per_user(installer):
+    """One silent per-user install, as the limited user, shared by modules
+    10-45; its file manifest is taken right after the install."""
+    l2 = _l2()
+    ensure_clean_machine()
+    home = L2Home("s").make()
+    result = l2.install(installer, "user", dir=home.root, env=home.env)
+    man = l2.manifest(home.root) if result.rc == 0 and home.root.is_dir() else ""
+    yield PerUser(home, result, man)
+    entry = l2.uninstall_entry("user")
+    if entry and _ours(entry.get("InstallLocation", "")):
+        l2.kill_under(home.root)
+        l2.uninstall(home.root, "user", env=home.env)

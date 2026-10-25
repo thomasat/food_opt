@@ -54,7 +54,11 @@ def impl(request):
 
 @pytest.fixture
 def py():
-    from tests.desktop_launcher.harness import PythonImpl
+    """The shared Python launcher, or the installed app's when
+    FOODOPT_INSTALLED_APP is set (Level 2)."""
+    from tests.desktop_launcher.harness import IMPLS, PythonImpl
+    if os.environ.get("FOODOPT_INSTALLED_APP"):
+        return IMPLS[0]
     return PythonImpl()
 
 
