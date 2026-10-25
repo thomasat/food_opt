@@ -18,7 +18,7 @@ static class ShellDialogs
     {
         Caption = Messages.Text("dialog.title"),
         Heading = string.IsNullOrEmpty(heading) ? null : heading,
-        Text = body,
+        Text = string.IsNullOrEmpty(body) ? null : body,
         AllowCancel = true,
         SizeToContent = true,
     };
@@ -34,6 +34,9 @@ static class ShellDialogs
         page.Buttons.Add(new TaskDialogButton(Messages.Text("dialog.ok")));
         Show(owner, page);
     }
+
+    /// <summary>A heading alone, with OK.</summary>
+    public static void Info(IWin32Window? owner, string heading) => Info(owner, heading, "");
 
     /// <summary>OK / Cancel; true for OK.</summary>
     public static bool Confirm(IWin32Window owner, string message)

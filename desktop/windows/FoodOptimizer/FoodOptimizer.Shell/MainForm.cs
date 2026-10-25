@@ -240,29 +240,33 @@ sealed class MainForm : Form
     }
 
     /// <summary>Runs a menu command. One that fails says so, naming the
-    /// command and Windows' reason, and the app goes on.</summary>
+    /// command and, when the OS said why, its reason; the app goes on.</summary>
     void Execute(string id)
     {
         _log.Write("command.run", id);
         string? reason;
-        var failure = nameof(System.ComponentModel.Win32Exception);
         try
         {
             reason = Run(id);
+            if (reason == null) return;
+            _log.Write("command.failed", id + " " + nameof(System.ComponentModel.Win32Exception));
         }
         catch (Exception ex)
         {
-            reason = ex.Message;
-            failure = ex.GetType().Name;
+            _log.Write("command.failed", id + " " + ex.GetType().Name);
+            // A code error is never shown as Windows' text: the title alone.
+            reason = CommandFailure.Reason(ex);
         }
-        if (reason == null) return;
-        _log.Write("command.failed", id + " " + failure);
-        // A brace in Windows' text (a {GUID} path) is not a placeholder.
         var command = _messages.Text(id).Replace("&", "", StringComparison.Ordinal);
+        var title = _messages.Format("error.command_failed.title", ("command", command));
+        if (reason == null)
+        {
+            ShellDialogs.Info(this, title);
+            return;
+        }
+        // A brace in Windows' text (a {GUID} path) is not a placeholder.
         reason = reason.Replace('{', '(').Replace('}', ')');
-        ShellDialogs.Info(this,
-            _messages.Format("error.command_failed.title", ("command", command)),
-            _messages.Format("error.command_failed.body", ("reason", reason)));
+        ShellDialogs.Info(this, title, _messages.Format("error.command_failed.body", ("reason", reason)));
     }
 
     /// <summary>The command itself: null when it worked, else Windows'
