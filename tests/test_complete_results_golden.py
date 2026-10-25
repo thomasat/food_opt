@@ -1,14 +1,18 @@
 """Golden: what a project with no blanks scores and suggests, captured on the
 code BEFORE the complete-results change (0.8.0, insights-080 @ c418337).
 
-tests/fixtures/complete_results_golden.json is written ONCE, on the unchanged
-code, by
+tests/fixtures/complete_results_golden.json was written on the unchanged
+code, and its suggestions re-recorded once, with the owner's approval, for
+0.9.0's suggestion-stability change (windows-port-p1, on 834dc1b;
+tests/test_suggestion_stability.py), under the locked dependency versions
+of desktop/requirements.lock.txt, by
 
     python -m tests.test_complete_results_golden
 
-and committed. It is never regenerated: every later commit on the branch
-keeps this file green, which is the proof that a project with no blanks and
-no measurement added partway scores and suggests exactly what it did."""
+It is not regenerated otherwise: every later commit on the branch keeps
+this file green, which is the proof that a project with no blanks and
+no measurement added partway scores and suggests exactly what it did:
+bit-identical on the Mac; within 0.1% on Windows (tests.golden.same)."""
 import json
 import os
 import pathlib
@@ -16,9 +20,9 @@ import sys
 import tempfile
 
 import pytest
-import torch
 
 from food_bo import FoodOptimizer
+from tests.golden import same
 
 FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "complete_results_golden.json"
 
@@ -125,7 +129,7 @@ KINDS = ["default", "qlogei", "qucb", "robust", "open_round"]
 
 
 def _golden():
-    return json.loads(FIXTURE.read_text())
+    return json.loads(FIXTURE.read_text(encoding="utf-8"))
 
 
 @pytest.fixture(autouse=True)
@@ -135,14 +139,7 @@ def _isolate_cwd(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("kind", KINDS)
 def test_scores_and_suggestions_are_bit_identical(kind):
-    want = _golden()[kind]
-    got = json.loads(json.dumps(_run_case(kind), default=float))
-    for key in want:
-        if key in ("gp_X", "gp_Y"):
-            assert torch.equal(torch.tensor(got[key], dtype=torch.double),
-                               torch.tensor(want[key], dtype=torch.double)), key
-        else:
-            assert got[key] == want[key], key
+    same(_run_case(kind), _golden()[kind])
 
 
 def _reference_utility(objectives, results):
@@ -191,5 +188,5 @@ if __name__ == "__main__":
         os.chdir(tmp)
         data = {kind: _run_case(kind) for kind in KINDS}
         os.chdir(here)
-    FIXTURE.write_text(json.dumps(data, default=float, indent=1) + "\n")
+    FIXTURE.write_text(json.dumps(data, default=float, indent=1) + "\n", encoding="utf-8")
     print(f"wrote {FIXTURE}", file=sys.stderr)

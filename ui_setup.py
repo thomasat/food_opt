@@ -34,6 +34,7 @@ from food_bo import (
     GRID_ID, RECORD_FIELDS, WORKBOOK_MIME, grid_signature,
     ingredients_template_workbook,
 )
+from ui_helpers import read_uploaded_csv
 from ui_helpers import (
     COPY_KEPT, ING_ERRORS_KEY, ING_GRID_KEY, ING_PENDING_KEY,
     ING_SAVE_KEY, MEAS_ERRORS_KEY, MEAS_GRID_KEY, MEAS_SAVE_KEY,
@@ -1201,7 +1202,7 @@ def _read_ingredients_file(uploaded):
     sheet, or a comma-separated file with the same columns."""
     if str(getattr(uploaded, "name", "")).lower().endswith(".xlsx"):
         return _read_ingredients_workbook(uploaded)
-    return pd.read_csv(uploaded)
+    return read_uploaded_csv(uploaded)
 
 
 def _read_ingredients_workbook(uploaded):

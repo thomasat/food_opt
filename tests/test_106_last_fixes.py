@@ -414,7 +414,7 @@ def test_no_screen_uses_the_deprecated_width_flag():
     import pathlib
     root = pathlib.Path(__file__).resolve().parent.parent
     users = [p.name for p in sorted(root.glob("*.py"))
-             if "use_container_width" in p.read_text()]
+             if "use_container_width" in p.read_text(encoding="utf-8")]
     assert users == []
 
 
@@ -491,7 +491,7 @@ def upgrade():
 def test_the_upgrade_files_progress_shows_no_amounts_fold(tmp_path, monkeypatch):
     import json
     monkeypatch.chdir(tmp_path)
-    state = json.loads((D.HERE / f"{D.UPGRADE}.json").read_text())
+    state = json.loads((D.HERE / f"{D.UPGRADE}.json").read_text(encoding="utf-8"))
     saved = FoodOptimizer(state["project_name"])
     saved.import_json(state)
     saved.save()

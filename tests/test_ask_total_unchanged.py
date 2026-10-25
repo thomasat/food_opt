@@ -9,13 +9,17 @@ passes them. This fixture covers the projects that DO have a total, with
 rows inside the ±0.5 % band or exactly on it, one row type each, plus one
 project with no total whose Round was re-sized (not rescaled in this wave).
 
-tests/fixtures/ask_total_unchanged.json is written ONCE, on insights-080 @
-0bf00ba (before any batch-size code), by
+tests/fixtures/ask_total_unchanged.json was written on insights-080 @
+0bf00ba (before any batch-size code), and re-recorded once, with the
+owner's approval, for 0.9.0's suggestion-stability change (windows-port-p1,
+on 834dc1b; tests/test_suggestion_stability.py), under the locked
+dependency versions of desktop/requirements.lock.txt, by
 
     python -m tests.test_ask_total_unchanged
 
-and committed on its own. It is never regenerated: every later commit keeps
-it green, bit for bit — the suggestions and the rows handed to the model."""
+It is not regenerated otherwise: every later commit keeps it green — the
+suggestions and the rows handed to the model, bit-identical on the Mac;
+within 0.1% on Windows (tests.golden.same)."""
 import json
 import os
 import pathlib
@@ -23,9 +27,9 @@ import sys
 import tempfile
 
 import pytest
-import torch
 
 from food_bo import FoodOptimizer
+from tests.golden import same
 
 FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "ask_total_unchanged.json"
 
@@ -200,17 +204,7 @@ def run(opt):
 
 
 def fixture():
-    return json.loads(FIXTURE.read_text())
-
-
-def same(got, want):
-    got = json.loads(json.dumps(got, default=float))
-    for key in want:
-        if key in ("gp_X", "gp_Y"):
-            assert torch.equal(torch.tensor(got[key], dtype=torch.double),
-                               torch.tensor(want[key], dtype=torch.double)), key
-        else:
-            assert got[key] == want[key], key
+    return json.loads(FIXTURE.read_text(encoding="utf-8"))
 
 
 @pytest.fixture(autouse=True)
@@ -230,5 +224,5 @@ if __name__ == "__main__":
         data = {case: json.loads(json.dumps(run(make()), default=float))
                 for case, make in CASES.items()}
         os.chdir(here)
-    FIXTURE.write_text(json.dumps(data, indent=1) + "\n")
+    FIXTURE.write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")
     print(f"wrote {FIXTURE}", file=sys.stderr)

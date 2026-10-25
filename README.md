@@ -77,7 +77,7 @@ For a fermentation study, use numeric process settings such as temperature and t
 
 Projects are saved locally. Use **Save a copy of this project** before major changes. **Saved copies** shows recent copies and keeps older ones available separately.
 
-[Report a problem](https://github.com/thomasat/food_opt/issues), describing what happened and what you expected. Do not include confidential project data in a public issue.
+Email sohum.patnaik@fsi.org, describing what happened and what you expected.
 
 ## Run from source
 

@@ -13,7 +13,8 @@ import json
 import os
 import re
 import shutil
-from datetime import datetime
+import time
+from datetime import datetime, timezone
 
 import wording
 
@@ -33,6 +34,18 @@ def is_archive_name(name):
     return ARCHIVE_SUFFIX_RE.search(name) is not None
 
 
+# Device names Windows will not save a file under, with any extension:
+# CON.pkl and con.backup.pkl are both refused.
+_WINDOWS_RESERVED = ({"CON", "PRN", "AUX", "NUL"}
+                     | {f"COM{i}" for i in range(1, 10)}
+                     | {f"LPT{i}" for i in range(1, 10)})
+
+
+def is_reserved_name(name):
+    """True when Windows reserves the part of `name` before its first dot."""
+    return name.split(".", 1)[0].rstrip(" ").upper() in _WINDOWS_RESERVED
+
+
 class StorageError(Exception):
     """A storage backend failure (network, API, write conflict).
 
@@ -43,17 +56,47 @@ class StorageError(Exception):
 
 # What the disk said, in the three words wording._DISK_TROUBLE has a fix
 # for; anything else is None and gets the plain "could not be written".
+# EDQUOT and ETXTBSY are looked up by name: a platform without one simply
+# has no entry for it.
 _DISK_CAUSES = {
-    errno.ENOSPC: 'full', errno.EDQUOT: 'full',
-    errno.EACCES: 'read_only', errno.EPERM: 'read_only',
-    errno.EROFS: 'read_only',
-    errno.EBUSY: 'in_use', errno.ETXTBSY: 'in_use',
+    code: cause for code, cause in (
+        (getattr(errno, "ENOSPC", None), 'full'),
+        (getattr(errno, "EDQUOT", None), 'full'),
+        (getattr(errno, "EACCES", None), 'read_only'),
+        (getattr(errno, "EPERM", None), 'read_only'),
+        (getattr(errno, "EROFS", None), 'read_only'),
+        (getattr(errno, "EBUSY", None), 'in_use'),
+        (getattr(errno, "ETXTBSY", None), 'in_use'),
+    ) if code is not None
 }
+
+# Windows' sharing and lock violations: another program (antivirus,
+# OneDrive, Excel) holds the file. They arrive as EACCES, which alone would
+# read as a read-only folder.
+_WINDOWS_IN_USE = (32, 33)
+# Worth a second try as well: access denied (5) is what os.replace meets
+# when the file it replaces is held open by another program.
+_WINDOWS_RETRY = _WINDOWS_IN_USE + (5,)
 
 
 def disk_cause(error):
     """'full', 'read_only', 'in_use' or None for an OSError."""
+    if getattr(error, "winerror", None) in _WINDOWS_IN_USE:
+        return 'in_use'
     return _DISK_CAUSES.get(getattr(error, "errno", None))
+
+
+def _retry_locked(fn, *args, attempts=5, delay=0.1):
+    """fn(*args), tried again while another program holds the file for a
+    moment; any other error, or the last try's, is raised."""
+    for attempt in range(1, attempts + 1):
+        try:
+            return fn(*args)
+        except PermissionError as e:
+            if (attempt == attempts
+                    or getattr(e, "winerror", None) not in _WINDOWS_RETRY):
+                raise
+            time.sleep(delay * attempt)
 
 
 class LocalStorage:
@@ -128,7 +171,9 @@ class LocalStorage:
             stamp = os.stat(self._path(name)).st_mtime
         except (FileNotFoundError, OSError):
             return None
-        return datetime.fromtimestamp(stamp).astimezone()
+        # Aware from the start: Windows cannot localise a naive time from
+        # 1970's first day (OSError 22), and archives can leave such dates.
+        return datetime.fromtimestamp(stamp, timezone.utc).astimezone()
 
     def load(self, name):
         seen = self.__dict__.setdefault("_seen", {})
@@ -165,7 +210,18 @@ class LocalStorage:
         try:
             with open(tmp, 'w', encoding='utf-8') as f:
                 f.write(data)
-            os.replace(tmp, path)
+            try:
+                _retry_locked(os.replace, tmp, path)
+            except PermissionError as e:
+                # On Windows the .tmp beside it was just written, so the
+                # folder is not read-only: another program is holding the
+                # project file. (A Mac refusal here is a locked file, which
+                # Finder's read-only advice fits.)
+                if getattr(e, "winerror", None) is None:
+                    raise
+                raise StorageError(wording.not_saved(name, 'in_use')) from e
+        except StorageError:
+            raise
         except OSError as e:
             raise StorageError(wording.not_saved(name, disk_cause(e))) from e
         finally:
@@ -223,7 +279,7 @@ class LocalStorage:
             if copy:
                 shutil.copy2(path, self._path(archive_name))
             else:
-                os.rename(path, self._path(archive_name))
+                _retry_locked(os.rename, path, self._path(archive_name))
         except OSError as e:
             raise StorageError(wording.nothing_changed(name, disk_cause(e))) from e
         if not copy:

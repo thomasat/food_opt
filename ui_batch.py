@@ -24,6 +24,7 @@ import custom_records
 import sample_projects
 from food_bo import WORKBOOK_MIME, UploadedWorkbook, uploaded_parts
 from storage import StorageError
+from ui_helpers import read_uploaded_csv
 from ui_helpers import (
     BATCH_SIZE_KEY, SCROLL_KEY, TAB_RESULTS, TAB_SETUP, amount_range_placeholder,
     blank_amounts_message,
@@ -1618,7 +1619,7 @@ def _read_results_file(opt, uploaded):
     """
     if str(getattr(uploaded, "name", "")).lower().endswith(".xlsx"):
         return opt.results_from_workbook(uploaded)
-    return UploadedWorkbook(pd.read_csv(uploaded), {}, {})
+    return UploadedWorkbook(read_uploaded_csv(uploaded), {}, {})
 
 
 def _upload_preview(opt, parsed, left_out, weighed=None, lots=None):
