@@ -1,0 +1,46 @@
+Start Here.txt
+app/
+app/app.py
+app/bo_views.py
+app/calculation_editor.py
+app/custom_records.py
+app/data/
+app/data/ingredients_template.csv
+app/data/samples/
+app/data/samples/burger_setup/
+app/data/samples/burger_setup/Example setup - plant-based burger.json
+app/data/samples/yogurt_pilot/
+app/data/samples/yogurt_pilot/Round 6 results (pilot).xlsx
+app/data/samples/yogurt_pilot/Yogurt pilot - Round 6 to score.json
+app/data/samples/yogurt_pilot/Yogurt pilot - all 10 Rounds.json
+app/food_bo.py
+app/insights.py
+app/sample_projects.py
+app/storage.py
+app/ui_batch.py
+app/ui_helpers.py
+app/ui_insights.py
+app/ui_results.py
+app/ui_setup.py
+app/wording.py
+app/workbook_flow.py
+python/
+shared/
+shared/launcher/
+shared/launcher/__init__.py
+shared/launcher/__main__.py
+shared/launcher/child.py
+shared/launcher/childenv.py
+shared/launcher/cli.py
+shared/launcher/connections.py
+shared/launcher/files.py
+shared/launcher/ports.py
+shared/launcher/procinfo.py
+shared/launcher/serve_guard.py
+shared/launcher/sitecustomize.py
+shared/launcher/status_lines.py
+shared/messages.json
+shared/pages/
+shared/pages/status.css
+shared/pages/status.html
+shared/pages/status.js
