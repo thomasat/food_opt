@@ -17,7 +17,8 @@ param(
     [string]$OldInstaller = '',
     [string]$BrokenInstaller = '',
     [string]$K = '',
-    [switch]$Cleanup
+    [switch]$Cleanup,
+    [int]$TimeoutMinutes = 240
 )
 
 Set-StrictMode -Version 2
@@ -109,19 +110,28 @@ $lines = @(
 
 # 5. Run it elevated on the user's desktop, and wait for its EXIT= line.
 $task = 'FoodOptL2-run'
-Invoke-Native 'schtasks /Create' 'schtasks.exe' @('/Create', '/F', '/TN', $task, '/TR', $cmd, '/SC', 'ONCE',
-    '/ST', '23:59', '/RU', $User, '/IT', '/RL', 'HIGHEST') | Out-Null
-Invoke-Native 'schtasks /Run' 'schtasks.exe' @('/Run', '/TN', $task) | Out-Null
-Say "running Level 2 (log: $log)"
 $exit = $null
-while ($null -eq $exit) {
-    Start-Sleep -Seconds 5
-    if (Test-Path -LiteralPath $log) {
-        $tail = @(Get-Content -LiteralPath $log -Tail 3 -ErrorAction SilentlyContinue)
-        foreach ($line in $tail) { if ($line -match '^EXIT=(-?\d+)') { $exit = [int]$Matches[1] } }
+try {
+    # A start boundary in the past: the task never fires on schedule, only on /Run.
+    Invoke-Native 'schtasks /Create' 'schtasks.exe' @('/Create', '/F', '/TN', $task, '/TR', $cmd, '/SC', 'ONCE',
+        '/SD', '01/01/2020', '/ST', '00:00', '/RU', $User, '/IT', '/RL', 'HIGHEST') | Out-Null
+    Invoke-Native 'schtasks /Run' 'schtasks.exe' @('/Run', '/TN', $task) | Out-Null
+    Say "running Level 2 (log: $log)"
+    $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
+    while ($null -eq $exit) {
+        Start-Sleep -Seconds 5
+        if (Test-Path -LiteralPath $log) {
+            $tail = @(Get-Content -LiteralPath $log -Tail 3 -ErrorAction SilentlyContinue)
+            foreach ($line in $tail) { if ($line -match '^EXIT=(-?\d+)') { $exit = [int]$Matches[1] } }
+        }
+        if ($null -eq $exit -and (Get-Date) -gt $deadline) {
+            Stop-Run "Level 2 did not finish in $TimeoutMinutes minutes"
+        }
     }
 }
-& schtasks.exe /Delete /F /TN $task | Out-Null
+finally {
+    & schtasks.exe /Delete /F /TN $task | Out-Null
+}
 Get-Content -LiteralPath $log -Tail 40 | ForEach-Object { Say $_ }
 if (Test-Path -LiteralPath $report) {
     Say '--- report.json ---'

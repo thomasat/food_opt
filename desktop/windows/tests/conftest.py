@@ -281,3 +281,12 @@ def per_user(installer):
     if entry and _ours(entry.get("InstallLocation", "")):
         l2.kill_under(home.root)
         l2.uninstall(home.root, "user", env=home.env)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _end_l2_jobs():
+    """Whatever happens, no scheduled task run_as created outlives the run."""
+    yield
+    l2 = sys.modules.get("l2_support")
+    if l2 is not None:
+        l2.end_all_jobs()

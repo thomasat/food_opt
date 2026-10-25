@@ -7,6 +7,7 @@ user (a scheduled task with /IT), to SYSTEM (/RU SYSTEM), or runs it
 directly as admin. Stdlib only (ctypes, winreg); importable on any OS so
 the Mac can read the constants, usable only on Windows.
 """
+import atexit
 import contextlib
 import ctypes
 import datetime
@@ -105,6 +106,34 @@ def _load_build_env():
 
 # ---------- running as the right identity ----------
 
+# The trigger of every scheduled task the harness creates: a start boundary
+# in the past, so Windows never fires it on schedule; /Run still runs it.
+# (schtasks warns "Task may not run because /ST is earlier than current
+# time"; the exit code is what counts.)
+NEVER_ON_SCHEDULE = ["/SC", "ONCE", "/SD", "01/01/2020", "/ST", "00:00"]
+
+_live_tasks = set()          # tasks created and not yet deleted
+_live_lock = threading.Lock()
+
+
+def _delete_task(task: str):
+    """Delete a task; one that is already gone is harmless."""
+    with _live_lock:
+        _live_tasks.discard(task)
+    subprocess.run(["schtasks", "/Delete", "/F", "/TN", task], capture_output=True,
+                   creationflags=CREATE_NO_WINDOW)
+
+
+def end_all_jobs():
+    """Delete every task still registered (session teardown, atexit)."""
+    with _live_lock:
+        tasks = sorted(_live_tasks)
+    for task in tasks:
+        _delete_task(task)
+
+
+atexit.register(end_all_jobs)
+
 class Job:
     """A process started by run_as. pid and elevated come from the job
     runner (l2_job.py) or, for admin, from the runner itself."""
@@ -150,23 +179,25 @@ class Job:
 
     def wait(self, timeout: float = 1800) -> int:
         end = time.monotonic() + timeout
-        while True:
-            rc = self.poll()
-            if rc is not None:
-                self._cleanup()
-                return rc
-            if time.monotonic() >= end:
-                raise TimeoutError(f"job {self.name} ({self.kind}) still running after {timeout} s")
-            time.sleep(0.2)
+        try:
+            while True:
+                rc = self.poll()
+                if rc is not None:
+                    return rc
+                if time.monotonic() >= end:
+                    raise TimeoutError(f"job {self.name} ({self.kind}) still running after {timeout} s")
+                time.sleep(0.2)
+        finally:
+            self.close()
 
     def alive(self) -> bool:
         return self.poll() is None
 
-    def _cleanup(self):
-        if self.task:
-            subprocess.run(["schtasks", "/Delete", "/F", "/TN", self.task], capture_output=True,
-                           creationflags=CREATE_NO_WINDOW)
-            self.task = None
+    def close(self):
+        """Delete this job's scheduled task (idempotent)."""
+        task, self.task = self.task, None
+        if task:
+            _delete_task(task)
 
 
 def _runner_pythonw() -> str:
@@ -205,16 +236,22 @@ def run_as(kind: str, argv: Sequence[str], *, env=None, cwd=None, wait=True, tim
     runner = L2 / "l2_job.py"
     command = f'"{_runner_pythonw()}" "{runner}" "{spec}"'
     who = ["/RU", "SYSTEM"] if kind == "system" else ["/RU", os.environ.get("USERNAME") or getpass.getuser(), "/IT"]
-    created = subprocess.run(["schtasks", "/Create", "/F", "/TN", task, "/TR", command, "/SC", "ONCE",
-                              "/ST", "23:59", *who], capture_output=True, text=True,
-                             creationflags=CREATE_NO_WINDOW)
+    created = subprocess.run(["schtasks", "/Create", "/F", "/TN", task, "/TR", command, *NEVER_ON_SCHEDULE,
+                              *who], capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
     if created.returncode != 0:
+        _delete_task(task)
         raise RuntimeError(f"schtasks /Create failed: {created.stdout} {created.stderr}")
-    ran = subprocess.run(["schtasks", "/Run", "/TN", task], capture_output=True, text=True,
-                         creationflags=CREATE_NO_WINDOW)
-    if ran.returncode != 0:
-        raise RuntimeError(f"schtasks /Run failed: {ran.stdout} {ran.stderr}")
-    job = Job(name, kind, result, task=task)
+    with _live_lock:
+        _live_tasks.add(task)
+    try:
+        ran = subprocess.run(["schtasks", "/Run", "/TN", task], capture_output=True, text=True,
+                             creationflags=CREATE_NO_WINDOW)
+        if ran.returncode != 0:
+            raise RuntimeError(f"schtasks /Run failed: {ran.stdout} {ran.stderr}")
+        job = Job(name, kind, result, task=task)
+    except BaseException:
+        _delete_task(task)
+        raise
     return job.wait(timeout) if wait else job
 
 

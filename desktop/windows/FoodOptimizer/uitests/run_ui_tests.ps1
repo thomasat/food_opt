@@ -48,11 +48,16 @@ $lines = @(
 [IO.File]::WriteAllLines($cmd, $lines, [Text.Encoding]::ASCII)
 
 $task = "FoodOptUiTests"
-schtasks /Create /TN $task /TR "`"$cmd`"" /SC ONCE /ST 23:59 /RU $user /IT /F | Out-Null
-schtasks /Run /TN $task | Out-Null
-$deadline = (Get-Date).AddMinutes(40)
-while (-not (Test-Path -LiteralPath $rc) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 5 }
-schtasks /Delete /TN $task /F | Out-Null
+try {
+    # A start boundary in the past: the task never fires on schedule, only on /Run.
+    schtasks /Create /TN $task /TR "`"$cmd`"" /SC ONCE /SD 01/01/2020 /ST 00:00 /RU $user /IT /F | Out-Null
+    schtasks /Run /TN $task | Out-Null
+    $deadline = (Get-Date).AddMinutes(40)
+    while (-not (Test-Path -LiteralPath $rc) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 5 }
+}
+finally {
+    schtasks /Delete /TN $task /F | Out-Null
+}
 
 if (Test-Path -LiteralPath $out) { Get-Content -LiteralPath $out }
 if (-not (Test-Path -LiteralPath $rc)) { Write-Output "ui tests: rc=timeout"; exit 3 }
