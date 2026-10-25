@@ -292,7 +292,13 @@ class _Run:
         files.clear_status(state)
         if self.server is not None and files.port_file_is(state, self.port, self.server.pid):
             files.remove_port_files(state)
-        files.release_lock(self.lock, self.pid)
+        self.release()
+
+    def release(self) -> None:
+        """Release our lock; log it when it is ours and will not go."""
+        if (files.lock_owner(self.lock) == self.pid
+                and not files.release_lock(self.lock, self.pid)):
+            self.log.say("could not remove launch.lock")
 
     def fatal(self, message: str) -> int:
         self.log.say(f"FATAL: {message}")
@@ -352,7 +358,7 @@ class _Run:
                 return early
             return self.run_locked()
         finally:
-            files.release_lock(self.lock, self.pid)
+            self.release()
 
     def run_locked(self) -> int:
         opts = self.opts
@@ -389,6 +395,7 @@ class _Run:
                     files.write_base_file(opts.state_dir, base)
                 files.write_port_file(opts.state_dir, self.port, self.server.pid)
             except OSError:
+                files.remove_port_files(opts.state_dir)
                 return self.fatal("could not write server.port")
             result = self.wait_healthy(base, offset)
             if result == "healthy":

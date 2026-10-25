@@ -562,3 +562,11 @@ def test_stdin_eof_while_waiting_for_the_lock_never_starts_the_warmup(py, world)
     assert world.records("warmup") == []
     assert "the window closed - shut down" in world.log_text()
     assert not world.lock_dir.exists()
+
+
+def test_a_port_file_that_cannot_be_written_leaves_no_base_file(py, world):
+    world.port_file.mkdir(parents=True)          # os.replace onto a folder fails
+    launch = py.start(world)
+    assert launch.wait(60) == 1
+    assert "FATAL: could not write server.port" in world.log_text()
+    assert not world.base_file.exists()

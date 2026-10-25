@@ -225,3 +225,25 @@ def test_log_survives_a_closed_stream(tmp_path):
     log.open(tmp_path / "launcher.log")
     log.say("still logged")
     assert "still logged" in (tmp_path / "launcher.log").read_text(encoding="utf-8")
+
+
+def test_atomic_write_retries_a_tmp_file_it_cannot_open_yet(tmp_path, monkeypatch):
+    real, calls = open, []
+
+    def flaky(path, mode="r", *a, **k):
+        if str(path).endswith(".tmp"):
+            calls.append(path)
+            if len(calls) <= 2:
+                raise PermissionError("held by Defender")
+        return real(path, mode, *a, **k)
+
+    monkeypatch.setattr(files, "open", flaky, raising=False)
+    files.atomic_write(tmp_path / "f", b"data", delay=0.001)
+    assert (tmp_path / "f").read_bytes() == b"data" and len(calls) == 3
+
+
+def test_release_reports_a_lock_it_could_not_remove(tmp_path, monkeypatch):
+    lock = tmp_path / "launch.lock"
+    assert files.acquire_lock(lock, 4242, alive=lambda p: False)[0]
+    monkeypatch.setattr(files.shutil, "rmtree", lambda *a, **k: None)
+    assert files.release_lock(lock, 4242) is False
