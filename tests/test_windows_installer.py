@@ -114,7 +114,7 @@ def _words(sentence):
     return len(sentence.split())
 
 
-@pytest.mark.parametrize("path", [ISL], ids=lambda p: p.name)
+@pytest.mark.parametrize("path", [ISL, ISS], ids=lambda p: p.name)
 def test_installer_texts_are_ascii(path):
     data = path.read_bytes()
     assert all(b < 0x80 for b in data), path.name
@@ -158,3 +158,207 @@ def test_prewarm_failure_names_it_and_the_address():
     assert "IT" in custom["PrewarmFailed"].split()
     assert "sohum.patnaik@fsi.org" in custom["PrewarmFailed"]
     assert custom["InstalledByIT"] == "Installed by your IT. Ask IT to update."
+
+
+# ---------- setup.iss (Task 4) ----------
+
+APP_ID = "{DE876ED9-927A-45AD-AD9B-D6E4B4C9A4A3}"
+SETUP_MUTEX = ("FoodOptimizer.Setup.0E00CC2F-4E51-4EBF-A229-A910D5742A39,"
+               "Global\\FoodOptimizer.Setup.0E00CC2F-4E51-4EBF-A229-A910D5742A39")
+APP_IDENTITY = WINDOWS / "FoodOptimizer" / "FoodOptimizer.Core" / "AppIdentity.cs"
+
+
+def _iss_lines():
+    """setup.iss's lines with ';' comment lines and ISPP '#' lines dropped,
+    as (section, line)."""
+    section = None
+    for raw in ISS.read_text(encoding="ascii").split("\n"):
+        line = raw.strip()
+        if not line or line.startswith(";") or line.startswith("#") or line.startswith("//"):
+            continue
+        m = re.fullmatch(r"\[(\w+)\]", line)
+        if m:
+            section = m.group(1)
+            continue
+        yield section, line
+
+
+def setup_directives() -> dict[str, str]:
+    out = {}
+    for section, line in _iss_lines():
+        if section == "Setup":
+            key, _, value = line.partition("=")
+            assert key.strip() not in out, f"[Setup] {key} twice"
+            out[key.strip()] = value.strip()
+    return out
+
+
+def _entry(line):
+    """'Name: "a"; Flags: x y' -> {"Name": "a", "Flags": "x y"}."""
+    out = {}
+    for part in re.findall(r'(\w+):\s*("(?:[^"]|"")*"|[^;]*)\s*(?:;|$)', line):
+        key, value = part
+        value = value.strip()
+        if value.startswith('"'):
+            value = value[1:-1].replace('""', '"')
+        out[key] = value
+    return out
+
+
+def section_entries(name) -> list[dict[str, str]]:
+    return [_entry(line) for section, line in _iss_lines() if section == name]
+
+
+SETUP_PINS = {
+    "AppId": "{" + APP_ID, "AppName": "Food Optimizer", "AppVersion": "{#AppVersion}",
+    "AppVerName": "Food Optimizer {#AppVersion}",
+    "AppPublisher": "Food System Innovations", "AppContact": "sohum.patnaik@fsi.org",
+    "AppSupportURL": "mailto:sohum.patnaik@fsi.org",
+    "VersionInfoVersion": "{#AppVersion}.0", "VersionInfoProductVersion": "{#AppVersion}",
+    "VersionInfoCompany": "Food System Innovations", "VersionInfoProductName": "Food Optimizer",
+    "VersionInfoDescription": "Food Optimizer Setup",
+    "PrivilegesRequired": "lowest", "PrivilegesRequiredOverridesAllowed": "commandline",
+    "UsePreviousPrivileges": "no",
+    "ArchitecturesAllowed": "x64compatible", "ArchitecturesInstallIn64BitMode": "x64compatible",
+    "MinVersion": "10.0.19045",
+    "DefaultDirName": "{autopf}\\Food Optimizer", "DisableDirPage": "yes",
+    "DisableProgramGroupPage": "yes", "DisableReadyPage": "yes", "DisableWelcomePage": "no",
+    "ShowLanguageDialog": "no",
+    "SetupMutex": SETUP_MUTEX,
+    "CloseApplications": "yes", "CloseApplicationsFilter": "*.exe,*.dll,*.pyd",
+    "RestartApplications": "no",
+    "SetupLogging": "yes", "UninstallDisplayName": "Food Optimizer",
+    "UninstallDisplayIcon": "{app}\\FoodOptimizer.exe",
+    "SetupIconFile": "icon.ico", "WizardStyle": "modern",
+    "WizardImageFile": "installer_art\\wizard_100.bmp,installer_art\\wizard_150.bmp,installer_art\\wizard_200.bmp",
+    "WizardSmallImageFile": "installer_art\\small_100.bmp,installer_art\\small_150.bmp,installer_art\\small_200.bmp",
+    "Compression": "lzma2/max", "SolidCompression": "yes", "LZMANumBlockThreads": "4",
+}
+
+
+def _identity():
+    text = APP_IDENTITY.read_text(encoding="utf-8")
+    return {name: re.search(r'const string %s = @?"([^"]*)"' % name, text).group(1)
+            for name in ("AppUserModelId", "SingleInstanceMutex", "InstallerMutex")}
+
+
+def test_setup_directives_are_pinned():
+    found = setup_directives()
+    assert {k: found.get(k) for k in SETUP_PINS} == SETUP_PINS
+
+
+def test_mutexes_and_app_id_match_the_shell():
+    ident = _identity()
+    assert setup_directives()["AppMutex"] == f"{ident['SingleInstanceMutex']},{ident['InstallerMutex']}"
+    ids = [e["AppUserModelID"] for e in section_entries("Icons") if "AppUserModelID" in e]
+    assert ids and set(ids) == {ident["AppUserModelId"]}
+
+
+def test_languages_layer_our_messages():
+    assert section_entries("Languages") == [
+        {"Name": "en", "MessagesFile": "compiler:Default.isl,installer_messages.isl"}]
+
+
+def test_one_files_entry_copies_the_image():
+    assert section_entries("Files") == [
+        {"Source": "{#ImageDir}\\*", "DestDir": "{app}",
+         "Flags": "ignoreversion recursesubdirs createallsubdirs"}]
+
+
+def test_install_delete_clears_the_bundled_folders():
+    assert section_entries("InstallDelete") == [
+        {"Type": "filesandordirs", "Name": "{app}\\python"},
+        {"Type": "filesandordirs", "Name": "{app}\\app"},
+        {"Type": "filesandordirs", "Name": "{app}\\shared"},
+        {"Type": "files", "Name": "{app}\\*.dll"}]
+    assert section_entries("UninstallDelete") == [{"Type": "dirifempty", "Name": "{app}"}]
+
+
+def test_three_shortcuts():
+    icons = {e["Name"]: e for e in section_entries("Icons")}
+    assert set(icons) == {"{autoprograms}\\Food Optimizer", "{autoprograms}\\Food Optimizer - Start Here",
+                          "{autodesktop}\\Food Optimizer"}
+    app = icons["{autoprograms}\\Food Optimizer"]
+    assert (app["Filename"], app["WorkingDir"]) == ("{app}\\FoodOptimizer.exe", "{app}")
+    assert "Check" not in app
+    assert icons["{autoprograms}\\Food Optimizer - Start Here"]["Filename"] == "{app}\\Start Here.txt"
+    desktop = icons["{autodesktop}\\Food Optimizer"]
+    assert desktop["Check"] == "WantDesktopIcon"
+    assert {k: v for k, v in desktop.items() if k not in ("Name", "Check")} == {
+        k: v for k, v in app.items() if k != "Name"}
+
+
+def test_finish_page_offers_app_then_start_here():
+    runs = section_entries("Run")
+    assert [r["Filename"] for r in runs] == ["{app}\\FoodOptimizer.exe", "{app}\\Start Here.txt"]
+    assert [r["Description"] for r in runs] == ["{cm:OpenApp}", "{cm:OpenStartHere}"]
+    for r in runs:
+        flags = r["Flags"].split()
+        assert {"postinstall", "skipifsilent", "runasoriginaluser", "nowait"} <= set(flags), r
+    assert "unchecked" not in runs[0]["Flags"].split()
+    assert "unchecked" in runs[1]["Flags"].split() and "shellexec" in runs[1]["Flags"].split()
+
+
+def test_prewarm_imports_the_spec_modules():
+    text = ISS.read_text(encoding="ascii")
+    assert "-I -X utf8 -B -c" in text
+    assert "import torch, botorch, gpytorch, pandas, openpyxl, streamlit" in text
+    assert "ExecAndLogOutput(" in text and "faulthandler.dump_traceback_later({#PrewarmSecs}, exit=True)" in text
+
+
+def test_root_budget_matches_the_image_gate():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("build_env", WINDOWS / "build_env.py")
+    be = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(be)
+    text = ISS.read_text(encoding="ascii")
+    assert re.search(r"^#define MaxRoot (\d+)$", text, re.M).group(1) == str(be.ROOT_BUDGET)
+    assert re.search(r"^#define PrewarmSecs (\d+)$", text, re.M).group(1) == "600"
+
+
+REFUSALS = ("system_needs_allusers", "installed_by_it", "folder_too_long", "needs_space")
+
+
+def test_every_refusal_is_logged():
+    text = ISS.read_text(encoding="ascii")
+    for refusal in REFUSALS:
+        assert f"Log('refused: {refusal}')" in text, refusal
+    # In the order the plan fixes: scope first, then folder, then space.
+    assert [text.index(f"refused: {r}") for r in REFUSALS] == sorted(
+        text.index(f"refused: {r}") for r in REFUSALS)
+
+
+def test_every_custom_message_is_used():
+    text = ISS.read_text(encoding="ascii")
+    for key in parse_isl(ISL)["CustomMessages"]:
+        assert f"{{cm:{key}}}" in text or f"CustomMessage('{key}')" in text, key
+
+
+def test_the_state_folder_is_deleted_only_by_its_name():
+    text = ISS.read_text(encoding="ascii")
+    assert "FOODOPT_STATE_DIR" in text and "FOODOPT_PROJECTS_DIR" in text
+    assert "CompareText(ExtractFileName(" in text and "'FoodOptimizer') = 0" in text
+
+
+def test_wizard_art_matches_the_logo():
+    pytest.importorskip("PIL")
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("make_icon", WINDOWS / "make_icon.py")
+    make_icon = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(make_icon)
+    assert make_icon.main(["--check"]) == 0
+    sizes = {"wizard_100": (164, 314), "wizard_150": (246, 471), "wizard_200": (328, 628),
+             "small_100": (55, 55), "small_150": (83, 83), "small_200": (110, 110)}
+    import struct
+    for name, (w, h) in sizes.items():
+        data = (WINDOWS / "installer_art" / f"{name}.bmp").read_bytes()
+        assert data[:2] == b"BM", name
+        width, height = struct.unpack_from("<ii", data, 18)
+        bits = struct.unpack_from("<H", data, 28)[0]
+        assert (width, abs(height), bits) == (w, h, 24), name
+
+
+def test_setup_refuses_an_old_inno():
+    text = ISS.read_text(encoding="ascii")
+    assert "EncodeVer(6,3,0)" in text
+    assert "#error Inno Setup 6.3 or later is required" in text
