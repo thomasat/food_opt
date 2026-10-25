@@ -176,6 +176,41 @@ public class InstallerUiTests
         }
     }
 
+    /// <summary>Review Focus 2, by hand: a blocked pre-warm says so, the
+    /// install completes, and Finish does not open a broken app.</summary>
+    [Fact]
+    public async Task A_blocked_prewarm_says_so_and_finish_opens_nothing()
+    {
+        var broken = Environment.GetEnvironmentVariable("FOODOPT_UI_BROKEN_INSTALLER");
+        if (string.IsNullOrEmpty(broken))
+            Assert.Skip("set FOODOPT_UI_BROKEN_INSTALLER (run_ui_tests.ps1 -BrokenInstaller)");
+        var run = InstallerRun.Fresh("blocked");
+        var env = InstallerRun.Env(run);
+        var log = Path.Combine(Uia.Results, "blocked-setup.log");
+        File.Delete(log);
+        try
+        {
+            using var w = SetupWizard.Start(broken!, "\"/DIR=" + run.Stage + "\" \"/LOG=" + log + "\"", env);
+            Assert.True(Uia.WaitUntil(() => w.Heading() == "Install Food Optimizer", TimeSpan.FromSeconds(60)), w.Heading());
+            w.Click("Install");
+            var d = w.WaitForDialog("Food Optimizer could not load its components.", TimeSpan.FromSeconds(1800));
+            var said = string.Join(" ", w.Texts().Concat(w.Seen));
+            Assert.Contains("Ask IT to allow Food Optimizer, or email sohum.patnaik@fsi.org.", said);
+            w.Click(d, "OK");
+            Assert.True(Uia.WaitUntil(() => w.Heading() == "Food Optimizer is installed", TimeSpan.FromSeconds(120), 500));
+            w.Click("Finish");
+            Assert.Equal(9, await w.WaitForExitAsync(TimeSpan.FromSeconds(60)));
+            Assert.DoesNotContain("Filename: " + Path.Combine(run.Stage, "FoodOptimizer.exe"), File.ReadAllText(log));
+            Thread.Sleep(5000);
+            Assert.Empty(InstallerRun.Shells(run.Stage));
+            Assert.Empty(w.NotAllowed(Version, run.Stage));
+        }
+        finally
+        {
+            InstallerRun.SilentUninstall(run.Stage, env);
+        }
+    }
+
     [Fact]
     public async Task Running_app_holds_the_installer_with_our_words()
     {

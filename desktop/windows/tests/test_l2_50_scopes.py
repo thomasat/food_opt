@@ -167,3 +167,20 @@ def test_a_long_install_folder_is_refused(installer, cleanup):
     assert result.rc == l2.EXIT_CODES["refused"], result.log[-3000:]
     assert "refused: folder_too_long" in result.log
     assert not folder.exists()
+
+
+def test_a_folder_that_is_not_ours_is_refused(installer, l2_home, cleanup):
+    """/DIR at a folder holding other files (final review): [InstallDelete]
+    would delete its python, app, shared and *.dll, so it is refused and
+    every file stays."""
+    folder = l2_home.home / "Tools"
+    planted = {folder / "python" / "keep.txt": b"keep", folder / "tool.dll": b"dll", folder / "notes.txt": b"n"}
+    for path, data in planted.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+    result = l2.install(installer, "user", dir=folder, env=l2_home.env)
+    assert result.rc == l2.EXIT_CODES["refused"], result.log[-3000:]
+    assert "refused: folder_not_ours" in result.log
+    for path, data in planted.items():
+        assert path.read_bytes() == data, path
+    assert l2.uninstall_entry("user") is None

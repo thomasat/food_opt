@@ -129,14 +129,27 @@ Uninstall:
 | Code | Meaning | Intune type |
 |---|---|---|
 | `0` | Installed | Success |
-| `1` | Food Optimizer is running: Setup could not start (it waits for the app to close) | Retry |
+| `1` | Food Optimizer is running, so Setup stopped before changing anything (also Inno's "Setup failed to initialize") | Retry |
 | `2` | Cancelled before installing | Failed |
-| `7` | Refused: SYSTEM without `/ALLUSERS`; installed by IT (all-users copy present); install folder over 80 characters; too little free space | Failed |
+| `3` | A fatal error while getting ready to install; nothing changed | Failed |
+| `4` | A fatal error while installing; run the same command again, it repairs | Failed |
+| `5` | Stopped while installing; run the same command again, it repairs | Failed |
+| `6` | Setup was ended from outside (for example by Task Manager); run it again | Failed |
+| `7` | Refused: SYSTEM without `/ALLUSERS`; installed by IT (all-users copy present); install folder over 80 characters; install folder holds other files; too little free space | Failed |
+| `8` | Needs a restart before it can install (not used by Food Optimizer) | Failed |
 | `9` | Installed, but the pre-warm import failed (security software blocked a file); the app will not open until IT allows it | Failed |
 
-Code 1 is also Inno Setup's "Setup failed to initialize". Map `1` to
-Retry in Intune's return codes (as for Intune's own `1618`): the install
-changed nothing, and succeeds once the user closes Food Optimizer.
+Code 1 under `/SUPPRESSMSGBOXES` means the app is open: Setup does not
+wait, it exits at once. Map `1` to Retry in Intune's return codes (as for
+Intune's own `1618`): the install changed nothing, and succeeds once the
+user closes Food Optimizer.
+
+Uninstall exit codes (`unins000.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART`):
+
+| Code | Meaning | Intune type |
+|---|---|---|
+| `0` | Uninstalled | Success |
+| `1` | Food Optimizer is running (or the uninstaller could not start); nothing changed | Retry |
 
 ## Test
 

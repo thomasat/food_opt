@@ -67,3 +67,4 @@ InstalledByIT=Installed by your IT. Ask IT to update.
 SystemNeedsAllUsers=Installing as SYSTEM needs /ALLUSERS.
 FolderTooLong=This install folder path is too long. Use at most 80 characters.
 NeedsSpace=Needs %1 GB free on this PC.
+FolderNotOurs=This folder holds other files. Use an empty folder.

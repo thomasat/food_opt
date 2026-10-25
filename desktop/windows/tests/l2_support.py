@@ -39,14 +39,19 @@ APP_ID = "{DE876ED9-927A-45AD-AD9B-D6E4B4C9A4A3}"
 UNINSTALL_SUBKEY = rf"Software\Microsoft\Windows\CurrentVersion\Uninstall\{APP_ID}_is1"
 SILENT = ("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS")
 
-# The installer's exit codes (Inno Setup's, plus our 9). app_running is
-# pinned by Task 8: what Inno's AppMutex check returned under
-# /SUPPRESSMSGBOXES while the app ran.
+# The installer's exit codes (Inno Setup's 0-8, plus our 9; the README's
+# table). app_running is pinned by Task 8: what Inno's AppMutex check
+# returned under /SUPPRESSMSGBOXES while the app ran.
 EXIT_CODES = {
     "ok": 0,
     "init_failed": 1,
     "cancelled": 2,
+    "prepare_failed": 3,
+    "install_failed": 4,
+    "aborted": 5,
+    "killed": 6,
     "refused": 7,
+    "restart_needed": 8,
     "prewarm_failed": 9,
     # Inno's AppMutex check under /SUPPRESSMSGBOXES (VM_BUILD, 2026-10-24,
     # Inno 6.7.3): 1 for a per-user install, a SYSTEM all-users install and
@@ -60,11 +65,16 @@ INTUNE = {
     "ok": "Success",
     "init_failed": "Retry",         # shares code 1 with app_running
     "cancelled": "Failed",
+    "prepare_failed": "Failed",
+    "install_failed": "Failed",
+    "aborted": "Failed",
+    "killed": "Failed",
     "refused": "Failed",
+    "restart_needed": "Failed",
     "prewarm_failed": "Failed",
     "app_running": "Retry",
 }
-REFUSALS = ("system_needs_allusers", "installed_by_it", "folder_too_long", "needs_space")
+REFUSALS = ("system_needs_allusers", "installed_by_it", "folder_too_long", "folder_not_ours", "needs_space")
 
 # Seconds to the app's first page, and to it again on a warm relaunch. The
 # x64 bound is the spec's 30 s (re-set from Azure in phase 6); arm64 is the

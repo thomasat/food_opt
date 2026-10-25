@@ -471,7 +471,7 @@ try {
     $step = 'files'
     $files = Read-Values (Invoke-BuildEnv @('files', $Image, $FilesList))
 
-    # 11. The record, written last: a failed build leaves none.
+    # 11. The image record (a later failure deletes it again).
     $step = 'record'
     $testBuildValue = 'no'
     if ($TestBuild) { $testBuildValue = 'yes' }
@@ -548,6 +548,11 @@ try {
         'signed=no'
     ))
 } catch {
+    # A failed build leaves no record and no installer (one named like a
+    # release, with no record beside it, could be mistaken for one).
+    foreach ($partial in @($Record, $Installer, $InstallerRecord)) {
+        if (Test-Path -LiteralPath $partial) { Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue }
+    }
     if ($script:ExactFailure -ne '') {
         [Console]::Error.WriteLine($script:ExactFailure)
         exit 1

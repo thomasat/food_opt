@@ -99,6 +99,9 @@ COPY = [
     ("CustomMessages", ["FolderTooLong"], "B",
      "This install folder path is too long. Use at most 80 characters."),
     ("CustomMessages", ["NeedsSpace"], "B", "Needs %1 GB free on this PC."),
+    # Added after the final review (refusing a /DIR that holds other files);
+    # awaiting the owner's approval.
+    ("CustomMessages", ["FolderNotOurs"], "B", "This folder holds other files. Use an empty folder."),
 ]
 REWRITTEN = {(section, key): text for section, keys, _kind, text in COPY for key in keys}
 
@@ -316,7 +319,7 @@ def test_root_budget_matches_the_image_gate():
     assert re.search(r"^#define PrewarmSecs (\d+)$", text, re.M).group(1) == "600"
 
 
-REFUSALS = ("system_needs_allusers", "installed_by_it", "folder_too_long", "needs_space")
+REFUSALS = ("system_needs_allusers", "installed_by_it", "folder_too_long", "folder_not_ours", "needs_space")
 
 
 def test_every_refusal_is_logged():
@@ -501,3 +504,71 @@ def test_new_scripts_follow_the_powershell_rules():
         code = re.sub(r"'[^'\n]*'", "''", text)
         assert "2>&1" not in code, name
         assert "$LASTEXITCODE" in text, name
+
+
+# ---------- final-review fixes ----------
+
+def _code_section():
+    text = ISS.read_text(encoding="ascii")
+    return text[text.index("[Code]"):]
+
+
+def _function(name):
+    code = _code_section()
+    start = re.search(r"^(procedure|function) %s\b" % name, code, re.M).start()
+    end = re.search(r"^end;$", code[start:], re.M).end()
+    return code[start:start + end]
+
+
+def test_an_it_install_finds_entra_id_users_too():
+    """Entra ID-joined PCs (Intune's own) give users S-1-12-1-* SIDs; a
+    local or domain account is S-1-5-21-*. Both get their copy replaced."""
+    body = _function("ReplacePerUserCopies")
+    assert "'S-1-5-21-'" in body and "'S-1-12-1-'" in body
+
+
+def test_per_user_copies_go_only_after_the_it_install_succeeded():
+    """A cancelled or failed IT install must not have deleted the user's
+    copy already: the replacement runs at ssPostInstall, not ssInstall."""
+    body = _function("CurStepChanged")
+    post = body.index("ssPostInstall")
+    assert "ssInstall)" not in body.replace("ssPostInstall", "")
+    assert body.index("ReplacePerUserCopies") > post
+
+
+def test_an_upgrade_cannot_be_cancelled_once_files_are_deleted():
+    """[InstallDelete] runs before the copy and rollback cannot restore it:
+    on the Installing page of an upgrade, Cancel is refused."""
+    body = _function("CancelButtonClick")
+    assert "wpInstalling" in body and "Upgrading" in body and "Cancel := False" in body
+    assert "Upgrading := FileExists(" in _function("PrepareToInstall")
+
+
+def test_a_folder_that_is_not_ours_is_refused():
+    """/DIR at a folder holding other files would let [InstallDelete]
+    delete its python, app, shared and *.dll: refused up front."""
+    body = _function("PrepareToInstall")
+    assert "Log('refused: folder_not_ours')" in body
+    assert "CustomMessage('FolderNotOurs')" in body
+    assert body.index("refused: folder_not_ours") < body.index("refused: needs_space")
+    assert parse_isl(ISL)["CustomMessages"]["FolderNotOurs"] == "This folder holds other files. Use an empty folder."
+
+
+def test_a_failed_build_leaves_no_installer_or_record():
+    text = BUILD.read_text(encoding="ascii")
+    catch = text[text.rindex("} catch {"):]
+    catch = catch[:catch.index("\n}\n")]
+    for name in ("$Record", "$Installer", "$InstallerRecord"):
+        assert name in catch, name
+
+
+def test_every_inno_exit_code_is_documented():
+    """Spec section 5: the exit codes (Inno's 1-8, our 9) with the Intune
+    remap; and the uninstaller's codes for Intune's uninstall command."""
+    codes = _l2_constant("EXIT_CODES")
+    assert set(codes.values()) == set(range(0, 10)), codes
+    text = (WINDOWS / "README.md").read_text(encoding="utf-8")
+    assert "Uninstall exit codes" in text
+    unins = text[text.index("Uninstall exit codes"):]
+    for row in ("| `0` |", "| `1` |"):
+        assert row in unins, row

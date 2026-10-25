@@ -117,6 +117,7 @@ const
 var
   DesktopCheck: TNewCheckBox;
   PrewarmFailed: Boolean;
+  Upgrading: Boolean;
 
 function GetTickCount: DWORD; external 'GetTickCount@kernel32.dll stdcall';
 
@@ -176,8 +177,10 @@ begin
 end;
 
 { An all-users install replaces every per-user copy: a per-user and an
-  all-users install can't coexist (spec section 5). Never touches projects
-  or state. A user whose hive isn't loaded keeps an orphan Apps entry. }
+  all-users install can't coexist (spec section 5). It runs once the
+  all-users copy is in place, so a cancelled or failed IT install leaves
+  the user's copy alone. Never touches projects or state. A user whose
+  hive isn't loaded keeps an orphan Apps entry. }
 procedure ReplacePerUserCopies;
 var
   Sids: TArrayOfString;
@@ -190,7 +193,9 @@ begin
   end;
   for I := 0 to GetArrayLength(Sids) - 1 do begin
     Sid := Sids[I];
-    if Pos('S-1-5-21-', Sid) <> 1 then
+    { Local and domain accounts (S-1-5-21-*) and Entra ID accounts
+      (S-1-12-1-*, the users of a cloud-joined Intune PC). }
+    if (Pos('S-1-5-21-', Sid) <> 1) and (Pos('S-1-12-1-', Sid) <> 1) then
       continue;
     if not RegQueryStringValue(HKLM64, ProfileListKey + '\' + Sid, 'ProfileImagePath', Profile) then
       continue;
@@ -218,6 +223,26 @@ begin
       end;
     end else
       DeleteLogged(Profile + '\Desktop\Food Optimizer.lnk');
+  end;
+end;
+
+{ Whether a folder holds anything at all. }
+function DirHasEntries(const Dir: String): Boolean;
+var
+  FindRec: TFindRec;
+begin
+  Result := False;
+  if FindFirst(AddBackslash(Dir) + '*', FindRec) then begin
+    try
+      repeat
+        if (FindRec.Name <> '.') and (FindRec.Name <> '..') then begin
+          Result := True;
+          exit;
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
   end;
 end;
 
@@ -267,9 +292,18 @@ begin
     Result := CustomMessage('FolderTooLong');
     exit;
   end;
+  { [InstallDelete] would delete python, app, shared and *.dll of any
+    folder /DIR names: install only into an empty folder or our own. }
+  Upgrading := FileExists(AddBackslash(App) + 'FoodOptimizer.exe');
+  if DirExists(App) and DirHasEntries(App) and not Upgrading and
+      not FileExists(AddBackslash(App) + 'unins000.dat') then begin
+    Log('refused: folder_not_ours');
+    Result := CustomMessage('FolderNotOurs');
+    exit;
+  end;
   { An upgrade frees the copy it replaces ([InstallDelete] runs first). }
   Need := Int64(DiskFreeGB) * GiB;
-  if FileExists(AddBackslash(App) + 'FoodOptimizer.exe') then
+  if Upgrading then
     Need := Need - DirBytes(App);
   if GetSpaceOnDisk64(AddBackslash(ExtractFileDrive(App)), Free, Total) then begin
     Log(Format('free space: %d MB free, %d MB needed', [Free div 1048576, Need div 1048576]));
@@ -393,15 +427,27 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
-  if (CurStep = ssInstall) and IsAdminInstallMode then
-    ReplacePerUserCopies;
   if CurStep = ssPostInstall then begin
+    if IsAdminInstallMode then
+      ReplacePerUserCopies;
     if not IsAdminInstallMode then begin
       if not ForceDirectories(ProjectsDir) then
         Log('could not create ' + ProjectsDir);
       PinToQuickAccess(ProjectsDir);
     end;
     Prewarm;
+  end;
+end;
+
+{ An upgrade's [InstallDelete] has already deleted the old Python and app
+  when the copy starts, and rollback can't bring them back: once
+  installing, an upgrade runs to the end. }
+procedure CancelButtonClick(CurPageID: Integer; var Cancel, Confirm: Boolean);
+begin
+  if (CurPageID = wpInstalling) and Upgrading then begin
+    Log('cancel refused: an upgrade cannot stop part-way');
+    Cancel := False;
+    Confirm := False;
   end;
 end;
 
