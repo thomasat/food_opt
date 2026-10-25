@@ -48,13 +48,17 @@ EXIT_CODES = {
     "cancelled": 2,
     "refused": 7,
     "prewarm_failed": 9,
-    "app_running": None,
+    # Inno's AppMutex check under /SUPPRESSMSGBOXES (VM_BUILD, 2026-10-24,
+    # Inno 6.7.3): 1 for a per-user install, a SYSTEM all-users install and
+    # a silent uninstall while the app runs. The same code as init_failed:
+    # Intune treats code 1 as Retry, for both.
+    "app_running": 1,
 }
 # Intune's return-code type for each (the README's table; a literal, so
 # the Mac test reads it by AST).
 INTUNE = {
     "ok": "Success",
-    "init_failed": "Failed",
+    "init_failed": "Retry",         # shares code 1 with app_running
     "cancelled": "Failed",
     "refused": "Failed",
     "prewarm_failed": "Failed",
