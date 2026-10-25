@@ -9,14 +9,17 @@ passes them. This fixture covers the projects that DO have a total, with
 rows inside the ±0.5 % band or exactly on it, one row type each, plus one
 project with no total whose Round was re-sized (not rescaled in this wave).
 
-tests/fixtures/ask_total_unchanged.json is written ONCE, on insights-080 @
-0bf00ba (before any batch-size code), by
+tests/fixtures/ask_total_unchanged.json was written on insights-080 @
+0bf00ba (before any batch-size code), and re-recorded once, with the
+owner's approval, for 0.9.0's suggestion-stability change (windows-port-p1,
+on 834dc1b; tests/test_suggestion_stability.py), under the locked
+dependency versions of desktop/requirements.lock.txt, by
 
     python -m tests.test_ask_total_unchanged
 
-and committed on its own. It is never regenerated: every later commit keeps
-it green — the suggestions and the rows handed to the model, bit-identical
-on the Mac; within 0.1% on Windows (tests.golden.same)."""
+It is not regenerated otherwise: every later commit keeps it green — the
+suggestions and the rows handed to the model, bit-identical on the Mac;
+within 0.1% on Windows (tests.golden.same)."""
 import json
 import os
 import pathlib

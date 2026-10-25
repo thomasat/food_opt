@@ -4,12 +4,15 @@ project with no blanks. This one covers the projects the fixes are about:
 formulations scored without a measurement added later, one imported
 without a value, and one still waiting for results.
 
-tests/fixtures/ask_unchanged.json is written ONCE, on insights-080 @ ce205c9
-(before any review fix), by
+tests/fixtures/ask_unchanged.json was written on insights-080 @ ce205c9
+(before any review fix), and re-recorded once, with the owner's approval,
+for 0.9.0's suggestion-stability change (windows-port-p1, on 834dc1b;
+tests/test_suggestion_stability.py), under the locked dependency versions
+of desktop/requirements.lock.txt, by
 
     python -m tests.test_ask_unchanged
 
-and committed. It is never regenerated. Every later commit keeps it green:
+It is not regenerated otherwise. Every later commit keeps it green:
 the same suggestions and the same rows handed to the model — bit-identical
 on the Mac; within 0.1% on Windows (tests.golden.same)."""
 import json
