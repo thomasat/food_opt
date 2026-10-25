@@ -322,3 +322,80 @@ def test_pdf_fetches_nothing(tmp_path):
     with pytest.raises(RuntimeError, match="example.com"):
         rd.to_pdf(html, tmp_path / "x.pdf", footer="x")
     assert not (tmp_path / "x.pdf").exists()
+
+
+# ---------- the download email (Task 6) ----------
+
+EMAIL = REPO / "desktop" / "windows" / "download_email.md"
+SPEC_LINES = ["1. Open the downloaded file.", "2. Click Install. No admin rights needed.",
+              "3. Open Food Optimizer from Start.",
+              "Works offline. Needs Windows 10 or 11, {{disk_free_gb}} GB free.",
+              "Blocked? Forward this email to IT."]
+SAMPLE = {"version": "0.9.0", "exe_mb": "238", "disk_free_gb": "2", **rd.values("0.9.0")}
+
+
+def _start_here_smartscreen():
+    from tests.shared_texts import flowed, read_lf
+    text = flowed(read_lf(REPO / "desktop" / "windows" / "start_here.txt"))
+    return re.search(r"Windows may not recognize the app yet\..*?Run anyway\.", text).group(0)
+
+
+def _email_body(text):
+    return rd.COMMENT.sub("", text).strip()
+
+
+def test_email_has_the_spec_lines_in_order():
+    body = _email_body(EMAIL.read_text(encoding="utf-8"))
+    lines = [line.strip() for line in body.splitlines()]
+    at = [lines.index(line) for line in SPEC_LINES]
+    assert at == sorted(at)
+    assert body.splitlines()[0] == "Food Optimizer for Windows ({{exe_mb}} MB)"
+    smart = next(i for i, line in enumerate(lines) if line.startswith("Windows may not recognize"))
+    assert at[0] < smart < at[1]
+
+
+def test_email_smartscreen_line_is_start_heres():
+    body = " ".join(_email_body(EMAIL.read_text(encoding="utf-8")).split())
+    assert _start_here_smartscreen() in body
+
+
+def test_email_sender_lines():
+    head = rd.COMMENT.match(EMAIL.read_text(encoding="utf-8")).group(0)
+    assert "Subject: Food Optimizer {{version}} for Windows" in head
+    assert "Attach: {{it_sheet_name}}" in head
+
+
+def test_email_links_straight_to_the_exe():
+    filled = rd.fill(EMAIL.read_text(encoding="utf-8"), SAMPLE, release=False)
+    urls = re.findall(r"https?://\S+", filled)
+    assert len(urls) == 1, urls
+    assert re.fullmatch(r"https://github\.com/thomasat/food_opt/releases/download/v\d+\.\d+\.\d+/"
+                        r"FoodOptimizer-\d+\.\d+\.\d+-Windows\.exe", urls[0])
+    for word in ("Source code", "zip", "/archive/", "zipball"):
+        assert word not in filled, word
+
+
+def test_email_sentences_follow_the_copy_rules():
+    filled = rd.fill(_email_body(EMAIL.read_text(encoding="utf-8")), SAMPLE, release=False)
+    filled = re.sub(r"\[pending: [^\]]*\]", "", filled)
+    exempt = _start_here_smartscreen()
+    text = " ".join(filled.split()).replace(exempt, "")
+    for sentence in re.split(r"(?<=[.!?])\s+", text):
+        if sentence.startswith("https://"):
+            continue
+        assert len(sentence.split()) <= 10, sentence
+
+
+def test_email_pending_markers_are_the_known_set():
+    assert {m.group(1) for m in rd.PENDING.finditer(EMAIL.read_text(encoding="utf-8"))} == {
+        "exact Edge download words"}
+
+
+def test_render_writes_the_email_with_the_sender_lines_on_top(tmp_path):
+    out = tmp_path / "out"
+    rd.render("0.9.0", out=out, templates={"email": EMAIL.read_text(encoding="utf-8")})
+    text = (out / "download-email-0.9.0.txt").read_text(encoding="utf-8")
+    lines = text.splitlines()
+    assert lines[:3] == ["Subject: Food Optimizer 0.9.0 for Windows", "Attach: FoodOptimizer-0.9.0-IT-sheet.pdf", ""]
+    assert lines[3] == "Food Optimizer for Windows ([pending: exe_mb] MB)"
+    assert "<!--" not in text
