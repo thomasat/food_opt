@@ -1,10 +1,14 @@
 # Runs FoodOptimizer.UiTests on the interactive desktop (a scheduled task
 # with /IT), against a folder staged by stage_layout.ps1, and waits for it.
+# -Installer <exe> is what the Installer and Installed tests install
+# (phase 5); they ignore the stage. Their filter:
+#   -Filter "--filter-trait Category=Installer --filter-trait Category=Installed"
 # ASCII only: Windows PowerShell 5.1 reads BOM-less UTF-8 as ANSI.
 param(
     [Parameter(Mandatory = $true)][string]$Stage,
-    [string]$Filter = "--filter-not-trait Category=RealApp",
-    [string]$Results = ""
+    [string]$Filter = "--filter-not-trait Category=RealApp --filter-not-trait Category=Installer --filter-not-trait Category=Installed",
+    [string]$Results = "",
+    [string]$Installer = ""
 )
 if (-not $Results) { $Results = "$Stage-results" }
 $sln = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
@@ -31,6 +35,7 @@ $lines = @(
     "@echo off",
     "set FOODOPT_UI_STAGE=$Stage",
     "set FOODOPT_UI_RESULTS=$Results",
+    "set FOODOPT_UI_INSTALLER=$Installer",
     "set DOTNET_CLI_TELEMETRY_OPTOUT=1",
     "set DOTNET_NOLOGO=1",
     "cd /d `"$sln`"",
