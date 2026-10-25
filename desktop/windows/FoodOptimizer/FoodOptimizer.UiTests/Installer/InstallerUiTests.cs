@@ -382,10 +382,10 @@ public class InstallerUiTests
 
         /// <summary>The uninstaller processes this uninstall started: named
         /// unins*, _unins* or _iu*, their command line naming this copy's
-        /// folder, started after it began.</summary>
-        public IReadOnlyList<(int Pid, string Name)> Processes()
+        /// folder, started after it began (with that start time).</summary>
+        public IReadOnlyList<(int Pid, string Name, DateTime Created)> Processes()
         {
-            var found = new List<(int, string)>();
+            var found = new List<(int, string, DateTime)>();
             using var searcher = new ManagementObjectSearcher(
                 "SELECT ProcessId, Name, CommandLine, CreationDate FROM Win32_Process");
             foreach (ManagementObject o in searcher.Get())
@@ -397,8 +397,10 @@ public class InstallerUiTests
                         || name.StartsWith("_unins", StringComparison.OrdinalIgnoreCase)
                         || name.StartsWith("_iu", StringComparison.OrdinalIgnoreCase))) continue;
                     if (!(o["CommandLine"] as string ?? "").Contains(_dir, StringComparison.OrdinalIgnoreCase)) continue;
-                    if (o["CreationDate"] is not string created || ManagementDateTimeConverter.ToDateTime(created) < _began) continue;
-                    found.Add((Convert.ToInt32(o["ProcessId"]), name));
+                    if (o["CreationDate"] is not string cim) continue;
+                    var created = ManagementDateTimeConverter.ToDateTime(cim);
+                    if (created < _began) continue;
+                    found.Add((Convert.ToInt32(o["ProcessId"]), name, created));
                 }
             }
             return found;
@@ -414,14 +416,30 @@ public class InstallerUiTests
                     + string.Join(", ", Processes().Select(p => $"{p.Name} {p.Pid}")));
         }
 
+        /// <summary>Ends what is left of this uninstall. A PID from the
+        /// snapshot is killed only while it is still the same process (same
+        /// start time): Windows reuses PIDs. Never throws, so a failing
+        /// test's own error is the one reported.</summary>
         public void Dispose()
         {
-            foreach (var (pid, _) in Processes())
+            try
             {
-                try { Process.GetProcessById(pid).Kill(); }
-                catch (Exception) { }
+                foreach (var (pid, _, created) in Processes())
+                {
+                    try
+                    {
+                        using var p = Process.GetProcessById(pid);
+                        if (Math.Abs((p.StartTime - created).TotalMilliseconds) > 1) continue;
+                        p.Kill();
+                    }
+                    catch (Exception) { }
+                }
             }
-            Wizard.Dispose();
+            catch (Exception) { }
+            finally
+            {
+                Wizard.Dispose();
+            }
         }
     }
 }

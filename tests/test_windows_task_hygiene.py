@@ -114,3 +114,23 @@ def test_level2_has_a_deadline():
     text = LEVEL2.read_text(encoding="ascii")
     assert "[int]$TimeoutMinutes = 240" in text
     assert 'Stop-Run "Level 2 did not finish in $TimeoutMinutes minutes"' in text
+
+
+def test_level2_ends_a_timed_out_run_before_deleting_it():
+    """A deadline that passes ends the task (/End) and, since /End stops
+    only the task's cmd.exe, the run's own pytest (found by its --basetemp
+    and start time, never by parent PID) and its job tasks; only then is
+    the task deleted. The header names that exit 2 too."""
+    text = LEVEL2.read_text(encoding="ascii")
+    fin = text[text.rindex("finally"):]
+    guard = fin.index("if ($null -eq $exit) {")
+    end = fin.index("& schtasks.exe /End /TN $task | Out-Null")
+    kill = fin.index("Stop-Process -Id $_.ProcessId -Force")
+    assert guard < end < kill < fin.index("& schtasks.exe /Delete /F /TN $task")
+    assert "$_.CommandLine -like $mark -and $_.CreationDate -ge $started" in fin
+    assert "ParentProcessId" not in text
+    assert "Get-ScheduledTask -TaskName 'FoodOptL2-*'" in fin
+    assert text.index("$started = Get-Date") < text.index("/Create")
+    assert "--basetemp \"' +\n        $basetemp + '\"" in text
+    header = text[:text.index("[CmdletBinding")]
+    assert "or 2 if the run could not start or did not\n# finish in -TimeoutMinutes" in header

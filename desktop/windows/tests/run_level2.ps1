@@ -8,7 +8,8 @@
 # user's desktop, /RL HIGHEST) under an independent uv-managed Python in
 # C:\work\l2\venv; each install or app start drops to the limited user or
 # SYSTEM. The user named by USERNAME must be signed in at the console.
-# Exit code: pytest's (0 = all passed), or 2 if the run could not start.
+# Exit code: pytest's (0 = all passed), or 2 if the run could not start or did not
+# finish in -TimeoutMinutes (its pytest and tasks are then ended and deleted).
 # Windows PowerShell 5.1 rules: ASCII only, no stderr redirection of native
 # commands, $LASTEXITCODE checked after each one.
 [CmdletBinding(PositionalBinding = $false)]
@@ -91,6 +92,7 @@ if ($K -ne '') { $kArg = '-k "' + $K + '" ' }
 $cleanupValue = '0'
 if ($Cleanup) { $cleanupValue = '1' }
 $cmd = Join-Path 'C:\work\run' 'l2.cmd'
+$basetemp = Join-Path $L2 ('bt-' + (Get-Date -Format 'HHmmss'))
 New-Item -ItemType Directory -Force -Path 'C:\work\run' | Out-Null
 $lines = @(
     '@echo off',
@@ -103,7 +105,7 @@ $lines = @(
     ('set "FOODOPT_L2_ROOT=' + $L2 + '"'),
     'set "PYTHONUTF8=1"',
     ('"' + $python + '" -m pytest ' + ($files -join ' ') + ' ' + $kArg + '-rA -p no:cacheprovider --basetemp "' +
-        (Join-Path $L2 ('bt-' + (Get-Date -Format 'HHmmss'))) + '" --junitxml "' + $junit + '" > "' + $log + '" 2>&1'),
+        $basetemp + '" --junitxml "' + $junit + '" > "' + $log + '" 2>&1'),
     ('>> "' + $log + '" echo EXIT=%ERRORLEVEL%')
 )
 [IO.File]::WriteAllText($cmd, (($lines -join "`r`n") + "`r`n"), (New-Object Text.ASCIIEncoding))
@@ -111,6 +113,7 @@ $lines = @(
 # 5. Run it elevated on the user's desktop, and wait for its EXIT= line.
 $task = 'FoodOptL2-run'
 $exit = $null
+$started = Get-Date
 try {
     # A start boundary in the past: the task never fires on schedule, only on /Run.
     Invoke-Native 'schtasks /Create' 'schtasks.exe' @('/Create', '/F', '/TN', $task, '/TR', $cmd, '/SC', 'ONCE',
@@ -130,6 +133,19 @@ try {
     }
 }
 finally {
+    if ($null -eq $exit) {
+        # No EXIT= line (deadline passed, or a failure). /End stops only the
+        # task's cmd.exe, so end this run's pytest too (its --basetemp names
+        # it; started after this script), and the job tasks it can no longer
+        # delete itself.
+        & schtasks.exe /End /TN $task | Out-Null
+        $mark = '*' + [Management.Automation.WildcardPattern]::Escape($basetemp) + '*'
+        Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" | Where-Object {
+            $_.CommandLine -like $mark -and $_.CreationDate -ge $started
+        } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+        Get-ScheduledTask -TaskName 'FoodOptL2-*' -ErrorAction SilentlyContinue |
+            Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue
+    }
     & schtasks.exe /Delete /F /TN $task | Out-Null
 }
 Get-Content -LiteralPath $log -Tail 40 | ForEach-Object { Say $_ }

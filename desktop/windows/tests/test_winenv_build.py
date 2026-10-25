@@ -11,14 +11,18 @@ from conftest import REPO, WINDOWS, own_git_env, powershell, slow
 WORK = REPO.parent
 
 
+def _offline_env(short_tmp):
+    """uv with no network and an empty cache: the build stops at its uv step."""
+    empty_cache = short_tmp / "uv cache"
+    empty_cache.mkdir()
+    return own_git_env({"UV_OFFLINE": "1", "UV_CACHE_DIR": str(empty_cache)})
+
+
 @slow
 def test_a_failed_install_stops_the_build(short_tmp):
     out = short_tmp / "out dir"
-    empty_cache = short_tmp / "uv cache"
-    empty_cache.mkdir()
-    env = own_git_env({"UV_OFFLINE": "1", "UV_CACHE_DIR": str(empty_cache)})
     r = powershell("-File", WINDOWS / "build_installer.ps1", "-TestBuild", "-OutDir", out,
-                   env=env, timeout=1800)
+                   env=_offline_env(short_tmp), timeout=1800)
     assert r.returncode == 1, r.stdout + r.stderr
     assert "build failed: uv" in r.stdout + r.stderr
     assert not (out / "FoodOptimizer.build.txt").exists()
@@ -28,29 +32,19 @@ def test_a_failed_install_stops_the_build(short_tmp):
 
 @slow
 def test_an_out_dir_on_another_drive_builds(short_tmp):
-    """The NuGet package is unpacked beside the image, so -OutDir on another
+    """The NuGet package is unpacked inside the image, so -OutDir on another
     drive (here a subst drive) gets past the Python step."""
     import string
     letter = next(c for c in reversed(string.ascii_uppercase[3:]) if not os.path.exists(f"{c}:\\"))
     subprocess.run(["subst", f"{letter}:", str(short_tmp)], check=True)
     try:
-        empty_cache = short_tmp / "uv cache"
-        empty_cache.mkdir()
-        env = own_git_env({"UV_OFFLINE": "1", "UV_CACHE_DIR": str(empty_cache)})
         r = powershell("-File", WINDOWS / "build_installer.ps1", "-TestBuild", "-OutDir",
-                       f"{letter}:\\out", env=env, timeout=1800)
+                       f"{letter}:\\out", env=_offline_env(short_tmp), timeout=1800)
         assert r.returncode == 1, r.stdout + r.stderr
         assert "build failed: uv" in r.stdout + r.stderr, r.stdout + r.stderr
         assert (short_tmp / "out" / "FoodOptimizer" / "python" / "python.exe").is_file()
     finally:
         subprocess.run(["subst", f"{letter}:", "/d"])
-
-
-def _offline_env(short_tmp):
-    """uv with no network and an empty cache: the build stops at its uv step."""
-    empty_cache = short_tmp / "uv cache"
-    empty_cache.mkdir()
-    return own_git_env({"UV_OFFLINE": "1", "UV_CACHE_DIR": str(empty_cache)})
 
 
 @slow
@@ -94,6 +88,8 @@ def test_the_image_does_not_depend_on_the_build_folder():
         if manifests[0] != manifests[1]:
             one, two = (set(m.decode("utf-8").splitlines()) for m in manifests)
             assert sorted(one ^ two) == []
+        # Same lines in another order (or line ends) still differ: bytes count.
+        assert manifests[0] == manifests[1]
     finally:
         for folder in (*outs, dist):
             shutil.rmtree(folder, ignore_errors=True)
