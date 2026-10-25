@@ -64,7 +64,7 @@ def test_build_script_prints_the_unsigned_banner_and_record():
 
 def test_build_script_lists_no_app_files():
     text = _strict(BUILD)
-    allowed = {"build_env.py", "packaged_app_checks.py", "sitecustomize.py"}
+    allowed = {"build_env.py", "packaged_app_checks.py", "sitecustomize.py", "sbom.py"}
     assert set(re.findall(r"\w+\.py\b", text)) <= allowed
     assert "bundle_manifest.txt" in text
 

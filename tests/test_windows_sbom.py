@@ -364,7 +364,11 @@ def test_build_cli_prints_the_record_lines(tmp_path, capsys):
     (image / "python" / "LICENSE.txt").unlink()
     out.unlink()
     assert sbom.main(argv) == 1
-    assert capsys.readouterr().out.startswith("sbom: evidence missing")
+    # On stdout (the build reads it) and on stderr: build_installer.ps1's
+    # Invoke-Native keeps stdout, so the reason reaches the console there.
+    captured = capsys.readouterr()
+    assert captured.out.startswith("sbom: evidence missing")
+    assert captured.err.startswith("sbom: evidence missing")
     assert not out.exists()
 
 

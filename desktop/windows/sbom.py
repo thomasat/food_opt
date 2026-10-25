@@ -655,6 +655,7 @@ def _build_cli(args) -> int:
                     nuget_roots=[pathlib.Path(r) for r in args.nuget_root])
     except ValueError as e:
         print(str(e))
+        print(str(e), file=sys.stderr)
         return 1
     raw = dumps(bom)
     out = pathlib.Path(args.out)
