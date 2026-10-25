@@ -392,3 +392,40 @@ def test_cli_shell_and_gate_with_the_shell(fake_image, tmp_path):
     assert r.returncode == 1
     assert "shell: differs FoodOptimizer.dll" in lines
     assert not [line for line in lines if line.startswith("listing: ")]
+
+
+def test_compiled_bytes_do_not_depend_on_the_image_folder(tmp_path):
+    images = [tmp_path / "a" / be.IMAGE_NAME, tmp_path / "José build" / "x y" / be.IMAGE_NAME]
+    for image in images:
+        for rel in ("python/Lib/os2.py", "app/app.py", "shared/launcher/cli.py"):
+            _touch(image, rel, b"def f():\n    raise ValueError\n")
+        assert be.compile_all(image, workers=1)
+    assert be.file_manifest(images[0])[0] == be.file_manifest(images[1])[0]
+
+
+_PE = b"MZ" + b"\0" * 58 + b"\x40\0\0\0" + b"PE\0\0"   # e_lfanew = 0x40 -> "PE\0\0"
+
+
+def test_pe_files_go_by_header_not_extension(fake_image):
+    _touch(fake_image, "python/a.dll", _PE)
+    _touch(fake_image, "python/Lib/site-packages/x/b.node", _PE)
+    _touch(fake_image, "python/c.dll", b"not a binary")
+    _touch(fake_image, "python/d.pyd", b"MZ")
+    assert be.pe_files(fake_image) == ["python/Lib/site-packages/x/b.node", "python/a.dll"]
+
+
+def test_pe_header_beyond_the_first_4_kib_is_found(fake_image):
+    head = b"MZ" + b"\0" * 58 + (8000).to_bytes(4, "little")
+    _touch(fake_image, "python/far.dll", head + b"\0" * (8000 - len(head)) + b"PE\0\0")
+    _touch(fake_image, "python/past_end.dll", head + b"\0" * 100)
+    assert be.pe_files(fake_image) == ["python/far.dll"]
+
+
+def test_cli_pe_files_writes_the_list(fake_image, tmp_path):
+    _touch(fake_image, "python/a.dll", _PE)
+    out = tmp_path / "pe.txt"
+    r = subprocess.run([sys.executable, "-I", "-B", str(BUILD_ENV), "pe-files", str(fake_image), str(out)],
+                       capture_output=True, text=True, encoding="utf-8")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "pe_files=1" in r.stdout.splitlines()
+    assert out.read_bytes() == b"python/a.dll\n"

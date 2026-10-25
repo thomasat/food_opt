@@ -271,8 +271,36 @@ def compile_all(image, workers=0) -> bool:
             continue
         ok = compileall.compile_dir(
             str(folder), quiet=1, force=True, workers=workers, rx=_exclude_rx(),
+            stripdir=str(image), prependdir=IMAGE_NAME,
             invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH) and ok
     return bool(ok)
+
+
+def pe_files(image) -> list[str]:
+    """Image-relative "/" paths of every file with a PE header (MZ, and e_lfanew
+    pointing at "PE\\0\\0"), whatever its extension. Reads 4 KiB at most per file,
+    plus a seek when e_lfanew lies beyond it."""
+    image = pathlib.Path(image)
+    found = []
+    for rel, is_dir in _walk(image):
+        if is_dir:
+            continue
+        try:
+            with open(image / rel, "rb") as f:
+                head = f.read(4096)
+                if head[:2] != b"MZ" or len(head) < 0x40:
+                    continue
+                offset = int.from_bytes(head[0x3C:0x40], "little")
+                if offset + 4 <= len(head):
+                    sig = head[offset:offset + 4]
+                else:
+                    f.seek(offset)
+                    sig = f.read(4)
+        except OSError:
+            continue
+        if sig == b"PE\0\0":
+            found.append(rel)
+    return sorted(found)
 
 
 def _sources(image):
@@ -526,9 +554,14 @@ def main(argv=None) -> int:
         print(f"image_bytes={size}")
         print(f"image_sha256={hashlib.sha256(out.read_bytes()).hexdigest()}")
         return 0
+    if cmd == "pe-files" and len(args) == 2:
+        files = pe_files(args[0])
+        pathlib.Path(args[1]).write_bytes("".join(f"{rel}\n" for rel in files).encode("utf-8"))
+        print(f"pe_files={len(files)}")
+        return 0
     print("usage: build_env.py assemble <repo> <image> | strip <image> | compile <image>"
           " | shell <publish> <image> | gate <repo> <image> [--shell <publish>]"
-          " | files <image> <out.txt>")
+          " | files <image> <out.txt> | pe-files <image> <out.txt>")
     return 2
 
 
