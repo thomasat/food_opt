@@ -1,13 +1,17 @@
-# Builds the Windows environment: <OutDir>\FoodOptimizer\ holding python.org
-# Python with the Windows lock installed, Microsoft's C++ runtime, the app,
-# the shared launcher and Start Here. Build time only (the VM now, CI later);
-# nothing in the image calls PowerShell, uv or the network at run time.
-# The version is desktop/VERSION; there is no other.
+# Builds the Windows environment and its installer: <OutDir>\FoodOptimizer\
+# holding python.org Python with the Windows lock installed, Microsoft's C++
+# runtime, the app, the shared launcher, Start Here and the shell
+# (FoodOptimizer.exe), then <dist>\FoodOptimizer-<ver>-Windows.exe from
+# setup.iss (Inno Setup 6.3+), size-gated by size_gate.json. Build time only
+# (the VM now, CI later); nothing in the image calls PowerShell, uv or the
+# network at run time. The version is desktop/VERSION; there is no other.
 #
 #   build_installer.ps1 [-Version X.Y.Z]   release build (clean tree at tag vX.Y.Z)
 #   build_installer.ps1 -Check [-Version X.Y.Z]   the release guards only; builds nothing
-#   build_installer.ps1 -TestBuild         internal build, release guards off
-#   -OutDir DIR                            default desktop\windows\build
+#   build_installer.ps1 -TestBuild         internal build, release guards off;
+#                                          the installer is named ...-Windows-test.exe
+#   -OutDir DIR                            default desktop\windows\build; the
+#                                          installer goes to DIR's sibling dist\
 #
 # Exit codes: 0 built (or -Check passed); 2 refused before anything was
 # fetched or created; 1 the build failed ("build failed: <reason>", no record).
@@ -113,11 +117,33 @@ if ($entries.Count -eq 0) {
 
 # ---------- 5. tools ----------
 $tools = @('git')
-if (-not $Check) { $tools += 'uv' }
+if (-not $Check) { $tools += 'uv'; $tools += 'dotnet' }
 foreach ($tool in $tools) {
     if ($null -eq (Get-Command $tool -CommandType Application -ErrorAction SilentlyContinue)) {
         Refuse "refusing to build: $tool not found on PATH"
     }
+}
+
+# Inno Setup's compiler, in this order: FOODOPT_ISCC, PATH, the per-user
+# install, then the two machine-wide ones. setup.iss itself refuses an
+# Inno older than 6.3.
+function Find-Iscc {
+    $candidates = @()
+    if ($env:FOODOPT_ISCC) { $candidates += $env:FOODOPT_ISCC }
+    $onPath = Get-Command ISCC.exe -CommandType Application -ErrorAction SilentlyContinue
+    if ($null -ne $onPath) { $candidates += @($onPath)[0].Source }
+    if ($env:LOCALAPPDATA) { $candidates += (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe') }
+    if (${env:ProgramFiles(x86)}) { $candidates += (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe') }
+    if ($env:ProgramFiles) { $candidates += (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe') }
+    foreach ($c in $candidates) {
+        if ($c -and (Test-Path -LiteralPath $c -PathType Leaf)) { return $c }
+    }
+    return ''
+}
+$Iscc = ''
+if (-not $Check) {
+    $Iscc = Find-Iscc
+    if ($Iscc -eq '') { Refuse 'refusing to build: Inno Setup 6.3 or later (ISCC.exe) not found' }
 }
 
 # ---------- 6. release guards (release builds and -Check) ----------
@@ -153,9 +179,17 @@ if ($n -gt $ROOT_BUDGET) {
 
 # The build replaces <OutDir>\FoodOptimizer, so it must be an earlier build
 # (or empty): never a home folder's projects or the shell's source folder.
+# An earlier build holds the image's own entries and the shell's published
+# files (runtime .dll/.exe/.pdb/.xml, FoodOptimizer.*.json, runtimes\);
+# a project file such as "Round 1.json" is none of these.
 if (Test-Path -LiteralPath $Image) {
-    $earlier = @('python', 'app', 'shared', 'Start Here.txt')
-    $foreign = @(Get-ChildItem -LiteralPath $Image -Force | Where-Object { $earlier -notcontains $_.Name })
+    $earlier = @('python', 'app', 'shared', 'Start Here.txt', 'runtimes')
+    $shellFiles = @('*.dll', '*.exe', '*.pdb', '*.xml', 'FoodOptimizer.*.json')
+    $foreign = @(Get-ChildItem -LiteralPath $Image -Force | Where-Object {
+        $item = $_
+        $isShellFile = (-not $item.PSIsContainer) -and @($shellFiles | Where-Object { $item.Name -like $_ }).Count -gt 0
+        ($earlier -notcontains $item.Name) -and (-not $isShellFile)
+    })
     if (-not (Test-Path -LiteralPath $Image -PathType Container)) { $foreign = @(Get-Item -LiteralPath $Image) }
     if ($foreign.Count -gt 0) {
         $held = $foreign[0].Name
@@ -183,6 +217,14 @@ $UnsignedList = Join-Path $OutDir 'FoodOptimizer.unsigned.txt'
 $CacheDir = Join-Path $WindowsDir '.cache'
 $BuildEnv = Join-Path $WindowsDir 'build_env.py'
 $Py = Join-Path $Image 'python\python.exe'
+$Publish = Join-Path $DesktopDir '.cache\shell\publish\FoodOptimizer.Shell\release_win-x64'
+$ShellProject = Join-Path $WindowsDir 'FoodOptimizer\FoodOptimizer.Shell'
+$SizeGateFile = Join-Path $WindowsDir 'size_gate.json'
+$Dist = Join-Path (Split-Path -Parent $OutDir) 'dist'
+$InstallerName = "FoodOptimizer-$ver-Windows"
+if ($TestBuild) { $InstallerName += '-test' }
+$Installer = Join-Path $Dist ($InstallerName + '.exe')
+$InstallerRecord = Join-Path $Dist ($InstallerName + '.build.txt')
 $Pins = Get-Content -LiteralPath (Join-Path $WindowsDir 'pins.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $started = Get-Date
 
@@ -218,6 +260,34 @@ function Invoke-BuildEnv([string[]]$arguments) {
     return $out
 }
 
+# A failure whose whole message is fixed (no "<step>: " prefix).
+$script:ExactFailure = ''
+function Stop-Exact([string]$message) {
+    $script:ExactFailure = $message
+    throw $message
+}
+
+# Inno Setup's version, from its own uninstall entry (ISCC.exe carries no
+# version resource); 'unknown' when ISCC came from elsewhere.
+function Get-InnoVersion([string]$iscc) {
+    $folder = (Split-Path -Parent $iscc).TrimEnd('\')
+    foreach ($root in @('HKCU:', 'HKLM:', 'HKLM:\SOFTWARE\WOW6432Node')) {
+        $key = $root + '\Software\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1'
+        if ($root -eq 'HKLM:\SOFTWARE\WOW6432Node') { $key = $root + '\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1' }
+        $entry = Get-ItemProperty -LiteralPath $key -ErrorAction SilentlyContinue
+        if ($null -ne $entry -and $entry.PSObject.Properties['InstallLocation'] -ne $null -and
+                ([string]$entry.InstallLocation).TrimEnd('\') -eq $folder) {
+            return [string]$entry.DisplayVersion
+        }
+    }
+    return 'unknown'
+}
+
+function Round-UpTo10MiB([double]$bytes) {
+    $step = 10 * 1024 * 1024
+    return [int64]([math]::Ceiling($bytes / $step) * $step)
+}
+
 function Assert-Signed([string]$path, [string]$signer) {
     $sig = Get-AuthenticodeSignature -LiteralPath $path
     $subject = ''
@@ -237,10 +307,15 @@ try {
     if (@($porcelain | Where-Object { $_ -ne '' }).Count -gt 0) { $treeClean = 'no' }
     $uvVersion = ((Invoke-Native 'uv --version' 'uv' @('--version') | Out-String).Trim() -split ' ')[1]
 
+    $dotnetSdk = (Invoke-Native 'dotnet --version' 'dotnet' @('--version') | Out-String).Trim()
+    $innoVersion = Get-InnoVersion $Iscc
+    $gate = Get-Content -LiteralPath $SizeGateFile -Raw -Encoding UTF8 | ConvertFrom-Json
+
     # 1. No record from an older build may outlive this one, nor any file of
-    #    the old image (a package an older lock had, a removed app module).
+    #    the old image (a package an older lock had, a removed app module),
+    #    nor an older installer of this name.
     $step = 'clean'
-    foreach ($side in @($Record, $FilesList, $UnsignedList)) {
+    foreach ($side in @($Record, $FilesList, $UnsignedList, $Installer, $InstallerRecord)) {
         if (Test-Path -LiteralPath $side) { Remove-Item -LiteralPath $side -Force }
     }
     try {
@@ -355,15 +430,27 @@ try {
     $vcVersion = $vcPin.version
     $vcSha = Get-Sha256 $redist
 
-    # 8. Layout, strip, precompile, gate: build_env.py, with the bundled Python.
+    # 8a. Layout, strip, precompile: build_env.py, with the bundled Python.
     $step = 'assemble'
     Invoke-BuildEnv @('assemble', $RepoDir, $Image) | Out-Null
     $step = 'strip'
     Invoke-BuildEnv @('strip', $Image) | Out-Null
     $step = 'compile'
     Invoke-BuildEnv @('compile', $Image) | Out-Null
+
+    # 8b. The shell, published fresh (self-contained, flat), at the image root.
+    $step = 'shell'
+    Remove-Tree $Publish
+    $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
+    $env:DOTNET_NOLOGO = '1'
+    $publishStarted = Get-Date
+    Invoke-Native 'dotnet publish' 'dotnet' @('publish', $ShellProject, '-c', 'Release', '--nologo') | ForEach-Object { Say $_ }
+    Say ('publish time: ' + [math]::Round(((Get-Date) - $publishStarted).TotalSeconds) + ' s')
+    $shell = Read-Values (Invoke-BuildEnv @('shell', $Publish, $Image))
+
+    # 8c. The gate, with the shell's files listed apart from the golden list.
     $step = 'gate'
-    $gate = Read-Values (Invoke-BuildEnv @('gate', $RepoDir, $Image))
+    $gateValues = Read-Values (Invoke-BuildEnv @('gate', $RepoDir, $Image, '--shell', $Publish))
 
     # 9. What phase 6 signs: every binary not validly signed by its vendor.
     $step = 'unsigned list'
@@ -403,17 +490,72 @@ try {
         ('image_files=' + $files['image_files']),
         ('image_bytes=' + $files['image_bytes']),
         ('image_sha256=' + $files['image_sha256']),
-        ('longest_path_chars=' + $gate['longest_path_chars']),
+        ('longest_path_chars=' + $gateValues['longest_path_chars']),
         ('unsigned_binaries=' + $sorted.Length),
+        "dotnet_sdk=$dotnetSdk",
+        ('shell_files=' + $shell['shell_files']),
         'signed=no'
     )
+    Say ('image: ' + $Image + ' (' + $files['image_files'] + ' files, ' +
+         [math]::Round([double]$files['image_bytes'] / 1MB) + ' MB)')
+
+    # 12. The installer. Until size_gate.json is filled, ISCC gets 2 GB.
+    $step = 'installer'
+    $diskFreeGb = 2
+    if ($null -ne $gate.disk_free_gb) { $diskFreeGb = [int]$gate.disk_free_gb }
+    New-Item -ItemType Directory -Path $Dist -Force | Out-Null
+    $isccStarted = Get-Date
+    & $Iscc '/Qp' "/DAppVersion=$ver" "/DImageDir=$Image" "/DDiskFreeGB=$diskFreeGb" "/O$Dist" "/F$InstallerName" (Join-Path $WindowsDir 'setup.iss') | ForEach-Object { Say $_ }
+    $iscc = $LASTEXITCODE
+    if ($iscc -ne 0) { throw ('ISCC exit ' + $iscc) }
+    Say ('ISCC time: ' + [math]::Round(((Get-Date) - $isccStarted).TotalSeconds) + ' s')
+    $installerBytes = (Get-Item -LiteralPath $Installer).Length
+    $installerSha = Get-Sha256 $Installer
+    $imageBytes = [int64]$files['image_bytes']
+
+    # 13. The size gate: a regression ceiling, raised only on purpose.
+    $step = 'size gate'
+    $sizeGate = 'pass'
+    if ($null -eq $gate.installer_max_bytes -or $null -eq $gate.image_max_bytes -or $null -eq $gate.disk_free_gb) {
+        if (-not $TestBuild) { Stop-Exact 'build failed: size gate is not set (desktop/windows/size_gate.json)' }
+        Say ('size gate: not set (installer ' + $installerBytes + ' bytes, image ' + $imageBytes + ' bytes)')
+        $sizeGate = 'unset'
+    } else {
+        foreach ($check in @(@('installer', $installerBytes, [int64]$gate.installer_max_bytes),
+                             @('image', $imageBytes, [int64]$gate.image_max_bytes))) {
+            $what = $check[0]
+            if ($check[1] -gt $check[2]) {
+                $mb = [math]::Round([double]$check[1] / 1MB)
+                $ceiling = [math]::Round([double]$check[2] / 1MB)
+                throw ($what + ' is ' + $mb + ' MB; ceiling ' + $ceiling + ' MB (raise it in size_gate.json only on purpose)')
+            }
+        }
+    }
+
+    # 14. The release record: the image record without 'signed', then the
+    #     installer's own lines. Written last: a failed build leaves none.
+    $step = 'release record'
+    $imageLines = @(Get-Content -LiteralPath $Record -Encoding UTF8 | Where-Object { $_ -ne '' -and $_ -ne 'signed=no' })
+    Write-Lf $InstallerRecord ($imageLines + @(
+        "inno_setup=$innoVersion",
+        ('installer=' + $InstallerName + '.exe'),
+        "installer_bytes=$installerBytes",
+        "installer_sha256=$installerSha",
+        "disk_free_gb=$diskFreeGb",
+        "size_gate=$sizeGate",
+        'signed=no'
+    ))
 } catch {
+    if ($script:ExactFailure -ne '') {
+        [Console]::Error.WriteLine($script:ExactFailure)
+        exit 1
+    }
     Fail ($step + ': ' + $_.Exception.Message)
 }
 
-$mb = [math]::Round([double]$files['image_bytes'] / 1MB)
+$installerMb = [math]::Round([double]$installerBytes / 1MB)
 $seconds = [math]::Round(((Get-Date) - $started).TotalSeconds)
-Say ('Built: ' + $Image + ' (' + $files['image_files'] + ' files, ' + $mb + ' MB)')
+Say ('Built: ' + $Installer + ' (' + $installerMb + ' MB, sha256 ' + $installerSha + ')')
 Say ('build time: ' + $seconds + ' s')
 Say 'UNSIGNED build - internal testing only.'
 exit 0

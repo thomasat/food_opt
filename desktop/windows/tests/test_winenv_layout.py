@@ -52,7 +52,8 @@ def test_every_exe_is_vendor_signed():
     assert (IMAGE / build_env.SHELL_EXE).is_file()
     signatures = authenticode(exes)
     bad = {p: s for p, s in signatures.items()
-           if s[0] != "Valid" or s[1] not in ("Python Software Foundation", "Microsoft Corporation")}
+           if s[0] != "Valid" or s[1] not in ("Python Software Foundation", "Microsoft Corporation",
+                                              ".NET")}      # .NET's createdump.exe: O=Microsoft
     assert bad == {}
 
 
@@ -89,11 +90,18 @@ def test_unsigned_list_is_what_phase_6_signs():
     assert len(lines) == int(record()["unsigned_binaries"])
 
 
+# Microsoft-signed in the WebView2 NuGet package, but ReadyToRun recompiles
+# them at publish, which drops the signature; phase 6 signs them with ours.
+R2R_RECOMPILED = {"Microsoft.Web.WebView2.Core.dll", "Microsoft.Web.WebView2.WinForms.dll"}
+
+
 def test_the_only_unsigned_shell_files_are_ours():
     shell = set(build_env.shell_listing(PUBLISH))
     assert shell
     lines = UNSIGNED.read_text(encoding="utf-8").splitlines()
-    assert [p for p in lines if p in shell and not p.startswith("FoodOptimizer")] == []
+    assert [p for p in lines if p in shell and not p.startswith("FoodOptimizer")
+            and p not in R2R_RECOMPILED] == []
+    assert {"FoodOptimizer.exe", "FoodOptimizer.dll", "FoodOptimizer.Core.dll"} <= set(lines)
 
 
 @pytest.mark.parametrize("name", ["FoodOptimizer.files.txt"])

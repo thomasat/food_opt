@@ -362,3 +362,88 @@ def test_setup_refuses_an_old_inno():
     text = ISS.read_text(encoding="ascii")
     assert "EncodeVer(6,3,0)" in text
     assert "#error Inno Setup 6.3 or later is required" in text
+
+
+# ---------- build_installer.ps1 builds the installer (Task 5) ----------
+
+BUILD = WINDOWS / "build_installer.ps1"
+SIZE_GATE = WINDOWS / "size_gate.json"
+BUILD_MESSAGES = (
+    "refusing to build: Inno Setup 6.3 or later (ISCC.exe) not found",
+    "$step = 'installer'",
+    "ISCC exit $iscc",
+    "size gate: not set (installer $installerBytes bytes, image $imageBytes bytes)",
+    "build failed: size gate is not set (desktop/windows/size_gate.json)",
+    # "build failed: size gate: <what> is ...": the step name is the prefix.
+    "$step = 'size gate'",
+    "$what is $mb MB; ceiling $ceiling MB (raise it in size_gate.json only on purpose)",
+    "Built: $Installer ($installerMb MB, sha256 $installerSha)",
+)
+
+
+def _unquoted(text):
+    """PowerShell's string concatenation taken off ('a ' + $x + ' b' reads
+    `a $x b`), as tests/test_windows_build_script.py reads refusals."""
+    return re.sub(r"'\s*\+\s*|\s*\+\s*'", "", text)
+
+
+def test_build_script_builds_the_installer():
+    text = BUILD.read_text(encoding="ascii")
+    for needle in ("dotnet publish", "--shell", "setup.iss", "size_gate.json", "-Windows",
+                   "/DDiskFreeGB=", "DOTNET_CLI_TELEMETRY_OPTOUT", "DOTNET_NOLOGO"):
+        assert needle in text, needle
+    flat = _unquoted(text)
+    for message in BUILD_MESSAGES:
+        assert message in flat, message
+    # The ISCC lookup order of the plan (and of make_test_installer.ps1).
+    order = [flat.index(s) for s in ("$env:FOODOPT_ISCC", "Get-Command ISCC.exe",
+                                     "Programs\\Inno Setup 6\\ISCC.exe", "ProgramFiles(x86)",
+                                     "$env:ProgramFiles")]
+    assert order == sorted(order)
+
+
+def test_release_record_keys_follow_the_image_record():
+    text = BUILD.read_text(encoding="ascii")
+    keys = re.findall(r'"([a-z0-9_]+)=', text) + re.findall(r"'([a-z0-9_]+)=", text)
+    tail = ["inno_setup", "installer", "installer_bytes", "installer_sha256", "disk_free_gb",
+            "size_gate", "signed"]
+    for key in tail + ["dotnet_sdk", "shell_files"]:
+        assert key in keys, key
+
+
+def test_a_rebuild_over_an_image_with_the_shell_is_allowed():
+    """The 3b guard that keeps -OutDir off a home folder accepts the shell's
+    published files at the image root, and still refuses a project file."""
+    text = BUILD.read_text(encoding="ascii")
+    for pattern in ("'*.dll'", "'*.exe'", "'*.pdb'", "'*.xml'", "'FoodOptimizer.*.json'", "'runtimes'"):
+        assert pattern in text, pattern
+
+
+def test_size_gate_is_set():
+    import json
+    gate = json.loads(SIZE_GATE.read_text(encoding="utf-8"))
+    assert set(gate) == {"installer_max_bytes", "image_max_bytes", "disk_free_gb", "measured"}
+    for key in ("installer_max_bytes", "image_max_bytes", "disk_free_gb"):
+        assert isinstance(gate[key], int) and gate[key] > 0, key
+    measured = gate["measured"]
+    assert re.fullmatch(r"[0-9a-f]{40}", measured["commit"])
+    mib10 = 10 * 1024 * 1024
+    for key, ceiling in (("installer_bytes", "installer_max_bytes"), ("image_bytes", "image_max_bytes")):
+        expected = -(-int(measured[key] * 1.10) // mib10) * mib10
+        assert gate[ceiling] == expected, ceiling
+    gib, mib = 1024 ** 3, 1024 ** 2
+    assert gate["disk_free_gb"] == -(-(measured["image_bytes"] + 512 * mib) // gib)
+
+
+def test_windows_requirements_name_the_disk_figure():
+    import json
+    from tests.shared_texts import flowed, read_lf
+    n = json.loads(SIZE_GATE.read_text(encoding="utf-8"))["disk_free_gb"]
+    text = flowed(read_lf(WINDOWS / "start_here.txt"))
+    assert f"You need a 64-bit PC with Windows 10 (22H2) or Windows 11 and {n} GB free." in text
+
+
+def test_dist_is_ignored():
+    import subprocess
+    r = subprocess.run(["git", "check-ignore", "-q", "desktop/windows/dist/x.exe"], cwd=REPO)
+    assert r.returncode == 0
