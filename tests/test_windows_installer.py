@@ -447,3 +447,16 @@ def test_dist_is_ignored():
     import subprocess
     r = subprocess.run(["git", "check-ignore", "-q", "desktop/windows/dist/x.exe"], cwd=REPO)
     assert r.returncode == 0
+
+
+def test_no_variable_shadows_a_parameter():
+    """PowerShell names are case-insensitive: a loop variable named $check
+    is the script's [switch]$Check, and assigning it an array fails (the
+    first size-gated build did)."""
+    text = BUILD.read_text(encoding="ascii")
+    block = text[text.index("param(\n"):text.index("\n)\n", text.index("param(\n"))]
+    params = {m.lower() for m in re.findall(r"\[(?:string|switch)\]\$(\w+)", block)}
+    assert {"version", "check", "testbuild", "outdir"} <= params
+    assigned = {m.lower() for m in re.findall(r"foreach \(\$(\w+) in", text)}
+    assigned |= {m.lower() for m in re.findall(r"^\s*\$(\w+)\s*=", text, re.M)}
+    assert params & assigned <= {"outdir", "version"}, params & assigned

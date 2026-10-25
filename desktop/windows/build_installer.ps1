@@ -521,12 +521,14 @@ try {
         Say ('size gate: not set (installer ' + $installerBytes + ' bytes, image ' + $imageBytes + ' bytes)')
         $sizeGate = 'unset'
     } else {
-        foreach ($check in @(@('installer', $installerBytes, [int64]$gate.installer_max_bytes),
+        # ($limit, not $check: PowerShell names are case-insensitive, and
+        # $Check is this script's switch.)
+        foreach ($limit in @(@('installer', $installerBytes, [int64]$gate.installer_max_bytes),
                              @('image', $imageBytes, [int64]$gate.image_max_bytes))) {
-            $what = $check[0]
-            if ($check[1] -gt $check[2]) {
-                $mb = [math]::Round([double]$check[1] / 1MB)
-                $ceiling = [math]::Round([double]$check[2] / 1MB)
+            $what = $limit[0]
+            if ($limit[1] -gt $limit[2]) {
+                $mb = [math]::Round([double]$limit[1] / 1MB)
+                $ceiling = [math]::Round([double]$limit[2] / 1MB)
                 throw ($what + ' is ' + $mb + ' MB; ceiling ' + $ceiling + ' MB (raise it in size_gate.json only on purpose)')
             }
         }
