@@ -5,7 +5,8 @@
 Windows build: unsigned, internal testing only.
 
 The design is `docs/superpowers/specs/2026-10-23-windows-port-design.md`.
-Signing and the release steps come in phase 6.
+Releasing: "Release (Windows half)" below, inside the combined ritual in
+`desktop/README.md`.
 
 ## System requirements (copy-paste for emails / download page)
 
@@ -45,7 +46,7 @@ runtime, the app, the shared launcher and Start Here (phase 3b), then
 `dotnet publish` of the shell (`FoodOptimizer.exe`, copied to the image
 root), the image gate (the shell's files listed apart from
 `image_files.txt`), the unsigned list, the per-file manifest, the image
-record, `ISCC setup.iss`, the size gate and the release record. A VM build
+record, `ISCC setup.iss`, the size gate, the SBOM and the release record. A VM build
 takes about 6 minutes (ISCC about 2).
 
 Output:
@@ -59,9 +60,19 @@ Output:
   vendor (phase 6 signs them; it includes `FoodOptimizer.exe`, the shell's
   own DLLs, and the two WebView2 wrappers that ReadyToRun recompiles).
 - `dist\FoodOptimizer-<ver>-Windows[-test].exe`: the installer.
+- `dist\FoodOptimizer-<ver>-Windows[-test].files.txt`: a byte copy of the
+  per-file list, published as a release asset.
+- `dist\FoodOptimizer-<ver>-Windows[-test].cdx.json`: the software bill of
+  materials (CycloneDX 1.6), written by `sbom.py` under the image's Python
+  from the image's own package metadata, the shell's `deps.json` with its
+  NuGet `.nuspec` files, and `sbom_declared.json`. It fails the build on a
+  package whose licence it cannot read, on a lock mismatch, and on an
+  unsigned file no component owns.
 - `dist\FoodOptimizer-<ver>-Windows[-test].build.txt`: the release record:
   the image record, then `inno_setup`, `installer`, `installer_bytes`,
-  `installer_sha256`, `disk_free_gb`, `size_gate` and `signed=no`.
+  `installer_sha256`, `disk_free_gb`, `size_gate`, `files_list_sha256`,
+  `sbom_sha256`, `sbom_components`, `sbom_gpl_licensed`,
+  `sbom_gpl_mentions` and `signed=no`.
 
 **Size gate.** `size_gate.json` holds the ceilings for the installer and
 the image (the first measurement plus 10%, rounded up to 10 MiB) and the
@@ -270,3 +281,34 @@ make a 4-core, 8 GB, 80 GB Fusion VM with a local admin, add the SSH key
 and the `FoodOpt-SSH-In` firewall rule, take snapshot "Locked fresh", then
 the agent configures the profile over SSH. Not yet run: results go here
 ("Seen on <date>, unsigned build: ...").
+
+## Release (Windows half)
+
+Steps 6 and 7 of the combined ritual ("Publishing a release" in
+`desktop/README.md`), after the tag `vX.Y.Z` is pushed. On VM_BUILD:
+
+1. A VM-local clone at the tag (never a shared folder):
+
+   ```
+   git clone --branch vX.Y.Z https://github.com/thomasat/food_opt "C:\work\release X.Y.Z"
+   ```
+
+2. The release build (no switch: it refuses unless the tree is clean and
+   HEAD is the tag) from that clone, then signing:
+
+   ```
+   powershell -NoProfile -ExecutionPolicy Bypass -File desktop\windows\build_installer.ps1
+   ```
+
+   PENDING(signing step)
+3. pytest under the image's Python at the tag, as in "Test" above: 0
+   failed, apart from a list stated in the release PR.
+4. Level 2 with the three installers and `-Cleanup` (`run_level2.ps1`, as
+   in "Test"), then `run_ui_tests.ps1` with both filters (Installer and
+   Installed, then the default set).
+5. The manual checklist W1 to W17 and the locked-down profile L1 to L6.
+   A patch release that changes only shared Python may run the `[S]` items
+   only.
+6. Hand back to the Mac at step 7 of the ritual: it copies
+   `dist\FoodOptimizer-X.Y.Z-Windows.exe`, its `.build.txt`, `.files.txt`
+   and `.cdx.json`, and `C:\work\l2\report.json`.
