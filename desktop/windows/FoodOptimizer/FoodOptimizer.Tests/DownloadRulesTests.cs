@@ -62,6 +62,33 @@ public class DownloadRulesTests
         Assert.Equal("Round.csv", DownloadRules.SuggestedFileName(@"C:\D\Round (3).csv", "attachment; filename=\"Round.csv\"", _ => true));
 
     [Fact]
+    public void A_real_numbered_name_that_webview_numbered_again_loses_only_its_number() =>
+        Assert.Equal("Round (2).csv", DownloadRules.SuggestedFileName(@"C:\D\Round (2) (1).csv", "attachment; filename=\"Round (2).csv\"", p => p == @"C:\D\Round (2).csv"));
+
+    [Fact]
+    public void An_accented_name_comes_from_webview_not_the_garbled_header() =>
+        // Streamlit sends latin-1 names as raw bytes; the header string may
+        // hold U+FFFD where WebView2's own name has the accents.
+        Assert.Equal("Crème brûlée.xlsx", DownloadRules.SuggestedFileName(@"C:\D\Crème brûlée (1).xlsx", "attachment; filename=\"Cr\uFFFDme br\uFFFDl\uFFFDe.xlsx\"", p => p == @"C:\D\Crème brûlée.xlsx"));
+
+    [Fact]
+    public void An_accented_real_number_survives_the_garbled_header() =>
+        // WebView2 gave "Cr\uFFFDme (2).csv" for Streamlit's raw latin-1 "Crème (2).csv".
+        Assert.Equal("Crème (2).csv", DownloadRules.SuggestedFileName(@"C:\D\Crème (2).csv", "attachment; filename=\"Cr\uFFFDme (2).csv\"", _ => true));
+
+    [Fact]
+    public void A_garbled_character_stands_only_for_a_non_ascii_one() =>
+        Assert.Equal("Crame.csv", DownloadRules.SuggestedFileName(@"C:\D\Crame (2).csv", "attachment; filename=\"Cr\uFFFDme (2).csv\"", _ => true));
+
+    [Fact]
+    public void A_name_windows_cannot_save_comes_from_webview_cleaned() =>
+        Assert.Equal("Oat milk_ - Batch 1.xlsx", DownloadRules.SuggestedFileName(@"C:\D\Oat milk_ - Batch 1.xlsx", "attachment; filename=\"Oat milk? - Batch 1.xlsx\"", _ => true));
+
+    [Fact]
+    public void The_servers_name_is_matched_ignoring_case() =>
+        Assert.Equal("round (2).CSV", DownloadRules.SuggestedFileName(@"C:\D\round (2).CSV", "attachment; filename=\"Round (2).csv\"", _ => true));
+
+    [Fact]
     public void Without_a_disposition_name_the_current_rule_applies() =>
         Assert.Equal("probe.csv", DownloadRules.SuggestedFileName(Path.Combine("D", "probe (4).csv"), "attachment", p => p == Path.Combine("D", "probe.csv")));
 

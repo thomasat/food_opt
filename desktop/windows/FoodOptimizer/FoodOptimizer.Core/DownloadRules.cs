@@ -7,24 +7,43 @@ public static partial class DownloadRules
 {
     const string Fallback = "download";
 
-    /// <summary>The name the server gave in Content-Disposition; a name the
-    /// server gave is kept as is, even when it ends in " (2)". Without one,
-    /// the file name WebView2 proposed, without its folder. When WebView2
-    /// numbered it because the name was taken in its folder ("probe (4).csv"
-    /// beside "probe.csv"), the number is dropped: the Save dialog offers the
-    /// app's own name and asks before replacing.</summary>
+    /// <summary>The file name WebView2 proposed, without its folder: its
+    /// name keeps the accents and the Windows-safe characters that the raw
+    /// header may lack. When the server's Content-Disposition name is that
+    /// same name (<see cref="SameName"/>), it is kept as is, even when it
+    /// ends in " (2)".
+    /// Otherwise (the names differ, or there is no disposition, as for blob:
+    /// and data: downloads) a number WebView2 added because the name was
+    /// taken in its folder ("probe (4).csv" beside "probe.csv") is dropped:
+    /// the Save dialog offers the app's own name and asks before replacing.</summary>
     public static string SuggestedFileName(string resultFilePath, string? contentDisposition, Func<string, bool>? exists = null)
     {
-        if (DispositionFileName(contentDisposition) is { } given) return given;
         var cut = resultFilePath.LastIndexOfAny(['\\', '/']);
         var name = cut >= 0 ? resultFilePath[(cut + 1)..] : resultFilePath;
         if (name.Length == 0) return Fallback;
+        if (SameName(DispositionFileName(contentDisposition), name)) return name;
         if (exists != null && Numbered().Match(name) is { Success: true } m)
         {
             var original = m.Groups[1].Value + m.Groups[2].Value;
             if (exists(resultFilePath[..(cut + 1)] + original)) return original;
         }
         return name;
+    }
+
+    /// <summary>The server's name is WebView2's, case aside. WebView2 reports a
+    /// raw latin-1 byte in the header (Streamlit sends "Crème" that way) as
+    /// U+FFFD, which stands for one non-ASCII character of WebView2's name.</summary>
+    static bool SameName(string? given, string name)
+    {
+        if (given == null || given.Length != name.Length) return false;
+        for (var i = 0; i < name.Length; i++)
+        {
+            var same = given[i] == '\uFFFD'
+                ? name[i] > 0x7f
+                : char.ToUpperInvariant(given[i]) == char.ToUpperInvariant(name[i]);
+            if (!same) return false;
+        }
+        return true;
     }
 
     /// <summary>The file name in a Content-Disposition header: filename*
