@@ -16,13 +16,15 @@ public sealed class LauncherSession : IDisposable
     readonly Process _process;
     readonly JobObject _job;
     readonly ShellLog _log;
+    readonly Action<int> _onExited;
     int _lifelineClosed, _jobClosed;
 
-    LauncherSession(Process process, JobObject job, ShellLog log, DateTime startedUtc)
+    LauncherSession(Process process, JobObject job, ShellLog log, DateTime startedUtc, Action<int> onExited)
     {
         _process = process;
         _job = job;
         _log = log;
+        _onExited = onExited;
         StartedUtc = startedUtc;
         ProcessId = process.Id;
     }
@@ -30,10 +32,11 @@ public sealed class LauncherSession : IDisposable
     public int ProcessId { get; }
     public DateTime StartedUtc { get; }
 
-    /// <summary>Raised with the exit code, on a thread-pool thread.</summary>
-    public event EventHandler<int>? Exited;
-
-    public static LauncherSession Start(string python, IReadOnlyList<string> args, string workingDir, ShellLog log)
+    /// <summary>Starts the launcher. <paramref name="onExited"/> gets its
+    /// exit code once, on a thread-pool thread - also when it exits before
+    /// this returns.</summary>
+    public static LauncherSession Start(string python, IReadOnlyList<string> args, string workingDir, ShellLog log,
+                                        Action<int> onExited)
     {
         var info = new ProcessStartInfo(python)
         {
@@ -76,14 +79,14 @@ public sealed class LauncherSession : IDisposable
             throw new LauncherStartException(e.Message, e);
         }
 
-        var session = new LauncherSession(process, job, log, started);
+        var session = new LauncherSession(process, job, log, started, onExited);
         process.OutputDataReceived += (_, _) => { };
         process.ErrorDataReceived += (_, _) => { };
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
         process.Exited += session.OnExited;
         log.Write("launcher.start", session.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        if (process.HasExited) session.OnExited(process, EventArgs.Empty);
+        if (process.HasExited) ThreadPool.QueueUserWorkItem(_ => session.OnExited(process, EventArgs.Empty));
         return session;
     }
 
@@ -96,7 +99,7 @@ public sealed class LauncherSession : IDisposable
         try { code = _process.ExitCode; }
         catch (InvalidOperationException) { code = -1; }
         _log.Write("launcher.exit", code.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        Exited?.Invoke(this, code);
+        _onExited(code);
     }
 
     /// <summary>Closes the launcher's stdin; it stops the server and exits.</summary>

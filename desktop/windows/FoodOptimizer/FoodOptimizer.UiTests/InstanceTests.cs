@@ -67,6 +67,21 @@ public class InstanceTests
         }
     }
 
+    /// A window opened while this one closes reads the settings this one
+    /// saved: the claim is let go only after they are written.
+    [Fact]
+    public async Task Settings_are_saved_before_a_new_window_can_open()
+    {
+        using var app = ShellApp.Launch(ShellRun.Fresh());
+        app.Close();
+        Assert.True(await app.WaitForExitAsync(TimeSpan.FromSeconds(10)), "the shell is still running");
+        var log = app.Log().ToList();
+        var saved = log.FindIndex(l => l.Contains(" settings.saved"));
+        var released = log.FindIndex(l => l.Contains(" instance.released"));
+        Assert.True(saved >= 0, string.Join("\n", log));
+        Assert.True(released > saved, string.Join("\n", log));
+    }
+
     [Fact]
     public async Task The_installer_mutex_is_held_while_running()
     {

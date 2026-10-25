@@ -169,6 +169,22 @@ public class FailureTests
         app.WaitFor(ControlType.Text, "Needs 64-bit Windows 10 (22H2) or Windows 11.", Thirty);
     }
 
+    /// A logoff another app vetoed: the window must still show a server
+    /// that dies afterwards, as if the logoff never began.
+    [Fact]
+    public void A_cancelled_logoff_keeps_the_window_working()
+    {
+        using var app = ShellApp.Launch(ShellRun.Fresh());
+        app.WaitFor(ControlType.Edit, "Type here", ShellApp.Load);
+        var hwnd = app.Hwnd;
+        SendMessageW(hwnd, 0x11, IntPtr.Zero, IntPtr.Zero);
+        SendMessageW(hwnd, 0x16, IntPtr.Zero, IntPtr.Zero);
+        var serve = Assert.Single(Serves(app));
+        Process.GetProcessById(serve.Pid).Kill();
+        app.WaitFor(ControlType.Text, "Food Optimizer stopped unexpectedly", TimeSpan.FromSeconds(45));
+        Assert.Contains(app.Log(), l => l.Contains("session.end_cancelled"));
+    }
+
     [Fact]
     public async Task Session_end_quits_quietly_and_the_next_launch_loads()
     {
@@ -176,6 +192,9 @@ public class FailureTests
         {
             app.WaitFor(ControlType.Edit, "Type here", ShellApp.Load);
             var hwnd = app.Hwnd;
+            // A logoff another app vetoes first, then the real one.
+            SendMessageW(hwnd, 0x11, IntPtr.Zero, IntPtr.Zero);
+            SendMessageW(hwnd, 0x16, IntPtr.Zero, IntPtr.Zero);
             SendMessageW(hwnd, 0x11, IntPtr.Zero, IntPtr.Zero);
             SendMessageW(hwnd, 0x16, new IntPtr(1), IntPtr.Zero);
             Assert.True(await app.WaitForExitAsync(TimeSpan.FromSeconds(3)), "the shell is still running");

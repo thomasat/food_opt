@@ -312,7 +312,8 @@ sealed class MainForm : Form
         }
     }
 
-    /// <summary>Logoff and shutdown: quit at once, and show no error page.</summary>
+    /// <summary>Logoff and shutdown: quit at once, and show no error page.
+    /// A logoff that is cancelled (WM_ENDSESSION with wParam 0) changes nothing.</summary>
     protected override void WndProc(ref Message m)
     {
         if (m.Msg == WM_QUERYENDSESSION)
@@ -330,6 +331,11 @@ sealed class MainForm : Form
                 _launch.Shutdown(fast: true);
                 Close();
             }
+            else
+            {
+                _log.Write("session.end_cancelled");
+                _launch.CancelShutdown();
+            }
             m.Result = IntPtr.Zero;
             return;
         }
@@ -342,16 +348,22 @@ sealed class MainForm : Form
         try { _launch.Shutdown(fast: true); } catch (Exception) { }
     }
 
+    /// <summary>Saves the window's place, then lets go of the single-instance
+    /// claim: a window opened while this one shuts down reads these settings.</summary>
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
-        Instance?.Release();
         base.OnFormClosing(e);
         if (e.Cancel) return;
         var screen = Screen.FromControl(this).DeviceName;
         var bounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
         _settings.Window = WindowPlacement.ToSaved(screen,
             new PxRect(bounds.X, bounds.Y, bounds.Width, bounds.Height), WindowState == FormWindowState.Maximized);
-        _settings.Save(_paths.SettingsPath);
+        _log.Write(_settings.Save(_paths.SettingsPath) ? "settings.saved" : "settings.save_failed");
+        if (Instance is { } instance)
+        {
+            instance.Release();
+            _log.Write("instance.released");
+        }
         Hide();
         _launch.Shutdown(fast: _sessionEnding || e.CloseReason == CloseReason.WindowsShutDown);
     }
