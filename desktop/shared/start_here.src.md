@@ -26,9 +26,9 @@ INSTALL
 3. Type Food Optimizer in Start. Open it from the results.
    First opening takes longer. Keep this window open.
 
-You need a 64-bit PC with Windows 10 (22H2) or Windows 11. The app works
-offline and never needs the internet. If your IT department installs
-software for you, ask IT to install Food Optimizer.
+You need a 64-bit PC with Windows 10 (22H2) or Windows 11 and 2 GB free.
+The app works offline and never needs the internet. If your IT
+department installs software for you, ask IT to install Food Optimizer.
 
 Updating? Close Food Optimizer. Run the new installer. Your projects are
 kept.

@@ -313,3 +313,82 @@ def test_gate_checks_the_vc_runtime(fake_image, monkeypatch):
     be.assemble(REPO, fake_image)
     monkeypatch.setattr(be, "vc_runtime_gaps", lambda image: ["python/DLLs/_x.pyd: msvcp140.dll"])
     assert "vc runtime: python/DLLs/_x.pyd: msvcp140.dll" in be._gate(REPO, fake_image)
+
+
+# ---------- the shell joins the image (phase 5) ----------
+
+SHELL_FILES = {"FoodOptimizer.exe": b"MZ shell", "FoodOptimizer.dll": b"shell dll",
+               "Microsoft.Web.WebView2.Core.dll": b"webview2", "x/y.json": b"{}"}
+
+
+def fake_publish(tmp):
+    publish = pathlib.Path(tmp) / "publish"
+    for rel, data in SHELL_FILES.items():
+        _touch(publish, rel, data)
+    return publish
+
+
+def test_shell_constants():
+    assert be.RESERVED_TOP == ("python", "app", "shared", "Start Here.txt")
+    assert be.SHELL_EXE == "FoodOptimizer.exe"
+
+
+def test_add_shell_puts_the_publish_folder_at_the_root(fake_image, tmp_path):
+    be.assemble(REPO, fake_image)
+    publish = fake_publish(tmp_path)
+    assert be.shell_listing(publish) == sorted(SHELL_FILES)
+    assert be.add_shell(publish, fake_image) == sorted(SHELL_FILES)
+    for rel, data in SHELL_FILES.items():
+        assert (fake_image / rel).read_bytes() == data
+    assert be.shell_gaps(publish, fake_image) == []
+
+
+def test_add_shell_refuses_a_collision(fake_image, tmp_path):
+    publish = fake_publish(tmp_path)
+    _touch(publish, "App/x.dll", b"x")
+    with pytest.raises(ValueError, match="shell file collides with the image: App/x.dll"):
+        be.add_shell(publish, fake_image)
+    assert not (fake_image / "App" / "x.dll").exists()
+
+
+def test_add_shell_needs_the_exe(fake_image, tmp_path):
+    publish = fake_publish(tmp_path)
+    (publish / "FoodOptimizer.exe").unlink()
+    with pytest.raises(ValueError, match="publish folder has no FoodOptimizer.exe"):
+        be.add_shell(publish, fake_image)
+
+
+def test_gate_listing_ignores_only_the_shell(fake_image, tmp_path):
+    be.assemble(REPO, fake_image)
+    publish = fake_publish(tmp_path)
+    be.add_shell(publish, fake_image)
+    golden = (REPO / "desktop" / "windows" / "image_files.txt").read_text(encoding="utf-8").splitlines()
+    assert be.image_listing(fake_image, exclude=be.shell_listing(publish)) == golden
+    assert be.image_listing(fake_image) != golden          # 3b's callers still see the shell
+    _touch(fake_image, "stray.txt", b"x")
+    assert be.image_listing(fake_image, exclude=be.shell_listing(publish)) != golden
+
+
+def test_shell_gaps_find_a_changed_file(fake_image, tmp_path):
+    publish = fake_publish(tmp_path)
+    be.add_shell(publish, fake_image)
+    (fake_image / "FoodOptimizer.dll").write_bytes(b"edited")
+    assert be.shell_gaps(publish, fake_image) == ["differs FoodOptimizer.dll"]
+    (fake_image / "x" / "y.json").unlink()
+    assert be.shell_gaps(publish, fake_image) == ["differs FoodOptimizer.dll", "missing x/y.json"]
+
+
+def test_cli_shell_and_gate_with_the_shell(fake_image, tmp_path):
+    be.assemble(REPO, fake_image)
+    publish = fake_publish(tmp_path)
+    r = subprocess.run([sys.executable, "-I", "-B", str(BUILD_ENV), "shell", str(publish), str(fake_image)],
+                       capture_output=True, text=True, encoding="utf-8")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert r.stdout.splitlines() == [f"shell_files={len(SHELL_FILES)}"]
+    (fake_image / "FoodOptimizer.dll").write_bytes(b"edited")
+    r = subprocess.run([sys.executable, "-I", "-B", str(BUILD_ENV), "gate", str(REPO), str(fake_image),
+                        "--shell", str(publish)], capture_output=True, text=True, encoding="utf-8")
+    lines = r.stdout.splitlines()
+    assert r.returncode == 1
+    assert "shell: differs FoodOptimizer.dll" in lines
+    assert not [line for line in lines if line.startswith("listing: ")]

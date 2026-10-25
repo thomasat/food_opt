@@ -8,8 +8,8 @@ import subprocess
 
 import pytest
 
-from conftest import (IMAGE, RECORD, RECORD_KEYS, REPO, SITE, UNSIGNED, WINDOWS, authenticode,
-                      binaries, build_env, needs_image, own_git_env, record)
+from conftest import (IMAGE, PUBLISH, RECORD, RECORD_KEYS, REPO, SITE, UNSIGNED, WINDOWS,
+                      authenticode, binaries, build_env, needs_image, own_git_env, record)
 
 pytestmark = needs_image
 
@@ -20,7 +20,7 @@ def _sha256(path):
 
 def test_image_matches_the_golden_listing():
     golden = (WINDOWS / "image_files.txt").read_text(encoding="utf-8").splitlines()
-    assert build_env.image_listing(IMAGE) == golden
+    assert build_env.image_listing(IMAGE, exclude=build_env.shell_listing(PUBLISH)) == golden
 
 
 def test_sitecustomize_is_the_shared_guard():
@@ -46,11 +46,14 @@ def test_long_path_gate_passes():
 
 
 def test_every_exe_is_vendor_signed():
-    exes = [p for p in binaries() if p.suffix.lower() == ".exe"]
+    exes = [p for p in binaries() if p.suffix.lower() == ".exe"
+            and p != IMAGE / build_env.SHELL_EXE]       # ours: phase 6 signs it
     assert exes
+    assert (IMAGE / build_env.SHELL_EXE).is_file()
     signatures = authenticode(exes)
     bad = {p: s for p, s in signatures.items()
-           if s[0] != "Valid" or s[1] not in ("Python Software Foundation", "Microsoft Corporation")}
+           if s[0] != "Valid" or s[1] not in ("Python Software Foundation", "Microsoft Corporation",
+                                              ".NET")}      # .NET's createdump.exe: O=Microsoft
     assert bad == {}
 
 
@@ -68,13 +71,15 @@ def test_build_record_matches_the_image():
     assert rec["version"] == (REPO / "desktop" / "VERSION").read_text(encoding="utf-8").strip()
     assert rec["python_version"] == "3.13.7"
     assert rec["signed"] == "no"
+    assert rec["shell_files"] == str(len(build_env.shell_listing(PUBLISH)))
+    assert rec["dotnet_sdk"].startswith("10.")
     assert RECORD.read_bytes().endswith(b"\n") and b"\r" not in RECORD.read_bytes()
 
 
 def test_unsigned_list_is_what_phase_6_signs():
     lines = UNSIGNED.read_text(encoding="utf-8").splitlines()
     assert lines and lines == sorted(lines)
-    assert not [p for p in lines if p.lower().endswith(".exe")]
+    assert [p for p in lines if p.lower().endswith(".exe")] == [build_env.SHELL_EXE]
     for path in lines:
         folder = path.rpartition("/")[0]
         assert folder not in ("python", "python/DLLs"), path
@@ -83,6 +88,20 @@ def test_unsigned_list_is_what_phase_6_signs():
     statuses = authenticode([IMAGE / p for p in sample])
     assert not [p for p, s in statuses.items() if s[0] == "Valid"]
     assert len(lines) == int(record()["unsigned_binaries"])
+
+
+# Microsoft-signed in the WebView2 NuGet package, but ReadyToRun recompiles
+# them at publish, which drops the signature; phase 6 signs them with ours.
+R2R_RECOMPILED = {"Microsoft.Web.WebView2.Core.dll", "Microsoft.Web.WebView2.WinForms.dll"}
+
+
+def test_the_only_unsigned_shell_files_are_ours():
+    shell = set(build_env.shell_listing(PUBLISH))
+    assert shell
+    lines = UNSIGNED.read_text(encoding="utf-8").splitlines()
+    assert [p for p in lines if p in shell and not p.startswith("FoodOptimizer")
+            and p not in R2R_RECOMPILED] == []
+    assert {"FoodOptimizer.exe", "FoodOptimizer.dll", "FoodOptimizer.Core.dll"} <= set(lines)
 
 
 @pytest.mark.parametrize("name", ["FoodOptimizer.files.txt"])

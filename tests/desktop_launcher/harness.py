@@ -256,4 +256,30 @@ class PythonImpl:
         return _popen(world, cmd, _env(world, env), stdin)
 
 
-IMPLS: list = [BashImpl(), PythonImpl()]
+class InstalledImpl(PythonImpl):
+    """The launcher as an installed Food Optimizer runs it (Level 2): the
+    install's own python.exe, `-m launcher` from the install's shared
+    folder, the install's app. Children are still fake_child.py unless a
+    test asks for the real one."""
+    name = "installed"
+
+    def __init__(self, app_dir: Path):
+        self.app_dir = Path(app_dir)
+
+    def app(self, world: World) -> Path:
+        return self.app_dir / "app" / "app.py"
+
+    def command(self, world: World, args: Sequence[str] = (), child_script=FAKE_CHILD,
+                app: Optional[Path] = None) -> list:
+        python = str(self.app_dir / "python" / "python.exe")
+        cmd = [python, "-I", "-X", "utf8", "-B", "-m", "launcher",
+               "--state-dir", str(world.state_dir), "--projects-dir", str(world.projects_dir),
+               "--app", str(app or self.app(world)), "--python", python]
+        if child_script is not None:
+            cmd += ["--child-script", str(child_script)]
+        return cmd + list(args)
+
+
+# FOODOPT_INSTALLED_APP=<install folder> runs the suite against an install.
+_INSTALLED = os.environ.get("FOODOPT_INSTALLED_APP")
+IMPLS: list = [InstalledImpl(Path(_INSTALLED))] if _INSTALLED else [BashImpl(), PythonImpl()]
