@@ -24,14 +24,14 @@ def install_host_check(allowed_host: str) -> None:
 
 
 def ignore_user_config_files() -> None:
-    """Streamlit reads no config.toml (~/.streamlit, <cwd>/.streamlit, the
-    app's folder): every option that matters is passed as a flag."""
+    """Streamlit reads no config.toml or secrets.toml (~/.streamlit,
+    <cwd>/.streamlit, the app's folder): every option that matters is passed as a flag."""
     import streamlit.config as config
 
     original = getattr(config.get_config_files, "_foodopt_original", config.get_config_files)
 
     def get_config_files(file_name):
-        if file_name == "config.toml":
+        if file_name in ("config.toml", "secrets.toml"):
             return []
         return original(file_name)
 

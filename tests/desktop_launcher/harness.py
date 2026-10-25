@@ -19,7 +19,7 @@ from typing import Callable, List, Optional, Sequence
 from tests.desktop_launcher.conftest import SHARED
 from tests.shared_texts import REPO
 
-from launcher import files, ports
+from launcher import files, ports, procinfo
 
 FAKE_CHILD = Path(__file__).resolve().parent / "fake_child.py"
 BOOT = ("import runpy,sys; sys.path.insert(0, sys.argv.pop(1)); sys.argv[0]='launcher'; "
@@ -130,6 +130,42 @@ def make_world(tmp_path: Path) -> World:
         state = home / "Library" / "Application Support" / "FoodOptimizer"
     return World(root=root, home=home, state_dir=state,
                  projects_dir=home / "FoodOptimizer", record=root / "record.jsonl")
+
+
+def _kill(pid: int) -> None:
+    if procinfo.pid_alive(pid):
+        procinfo.terminate(pid, grace=0.5)
+
+
+def end_world(world: World) -> None:
+    """Ends every launch (closes the lifeline, or SIGTERM on POSIX; kills
+    after 5 s), then the server named in server.port if it is alive and is
+    not a launch, then every recorded child."""
+    for launch in world.launches:
+        if launch.proc.poll() is None:
+            try:
+                launch.stop()
+            except OSError:
+                pass
+            try:
+                launch.proc.wait(5)
+            except subprocess.TimeoutExpired:
+                launch.proc.kill()
+        if launch.proc.stdin is not None:
+            try:
+                launch.proc.stdin.close()
+            except OSError:
+                pass
+        try:
+            launch.proc.wait(5)
+        except Exception:
+            pass
+    port_pid = world.port_pid()
+    launch_pids = {launch.proc.pid for launch in world.launches}
+    if port_pid is not None and port_pid[1] not in launch_pids:
+        _kill(port_pid[1])
+    for record in world.records():
+        _kill(record["pid"])
 
 
 @dataclass

@@ -13,7 +13,7 @@ import time
 import pytest
 
 from tests.desktop_launcher.conftest import healthy_launch, slow
-from tests.desktop_launcher.harness import wait_for
+from tests.desktop_launcher.harness import end_world, make_world, wait_for
 
 from launcher import procinfo
 
@@ -570,3 +570,11 @@ def test_a_port_file_that_cannot_be_written_leaves_no_base_file(py, world):
     assert launch.wait(60) == 1
     assert "FATAL: could not write server.port" in world.log_text()
     assert not world.base_file.exists()
+
+
+def test_world_teardown_ends_a_server_nothing_recorded(py, tmp_path):
+    (tmp_path / "w").mkdir()
+    w = make_world(tmp_path / "w")
+    _, _, pid = healthy_launch(py, w, env={"FOODOPT_FAKE_RECORD": None})
+    end_world(w)
+    assert wait_for(lambda: not procinfo.pid_alive(pid), 10)

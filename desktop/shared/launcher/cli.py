@@ -415,7 +415,7 @@ class _Run:
 
         self.log.say(f"server healthy on port {self.port} (pid {self.server.pid})")
         files.clear_status(opts.state_dir)
-        files.release_lock(self.lock, self.pid)
+        self.release()
 
         if opts.stdin_lifeline:
             while self.server.poll() is None:
