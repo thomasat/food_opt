@@ -50,16 +50,25 @@ EXIT_CODES = {
     "prewarm_failed": 9,
     "app_running": None,
 }
-# Intune's return-code types for each (README table).
-INTUNE = {name: "Failed" for name in EXIT_CODES}
-INTUNE.update({"ok": "Success", "app_running": "Retry"})
+# Intune's return-code type for each (the README's table; a literal, so
+# the Mac test reads it by AST).
+INTUNE = {
+    "ok": "Success",
+    "init_failed": "Failed",
+    "cancelled": "Failed",
+    "refused": "Failed",
+    "prewarm_failed": "Failed",
+    "app_running": "Retry",
+}
 REFUSALS = ("system_needs_allusers", "installed_by_it", "folder_too_long", "needs_space")
 
 # Seconds to the app's first page, and to it again on a warm relaunch. The
 # x64 bound is the spec's 30 s (re-set from Azure in phase 6); arm64 is the
 # Fusion VM under emulation, set in Task 7 from measurement.
 FIRST_OPEN_LIMIT_S = 180
-WARM_RELAUNCH_LIMIT_S = {"x64": 30, "arm64": None}
+# arm64: VM_BUILD (Fusion, Windows 11 ARM, x64 emulation), 2026-10-24 at
+# dd149ad: 5.1, 6.4 and 6.3 s; ceil(2 x median 6.3) = 13.
+WARM_RELAUNCH_LIMIT_S = {"x64": 30, "arm64": 13}
 
 L2 = pathlib.Path(os.environ.get("FOODOPT_L2_ROOT") or r"C:\work\l2")
 JOBS = L2 / "jobs"
@@ -603,6 +612,80 @@ class ConsoleWatch:
         if self._thread:
             self._thread.join(5)
         return list(self._new.values())
+
+
+# ---------- traffic: the Windows Filtering Platform audit ----------
+
+WFP_CONNECTION = "{0CCE9226-69AE-11D9-BED3-505054503030}"     # "Filtering Platform Connection"
+LOOPBACK = {"127.0.0.1", "::1"}
+LISTEN_ANY = {"0.0.0.0", "::"}
+_EVENT_NS = "{http://schemas.microsoft.com/win/2004/08/events/event}"
+
+
+def _auditpol(*args) -> str:
+    r = subprocess.run(["auditpol", *args], capture_output=True, text=True, errors="replace",
+                       creationflags=CREATE_NO_WINDOW)
+    if r.returncode != 0:
+        raise RuntimeError(f"auditpol {' '.join(args)}: {r.stdout} {r.stderr}")
+    return r.stdout
+
+
+def wfp_setting() -> str:
+    """The subcategory's current inclusion setting, e.g. "No Auditing"."""
+    rows = [line for line in _auditpol("/get", f"/subcategory:{WFP_CONNECTION}", "/r").splitlines()
+            if WFP_CONNECTION.lower() in line.lower()]
+    return rows[0].split(",")[4].strip()
+
+
+@contextlib.contextmanager
+def wfp_audit():
+    """Success and failure auditing of WFP connections for the block; the
+    setting read first is restored exactly. Yields the UTC start (admin)."""
+    before = wfp_setting()
+    _auditpol("/set", f"/subcategory:{WFP_CONNECTION}", "/success:enable", "/failure:enable")
+    started = datetime.datetime.now(datetime.timezone.utc)
+    try:
+        yield started
+    finally:
+        success = "enable" if "Success" in before else "disable"
+        failure = "enable" if "Failure" in before else "disable"
+        _auditpol("/set", f"/subcategory:{WFP_CONNECTION}", f"/success:{success}", f"/failure:{failure}")
+
+
+def wfp_events(since: datetime.datetime) -> list:
+    """5156 (allowed) and 5157 (blocked) connection events since `since`."""
+    import xml.etree.ElementTree as ET
+    iso = since.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    query = f"*[System[(EventID=5156 or EventID=5157) and TimeCreated[@SystemTime>='{iso}']]]"
+    r = subprocess.run(["wevtutil", "qe", "Security", f"/q:{query}", "/f:xml", "/uni:true"],
+                       capture_output=True, creationflags=CREATE_NO_WINDOW)
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.decode("utf-16-le", "replace"))
+    text = r.stdout.decode("utf-16-le", "replace").lstrip("\ufeff")
+    root = ET.fromstring("<root>" + text + "</root>")
+    events = []
+    for event in root:
+        data = {d.get("Name"): (d.text or "") for d in event.iter(f"{_EVENT_NS}Data")}
+        events.append({"id": int(event.find(f"{_EVENT_NS}System/{_EVENT_NS}EventID").text),
+                       "Application": data.get("Application", ""), "Direction": data.get("Direction", ""),
+                       "SourceAddress": data.get("SourceAddress", ""), "DestAddress": data.get("DestAddress", ""),
+                       "DestPort": data.get("DestPort", ""), "ProcessID": data.get("ProcessID", "")})
+    return events
+
+
+def _dos_device(drive: str) -> str:
+    buf = ctypes.create_unicode_buffer(1024)
+    ctypes.windll.kernel32.QueryDosDeviceW(drive, buf, 1024)
+    return buf.value
+
+
+def ours(event: dict, root) -> bool:
+    """Whether the event's process image lies under the install root (the
+    event names it by its \\device\\harddiskvolumeN path)."""
+    root = os.path.abspath(str(root))
+    drive, rest = os.path.splitdrive(root)
+    prefix = (_dos_device(drive) + rest).lower().rstrip("\\") + "\\"
+    return event["Application"].lower().startswith(prefix)
 
 
 # ---------- the report ----------
