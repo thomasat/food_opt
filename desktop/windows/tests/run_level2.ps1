@@ -144,6 +144,7 @@ finally {
             $_.CommandLine -like $mark -and $_.CreationDate -ge $started
         } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
         Get-ScheduledTask -TaskName 'FoodOptL2-*' -ErrorAction SilentlyContinue |
+            Where-Object { $_.TaskName -ne $task } |
             Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue
     }
     & schtasks.exe /Delete /F /TN $task | Out-Null

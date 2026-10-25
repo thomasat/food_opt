@@ -130,6 +130,7 @@ def test_level2_ends_a_timed_out_run_before_deleting_it():
     assert "$_.CommandLine -like $mark -and $_.CreationDate -ge $started" in fin
     assert "ParentProcessId" not in text
     assert "Get-ScheduledTask -TaskName 'FoodOptL2-*'" in fin
+    assert "Where-Object { $_.TaskName -ne $task }" in fin   # the run task: /Delete's own
     assert text.index("$started = Get-Date") < text.index("/Create")
     assert "--basetemp \"' +\n        $basetemp + '\"" in text
     header = text[:text.index("[CmdletBinding")]
