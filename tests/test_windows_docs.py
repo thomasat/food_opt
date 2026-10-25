@@ -7,6 +7,8 @@ import json
 import pathlib
 import re
 
+from tests.test_release_guards import release_assets
+
 REPO = pathlib.Path(__file__).resolve().parent.parent
 WALKTHROUGH = REPO / "desktop" / "shared" / "manual_walkthrough.md"
 MAC_README = REPO / "desktop" / "README.md"
@@ -78,29 +80,22 @@ def _windows_half():
     return _section(WIN_README.read_text(encoding="utf-8"), "## Release (Windows half)")
 
 
-def _release_docs():
-    import importlib.util
-    import sys
-    spec = importlib.util.spec_from_file_location("foodopt_release_docs", REPO / "desktop" / "release_docs.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules.setdefault("foodopt_release_docs", module)
-    spec.loader.exec_module(module)
-    return module
-
-
 def test_release_ritual_follows_the_spec():
     ritual = _ritual()
     at = 0
     for needle in ("update_lock.sh", "desktop/VERSION", "git tag -a v", "build_dmg.sh", "windows/README.md",
-                   "scp", "shasum -a 256", "release_docs.py render", "--release", "gh release create v",
+                   "scp", "shasum -a 256", "gh release create v",
                    "--draft --verify-tag", "--notes-file", "gh release view", "--draft=false --latest",
                    "curl -I"):
         found = ritual.find(needle, at)
         assert found >= 0, f"{needle!r} missing, or out of order"
         at = found + len(needle)
     assert ritual.count("⚠") >= 5
-    for name in _release_docs().assets("X.Y.Z").values():
+    for name in release_assets("X.Y.Z").values():
         assert name in ritual, name
+    assert "--notes-file desktop/release_notes/X.Y.Z.md" in ritual
+    for gone in ("release_docs", "IT sheet", "IT-sheet", "report.json", "Playwright"):
+        assert gone not in ritual, gone
     assert "gh workflow enable tests -R thomasat/food_opt" in ritual
     assert "release-080" in ritual
     assert "windows/download_email.md" in ritual
@@ -109,8 +104,12 @@ def test_release_ritual_follows_the_spec():
 def test_windows_release_half():
     half = _windows_half()
     for needle in ("git clone --branch v", "build_installer.ps1", "run_level2.ps1", "-Cleanup",
-                   "run_ui_tests.ps1", "W1", "L1"):
+                   "run_ui_tests.ps1", "W1", "L1", "test_our_processes_connect_only_to_loopback"):
         assert needle in half, needle
+    hand_back = half[half.index("Hand back to the Mac"):]
+    for name in (".build.txt", ".files.txt", ".cdx.json"):
+        assert name in hand_back, name
+    assert "report.json" not in hand_back
     assert "Signing and the release steps come in phase 6." not in WIN_README.read_text(encoding="utf-8")
 
 

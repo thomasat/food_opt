@@ -620,7 +620,7 @@ def dumps(bom: dict) -> bytes:
 
 
 def summary(bom: dict) -> dict:
-    """What the IT sheet states, read back from the document."""
+    """The counts the build prints (sbom_* lines), read back from the document."""
     def props(c, name):
         return [p["value"] for p in c.get("properties", []) if p["name"] == name]
     families: dict[str, int] = {}

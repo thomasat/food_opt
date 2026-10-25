@@ -19,17 +19,9 @@ First-time setup downloads about **1 GB** and needs about **6 GB of free space**
 
 ## Install on Windows
 
+[**Download FoodOptimizer-0.9.0-Windows.exe**](https://github.com/thomasat/food_opt/releases/download/v0.9.0/FoodOptimizer-0.9.0-Windows.exe)
+
 Needs Windows 10 or 11 (64-bit) and 2 GB free. Works offline.
-
-1. Download and open **FoodOptimizer-0.9.0-Windows.exe**. Windows may not recognize the app yet. Check the publisher is Food System Innovations, then click More info, then Run anyway.
-2. Click **Install**. No admin rights needed.
-3. Open **Food Optimizer** from Start.
-
-<!-- PENDING(exact SmartScreen words on a signed build) -->
-
-**Blocked?** Your IT can install it for everyone. Send them the [IT sheet](https://github.com/thomasat/food_opt/releases/download/v0.9.0/FoodOptimizer-0.9.0-IT-sheet.pdf).
-
-**Updating?** Close Food Optimizer. Run the new installer. Your projects are kept.
 
 ## Start with the example
 

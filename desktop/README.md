@@ -113,10 +113,11 @@ version X.Y.Z:
    changed) and commit the result. Then re-measure `EXPECTED_SETUP_MB` in
    `launcher.sh`, `desktop/windows/size_gate.json` and the disk figures in
    both Start Here files and both READMEs.
-3. ⚠ Release PR (true merge): bump `desktop/VERSION`, the README download
-   links (Mac and Windows), and write `desktop/release_notes/X.Y.Z.md`, the
-   release page's template. `tests/test_release_guards.py` checks that they
-   all agree, and fails at the tag while any `PENDING(` is left.
+3. ⚠ Release PR (true merge): bump `desktop/VERSION`, the download links
+   in `README.md` and `windows/download_email.md`, and write
+   `desktop/release_notes/X.Y.Z.md`, the release page.
+   `tests/test_release_guards.py` checks that they all agree, and fails at
+   the tag while any `PENDING(` is left in a text that is sent.
 4. ⚠ Tag first; both builds come from the tag:
 
    ```bash
@@ -139,51 +140,44 @@ version X.Y.Z:
 6. Windows: in the build VM, follow `windows/README.md`, "Release (Windows
    half)": a VM-local clone at the tag, the signed build, pytest, Level 2,
    the checklist and the locked-down profile.
-7. ⚠ Copy and check. Into `desktop/dist/release-X.Y.Z/in/`, beside the dmg
-   and its record (`FoodOptimizer-X.Y.Z.dmg`, `FoodOptimizer-X.Y.Z.build.txt`),
-   `scp` from the VM: `FoodOptimizer-X.Y.Z-Windows.exe` and its
-   `FoodOptimizer-X.Y.Z-Windows.build.txt`, `FoodOptimizer-X.Y.Z-Windows.files.txt`,
-   `FoodOptimizer-X.Y.Z-Windows.cdx.json`, and `C:\work\l2\report.json`.
-   Then compare each file's hash with its record (`installer_sha256`,
-   `files_list_sha256`, `sbom_sha256`, `dmg_sha256`):
+7. ⚠ Copy and check. `scp` from the VM into the release worktree's
+   `desktop/dist/`, beside the dmg and its record:
+   `FoodOptimizer-X.Y.Z-Windows.exe`, `FoodOptimizer-X.Y.Z-Windows.build.txt`,
+   `FoodOptimizer-X.Y.Z-Windows.files.txt` and
+   `FoodOptimizer-X.Y.Z-Windows.cdx.json`. Each file's hash must be its
+   record's (`dmg_sha256`, `installer_sha256`, `files_list_sha256`,
+   `sbom_sha256`), and both records must say `tree_clean=yes`,
+   `signed=yes` and the tag's commit (the Mac's also `notarized=yes`):
 
    ```bash
-   cd desktop/dist/release-X.Y.Z/in
-   shasum -a 256 FoodOptimizer-X.Y.Z*
-   cat FoodOptimizer-X.Y.Z.build.txt FoodOptimizer-X.Y.Z-Windows.build.txt
+   shasum -a 256 desktop/dist/FoodOptimizer-X.Y.Z*
+   cat desktop/dist/FoodOptimizer-X.Y.Z.build.txt desktop/dist/FoodOptimizer-X.Y.Z-Windows.build.txt
+   git rev-parse vX.Y.Z^{commit}
    ```
 
-8. ⚠ Render, then draft. The render refuses a test, unsigned, un-notarized
-   or untagged build, records from different commits, any file whose hash
-   differs from its record, and any `PENDING(` left in a template; it then
-   writes nothing.
+8. ⚠ Draft. The release page is `desktop/release_notes/X.Y.Z.md` as
+   committed; the SBOM and the per-file list are attached, not advertised:
 
    ```bash
-   python desktop/release_docs.py render --version X.Y.Z --dist desktop/dist/release-X.Y.Z/in --release
    gh release create vX.Y.Z --draft --verify-tag --title "Food Optimizer X.Y.Z" \
-     --notes-file desktop/dist/release-X.Y.Z/release-notes-X.Y.Z.md \
-     desktop/dist/release-X.Y.Z/in/FoodOptimizer-X.Y.Z.dmg \
-     desktop/dist/release-X.Y.Z/in/FoodOptimizer-X.Y.Z-Windows.exe \
-     desktop/dist/release-X.Y.Z/in/FoodOptimizer-X.Y.Z-Windows.cdx.json \
-     desktop/dist/release-X.Y.Z/in/FoodOptimizer-X.Y.Z-Windows.files.txt \
-     desktop/dist/release-X.Y.Z/FoodOptimizer-X.Y.Z-IT-sheet.pdf
+     --notes-file desktop/release_notes/X.Y.Z.md \
+     desktop/dist/FoodOptimizer-X.Y.Z.dmg \
+     desktop/dist/FoodOptimizer-X.Y.Z-Windows.exe \
+     desktop/dist/FoodOptimizer-X.Y.Z-Windows.cdx.json \
+     desktop/dist/FoodOptimizer-X.Y.Z-Windows.files.txt
    gh release view vX.Y.Z --json assets
    ```
 
-   (The render needs markdown-it-py, Playwright with Chromium and, for
-   `tests/test_release_docs.py`, PyMuPDF: the Mac's conda base has them.)
    Compare each asset's digest in `gh release view` with its record.
-9. ⚠ Publish, then check the README links answer:
+9. ⚠ Publish, then check both links answer:
 
    ```bash
    gh release edit vX.Y.Z --draft=false --latest
    curl -I https://github.com/thomasat/food_opt/releases/download/vX.Y.Z/FoodOptimizer-X.Y.Z.dmg
    curl -I https://github.com/thomasat/food_opt/releases/download/vX.Y.Z/FoodOptimizer-X.Y.Z-Windows.exe
-   curl -I https://github.com/thomasat/food_opt/releases/download/vX.Y.Z/FoodOptimizer-X.Y.Z-IT-sheet.pdf
    ```
 
-   Keep the time between steps 3 and 9 short: the README links 404 in
-   between.
+   Keep the time between steps 3 and 9 short: the links 404 in between.
 
 Mac hotfixes before the first combined release ship from the `release-080`
 branch (made at the last Mac-only tag) and merge forward into main with
@@ -202,9 +196,7 @@ https://github.com/thomasat/food_opt/releases/download/vX.Y.Z/FoodOptimizer-X.Y.
 https://github.com/thomasat/food_opt/releases/download/vX.Y.Z/FoodOptimizer-X.Y.Z-Windows.exe
 ```
 
-For Windows recipients, send the email that step 8 renders from
-`windows/download_email.md` (`desktop/dist/release-X.Y.Z/download-email-X.Y.Z.txt`),
-with the IT sheet attached.
+For Windows recipients, send the three lines in `windows/download_email.md`.
 
 Notes:
 - The repo is public, so the links work for anyone — no GitHub account needed.

@@ -91,32 +91,40 @@ def test_readme_download_links_name_the_version():
     text = (REPO / "README.md").read_text(encoding="utf-8")
     dmgs = re.findall(r"FoodOptimizer-(\d+\.\d+\.\d+)\.dmg", text)
     exes = re.findall(r"FoodOptimizer-(\d+\.\d+\.\d+)-Windows\.exe", text)
-    sheets = re.findall(r"FoodOptimizer-(\d+\.\d+\.\d+)-IT-sheet\.pdf", text)
     tags = re.findall(r"releases/download/v(\d+\.\d+\.\d+)/", text)
     assert dmgs and exes and tags, (dmgs, exes, tags)
-    assert set(dmgs) | set(exes) | set(sheets) | set(tags) == {read_version()}, (dmgs, exes, sheets, tags)
+    assert set(dmgs) | set(exes) | set(tags) == {read_version()}, (dmgs, exes, tags)
     links = re.findall(r"\]\((https://[^)]+)\)", text)
     assert any(link.endswith(".dmg") for link in links) and any(link.endswith("-Windows.exe") for link in links)
 
 
-def _release_docs():
-    import importlib.util
-    import sys
-    spec = importlib.util.spec_from_file_location("foodopt_release_docs", REPO / "desktop" / "release_docs.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules.setdefault("foodopt_release_docs", module)
-    spec.loader.exec_module(module)
-    return module
+# The release's download links and the files a release publishes (the
+# SBOM and the per-file list are attached, not advertised).
+URL_BASE = "https://github.com/thomasat/food_opt/releases/download"
+# A claim no test backs yet; one level of parentheses inside.
+PENDING = re.compile(r"PENDING\(((?:[^()]|\([^()]*\))*)\)")
+# The texts sent at a release: none may hold a PENDING marker at the tag.
+SENT_TEXTS = ("README.md", "desktop/release_notes/{v}.md", "desktop/windows/download_email.md",
+              "desktop/windows/README.md")
 
 
-def test_readme_links_are_the_release_assets():
-    rd = _release_docs()
+def release_assets(v):
+    return {"dmg": f"FoodOptimizer-{v}.dmg", "exe": f"FoodOptimizer-{v}-Windows.exe",
+            "sbom": f"FoodOptimizer-{v}-Windows.cdx.json", "files": f"FoodOptimizer-{v}-Windows.files.txt"}
+
+
+def test_download_links_are_this_versions_release_assets():
+    """Every release-download link in the README, the release page and the
+    download email is one of this version's assets (desktop/VERSION)."""
     version = read_version()
-    allowed = {f"{rd.URL_BASE}/v{version}/{name}" for name in rd.assets(version).values()}
-    for path in (REPO / "README.md", NOTES_DIR / f"{version}.md"):
-        urls = re.findall(r"https://[^\s)\]>\"']*releases/download/[^\s)\]>\"']*", path.read_text(encoding="utf-8"))
-        assert urls, path
-        assert set(urls) <= allowed, (path.name, set(urls) - allowed)
+    allowed = {f"{URL_BASE}/v{version}/{name}" for name in release_assets(version).values()}
+    for rel in ("README.md", f"desktop/release_notes/{version}.md", "desktop/windows/download_email.md"):
+        urls = re.findall(r"https://[^\s)\]>\"']*releases/download/[^\s)\]>\"']*",
+                          (REPO / rel).read_text(encoding="utf-8"))
+        assert urls, rel
+        assert set(urls) <= allowed, (rel, set(urls) - allowed)
+    email = (REPO / "desktop" / "windows" / "download_email.md").read_text(encoding="utf-8")
+    assert set(re.findall(r"FoodOptimizer-(\d+\.\d+\.\d+)", email)) == {version}
 
 
 def test_windows_readme_names_no_stale_installer():
@@ -145,13 +153,21 @@ release_tag_only = pytest.mark.skipif(not _at_release_tag(), reason="release tag
 
 @release_tag_only
 def test_no_pending_marker_at_a_release_tag():
-    """At the release tag, no published text may still hold a PENDING(...)
-    marker: README, the release notes, the IT sheet, the email and the
+    """At the release tag, no sent text may still hold a PENDING(...)
+    marker: the README, the release page, the download email and the
     Windows README."""
     version = read_version()
-    for rel in ("README.md", f"desktop/release_notes/{version}.md", "desktop/windows/for_it_teams.md",
-                "desktop/windows/download_email.md", "desktop/windows/README.md"):
-        assert "PENDING(" not in (REPO / rel).read_text(encoding="utf-8"), rel
+    for rel in SENT_TEXTS:
+        rel = rel.format(v=version)
+        assert not PENDING.search((REPO / rel).read_text(encoding="utf-8")), rel
+
+
+def test_sent_texts_exist_and_their_markers_parse():
+    """The tag check above reads these files; each exists, and every
+    PENDING( in it is a whole marker the check can see."""
+    for rel in SENT_TEXTS:
+        text = (REPO / rel.format(v=read_version())).read_text(encoding="utf-8")
+        assert text.count("PENDING(") == len(PENDING.findall(text)), rel
 
 
 def test_release_notes_match_the_version():
