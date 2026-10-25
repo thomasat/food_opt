@@ -82,7 +82,8 @@ def test_check_refuses_a_disagreeing_version(release_repo):
                  f"refusing to build: version {arg} disagrees with desktop/VERSION (0.8.0)")
 
 
-def test_check_refuses_a_head_that_is_not_the_tag(release_repo):
+def test_check_refuses_a_head_when_the_tag_does_not_exist(release_repo):
+    _git(release_repo, "tag", "-d", "v0.8.0")
     (release_repo / "app.py").write_bytes(b"print('later')\n")
     _commit_all(release_repo, "one past the tag")
     short = _git(release_repo, "rev-parse", "--short", "HEAD").strip()

@@ -15,7 +15,7 @@ REFUSALS = (
     "refusing to build: version $Version disagrees with desktop/VERSION ($ver)",
     "refusing to build: uncommitted changes (build from a clean worktree at the tag)",
     "refusing to build: HEAD is not tag v$ver (tag first: git tag -a v$ver $short)",
-    "refusing to build: HEAD is not tag v$ver (v$ver is $tagShort: check out the tag or bump desktop/VERSION)",
+    "refusing to build: HEAD is not tag v$ver (v$ver is ${tagShort}: check out the tag or bump desktop/VERSION)",
     "refusing to build: bundle_manifest.txt has Windows line endings",
     "refusing to build: bundle_manifest.txt is missing",
     "refusing to build: bundle_manifest.txt is empty",
@@ -79,3 +79,16 @@ def test_build_script_never_filters_a_literal_path_with_include():
     unsigned list once held every unsigned file (LICENSE.txt included)."""
     for line in _strict(BUILD).splitlines():
         assert not ("-LiteralPath" in line and "-Include" in line), line
+
+
+def test_no_ps1_string_has_a_variable_followed_by_a_colon():
+    """Inside "...", `$name:` then a space or the closing quote is a parse
+    error in PowerShell (the colon reads as a scope or drive prefix): write
+    ${name}: instead. Scope prefixes ($env:Path) are followed by a name."""
+    bad = []
+    for path in sorted((REPO / "desktop").rglob("*.ps1")):
+        text = path.read_text(encoding="utf-8-sig")
+        for span in re.findall(r'"(?:`.|[^"`])*"', text):
+            for m in re.finditer(r'\$[A-Za-z_]\w*:(?=\s|"|$)', span):
+                bad.append(f"{path.relative_to(REPO)}: {span[:100]}")
+    assert not bad, bad

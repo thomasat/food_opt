@@ -165,7 +165,7 @@ if (-not $TestBuild) {
     if ($head -ne $tagSha) {
         if ($tagSha -ne '') {
             $tagShort = (& git -C $RepoDir rev-parse --short $tagSha | Out-String).Trim()
-            Refuse "refusing to build: HEAD is not tag v$ver (v$ver is $tagShort: check out the tag or bump desktop/VERSION)"
+            Refuse "refusing to build: HEAD is not tag v$ver (v$ver is ${tagShort}: check out the tag or bump desktop/VERSION)"
         }
         $short = (& git -C $RepoDir rev-parse --short HEAD | Out-String).Trim()
         Refuse "refusing to build: HEAD is not tag v$ver (tag first: git tag -a v$ver $short)"
