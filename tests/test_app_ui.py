@@ -3374,11 +3374,13 @@ def test_deleting_takes_a_last_trial_that_was_entirely_left_out(burger):
 
 def test_the_desktop_bundle_ships_every_module():
     root = pathlib.Path(APP_PATH).resolve().parent
-    build = (root / "desktop" / "build_dmg.sh").read_text(encoding="utf-8")
-    e2e = (root / "desktop" / "test_e2e.sh").read_text(encoding="utf-8")
+    manifest = (root / "desktop" / "shared" / "bundle_manifest.txt").read_text(
+        encoding="utf-8").splitlines()
+    golden = (root / "desktop" / "mac_bundle_files.txt").read_text(
+        encoding="utf-8").splitlines()
     for module in ("ui_setup.py", "ui_batch.py", "ui_results.py"):
-        assert module in build, module
-        assert module in e2e, module
+        assert module in manifest, module
+        assert f"Resources/{module}" in golden, module
 
 
 _FIRST_RUN_SENTENCE = "Setup time depends on your connection and computer."

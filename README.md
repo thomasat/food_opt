@@ -1,6 +1,6 @@
 # Food Optimizer
 
-[**Download Food Optimizer 0.7.1 for Mac**](https://github.com/thomasat/food_opt/releases/download/v0.7.1/FoodOptimizer-0.7.1.dmg)
+[**Download Food Optimizer 0.8.0 for Mac**](https://github.com/thomasat/food_opt/releases/download/v0.8.0/FoodOptimizer-0.8.0.dmg)
 
 Food Optimizer helps food scientists explore ingredient compositions and process settings. Define what can vary, choose measurements and targets, then generate formulations to prepare and evaluate. The app uses recorded results to suggest what to try next.
 
@@ -8,7 +8,7 @@ Food Optimizer helps food scientists explore ingredient compositions and process
 
 Requires **Apple silicon (M1 or newer)** and **macOS 13 Ventura or newer**. Check your Mac in **Apple menu → About This Mac**.
 
-1. Download and open **FoodOptimizer-0.7.1.dmg**.
+1. Download and open **FoodOptimizer-0.8.0.dmg**.
 2. Drag **Food Optimizer** onto **Applications** in the window that opens.
 3. Open **Applications**, then double-click **Food Optimizer**.
 4. Keep the app open and stay connected to the internet while setup completes. The window shows progress.
