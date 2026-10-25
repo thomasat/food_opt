@@ -758,3 +758,20 @@ def report(key: str, value) -> None:
     else:
         data[key] = value
     path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def sha256_file(path) -> str:
+    """Lower-case hex sha256 of a file, read in chunks (installers are large)."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def report_installer_sha256() -> None:
+    """Name the installer under test in the report, so the release tooling can
+    tie the Level 2 run to the build. No-op unless both variables are set."""
+    installer = os.environ.get("FOODOPT_L2_INSTALLER")
+    if installer and os.environ.get("FOODOPT_L2_REPORT"):
+        report("installer_sha256", sha256_file(installer))
