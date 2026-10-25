@@ -121,6 +121,7 @@ BUILD_SCRIPT = REPO / "desktop" / "build_dmg.sh"
 _GIT_ID = ["-c", "user.name=t", "-c", "user.email=t@example.com",
            "-c", "commit.gpgsign=false", "-c", "tag.gpgSign=false"]
 _REFUSE_HEAD = "refusing to build: HEAD is not tag v0.8.0 (tag first: git tag -a v0.8.0 "
+_REFUSE_ELSEWHERE = "refusing to build: HEAD is not tag v0.8.0 (v0.8.0 is "
 _REFUSE_DIRTY = ("refusing to build: uncommitted changes "
                  "(build from a clean worktree at the tag)")
 _REFUSE_VERSION = "refusing to build: desktop/VERSION must hold one X.Y.Z line"
@@ -202,10 +203,20 @@ def test_check_refuses_a_disagreeing_version(release_repo):
 
 
 @mac_script
-def test_check_refuses_a_head_that_is_not_the_tag(release_repo):
-    (release_repo / "app.py").write_bytes(b"print('later')\n")
-    _commit_all(release_repo, "one past the tag")
-    _refused(run_build(release_repo, "--check"), _REFUSE_HEAD)
+def test_check_refuses_a_head_when_the_tag_does_not_exist(release_repo):
+    _repo_git(release_repo, "tag", "-d", "v0.8.0")
+    r = run_build(release_repo, "--check")
+    _refused(r, _REFUSE_HEAD)
+
+
+@mac_script
+def test_a_tag_on_another_commit_says_check_it_out(release_repo):
+    (release_repo / "app.py").write_bytes(b"print('v2')\n")
+    _commit_all(release_repo, "after the tag")  # HEAD moves past v0.8.0
+    r = run_build(release_repo, "--check")
+    _refused(r, _REFUSE_ELSEWHERE)
+    assert "check out the tag or bump desktop/VERSION" in r.stdout + r.stderr
+    assert "git tag -a" not in r.stdout + r.stderr
 
 
 @mac_script

@@ -15,6 +15,7 @@ REFUSALS = (
     "refusing to build: version $Version disagrees with desktop/VERSION ($ver)",
     "refusing to build: uncommitted changes (build from a clean worktree at the tag)",
     "refusing to build: HEAD is not tag v$ver (tag first: git tag -a v$ver $short)",
+    "refusing to build: HEAD is not tag v$ver (v$ver is $tagShort: check out the tag or bump desktop/VERSION)",
     "refusing to build: bundle_manifest.txt has Windows line endings",
     "refusing to build: bundle_manifest.txt is missing",
     "refusing to build: bundle_manifest.txt is empty",

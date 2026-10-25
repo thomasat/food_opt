@@ -89,6 +89,9 @@ if [ "$MODE" != "test" ]; then
   HEAD_SHA="$(git -C "$REPO_DIR" rev-parse HEAD)"
   TAG_SHA="$(git -C "$REPO_DIR" rev-parse -q --verify "refs/tags/v$VERSION^{commit}")" || TAG_SHA=""
   if [ "$HEAD_SHA" != "$TAG_SHA" ]; then
+    if [ -n "$TAG_SHA" ]; then
+      refuse "HEAD is not tag v$VERSION (v$VERSION is $(git -C "$REPO_DIR" rev-parse --short "$TAG_SHA"): check out the tag or bump desktop/VERSION)"
+    fi
     refuse "HEAD is not tag v$VERSION (tag first: git tag -a v$VERSION $(git -C "$REPO_DIR" rev-parse --short HEAD))"
   fi
   if [ "$MODE" = "check" ]; then
