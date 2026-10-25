@@ -127,6 +127,10 @@ def test_level2_ends_a_timed_out_run_before_deleting_it():
     end = fin.index("& schtasks.exe /End /TN $task | Out-Null")
     kill = fin.index("Stop-Process -Id $_.ProcessId -Force")
     assert guard < end < kill < fin.index("& schtasks.exe /Delete /F /TN $task")
+    # A WMI or task-service failure (ErrorActionPreference Stop) must not
+    # skip the /Delete: the sweep is in its own try/catch.
+    sweep = fin[guard:fin.index("& schtasks.exe /Delete /F /TN $task")]
+    assert sweep.index("try {") < sweep.index("& schtasks.exe /End") and sweep.index("} catch {") > sweep.index("Unregister-ScheduledTask")
     assert "$_.CommandLine -like $mark -and $_.CreationDate -ge $started" in fin
     assert "ParentProcessId" not in text
     assert "Get-ScheduledTask -TaskName 'FoodOptL2-*'" in fin

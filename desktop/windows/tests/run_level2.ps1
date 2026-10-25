@@ -134,18 +134,23 @@ try {
 }
 finally {
     if ($null -eq $exit) {
-        # No EXIT= line (deadline passed, or a failure). /End stops only the
-        # task's cmd.exe, so end this run's pytest too (its --basetemp names
-        # it; started after this script), and the job tasks it can no longer
-        # delete itself.
-        & schtasks.exe /End /TN $task | Out-Null
-        $mark = '*' + [Management.Automation.WildcardPattern]::Escape($basetemp) + '*'
-        Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" | Where-Object {
-            $_.CommandLine -like $mark -and $_.CreationDate -ge $started
-        } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-        Get-ScheduledTask -TaskName 'FoodOptL2-*' -ErrorAction SilentlyContinue |
-            Where-Object { $_.TaskName -ne $task } |
-            Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue
+        # No EXIT= line (deadline passed, or a failure). /End can leave the
+        # task's children running, so end this run's pytest too (its
+        # --basetemp names it; started after this script), and the job tasks
+        # it can no longer delete itself. A failure here must not skip the
+        # /Delete below.
+        try {
+            & schtasks.exe /End /TN $task | Out-Null
+            $mark = '*' + [Management.Automation.WildcardPattern]::Escape($basetemp) + '*'
+            Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" | Where-Object {
+                $_.CommandLine -like $mark -and $_.CreationDate -ge $started
+            } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+            Get-ScheduledTask -TaskName 'FoodOptL2-*' -ErrorAction SilentlyContinue |
+                Where-Object { $_.TaskName -ne $task } |
+                Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue
+        } catch {
+            [Console]::Error.WriteLine('could not end the timed-out run: ' + $_.Exception.Message)
+        }
     }
     & schtasks.exe /Delete /F /TN $task | Out-Null
 }
