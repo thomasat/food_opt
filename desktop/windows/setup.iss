@@ -220,19 +220,50 @@ begin
     Log('replaced per-user copy: could not delete ' + Dir);
 end;
 
+{ That user's projects folder: their stored FOODOPT_PROJECTS_DIR (hive
+  loaded), else the default the shell uses. }
+function UserProjectsDir(const Sid, Profile: String): String;
+begin
+  if RegQueryStringValue(HKU, Sid + '\Environment', 'FOODOPT_PROJECTS_DIR', Result) and (Result <> '') then
+    StringChangeEx(Result, '%USERPROFILE%', Profile, True)
+  else
+    Result := Profile + '\FoodOptimizer';
+end;
+
+{ Deletes a per-user copy, but never one holding the user's projects (a
+  /DIR at the projects folder) nor this install's own folder (the user
+  can edit InstallLocation). True when the copy was kept. }
+function ReplaceCopy(const Dir, Projects: String): Boolean;
+var
+  App: String;
+begin
+  Result := True;
+  App := ExpandConstant('{app}');
+  if SameOrInside(Projects, Dir) then
+    Log('replaced per-user copy: kept ' + Dir + ' (it holds the projects folder)')
+  else if SameOrInside(Dir, App) or SameOrInside(App, Dir) then
+    Log('replaced per-user copy: kept ' + Dir + ' (it is this install)')
+  else begin
+    DeleteCopy(Dir);
+    Result := False;
+  end;
+end;
+
 { An all-users install replaces every per-user copy: a per-user and an
   all-users install can't coexist (spec section 5). It runs once the
   all-users copy is in place, so a cancelled or failed IT install leaves
   the user's copy alone. A copy installed with /DIR is found through the
   user's uninstall entry, and deleted only while it still holds Food
-  Optimizer. Never touches projects or state. A user whose hive isn't
-  loaded keeps an orphan Apps entry and any /DIR copy. }
+  Optimizer. Never touches projects or state: a copy holding the projects
+  folder is kept, with its Apps entry, for the user's own uninstaller
+  (which keeps projects). A user whose hive isn't loaded keeps an orphan
+  Apps entry and any /DIR copy. }
 procedure ReplacePerUserCopies;
 var
   Sids: TArrayOfString;
   I: Integer;
-  Sid, Profile, Dir, Location, Programs: String;
-  Loaded: Boolean;
+  Sid, Profile, Dir, Location, Programs, Projects: String;
+  Loaded, Kept: Boolean;
 begin
   if not RegGetSubkeyNames(HKLM64, ProfileListKey, Sids) then begin
     Log('replaced per-user copy: no profile list');
@@ -248,22 +279,25 @@ begin
       continue;
     StringChangeEx(Profile, '%SystemDrive%', GetEnv('SystemDrive'), True);
     Loaded := RegKeyExists(HKU, Sid);
+    Projects := UserProjectsDir(Sid, Profile);
+    Kept := False;
     if Loaded and RegQueryStringValue(HKU, Sid + '\' + UninstallKey, 'InstallLocation', Location) and
         (Location <> '') then begin
       Location := RemoveBackslashUnlessRoot(Location);
       if IsOurCopy(Location) then
-        DeleteCopy(Location)
+        Kept := ReplaceCopy(Location, Projects)
       else
         Log('replaced per-user copy: no copy left in ' + Location);
     end;
     Dir := Profile + '\AppData\Local\Programs\Food Optimizer';
     if FileExists(Dir + '\FoodOptimizer.exe') then
-      DeleteCopy(Dir);
+      if ReplaceCopy(Dir, Projects) then
+        Kept := True;
     Programs := UserShellFolder(Sid, 'Programs', Profile, Profile + '\AppData\Roaming\Microsoft\Windows\Start Menu\Programs');
     DeleteLogged(Programs + '\Food Optimizer.lnk');
     DeleteLogged(Programs + '\Food Optimizer - Start Here.lnk');
     DeleteLogged(UserShellFolder(Sid, 'Desktop', Profile, Profile + '\Desktop') + '\Food Optimizer.lnk');
-    if Loaded and RegKeyExists(HKU, Sid + '\' + UninstallKey) then begin
+    if Loaded and not Kept and RegKeyExists(HKU, Sid + '\' + UninstallKey) then begin
       if RegDeleteKeyIncludingSubkeys(HKU, Sid + '\' + UninstallKey) then
         Log('replaced per-user copy: deleted the uninstall entry of ' + Sid)
       else

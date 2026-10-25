@@ -153,6 +153,41 @@ def test_an_it_install_leaves_a_folder_that_is_no_longer_a_copy(installer, l2_ho
     assert keep.read_bytes() == b"\x80\x04keep"
 
 
+def test_an_it_install_keeps_projects_inside_a_per_user_copy(installer, l2_home, cleanup):
+    """The user installed with /DIR at their own projects folder (stored in
+    their environment as FOODOPT_PROJECTS_DIR): the IT install keeps that
+    copy, and every project in it, and leaves its Apps entry so the user's
+    own uninstaller (which keeps projects) can still remove it."""
+    import winreg
+    folder = l2_home.projects
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0,
+                        winreg.KEY_READ | winreg.KEY_SET_VALUE) as key:
+        try:
+            before = winreg.QueryValueEx(key, "FOODOPT_PROJECTS_DIR")
+        except FileNotFoundError:
+            before = None
+        winreg.SetValueEx(key, "FOODOPT_PROJECTS_DIR", 0, winreg.REG_SZ, str(folder))
+        try:
+            result = l2.install(installer, "user", dir=folder, env=l2_home.env)
+            assert result.rc == 0, result.log[-3000:]
+            assert (folder / "FoodOptimizer.exe").is_file()
+            keep = folder / "Keep me.pkl"
+            keep.write_bytes(b"\x80\x04keep")
+            it = l2.install(installer, "system", all_users=True)
+            assert it.rc == 0, it.log[-3000:]
+            assert keep.is_file(), it.log[-3000:]
+            assert keep.read_bytes() == b"\x80\x04keep"
+            assert "(it holds the projects folder)" in it.log, it.log[-3000:]
+            assert l2.uninstall_entry("user") is not None
+            assert l2.uninstall(folder, "user", env=l2_home.env) == 0
+            assert keep.read_bytes() == b"\x80\x04keep", l2.last_uninstall_log()[-3000:]
+        finally:
+            if before is None:
+                winreg.DeleteValue(key, "FOODOPT_PROJECTS_DIR")
+            else:
+                winreg.SetValueEx(key, "FOODOPT_PROJECTS_DIR", 0, before[1], before[0])
+
+
 _SHELL_FOLDERS = r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders"
 
 

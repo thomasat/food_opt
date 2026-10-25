@@ -591,6 +591,32 @@ def test_per_user_copies_are_found_by_their_install_location():
     assert "Log('replaced per-user copy: deleted ' + " in _code_section()
 
 
+def test_an_it_install_never_deletes_projects_or_itself():
+    """A per-user copy's folder may hold that user's projects (/DIR at the
+    projects folder), and its InstallLocation is the user's to edit: the
+    copy is kept, not deleted, when it holds the projects folder or is (or
+    holds, or lies in) this install's folder. Both guards come before the
+    delete, for the /DIR copy and the default folder alike."""
+    keep = _function("ReplaceCopy")
+    assert keep.startswith("function ReplaceCopy(const Dir, Projects: String): Boolean;")
+    projects = keep.index("if SameOrInside(Projects, Dir) then")
+    assert "Log('replaced per-user copy: kept ' + Dir + ' (it holds the projects folder)')" in keep
+    this = keep.index("SameOrInside(Dir, App) or SameOrInside(App, Dir)")
+    assert "Log('replaced per-user copy: kept ' + Dir + ' (it is this install)')" in keep
+    assert "App := ExpandConstant('{app}');" in keep
+    assert max(projects, this) < keep.index("DeleteCopy(Dir)")
+    body = _function("ReplacePerUserCopies")
+    assert "DeleteCopy(" not in body and "DelTree(" not in body
+    assert "ReplaceCopy(Dir, Projects)" in body
+    assert "Projects := UserProjectsDir(Sid, Profile);" in body
+    # A kept copy keeps its Apps entry, so the user's own uninstaller can remove it.
+    assert "Kept := ReplaceCopy(Location, Projects)" in body
+    assert "if Loaded and not Kept and RegKeyExists(HKU, Sid + '\\' + UninstallKey)" in body
+    user = _function("UserProjectsDir")
+    assert "RegQueryStringValue(HKU, Sid + '\\Environment', 'FOODOPT_PROJECTS_DIR', Result)" in user
+    assert "'%USERPROFILE%', Profile" in user and "Profile + '\\FoodOptimizer'" in user
+
+
 def test_start_menu_is_read_from_user_shell_folders():
     """A redirected Start menu or desktop is read from the user's own User
     Shell Folders; the usual paths are only the fallbacks."""
