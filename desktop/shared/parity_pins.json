@@ -39,7 +39,7 @@
     "shared.launcher": {
       "dir": "desktop/shared/launcher",
       "glob": "**/*.py",
-      "sha256": "c7188857f48e59cfbf177aceed20db99bbb8a020c96265b72b8e18c439eb6fed"
+      "sha256": "6fe2ffdabc3f289a3d90d559621e181b05beddd80f783cbb2ac2ac5efc80c54a"
     }
   },
   "pairs": {
@@ -58,7 +58,7 @@
         "mac.launcher.runtime_tail",
         "shared.launcher"
       ],
-      "note": "phase 2: Python launcher ported from launcher.sh run-time half; Windows: timed-out port probe is free, append-only log handles, logged unexpected errors, independent guard duties, stale-lock start-time check; Python-only (nothing in launcher.sh to mirror): lifeline reads the raw stdin fd, guard install is idempotent across loads"
+      "note": "launcher: usage errors exit 1; stop checked before the warm-up; launcher.sh has no counterpart"
     }
   }
 }

@@ -46,8 +46,17 @@ def _int_env(environ: Mapping[str, str], name: str) -> Optional[int]:
     return int(value) if value.isdigit() else None
 
 
+class _Parser(argparse.ArgumentParser):
+    """A usage error exits 1: argparse's own 2 is the code for "unsupported"."""
+
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        sys.stderr.write(f"{self.prog}: error: {message}\n")
+        sys.exit(1)
+
+
 def parse_args(argv: Sequence[str], environ: Mapping[str, str]) -> Options:
-    p = argparse.ArgumentParser(prog="launcher", description="Food Optimizer launcher")
+    p = _Parser(prog="launcher", description="Food Optimizer launcher")
     p.add_argument("--state-dir", required=True, type=Path)
     p.add_argument("--projects-dir", required=True, type=Path)
     p.add_argument("--app", required=True, type=Path)
@@ -290,6 +299,14 @@ class _Run:
         self.cleanup()
         return 1
 
+    def stopped_early(self) -> Optional[int]:
+        """The exit code when a stop was asked (cleaned up and logged like
+        stopped()), else None."""
+        if not self.stop.is_set():
+            return None
+        self.stopped()
+        return 143 if self.reason == "signal" else 0
+
     def stopped(self) -> int:
         self.cleanup()
         self.log.say("signal received - shut down" if self.reason == "signal"
@@ -330,6 +347,9 @@ class _Run:
                              f"(pid {other if other is not None else 'unknown'}) - exiting")
                 return 0
         try:
+            early = self.stopped_early()
+            if early is not None:
+                return early
             return self.run_locked()
         finally:
             files.release_lock(self.lock, self.pid)
@@ -350,7 +370,9 @@ class _Run:
         if made is not None:
             self.log.say(f"projects backed up to {made}")
 
-        code = self.warm_up()
+        code = self.stopped_early()
+        if code is None:
+            code = self.warm_up()
         if code is not None:
             return code
 

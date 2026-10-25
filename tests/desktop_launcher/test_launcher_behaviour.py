@@ -545,3 +545,20 @@ def test_an_early_exit_with_the_lifeline_exits_cleanly(py, world):
     assert (f"another launch is already in progress (pid {os.getpid()}) - exiting"
             in launch.output())
     assert "Fatal Python error" not in launch.output(), launch.output()
+
+
+def test_a_bad_argument_exits_1_not_2(py, world):
+    launch = py.start(world, args=["--base-path", "sometimes"])
+    assert launch.wait(30) == 1
+    assert "error:" in launch.output()
+
+
+def test_stdin_eof_while_waiting_for_the_lock_never_starts_the_warmup(py, world):
+    world.lock_dir.mkdir(parents=True)          # no pid file: a 5 s grace wait
+    launch = py.start(world, args=["--stdin-lifeline"], stdin=subprocess.PIPE)
+    time.sleep(1)
+    launch.proc.stdin.close()
+    assert launch.wait(30) == 0
+    assert world.records("warmup") == []
+    assert "the window closed - shut down" in world.log_text()
+    assert not world.lock_dir.exists()

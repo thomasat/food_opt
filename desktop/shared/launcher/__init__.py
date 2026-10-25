@@ -36,5 +36,5 @@ Health: GET http://127.0.0.1:<port>/<base>/_stcore/health -> 200 "ok". The
 server answers only Host 127.0.0.1:<port>; load http://127.0.0.1:<port>/<base>/.
 
 Exit codes: 0 another launch is in progress, or a normal shutdown; 1 fatal
-error; 2 unsupported machine; 143 SIGTERM during the warm-up.
+error (a bad argument too); 2 unsupported machine; 143 SIGTERM during the warm-up.
 """
