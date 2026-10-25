@@ -3405,6 +3405,21 @@ def test_first_run_copy_gives_the_honest_timing():
         assert "a few minutes, up to 15" not in text, name
 
 
+def test_windows_first_opening_copy():
+    """Windows downloads nothing: its first opening is slow for another
+    reason, and says so in one sentence, the same on the page and in Start
+    Here — never the Mac's download sentence."""
+    from tests.shared_texts import texts
+    root = pathlib.Path(APP_PATH).resolve().parent
+    sentence = "First opening takes longer. Keep this window open."
+    start_here = _flowed((root / "desktop" / "windows" / "start_here.txt")
+                         .read_text(encoding="utf-8"))
+    assert sentence in start_here
+    assert texts("windows")["steps.note.first_opening"] == sentence
+    assert _FIRST_RUN_SENTENCE not in start_here
+    assert not any(_FIRST_RUN_SENTENCE in t for t in texts("windows").values())
+
+
 def test_the_last_trial_line_counts_a_trial_that_was_entirely_left_out(burger):
     """Nobody managed to make batch 2, but it is still the last batch: the line
     under the title must not fall back to batch 1."""
@@ -4418,6 +4433,21 @@ def test_get_help_gives_an_address_to_write_to():
             "and attach the file from Help › Show Log File.") in swift
     assert "github.com/thomasat/food_opt/issues" not in swift
     assert "Food Intelligence Lab" not in swift
+    # The same two sentences in the shared texts, on both OSes.
+    from tests.shared_texts import read_lf, texts
+    for os_name in ("mac", "windows"):
+        t = texts(os_name)
+        assert t["help.get_help.body"] == (
+            "Email sohum.patnaik@fsi.org. Describe the problem and what you expected. "
+            "Attaching the app's log file helps — Help › Show Log File finds it for you.")
+        assert t["error.could_not_start.body"] == (
+            "Click Try again. If the problem persists, email sohum.patnaik@fsi.org "
+            "and attach the file from Help › Show Log File.")
+    cs = sorted((root / "desktop" / "windows" / "FoodOptimizer").glob("**/*.cs"))
+    if cs:
+        source = "\n".join(read_lf(p) for p in cs)
+        assert "github.com/thomasat/food_opt/issues" not in source
+        assert "help.get_help.body" in source
 
 
 def test_emptying_the_forms_raises_no_widget_warning_on_screen(open_batch):
