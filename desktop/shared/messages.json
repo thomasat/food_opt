@@ -490,6 +490,36 @@
       },
       "mac": null,
       "shared": "shell"
+    },
+    {
+      "id": "dialog.ok",
+      "kind": "button",
+      "text": {
+        "mac": null,
+        "windows": "OK"
+      },
+      "mac": null,
+      "shared": "shell"
+    },
+    {
+      "id": "dialog.cancel",
+      "kind": "button",
+      "text": {
+        "mac": null,
+        "windows": "Cancel"
+      },
+      "mac": null,
+      "shared": "shell"
+    },
+    {
+      "id": "error.shell_crashed.body",
+      "kind": "body",
+      "text": {
+        "mac": null,
+        "windows": "Your projects are saved. Open Food Optimizer again."
+      },
+      "mac": null,
+      "shared": "shell"
     }
   ],
   "menus": [
