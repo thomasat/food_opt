@@ -614,7 +614,7 @@ def test_an_it_install_never_deletes_projects_or_itself():
     assert "ReplaceCopy(Dir, Projects, True)" in body
     assert "Projects := UserProjectsDir(Sid, Profile);" in body
     # A kept copy keeps its Apps entry, so the user's own uninstaller can remove it.
-    assert "Kept := ReplaceCopy(Location, Projects, False)" in body
+    assert "Kept := ReplaceCopy(Location, Projects, " in body
     assert "if Loaded and not Kept and RegKeyExists(HKU, Sid + '\\' + UninstallKey)" in body
     user = _function("UserProjectsDir")
     assert "RegQueryStringValue(HKU, Sid + '\\Environment', 'FOODOPT_PROJECTS_DIR', Result)" in user
@@ -663,9 +663,41 @@ def test_a_dir_copy_loses_only_its_own_entries():
     keep = _function("ReplaceCopy")
     assert re.search(r"if OwnFolder then\s+DeleteCopy\(Dir\)\s+else\s+DeleteCopyEntries\(Dir\);", keep), keep
     body = _function("ReplacePerUserCopies")
-    assert "Kept := ReplaceCopy(Location, Projects, False)" in body
+    assert "Kept := ReplaceCopy(Location, Projects, SameOrInside(Location, Dir) and SameOrInside(Dir, Location))" in body
     assert "Dir := Profile + '\\AppData\\Local\\Programs\\Food Optimizer';" in body
     assert "if ReplaceCopy(Dir, Projects, True) then" in body
+
+
+def test_an_it_install_never_deletes_through_a_link():
+    """Follow-up review: a user can point their InstallLocation (or a folder
+    on its path) at a junction to another folder, the all-users install's
+    own included, which a text compare can't see. Before any per-user
+    delete, the folder and each folder above it are checked for a reparse
+    point; a copy reached through one is kept, with its Apps entry."""
+    link = _function("OnALinkPath")
+    assert link.startswith("function OnALinkPath(const Dir: String): Boolean;")
+    assert "ExpandFileName(Dir)" in link
+    assert "FindFirst(P, FindRec)" in link
+    assert "FindRec.Attributes and FILE_ATTRIBUTE_REPARSE_POINT <> 0" in link
+    assert "ExtractFileDir(P)" in link and "(Parent = P)" in link
+    keep = _function("ReplaceCopy")
+    guard = keep.index("if OnALinkPath(Dir) then")
+    assert "Log('replaced per-user copy: kept ' + Dir + ' (a folder on its path is a link)')" in keep
+    assert guard < keep.index("DeleteCopy(Dir)") and guard < keep.index("DeleteCopyEntries(Dir)")
+    # Kept (Result stays True) keeps the Apps entry; both copies go through ReplaceCopy.
+    assert keep.index("Result := True;") < guard < keep.index("Result := False;")
+    body = _function("ReplacePerUserCopies")
+    assert "DeleteCopy" not in body and "DelTree(" not in body
+
+
+def test_the_default_folder_goes_whole_whichever_way_it_is_found():
+    """Follow-up review: the default per-user folder's own uninstall entry
+    names it as InstallLocation; found that way it still goes whole (an
+    older version's leftovers too), like when found by its path."""
+    body = _function("ReplacePerUserCopies")
+    default = body.index("Dir := Profile + '\\AppData\\Local\\Programs\\Food Optimizer';")
+    call = body.index("Kept := ReplaceCopy(Location, Projects, SameOrInside(Location, Dir) and SameOrInside(Dir, Location))")
+    assert default < call
 
 
 def test_start_menu_is_read_from_user_shell_folders():

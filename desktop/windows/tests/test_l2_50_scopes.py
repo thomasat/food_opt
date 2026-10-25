@@ -177,6 +177,38 @@ def test_an_it_install_keeps_the_users_own_files_in_a_dir_copy(installer, l2_hom
     assert keep.read_bytes() == b"\x80\x04keep"
 
 
+def test_an_it_install_never_deletes_through_a_link(installer, l2_home, cleanup):
+    """Follow-up review: once IT has installed, the user (no admin needed)
+    makes a junction to the all-users folder and writes their own uninstall
+    entry naming it as InstallLocation. The next IT install (a repair or an
+    upgrade) must not delete through the link: the all-users copy stays
+    whole, the log names the link, and the user's entry is kept."""
+    import winreg
+    first = l2.install(installer, "system", all_users=True)
+    assert first.rc == 0, first.log[-3000:]
+    junction = l2_home.base / "Link"
+    assert l2.run_as("user", ["cmd", "/c", "mklink", "/J", str(junction), str(PROGRAM_FILES)]) == 0
+    try:
+        with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, l2.UNINSTALL_SUBKEY, 0, winreg.KEY_SET_VALUE) as key:
+            winreg.SetValueEx(key, "InstallLocation", 0, winreg.REG_SZ, str(junction) + "\\")
+        result = l2.install(installer, "system", all_users=True)
+        assert result.rc == 0, result.log[-3000:]
+        assert (PROGRAM_FILES / "FoodOptimizer.exe").is_file(), result.log[-3000:]
+        assert (PROGRAM_FILES / "python" / "python.exe").is_file(), result.log[-3000:]
+        assert (PROGRAM_FILES / "unins000.dat").is_file(), result.log[-3000:]
+        assert f"replaced per-user copy: kept {junction} (a folder on its path is a link)" in result.log, \
+            result.log[-3000:]
+        assert l2.uninstall_entry("user") is not None
+    finally:
+        # rmdir without /s removes the junction only, never the folder it points at.
+        if os.path.lexists(junction):
+            subprocess.run(["cmd", "/c", "rmdir", str(junction)], check=False)
+        try:
+            winreg.DeleteKey(winreg.HKEY_CURRENT_USER, l2.UNINSTALL_SUBKEY)
+        except FileNotFoundError:
+            pass
+
+
 def test_an_it_install_keeps_projects_inside_a_per_user_copy(installer, l2_home, cleanup):
     """The user installed with /DIR at their own projects folder (stored in
     their environment as FOODOPT_PROJECTS_DIR): the IT install keeps that

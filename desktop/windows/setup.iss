@@ -294,6 +294,35 @@ begin
     Log('replaced per-user copy: could not delete ' + Dir);
 end;
 
+{ Whether the folder, or any folder above it, is a junction or other
+  link. A user can point their InstallLocation through one at a folder
+  that isn't theirs (the all-users install's own); a text compare can't
+  see it. FindFirst on a path returns the link's own attributes. }
+function OnALinkPath(const Dir: String): Boolean;
+var
+  P, Parent: String;
+  FindRec: TFindRec;
+begin
+  Result := False;
+  P := RemoveBackslashUnlessRoot(ExpandFileName(Dir));
+  while True do begin
+    if FindFirst(P, FindRec) then begin
+      try
+        if FindRec.Attributes and FILE_ATTRIBUTE_REPARSE_POINT <> 0 then begin
+          Result := True;
+          exit;
+        end;
+      finally
+        FindClose(FindRec);
+      end;
+    end;
+    Parent := RemoveBackslashUnlessRoot(ExtractFileDir(P));
+    if (Parent = P) or (Parent = '') then
+      break;
+    P := Parent;
+  end;
+end;
+
 { That user's projects folder: their stored FOODOPT_PROJECTS_DIR (hive
   loaded), else the default the shell uses. }
 function UserProjectsDir(const Sid, Profile: String): String;
@@ -304,18 +333,20 @@ begin
     Result := Profile + '\FoodOptimizer';
 end;
 
-{ Deletes a per-user copy, but never one holding the user's projects (a
-  /DIR at the projects folder) nor this install's own folder (the user
-  can edit InstallLocation). OwnFolder: the default per-user folder, ours
-  by name, goes whole; a /DIR folder loses only the copy's own entries.
-  True when the copy was kept. }
+{ Deletes a per-user copy, but never one reached through a link, nor one
+  holding the user's projects (a /DIR at the projects folder), nor this
+  install's own folder (the user can edit InstallLocation). OwnFolder:
+  the default per-user folder, ours by name, goes whole; a /DIR folder
+  loses only the copy's own entries. True when the copy was kept. }
 function ReplaceCopy(const Dir, Projects: String; const OwnFolder: Boolean): Boolean;
 var
   App: String;
 begin
   Result := True;
   App := ExpandConstant('{app}');
-  if SameOrInside(Projects, Dir) then
+  if OnALinkPath(Dir) then
+    Log('replaced per-user copy: kept ' + Dir + ' (a folder on its path is a link)')
+  else if SameOrInside(Projects, Dir) then
     Log('replaced per-user copy: kept ' + Dir + ' (it holds the projects folder)')
   else if SameOrInside(Dir, App) or SameOrInside(App, Dir) then
     Log('replaced per-user copy: kept ' + Dir + ' (it is this install)')
@@ -359,16 +390,16 @@ begin
     StringChangeEx(Profile, '%SystemDrive%', GetEnv('SystemDrive'), True);
     Loaded := RegKeyExists(HKU, Sid);
     Projects := UserProjectsDir(Sid, Profile);
+    Dir := Profile + '\AppData\Local\Programs\Food Optimizer';
     Kept := False;
     if Loaded and RegQueryStringValue(HKU, Sid + '\' + UninstallKey, 'InstallLocation', Location) and
         (Location <> '') then begin
       Location := RemoveBackslashUnlessRoot(Location);
       if IsOurCopy(Location) then
-        Kept := ReplaceCopy(Location, Projects, False)
+        Kept := ReplaceCopy(Location, Projects, SameOrInside(Location, Dir) and SameOrInside(Dir, Location))
       else
         Log('replaced per-user copy: no copy left in ' + Location);
     end;
-    Dir := Profile + '\AppData\Local\Programs\Food Optimizer';
     if FileExists(Dir + '\FoodOptimizer.exe') then
       if ReplaceCopy(Dir, Projects, True) then
         Kept := True;
