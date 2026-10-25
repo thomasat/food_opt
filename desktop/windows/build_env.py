@@ -15,16 +15,19 @@ Stdlib only. Paths in results are image-relative with "/".
 Each command returns 0, or 1 with each problem on its own stdout line.
 """
 import compileall
+import csv
 import fnmatch
 from collections.abc import Collection
 import hashlib
 import importlib.util
 import os
 import pathlib
+import posixpath
 import py_compile
 import re
 import shutil
 import struct
+import subprocess
 import sys
 
 IMAGE_NAME = "FoodOptimizer"
@@ -227,6 +230,34 @@ def _rule_hits(image, pattern):
     return sorted(hits)
 
 
+def _stripped(rel):
+    """Whether a strip rule removes this image-relative file path (itself, or
+    a folder it is in)."""
+    parts = rel.split("/")
+    for pattern, _reason in STRIP_RULES:
+        if _matches(pattern, rel, False):
+            return True
+        if any(_matches(pattern, "/".join(parts[:i]), True) for i in range(1, len(parts))):
+            return True
+    return False
+
+
+def _drop_stripped_record_lines(image):
+    """Take out of each wheel's RECORD the lines for files strip removed. They
+    describe files the image no longer has, and uv's console-script launchers
+    hash the build folder's path into theirs. Kept lines stay byte for byte."""
+    for record in sorted((image / SITE).glob("*.dist-info/RECORD")):
+        raw = record.read_bytes()
+        kept = []
+        for line in raw.splitlines(keepends=True):
+            fields = next(csv.reader([line.decode("utf-8").rstrip("\r\n")]), [""])
+            rel = posixpath.normpath(f"{SITE}/{fields[0]}") if fields and fields[0] else ""
+            if not (rel and _stripped(rel)):
+                kept.append(line)
+        if len(kept) != len(raw.splitlines()):
+            record.write_bytes(b"".join(kept))
+
+
 def strip(image) -> dict[str, int]:
     image = pathlib.Path(image)
     counts = {}
@@ -239,6 +270,7 @@ def strip(image) -> dict[str, int]:
             else:
                 path.unlink()
         counts[pattern] = len(hits)
+    _drop_stripped_record_lines(image)
     return counts
 
 
@@ -259,10 +291,23 @@ def _exclude_rx():
     return re.compile(COMPILE_EXCLUDE.replace("/", r"[/\\]"))
 
 
-def compile_all(image, workers=0) -> bool:
-    """workers=0 uses every core (the build). Callers inside a long-lived
-    process whose __main__ isn't a plain script (pytest) pass workers=1:
-    spawned workers re-import the parent's __main__."""
+def compile_all(image) -> bool:
+    """Every .py under COMPILE_ROOTS gets an unchecked-hash .pyc whose
+    co_filename starts at the image (FoodOptimizer/...), compiled in one new
+    Python process, one file at a time, in sorted order. marshal writes a
+    string as a back-reference when something else in the process holds it,
+    so the bytes follow what that process compiled before: a worker pool, or
+    a process that did other work first, gives different bytes from run to
+    run. The hash seed is fixed too. (About 25 s slower than a pool.)"""
+    env = {k: v for k, v in os.environ.items() if not k.upper().startswith("PYTHON")}
+    env["PYTHONHASHSEED"] = "0"
+    # -I without -E (which would ignore the seed): -s -P and no PYTHON* vars.
+    r = subprocess.run([sys.executable, "-s", "-P", "-B", str(pathlib.Path(__file__).resolve()),
+                        "_compile", str(image)], env=env)
+    return r.returncode == 0
+
+
+def _compile_here(image) -> bool:
     image = pathlib.Path(image)
     ok = True
     for root in COMPILE_ROOTS:
@@ -270,7 +315,7 @@ def compile_all(image, workers=0) -> bool:
         if not folder.is_dir():
             continue
         ok = compileall.compile_dir(
-            str(folder), quiet=1, force=True, workers=workers, rx=_exclude_rx(),
+            str(folder), quiet=1, force=True, workers=1, rx=_exclude_rx(),
             stripdir=str(image), prependdir=IMAGE_NAME,
             invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH) and ok
     return bool(ok)
@@ -527,6 +572,8 @@ def main(argv=None) -> int:
         for rel in left:
             print(f"strip: {rel}")
         return 1 if left else 0
+    if cmd == "_compile" and len(args) == 1:      # compile_all's own process
+        return 0 if _compile_here(args[0]) else 1
     if cmd == "compile" and len(args) == 1:
         if compile_all(args[0]):
             return 0

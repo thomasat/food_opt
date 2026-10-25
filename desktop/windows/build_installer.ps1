@@ -60,6 +60,13 @@ function Invoke-Native([string]$what, [string]$exe, [string[]]$arguments) {
     return $out
 }
 
+# The whole file as UTF-8, a BOM kept as U+FEFF (ReadAllText would drop it),
+# so the checks below refuse a BOM as build_dmg.sh does.
+function Read-Utf8Exact([string]$path) {
+    $reader = New-Object IO.StreamReader($path, (New-Object Text.UTF8Encoding $false), $false)
+    try { return $reader.ReadToEnd() } finally { $reader.Dispose() }
+}
+
 # ---------- 1. arguments ----------
 if ($Rest -ne $null -and @($Rest).Count -gt 0) { Refuse $USAGE }
 if ($Check -and $TestBuild) { Refuse $USAGE }
@@ -73,11 +80,11 @@ if ($psv.Major -lt 5 -or ($psv.Major -eq 5 -and $psv.Minor -lt 1)) {
 
 # ---------- 3. version ----------
 # One X.Y.Z line. Exactly one trailing LF is taken off; a CR (a file saved
-# with Windows line endings) or anything else fails.
+# with Windows line endings), a BOM or anything else fails.
 $ver = ''
 $versionFile = Join-Path $DesktopDir 'VERSION'
 if (Test-Path -LiteralPath $versionFile -PathType Leaf) {
-    $ver = [IO.File]::ReadAllText($versionFile, (New-Object Text.UTF8Encoding $false))
+    $ver = Read-Utf8Exact $versionFile
     if ($ver.EndsWith("`n")) { $ver = $ver.Substring(0, $ver.Length - 1) }
 }
 if ($ver -cnotmatch '\A[0-9]+\.[0-9]+\.[0-9]+\z') {
@@ -91,7 +98,7 @@ $manifestFile = Join-Path $DesktopDir 'shared\bundle_manifest.txt'
 if (-not (Test-Path -LiteralPath $manifestFile -PathType Leaf)) {
     Refuse 'refusing to build: bundle_manifest.txt is missing'
 }
-$manifestText = [IO.File]::ReadAllText($manifestFile, (New-Object Text.UTF8Encoding $false))
+$manifestText = Read-Utf8Exact $manifestFile
 if ($manifestText.Contains("`r")) {
     Refuse 'refusing to build: bundle_manifest.txt has Windows line endings'
 }
@@ -174,8 +181,16 @@ if (-not $TestBuild) {
 
 # ---------- 7. the image root ----------
 if ($OutDir -eq '') { $OutDir = Join-Path $WindowsDir 'build' }
-$OutDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutDir).TrimEnd('\')
-$Image = Join-Path $OutDir 'FoodOptimizer'
+# A name Windows can't hold (C:\bad|name) would otherwise fail later with a
+# raw error. GetFullPath checks it; a root over the budget is refused below.
+try {
+    $resolved = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutDir).TrimEnd('\')
+    $Image = Join-Path $resolved 'FoodOptimizer'
+    if (($Image + '\').Length -le $ROOT_BUDGET) { [void][IO.Path]::GetFullPath($Image) }
+} catch {
+    Refuse "refusing to build: -OutDir is not a valid path: $OutDir"
+}
+$OutDir = $resolved
 $n = ($Image + '\').Length
 if ($n -gt $ROOT_BUDGET) {
     Refuse "refusing to build: image folder is $n characters; at most 80 (clone to a shorter path)"
@@ -187,7 +202,7 @@ if ($n -gt $ROOT_BUDGET) {
 # files (runtime .dll/.exe/.pdb/.xml, FoodOptimizer.*.json, runtimes\);
 # a project file such as "Round 1.json" is none of these.
 if (Test-Path -LiteralPath $Image) {
-    $earlier = @('python', 'app', 'shared', 'Start Here.txt', 'runtimes')
+    $earlier = @('python', 'app', 'shared', 'Start Here.txt', 'runtimes', '.stage-python')
     $shellFiles = @('*.dll', '*.exe', '*.pdb', '*.xml', 'FoodOptimizer.*.json')
     $foreign = @(Get-ChildItem -LiteralPath $Image -Force | Where-Object {
         $item = $_
@@ -329,12 +344,16 @@ try {
     }
     New-Item -ItemType Directory -Path $Image -Force | Out-Null
 
-    # 2-3. python.org's NuGet package; its tools\ folder is the Python.
+    # 2-3. python.org's NuGet package, the pinned bytes; its tools\ folder is
+    #      the Python. Unpacked inside the image, so the image's 80-character
+    #      budget covers the unpacked paths, however long the clone's path.
     $step = 'python'
     $nupkg = & (Join-Path $WindowsDir 'fetch_pinned.ps1') -Name python -CacheDir $CacheDir
     if ($LASTEXITCODE -ne 0) { throw 'fetch_pinned.ps1 -Name python failed' }
     $nupkg = (@($nupkg) | Select-Object -Last 1).Trim()
-    $stage = Join-Path $CacheDir 'stage-python'
+    $nupkgSha = $Pins.python.sha256.ToLowerInvariant()
+    if ((Get-Sha256 $nupkg) -ne $nupkgSha) { throw 'python package does not match pins.json' }
+    $stage = Join-Path $Image '.stage-python'
     Remove-Tree $stage
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     [System.IO.Compression.ZipFile]::ExtractToDirectory($nupkg, $stage)
@@ -456,16 +475,29 @@ try {
     $step = 'gate'
     $gateValues = Read-Values (Invoke-BuildEnv @('gate', $RepoDir, $Image, '--shell', $Publish))
 
-    # 9. What phase 6 signs: every binary not validly signed by its vendor.
+    # 9. What phase 6 signs: every PE file (by its header, whatever its
+    #    extension) not validly signed by its vendor. An image always holds
+    #    PE files, so finding none means the list is wrong, not empty.
     $step = 'unsigned list'
-    $unsigned = New-Object System.Collections.Generic.List[string]
-    $prefix = $Image.Length + 1
-    # Filtered by extension here: 5.1 ignores an include filter on a literal path.
-    Get-ChildItem -LiteralPath $Image -Recurse -File |
-            Where-Object { @('.exe', '.dll', '.pyd') -contains $_.Extension.ToLowerInvariant() } | ForEach-Object {
-        if ((Get-AuthenticodeSignature -LiteralPath $_.FullName).Status -ne 'Valid') {
-            $unsigned.Add($_.FullName.Substring($prefix).Replace('\', '/'))
+    $peList = [IO.Path]::GetTempFileName()
+    try {
+        $peValues = Read-Values (Invoke-BuildEnv @('pe-files', $Image, $peList))
+        $peCount = 0
+        if (-not $peValues.ContainsKey('pe_files') -or
+                -not [int]::TryParse([string]$peValues['pe_files'], [ref]$peCount) -or $peCount -lt 1) {
+            throw ('build_env.py pe-files found no PE files in ' + $Image)
         }
+        $peFiles = @([IO.File]::ReadAllLines($peList, $Utf8) | Where-Object { $_ -ne '' })
+    } finally {
+        Remove-Item -LiteralPath $peList -Force -ErrorAction SilentlyContinue
+    }
+    if ($peFiles.Count -ne $peCount) {
+        throw ('build_env.py pe-files printed ' + $peCount + ' but listed ' + $peFiles.Count)
+    }
+    $unsigned = New-Object System.Collections.Generic.List[string]
+    foreach ($rel in $peFiles) {
+        $full = Join-Path $Image $rel.Replace('/', '\')
+        if ((Get-AuthenticodeSignature -LiteralPath $full).Status -ne 'Valid') { $unsigned.Add($rel) }
     }
     $sorted = $unsigned.ToArray()
     [Array]::Sort($sorted, [StringComparer]::Ordinal)
@@ -487,7 +519,7 @@ try {
         ('mac_lock_sha256=' + (Get-Sha256 (Join-Path $DesktopDir 'requirements.lock.txt'))),
         ('windows_lock_sha256=' + (Get-Sha256 $lock)),
         ('python_version=' + $Pins.python.version),
-        ('python_nupkg_sha256=' + (Get-Sha256 $nupkg)),
+        "python_nupkg_sha256=$nupkgSha",
         "vc_runtime_version=$vcVersion",
         "vc_redist_sha256=$vcSha",
         "uv_version=$uvVersion",

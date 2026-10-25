@@ -115,6 +115,22 @@ def test_version_file_must_be_x_y_z(release_repo):
         _refused(run_build(release_repo, "-Check"), _REFUSE_VERSION)
 
 
+def test_a_version_file_with_a_bom_is_refused(release_repo):
+    """build_dmg.sh refuses a BOM; so does this script (it reads the BOM as
+    U+FEFF instead of dropping it)."""
+    (release_repo / "desktop" / "VERSION").write_bytes(b"\xef\xbb\xbf0.8.0\n")
+    _retag(release_repo, "version with a BOM")
+    _refused(run_build(release_repo, "-Check"), _REFUSE_VERSION)
+
+
+def test_a_manifest_with_a_bom_is_refused(release_repo):
+    _write_manifest(release_repo, b"\xef\xbb\xbfapp.py\ndata/x/Name with spaces.json\n")
+    _retag(release_repo, "manifest with a BOM")
+    result = run_build(release_repo, "-Check")
+    _refused(result, "refusing to build: listed in bundle_manifest.txt but missing from the repo: ")
+    assert result.stderr.rstrip().endswith("app.py"), result.stderr
+
+
 def test_manifest_with_crlf_is_refused(release_repo):
     _write_manifest(release_repo, b"app.py\r\ndata/x/Name with spaces.json\r\n")
     _retag(release_repo, "manifest saved on Windows")
@@ -163,6 +179,22 @@ def test_a_long_image_root_is_refused(release_repo, short_tmp):
     result = run_build(release_repo, "-Check", "-OutDir", out)
     _refused(result, f"refusing to build: image folder is {90 + len(chr(92) + 'FoodOptimizer' + chr(92))} "
                      "characters; at most 80 (clone to a shorter path)")
+
+
+def test_an_invalid_out_dir_is_refused(release_repo):
+    result = run_build(release_repo, "-Check", "-OutDir", "C:\\bad|name")
+    _refused(result, "refusing to build: -OutDir is not a valid path: C:\\bad|name")
+    for traceback in ("CategoryInfo", "FullyQualifiedErrorId", "Exception calling"):
+        assert traceback not in result.stdout + result.stderr, result.stderr
+
+
+def test_a_tag_on_another_commit_says_check_it_out(release_repo):
+    tagged = _git(release_repo, "rev-parse", "--short", "v0.8.0^{commit}").strip()
+    (release_repo / "app.py").write_bytes(b"print('later')\n")
+    _commit_all(release_repo, "one past the tag")
+    _refused(run_build(release_repo, "-Check"),
+             f"refusing to build: HEAD is not tag v0.8.0 (v0.8.0 is {tagged}: "
+             "check out the tag or bump desktop/VERSION)")
 
 
 def test_a_refused_build_creates_nothing(release_repo):

@@ -24,6 +24,11 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" />
   </ItemGroup>
+  <!-- ReadyToRun would recompile the WebView2 wrappers and drop Microsoft's
+       signature; IT allow-lists by publisher, so they ship as signed. -->
+  <ItemGroup>
+    <PublishReadyToRunExclude Include="Microsoft.Web.WebView2.Core.dll;Microsoft.Web.WebView2.WinForms.dll" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../FoodOptimizer.Core/FoodOptimizer.Core.csproj" />
   </ItemGroup>
