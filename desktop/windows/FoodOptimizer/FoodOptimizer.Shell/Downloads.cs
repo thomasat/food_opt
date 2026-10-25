@@ -36,7 +36,7 @@ sealed class Downloads
             var failed = false;
             try
             {
-                var name = DownloadRules.SuggestedFileName(e.ResultFilePath, File.Exists);
+                var name = DownloadRules.SuggestedFileName(e.ResultFilePath, e.DownloadOperation.ContentDisposition, File.Exists);
                 using var dialog = new SaveFileDialog
                 {
                     FileName = name,
@@ -108,7 +108,9 @@ sealed class Downloads
                         break;
                     }
                     _log.Write("download.failed", op.InterruptReason.ToString());
-                    ShowFailed();
+                    // A modal dialog inside a WebView2 event handler would
+                    // hold WebView2 up; show it once the handler has returned.
+                    _owner.BeginInvoke(ShowFailed);
                     break;
             }
         };

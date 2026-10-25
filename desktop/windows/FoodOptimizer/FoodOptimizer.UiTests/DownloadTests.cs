@@ -162,6 +162,52 @@ public class DownloadTests
     }
 
     [Fact]
+    public void A_file_really_named_with_a_number_keeps_it()
+    {
+        // WebView2 proposes names in the real Downloads folder. With probe.csv
+        // there, the old rule took the server's "probe (2).csv" for a number
+        // WebView2 added. Only the files this test creates are removed after.
+        var downloads = FoodOptimizer.Core.Windows.WinShell.DownloadsFolder();
+        Assert.False(string.IsNullOrEmpty(downloads), "no Downloads folder");
+        var plain = Path.Combine(downloads!, "probe.csv");
+        var numbered = Path.Combine(downloads!, "probe (2).csv");
+        Assert.False(File.Exists(numbered), numbered + " is already there; move it away to run this test");
+        var before = new HashSet<string>(Directory.GetFiles(downloads!), StringComparer.OrdinalIgnoreCase);
+        var madePlain = !File.Exists(plain);
+        if (madePlain) File.WriteAllText(plain, Csv);
+        try
+        {
+            var (app, _) = Loaded();
+            using var _app = app;
+            Uia.Invoke(app.WaitFor(ControlType.Button, "Download a numbered CSV", Ten));
+            var dialog = WaitForWindow(app, "Save As");
+            // Explorer may hide known extensions in the box.
+            Assert.Contains(Uia.Value(FileNameBox(dialog)), new[] { "probe (2).csv", "probe (2)" });
+            Press(dialog, "Cancel");
+            Assert.True(Uia.WaitUntil(() => app.Log().Any(l => l.Contains("download.cancelled")), Ten), string.Join("\n", app.Log()));
+        }
+        finally
+        {
+            // WebView2 downloads into "<guid>.tmp" beside the proposal while
+            // the dialog is open; a test that fails there leaves it behind,
+            // still held for a moment by the closing web view.
+            var made = Directory.GetFiles(downloads!).Where(f => !before.Contains(f) && (f.Equals(numbered, StringComparison.OrdinalIgnoreCase)
+                || f.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".crdownload", StringComparison.OrdinalIgnoreCase)));
+            if (madePlain) made = made.Append(plain);
+            var left = made.ToList();
+            Uia.WaitUntil(() =>
+            {
+                left.RemoveAll(f =>
+                {
+                    try { File.Delete(f); return true; }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return false; }
+                });
+                return left.Count == 0;
+            }, Ten);
+        }
+    }
+
+    [Fact]
     public void Upload_picks_several_files()
     {
         var (app, saved) = Loaded();

@@ -6,6 +6,7 @@ import streamlit as st
 
 st.text_input("Type here")
 st.download_button("Download a CSV", "a,b\n1,2\n", file_name="probe.csv")
+st.download_button("Download a numbered CSV", "a,b\n3,4\n", file_name="probe (2).csv")
 files = st.file_uploader("Upload files", accept_multiple_files=True)
 names = [f.name for f in files or []]
 st.write("uploaded: " + ", ".join(sorted(names)))

@@ -16,14 +16,10 @@ public class DownloadRulesTests
     [Fact]
     public void Suggested_name_is_the_file_name()
     {
-        Assert.Equal("Round 6 sheet.xlsx", DownloadRules.SuggestedFileName(@"C:\x\Round 6 sheet.xlsx"));
-        Assert.Equal("probe.csv", DownloadRules.SuggestedFileName("probe.csv"));
-        Assert.Equal("download", DownloadRules.SuggestedFileName(""));
-        Assert.Equal("download", DownloadRules.SuggestedFileName(@"C:\x\"));
-        Assert.Equal("Round 6 sheet.xlsx", DownloadRules.SuggestedFileName(@"C:\x\Round 6 sheet.xlsx", contentDisposition: null));
-        Assert.Equal("probe.csv", DownloadRules.SuggestedFileName("probe.csv", contentDisposition: null));
-        Assert.Equal("download", DownloadRules.SuggestedFileName("", contentDisposition: null));
-        Assert.Equal("download", DownloadRules.SuggestedFileName(@"C:\x\", contentDisposition: null));
+        Assert.Equal("Round 6 sheet.xlsx", DownloadRules.SuggestedFileName(@"C:\x\Round 6 sheet.xlsx", null));
+        Assert.Equal("probe.csv", DownloadRules.SuggestedFileName("probe.csv", null));
+        Assert.Equal("download", DownloadRules.SuggestedFileName("", null));
+        Assert.Equal("download", DownloadRules.SuggestedFileName(@"C:\x\", null));
     }
 
     [Fact]
@@ -32,10 +28,6 @@ public class DownloadRulesTests
         // WebView2 numbers the proposal when the name is taken in Downloads;
         // the dialog offers the server's name, and the user may replace it.
         var taken = new HashSet<string> { Path.Combine("D", "probe.csv"), Path.Combine("D", "Round 6 sheet.xlsx") };
-        Assert.Equal("probe.csv", DownloadRules.SuggestedFileName(Path.Combine("D", "probe (4).csv"), taken.Contains));
-        Assert.Equal("Round 6 sheet.xlsx", DownloadRules.SuggestedFileName(Path.Combine("D", "Round 6 sheet (1).xlsx"), taken.Contains));
-        Assert.Equal("notes (2).csv", DownloadRules.SuggestedFileName(Path.Combine("D", "notes (2).csv"), taken.Contains));
-        Assert.Equal("probe (x).csv", DownloadRules.SuggestedFileName(Path.Combine("D", "probe (x).csv"), taken.Contains));
         Assert.Equal("probe.csv", DownloadRules.SuggestedFileName(Path.Combine("D", "probe (4).csv"), null, taken.Contains));
         Assert.Equal("Round 6 sheet.xlsx", DownloadRules.SuggestedFileName(Path.Combine("D", "Round 6 sheet (1).xlsx"), null, taken.Contains));
         Assert.Equal("notes (2).csv", DownloadRules.SuggestedFileName(Path.Combine("D", "notes (2).csv"), null, taken.Contains));

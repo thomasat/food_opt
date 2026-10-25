@@ -7,12 +7,15 @@ public static partial class DownloadRules
 {
     const string Fallback = "download";
 
-    /// <summary>The file name WebView2 proposed, without its folder. When
-    /// WebView2 numbered it because the name was taken in its folder
-    /// ("probe (4).csv" beside "probe.csv"), the number is dropped: the
-    /// Save dialog offers the app's own name and asks before replacing.</summary>
-    public static string SuggestedFileName(string resultFilePath, Func<string, bool>? exists = null)
+    /// <summary>The name the server gave in Content-Disposition; a name the
+    /// server gave is kept as is, even when it ends in " (2)". Without one,
+    /// the file name WebView2 proposed, without its folder. When WebView2
+    /// numbered it because the name was taken in its folder ("probe (4).csv"
+    /// beside "probe.csv"), the number is dropped: the Save dialog offers the
+    /// app's own name and asks before replacing.</summary>
+    public static string SuggestedFileName(string resultFilePath, string? contentDisposition, Func<string, bool>? exists = null)
     {
+        if (DispositionFileName(contentDisposition) is { } given) return given;
         var cut = resultFilePath.LastIndexOfAny(['\\', '/']);
         var name = cut >= 0 ? resultFilePath[(cut + 1)..] : resultFilePath;
         if (name.Length == 0) return Fallback;
@@ -23,12 +26,6 @@ public static partial class DownloadRules
         }
         return name;
     }
-
-    /// <summary>The name the server gave in Content-Disposition, else the
-    /// <see cref="SuggestedFileName(string, Func{string, bool}?)"/> rule. A
-    /// name the server gave is kept as is, even when it ends in " (2)".</summary>
-    public static string SuggestedFileName(string resultFilePath, string? contentDisposition, Func<string, bool>? exists = null) =>
-        DispositionFileName(contentDisposition) ?? SuggestedFileName(resultFilePath, exists);
 
     /// <summary>The file name in a Content-Disposition header: filename*
     /// (RFC 5987, percent-decoded) when it is valid, else filename (quoted or
