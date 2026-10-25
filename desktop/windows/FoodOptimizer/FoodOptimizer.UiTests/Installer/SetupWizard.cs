@@ -147,29 +147,55 @@ public sealed class SetupWizard : IDisposable
     public AutomationElement WaitForDialog(string textContains, TimeSpan t)
     {
         AutomationElement? found = null;
-        bool Match()
+        if (!Uia.WaitUntil(() => (found = FindDialog(textContains)) != null, t, 250))
+            throw new Xunit.Sdk.XunitException($"no installer dialog saying '{textContains}' within {t.TotalSeconds:0} s");
+        return found!;
+    }
+
+    /// <summary>The dialog WaitForDialog waits for, if it is open now
+    /// (its texts kept in Seen), else null.</summary>
+    public AutomationElement? FindDialog(string textContains)
+    {
+        var main = FindWindow();
+        // UI Automation lists a dialog the wizard owns under the wizard.
+        var candidates = AutomationElement.RootElement.FindAll(TreeScope.Children, Condition.TrueCondition)
+            .Cast<AutomationElement>()
+            .Where(w => main == null || w.Current.NativeWindowHandle != main.Current.NativeWindowHandle)
+            .ToList();
+        if (main != null)
+            candidates.AddRange(main.FindAll(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Window)).Cast<AutomationElement>());
+        foreach (var w in candidates)
         {
-            var main = FindWindow();
-            // UI Automation lists a dialog the wizard owns under the wizard.
-            var candidates = AutomationElement.RootElement.FindAll(TreeScope.Children, Condition.TrueCondition)
-                .Cast<AutomationElement>()
-                .Where(w => main == null || w.Current.NativeWindowHandle != main.Current.NativeWindowHandle)
-                .ToList();
-            if (main != null)
-                candidates.AddRange(main.FindAll(TreeScope.Descendants,
-                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Window)).Cast<AutomationElement>());
-            foreach (var w in candidates)
+            try
             {
                 var texts = w.FindAll(TreeScope.Descendants, Condition.TrueCondition).Cast<AutomationElement>().Select(Uia.NameOf);
-                if (texts.Any(x => x.Contains(textContains, StringComparison.Ordinal))) { found = w; return true; }
+                if (!texts.Any(x => x.Contains(textContains, StringComparison.Ordinal))) continue;
+                Note(w);
+                Seen.Add(Uia.NameOf(w));
+                return w;
             }
-            return false;
+            catch (ElementNotAvailableException) { }
         }
-        if (!Uia.WaitUntil(Match, t, 250))
-            throw new Xunit.Sdk.XunitException($"no installer dialog saying '{textContains}' within {t.TotalSeconds:0} s");
-        Note(found!);
-        Seen.Add(Uia.NameOf(found!));
-        return found!;
+        return null;
+    }
+
+    /// <summary>The texts of the open top-level windows of a class (the
+    /// uninstaller's TUninstallProgressForm), also kept in Seen.</summary>
+    public IReadOnlyList<string> TextsOf(string className)
+    {
+        var names = new List<string>();
+        foreach (var w in AutomationElement.RootElement.FindAll(TreeScope.Children, Condition.TrueCondition).Cast<AutomationElement>())
+        {
+            try
+            {
+                if (Uia.SafeClass(w) != className) continue;
+                Seen.Add(Uia.NameOf(w));
+                names.AddRange(Note(w));
+            }
+            catch (ElementNotAvailableException) { }
+        }
+        return names;
     }
 
     public async Task<int> WaitForExitAsync(TimeSpan timeout)
@@ -223,18 +249,24 @@ public sealed class SetupWizard : IDisposable
     public static readonly string[] Buttons = ["Next", "Install", "Cancel", "Back", "Finish", "OK", "Yes", "No"];
 
     /// <summary>Every text the installer may show: our messages with their
-    /// placeholders filled, one entry per paragraph, plus Inno's buttons.</summary>
+    /// placeholders filled, one entry per paragraph, plus Inno's buttons.
+    /// SetupAppRunningError also names the installer (SetupAppTitle) when
+    /// a second copy starts.</summary>
     public static IReadOnlySet<string> AllowedTexts(string version)
     {
         var isl = ParseIsl(Path.Combine(Repo(), "desktop", "windows", "installer_messages.isl"));
         var allowed = new HashSet<string>(Buttons, StringComparer.Ordinal);
+        void Add(string value, string arg)
+        {
+            var text = value.Replace("&", "").Replace("[name]", "Food Optimizer").Replace("[ver]", version)
+                .Replace("%1", arg);
+            foreach (var para in text.Split("%n%n")) allowed.Add(para.Replace("%n", " ").Trim());
+        }
         foreach (var section in isl.Values)
             foreach (var value in section.Values)
-            {
-                var text = value.Replace("&", "").Replace("[name]", "Food Optimizer").Replace("[ver]", version)
-                    .Replace("%1", "Food Optimizer");
-                foreach (var para in text.Split("%n%n")) allowed.Add(para.Replace("%n", " ").Trim());
-            }
+                Add(value, "Food Optimizer");
+        var messages = isl["Messages"];
+        Add(messages["SetupAppRunningError"], messages["SetupAppTitle"]);
         return allowed;
     }
 

@@ -276,6 +276,89 @@ public class InstallerUiTests
         }
     }
 
+    [Fact]
+    public async Task Uninstall_while_the_app_runs_asks_to_close_it_first()
+    {
+        var run = InstallerRun.Fresh("uninsrun");
+        var env = InstallerRun.Env(run);
+        try
+        {
+            InstallerRun.SilentInstall(run);
+            var title = InstallerRun.AppTitle(run.Stage);
+            using var app = ShellApp.Launch(run);
+            Assert.True(Uia.WaitUntil(() => InstallerRun.ShowsDocument(app.Window, title), TimeSpan.FromSeconds(300), 1000));
+
+            var info = new ProcessStartInfo(Path.Combine(run.Stage, "unins000.exe")) { UseShellExecute = false };
+            foreach (var (k, v) in env) info.Environment[k] = v;
+            using var unins = Process.Start(info)!;
+            using var w = new UninstallWatch(unins);
+            var confirm = w.Wizard.WaitForDialog("Uninstall Food Optimizer? Your projects are kept.", TimeSpan.FromSeconds(60));
+            w.Wizard.Click(confirm, "Yes");
+            var d = w.Wizard.WaitForDialog("Close Food Optimizer, then click OK.", TimeSpan.FromSeconds(60));
+            app.Close();
+            Assert.True(await app.WaitForExitAsync(TimeSpan.FromSeconds(10)));
+            Assert.True(Uia.WaitUntil(() => app.StagePythons().Count == 0, TimeSpan.FromSeconds(10)));
+            w.Wizard.Click(d, "OK");
+            // The progress window is read until the last dialog opens.
+            var progress = new HashSet<string>();
+            AutomationElement? done = null;
+            Assert.True(Uia.WaitUntil(() =>
+            {
+                progress.UnionWith(w.Wizard.TextsOf("TUninstallProgressForm"));
+                return (done = w.Wizard.FindDialog("under FoodOptimizer")) != null;
+            }, TimeSpan.FromSeconds(600), 250), "no dialog saying 'under FoodOptimizer' within 600 s");
+            Assert.Contains("Uninstalling", progress);
+            w.Wizard.Click(done!, "OK");
+            Assert.True(Uia.WaitUntil(() => !Directory.Exists(run.Stage), TimeSpan.FromSeconds(60), 500));
+            Assert.Empty(w.Wizard.NotAllowed(Version, run.Stage));
+            Uia.Record("uninstall_progress_texts", string.Join(" | ", progress));
+        }
+        finally
+        {
+            InstallerRun.SilentUninstall(run.Stage, env);
+        }
+    }
+
+    /// <summary>Inno 6.7 answers a second copy with SetupAppRunningError
+    /// naming the installer (SetupAppTitle), an OK/Cancel loop while the
+    /// first stays open (Cancel exits 1); SetupAlreadyRunning is never shown.</summary>
+    [Fact]
+    public async Task A_second_installer_says_one_is_already_open()
+    {
+        var run = InstallerRun.Fresh("second");
+        var env = InstallerRun.Env(run);
+        try
+        {
+            using var first = SetupWizard.Start(SetupWizard.Installer, "\"/DIR=" + run.Stage + "\"", env);
+            Assert.True(Uia.WaitUntil(() => first.Heading() == "Install Food Optimizer", TimeSpan.FromSeconds(60)), first.Heading());
+            var firstPid = first.Window.Current.ProcessId;
+
+            using var second = SetupWizard.Start(SetupWizard.Installer, "\"/DIR=" + run.Stage + "\"", env);
+            const string open = "Close Food Optimizer Setup, then click OK.";
+            var d = second.WaitForDialog(open, TimeSpan.FromSeconds(60));
+            Assert.NotEqual(firstPid, d.Current.ProcessId);
+            second.Click(d, "OK");
+            Thread.Sleep(1500);
+            d = second.WaitForDialog(open, TimeSpan.FromSeconds(30));
+            second.Click(d, "Cancel");
+            var code = await second.WaitForExitAsync(TimeSpan.FromSeconds(60));
+            Assert.Equal(1, code);
+
+            Assert.Equal("Install Food Optimizer", first.Heading());
+            first.Click("Cancel");
+            var stop = first.WaitForDialog("Food Optimizer is not installed yet. Stop installing?", TimeSpan.FromSeconds(30));
+            first.Click(stop, "Yes");
+            Assert.Equal(2, await first.WaitForExitAsync(TimeSpan.FromSeconds(60)));
+            Assert.Empty(first.NotAllowed(Version, run.Stage));
+            Assert.Empty(second.NotAllowed(Version, run.Stage));
+            Assert.False(Directory.Exists(run.Stage));
+        }
+        finally
+        {
+            InstallerRun.SilentUninstall(run.Stage, env);
+        }
+    }
+
     /// <summary>The uninstaller's dialogs, read like the wizard's.</summary>
     sealed class UninstallWatch(Process unins) : IDisposable
     {
