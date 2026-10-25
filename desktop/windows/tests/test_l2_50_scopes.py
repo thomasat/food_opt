@@ -5,6 +5,7 @@ over the 80-character budget is refused (Review Focus 5). Every test starts
 from a clean machine and uninstalls what it installed."""
 import os
 import pathlib
+import subprocess
 
 import pytest
 
@@ -150,6 +151,29 @@ def test_an_it_install_leaves_a_folder_that_is_no_longer_a_copy(installer, l2_ho
     assert result.rc == 0, result.log[-3000:]
     assert mine.read_bytes() == b"mine", result.log[-3000:]
     assert f"replaced per-user copy: deleted {folder}" not in result.log
+    assert keep.read_bytes() == b"\x80\x04keep"
+
+
+def test_an_it_install_keeps_the_users_own_files_in_a_dir_copy(installer, l2_home, cleanup):
+    """Final review: the user's /DIR folder holds a file of theirs beside
+    the copy. The IT install deletes the copy's own entries and keeps the
+    folder with that file. A junction inside the copy is removed, never
+    followed: the folder it points at keeps its file."""
+    folder, keep = _custom_dir_copy(installer, l2_home)
+    other = folder / "Other.txt"
+    other.write_bytes(b"other")
+    target = l2_home.base / "Linked"
+    target.mkdir()
+    (target / "Linked.txt").write_bytes(b"linked")
+    subprocess.run(["cmd", "/c", "mklink", "/J", str(folder / "app" / "Linked"), str(target)],
+                   check=True, capture_output=True)
+    result = l2.install(installer, "system", all_users=True)
+    assert result.rc == 0, result.log[-3000:]
+    assert other.read_bytes() == b"other", result.log[-3000:]
+    assert sorted(p.name for p in folder.iterdir()) == ["Other.txt"], result.log[-3000:]
+    assert f"replaced per-user copy: kept {folder} (it holds other files)" in result.log, result.log[-3000:]
+    assert (target / "Linked.txt").read_bytes() == b"linked"
+    assert l2.uninstall_entry("user") is None
     assert keep.read_bytes() == b"\x80\x04keep"
 
 

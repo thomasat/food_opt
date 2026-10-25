@@ -146,14 +146,15 @@ begin
   Result := EnvOr('FOODOPT_STATE_DIR', ExpandConstant('{localappdata}') + '\FoodOptimizer');
 end;
 
-{ Whether Inner is Outer or a folder inside it, whatever the case and
-  with or without a trailing backslash. }
+{ Whether Inner is Outer or a folder inside it, whatever the case, with
+  or without a trailing backslash, and however written: ExpandFileName
+  (GetFullPathName) folds doubled backslashes, "." and ".." and "/". }
 function SameOrInside(const Inner, Outer: String): Boolean;
 var
   I, O: String;
 begin
-  I := AnsiLowercase(RemoveBackslashUnlessRoot(Inner));
-  O := AnsiLowercase(RemoveBackslashUnlessRoot(Outer));
+  I := AnsiLowercase(RemoveBackslashUnlessRoot(ExpandFileName(Inner)));
+  O := AnsiLowercase(RemoveBackslashUnlessRoot(ExpandFileName(Outer)));
   Result := (I = O) or (Pos(AddBackslash(O), I) = 1);
 end;
 
@@ -220,6 +221,79 @@ begin
     Log('replaced per-user copy: could not delete ' + Dir);
 end;
 
+{ Whether a folder holds anything at all. }
+function DirHasEntries(const Dir: String): Boolean;
+var
+  FindRec: TFindRec;
+begin
+  Result := False;
+  if FindFirst(AddBackslash(Dir) + '*', FindRec) then begin
+    try
+      repeat
+        if (FindRec.Name <> '.') and (FindRec.Name <> '..') then begin
+          Result := True;
+          exit;
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+end;
+
+procedure AddName(var Names: TArrayOfString; const Name: String);
+var
+  N: Integer;
+begin
+  N := GetArrayLength(Names);
+  SetArrayLength(Names, N + 1);
+  Names[N] := Name;
+end;
+
+{ Every top-level entry of the image, the folder [Files] copies: listed
+  from ImageDir when the installer is compiled, so it can't drift. }
+function ImageEntries: TArrayOfString;
+begin
+#define EntryHandle
+#define EntryFound
+#sub AddImageEntry
+  #define EntryName FindGetFileName(EntryHandle)
+  #if EntryName != "." && EntryName != ".."
+  AddName(Result, '{#StringChange(EntryName, "'", "''")}');
+  #endif
+#endsub
+#for {EntryHandle = EntryFound = FindFirst(AddBackslash(ImageDir) + "*", faAnyFile); EntryFound; EntryFound = FindNext(EntryHandle)} AddImageEntry
+#if EntryHandle
+  #expr FindClose(EntryHandle)
+#endif
+end;
+
+{ A /DIR copy's folder may also hold the user's own files: only the
+  copy's entries go (the image's, the root DLLs that an upgrade's
+  InstallDelete clears, as an older copy may have others, and the
+  uninstaller's), then the folder if nothing else is left. DelTree with
+  IsDir False deletes the named files or folders; it removes a junction
+  or link itself and never what it points at (it recurses only into
+  folders that are not reparse points). }
+procedure DeleteCopyEntries(const Dir: String);
+var
+  Names: TArrayOfString;
+  I: Integer;
+begin
+  Names := ImageEntries;
+  AddName(Names, '*.dll');
+  AddName(Names, 'unins000.*');
+  for I := 0 to GetArrayLength(Names) - 1 do
+    if not DelTree(AddBackslash(Dir) + Names[I], False, True, True) then
+      Log('replaced per-user copy: could not delete ' + AddBackslash(Dir) + Names[I]);
+  if RemoveDir(Dir) then
+    Log('replaced per-user copy: deleted ' + Dir)
+  else if DirHasEntries(Dir) then
+    Log('replaced per-user copy: kept ' + Dir + ' (it holds other files)')
+  else
+    Log('replaced per-user copy: could not delete ' + Dir);
+end;
+
 { That user's projects folder: their stored FOODOPT_PROJECTS_DIR (hive
   loaded), else the default the shell uses. }
 function UserProjectsDir(const Sid, Profile: String): String;
@@ -232,8 +306,10 @@ end;
 
 { Deletes a per-user copy, but never one holding the user's projects (a
   /DIR at the projects folder) nor this install's own folder (the user
-  can edit InstallLocation). True when the copy was kept. }
-function ReplaceCopy(const Dir, Projects: String): Boolean;
+  can edit InstallLocation). OwnFolder: the default per-user folder, ours
+  by name, goes whole; a /DIR folder loses only the copy's own entries.
+  True when the copy was kept. }
+function ReplaceCopy(const Dir, Projects: String; const OwnFolder: Boolean): Boolean;
 var
   App: String;
 begin
@@ -244,7 +320,10 @@ begin
   else if SameOrInside(Dir, App) or SameOrInside(App, Dir) then
     Log('replaced per-user copy: kept ' + Dir + ' (it is this install)')
   else begin
-    DeleteCopy(Dir);
+    if OwnFolder then
+      DeleteCopy(Dir)
+    else
+      DeleteCopyEntries(Dir);
     Result := False;
   end;
 end;
@@ -253,11 +332,11 @@ end;
   all-users install can't coexist (spec section 5). It runs once the
   all-users copy is in place, so a cancelled or failed IT install leaves
   the user's copy alone. A copy installed with /DIR is found through the
-  user's uninstall entry, and deleted only while it still holds Food
-  Optimizer. Never touches projects or state: a copy holding the projects
-  folder is kept, with its Apps entry, for the user's own uninstaller
-  (which keeps projects). A user whose hive isn't loaded keeps an orphan
-  Apps entry and any /DIR copy. }
+  user's uninstall entry, and loses only its own entries, only while it
+  still holds Food Optimizer. Never touches projects or state: a copy
+  holding the projects folder is kept, with its Apps entry, for the
+  user's own uninstaller (which keeps projects). A user whose hive isn't
+  loaded keeps an orphan Apps entry and any /DIR copy. }
 procedure ReplacePerUserCopies;
 var
   Sids: TArrayOfString;
@@ -285,13 +364,13 @@ begin
         (Location <> '') then begin
       Location := RemoveBackslashUnlessRoot(Location);
       if IsOurCopy(Location) then
-        Kept := ReplaceCopy(Location, Projects)
+        Kept := ReplaceCopy(Location, Projects, False)
       else
         Log('replaced per-user copy: no copy left in ' + Location);
     end;
     Dir := Profile + '\AppData\Local\Programs\Food Optimizer';
     if FileExists(Dir + '\FoodOptimizer.exe') then
-      if ReplaceCopy(Dir, Projects) then
+      if ReplaceCopy(Dir, Projects, True) then
         Kept := True;
     Programs := UserShellFolder(Sid, 'Programs', Profile, Profile + '\AppData\Roaming\Microsoft\Windows\Start Menu\Programs');
     DeleteLogged(Programs + '\Food Optimizer.lnk');
@@ -302,26 +381,6 @@ begin
         Log('replaced per-user copy: deleted the uninstall entry of ' + Sid)
       else
         Log('replaced per-user copy: could not delete the uninstall entry of ' + Sid);
-    end;
-  end;
-end;
-
-{ Whether a folder holds anything at all. }
-function DirHasEntries(const Dir: String): Boolean;
-var
-  FindRec: TFindRec;
-begin
-  Result := False;
-  if FindFirst(AddBackslash(Dir) + '*', FindRec) then begin
-    try
-      repeat
-        if (FindRec.Name <> '.') and (FindRec.Name <> '..') then begin
-          Result := True;
-          exit;
-        end;
-      until not FindNext(FindRec);
-    finally
-      FindClose(FindRec);
     end;
   end;
 end;

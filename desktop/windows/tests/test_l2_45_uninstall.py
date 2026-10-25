@@ -56,10 +56,12 @@ def _uninstall_keeps_projects(installer, home, state):
     assert KEPT in log, log[-3000:]
 
 
-@pytest.mark.parametrize("written", ["same", "case", "slash"])
+@pytest.mark.parametrize("written", ["same", "case", "slash", "double", "dots"])
 def test_state_dir_equal_to_projects_is_kept(installer, clean_machine, l2_home, written):
     projects = str(l2_home.projects)
-    state = {"same": projects, "case": projects.upper(), "slash": projects + "\\"}[written]
+    parent, name = str(l2_home.projects.parent), l2_home.projects.name
+    state = {"same": projects, "case": projects.upper(), "slash": projects + "\\",
+             "double": parent + "\\\\" + name, "dots": parent + "\\.\\" + name}[written]
     _uninstall_keeps_projects(installer, l2_home, state)
 
 
