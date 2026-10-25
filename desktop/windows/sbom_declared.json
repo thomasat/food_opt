@@ -1,0 +1,71 @@
+{
+ "components": [
+  {
+   "ref": "generic:cpython",
+   "name": "CPython (python.org NuGet package)",
+   "type": "platform",
+   "version_from": "pins:python.version",
+   "licence": "PSF-2.0",
+   "evidence": {"file": "python/LICENSE.txt", "contains": "PYTHON SOFTWARE FOUNDATION LICENSE VERSION 2"}
+  },
+  {
+   "ref": "generic:vc-runtime",
+   "name": "Microsoft Visual C++ Redistributable (app-local)",
+   "type": "platform",
+   "version_from": "pins:vc_runtime.version",
+   "licence": "LicenseRef-Microsoft-Visual-Cpp-Redistributable",
+   "evidence": {"files": ["python/msvcp140.dll", "python/msvcp140_1.dll", "python/msvcp140_2.dll",
+                          "python/msvcp140_atomic_wait.dll", "python/msvcp140_codecvt_ids.dll",
+                          "python/vcruntime140.dll", "python/vcruntime140_1.dll"]}
+  },
+  {
+   "ref": "generic:openssl",
+   "name": "OpenSSL (inside CPython)",
+   "type": "library",
+   "version_from": "runtime:OpenSSL",
+   "licence": "Apache-2.0",
+   "evidence": {"files": ["python/DLLs/libcrypto-3.dll", "python/DLLs/libssl-3.dll"]}
+  },
+  {
+   "ref": "generic:sqlite",
+   "name": "SQLite (inside CPython)",
+   "type": "library",
+   "version_from": "runtime:SQLite",
+   "licence": "blessing",
+   "evidence": {"files": ["python/DLLs/sqlite3.dll"]}
+  },
+  {
+   "ref": "generic:zlib",
+   "name": "zlib (inside CPython)",
+   "type": "library",
+   "version_from": "runtime:zlib",
+   "licence": "Zlib",
+   "evidence": {"files": ["python/python313.dll"]}
+  },
+  {
+   "ref": "generic:expat",
+   "name": "Expat (inside CPython)",
+   "type": "library",
+   "version_from": "runtime:Expat",
+   "licence": "MIT",
+   "evidence": {"files": ["python/DLLs/pyexpat.pyd"]}
+  },
+  {
+   "ref": "generic:libiomp5md",
+   "name": "libiomp5md.dll (Intel OpenMP runtime, shipped in the torch wheel)",
+   "type": "file",
+   "version_from": "dist:torch",
+   "licence": "Intel OpenMP runtime licence (not stated in the torch wheel)",
+   "evidence": {"file": "python/Lib/site-packages/torch/lib/libiomp5md.dll"}
+  },
+  {
+   "ref": "generic:inno-setup",
+   "name": "Inno Setup (the installer and uninstaller stub)",
+   "type": "application",
+   "version_from": "arg:inno",
+   "licence": "LicenseRef-Inno-Setup",
+   "evidence": {"files": []}
+  }
+ ],
+ "licence_overrides": {}
+}

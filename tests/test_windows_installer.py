@@ -412,6 +412,15 @@ def test_release_record_keys_follow_the_image_record():
             "size_gate", "signed"]
     for key in tail + ["dotnet_sdk", "shell_files"]:
         assert key in keys, key
+    # Phase 6: the SBOM and the per-file list beside the installer, each
+    # with its hash, in the release record before 'signed=no'.
+    block = text[text.index("Write-Lf $InstallerRecord"):]
+    block = block[:block.index("))")]
+    sbom_keys = ["files_list_sha256", "sbom_sha256", "sbom_components", "sbom_gpl_licensed",
+                 "sbom_gpl_mentions"]
+    for key in sbom_keys:
+        assert key in keys, key
+        assert block.index("installer_sha256=") < block.index(key + "=") < block.index("'signed=no'"), key
 
 
 def test_a_rebuild_over_an_image_with_the_shell_is_allowed():
@@ -558,8 +567,20 @@ def test_a_failed_build_leaves_no_installer_or_record():
     text = BUILD.read_text(encoding="ascii")
     catch = text[text.rindex("} catch {"):]
     catch = catch[:catch.index("\n}\n")]
-    for name in ("$Record", "$Installer", "$InstallerRecord"):
+    for name in ("$Record", "$Installer", "$InstallerRecord", "$FilesOut", "$SbomOut"):
         assert name in catch, name
+
+
+def test_build_writes_the_sbom_and_file_list():
+    """Phase 6: <dist> gets <name>.files.txt (a byte copy of the per-file
+    list) and <name>.cdx.json (sbom.py build, under the image's Python with
+    -I so the script folder stays off sys.path)."""
+    text = BUILD.read_text(encoding="ascii")
+    for needle in ("sbom.py", "'build'", "'--unsigned'", "'--inno'", ".files.txt'", ".cdx.json'"):
+        assert needle in text, needle
+    line = next(l for l in text.splitlines() if "Invoke-Native 'sbom'" in l)
+    assert line.index("'-I'") < line.index("sbom.py"), line
+    assert text.index("$step = 'size gate'") < text.index("$step = 'sbom'") < text.index("$step = 'release record'")
 
 
 def test_every_inno_exit_code_is_documented():

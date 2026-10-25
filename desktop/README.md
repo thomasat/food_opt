@@ -97,26 +97,35 @@ both locks it writes:
   `EXPECTED_SETUP_MB` in `launcher.sh` and update `MAC_LOCK_SHA256` in
   `tests/test_locks.py`.
 
-## Publishing a release (the download link you send people)
+## Publishing a release (Mac and Windows together)
 
 Releases are published as **GitHub Releases** — each version gets a
-permanent download URL. Never commit dmg files to the repo.
+permanent download URL. Never commit dmg or exe files to the repo.
 
-The ritual for version X.Y.Z (Mac half):
+Mac and Windows ship together, from one tag. ⚠ marks a step that a test or
+a tool guards; skipping it can publish the wrong file. The ritual for
+version X.Y.Z:
 
-1. Only if `requirements.txt` changed since the last release: run
-   `./desktop/update_lock.sh` and commit the result.
-2. Release PR (true merge): bump `desktop/VERSION`, the README download
-   links, and write `desktop/release_notes/X.Y.Z.md`, the text of the
-   release page. The tests check all three agree.
-3. Tag first; the build comes from the tag:
+1. Ahead of time: Food System Innovations' Artifact Signing validation is
+   done (the Windows build is signed with it).
+2. Only if `requirements.txt` changed since the last release: run
+   `./desktop/update_lock.sh` (it rewrites the Mac lock only when packages
+   changed) and commit the result. Then re-measure `EXPECTED_SETUP_MB` in
+   `launcher.sh`, `desktop/windows/size_gate.json` and the disk figures in
+   both Start Here files and both READMEs.
+3. ⚠ Release PR (true merge): bump `desktop/VERSION`, the download links
+   in `README.md` and `windows/download_email.md`, and write
+   `desktop/release_notes/X.Y.Z.md`, the release page.
+   `tests/test_release_guards.py` checks that they all agree, and fails at
+   the tag while any `PENDING(` is left in a text that is sent.
+4. ⚠ Tag first; both builds come from the tag:
 
    ```bash
    git tag -a vX.Y.Z <sha>
    git push origin vX.Y.Z
    ```
 
-4. Build and verify in a clean worktree at the tag, signing set up:
+5. Mac: build and verify in a clean worktree at the tag, signing set up:
 
    ```bash
    git worktree add ../food_opt-vX.Y.Z vX.Y.Z
@@ -127,39 +136,75 @@ The ritual for version X.Y.Z (Mac half):
    ./desktop/test_e2e.sh             # must end "0 failed"
    ```
 
-   ...plus the manual checklist below before sending to real recipients.
-5. Draft the release, then compare GitHub's asset digest with `dmg_sha256`
-   in `desktop/dist/FoodOptimizer-X.Y.Z.build.txt`:
+   ...plus the Mac manual checklist below.
+6. Windows: in the build VM, follow `windows/README.md`, "Release (Windows
+   half)": a VM-local clone at the tag, the signed build, pytest, Level 2,
+   the checklist and the locked-down profile.
+7. ⚠ Copy and check. `scp` from the VM into the release worktree's
+   `desktop/dist/`, beside the dmg and its record:
+   `FoodOptimizer-X.Y.Z-Windows.exe`, `FoodOptimizer-X.Y.Z-Windows.build.txt`,
+   `FoodOptimizer-X.Y.Z-Windows.files.txt` and
+   `FoodOptimizer-X.Y.Z-Windows.cdx.json`. Each file's hash must be its
+   record's (`dmg_sha256`, `installer_sha256`, `files_list_sha256`,
+   `sbom_sha256`), and both records must say `tree_clean=yes`,
+   `signed=yes` and the tag's commit (the Mac's also `notarized=yes`):
 
    ```bash
-   gh release create vX.Y.Z desktop/dist/FoodOptimizer-X.Y.Z.dmg --draft --verify-tag \
-     --title "Food Optimizer X.Y.Z" --notes-file desktop/release_notes/X.Y.Z.md
+   shasum -a 256 desktop/dist/FoodOptimizer-X.Y.Z*
+   cat desktop/dist/FoodOptimizer-X.Y.Z.build.txt desktop/dist/FoodOptimizer-X.Y.Z-Windows.build.txt
+   git rev-parse vX.Y.Z^{commit}
+   ```
+
+8. ⚠ Draft. The release page is `desktop/release_notes/X.Y.Z.md` as
+   committed; the SBOM and the per-file list are attached, not advertised:
+
+   ```bash
+   gh release create vX.Y.Z --draft --verify-tag --title "Food Optimizer X.Y.Z" \
+     --notes-file desktop/release_notes/X.Y.Z.md \
+     desktop/dist/FoodOptimizer-X.Y.Z.dmg \
+     desktop/dist/FoodOptimizer-X.Y.Z-Windows.exe \
+     desktop/dist/FoodOptimizer-X.Y.Z-Windows.cdx.json \
+     desktop/dist/FoodOptimizer-X.Y.Z-Windows.files.txt
    gh release view vX.Y.Z --json assets
    ```
 
-6. Publish, then check the README link answers:
+   Compare each asset's digest in `gh release view` with its record.
+9. ⚠ Publish, then check both links answer:
 
    ```bash
    gh release edit vX.Y.Z --draft=false --latest
    curl -I https://github.com/thomasat/food_opt/releases/download/vX.Y.Z/FoodOptimizer-X.Y.Z.dmg
+   curl -I https://github.com/thomasat/food_opt/releases/download/vX.Y.Z/FoodOptimizer-X.Y.Z-Windows.exe
    ```
 
-   Keep the time between steps 2 and 6 short: the README link 404s in between.
+   Keep the time between steps 3 and 9 short: the links 404 in between.
 
-The link to send people (also shown on the release page):
+Mac hotfixes before the first combined release ship from the `release-080`
+branch (made at the last Mac-only tag) and merge forward into main with
+true merges; a Windows or signing delay never blocks the Mac. After it,
+feature releases ship together. If Windows is blocked for a patch, the Mac
+patch may ship alone with the same version, and the Windows build follows.
+
+GitHub Actions are disabled (billing lock). Until they return, VM_BUILD is
+the CI: pytest there at the release commit is a release gate. Re-enable
+with `gh workflow enable tests -R thomasat/food_opt`.
+
+The links to send people (also on the release page):
 
 ```
 https://github.com/thomasat/food_opt/releases/download/vX.Y.Z/FoodOptimizer-X.Y.Z.dmg
+https://github.com/thomasat/food_opt/releases/download/vX.Y.Z/FoodOptimizer-X.Y.Z-Windows.exe
 ```
 
+For Windows recipients, send the three lines in `windows/download_email.md`.
+
 Notes:
-- The repo is public, so the link works for anyone — no GitHub account needed.
+- The repo is public, so the links work for anyone — no GitHub account needed.
 - Unsigned builds are for internal testers only. Before a link goes to
-  real recipients, complete the signing setup above and rebuild — an
-  unsigned dmg triggers the exact security warnings this project exists
-  to avoid.
-- To replace a release's dmg (e.g. after signing):
-  `gh release upload vX.Y.Z <dmg> --clobber`
+  real recipients, complete the signing setup and rebuild — an unsigned
+  build triggers the exact security warnings this project exists to avoid.
+- To replace a release's file (e.g. after signing):
+  `gh release upload vX.Y.Z <file> --clobber`
 
 ## System requirements (copy-paste for emails / download page)
 
