@@ -323,6 +323,27 @@ begin
   end;
 end;
 
+{ Whether a folder name on the path ends in a space or a dot. Win32
+  drops those from a path's last part (FindFirst on "a " looks at "a"),
+  so OnALinkPath could check another folder than the one deleted. }
+function OddNameOnPath(const Dir: String): Boolean;
+var
+  P, Name: String;
+begin
+  Result := False;
+  P := Dir;
+  while True do begin
+    Name := ExtractFileName(P);
+    if (Name <> '') and ((Name[Length(Name)] = ' ') or (Name[Length(Name)] = '.')) then begin
+      Result := True;
+      exit;
+    end;
+    if (RemoveBackslashUnlessRoot(ExtractFileDir(P)) = P) or (ExtractFileDir(P) = '') then
+      break;
+    P := RemoveBackslashUnlessRoot(ExtractFileDir(P));
+  end;
+end;
+
 { That user's projects folder: their stored FOODOPT_PROJECTS_DIR (hive
   loaded), else the default the shell uses. }
 function UserProjectsDir(const Sid, Profile: String): String;
@@ -337,14 +358,20 @@ end;
   holding the user's projects (a /DIR at the projects folder), nor this
   install's own folder (the user can edit InstallLocation). OwnFolder:
   the default per-user folder, ours by name, goes whole; a /DIR folder
-  loses only the copy's own entries. True when the copy was kept. }
-function ReplaceCopy(const Dir, Projects: String; const OwnFolder: Boolean): Boolean;
+  loses only the copy's own entries. True when the copy was kept. One
+  spelling of the folder for every check and delete: Win32 drops a
+  trailing space or dot from a path's last part but keeps it in a middle
+  one, so the raw form could name another folder than the checked one. }
+function ReplaceCopy(const RawDir, Projects: String; const OwnFolder: Boolean): Boolean;
 var
-  App: String;
+  Dir, App: String;
 begin
   Result := True;
+  Dir := RemoveBackslashUnlessRoot(ExpandFileName(RemoveBackslashUnlessRoot(RawDir)));
   App := ExpandConstant('{app}');
-  if OnALinkPath(Dir) then
+  if OddNameOnPath(Dir) then
+    Log('replaced per-user copy: kept ' + Dir + ' (a folder name on its path ends in a space or dot)')
+  else if OnALinkPath(Dir) then
     Log('replaced per-user copy: kept ' + Dir + ' (a folder on its path is a link)')
   else if SameOrInside(Projects, Dir) then
     Log('replaced per-user copy: kept ' + Dir + ' (it holds the projects folder)')
@@ -373,7 +400,7 @@ var
   Sids: TArrayOfString;
   I: Integer;
   Sid, Profile, Dir, Location, Programs, Projects: String;
-  Loaded, Kept: Boolean;
+  Loaded, Kept, SameAsDefault: Boolean;
 begin
   if not RegGetSubkeyNames(HKLM64, ProfileListKey, Sids) then begin
     Log('replaced per-user copy: no profile list');
@@ -392,15 +419,18 @@ begin
     Projects := UserProjectsDir(Sid, Profile);
     Dir := Profile + '\AppData\Local\Programs\Food Optimizer';
     Kept := False;
+    SameAsDefault := False;
     if Loaded and RegQueryStringValue(HKU, Sid + '\' + UninstallKey, 'InstallLocation', Location) and
         (Location <> '') then begin
-      Location := RemoveBackslashUnlessRoot(Location);
-      if IsOurCopy(Location) then
-        Kept := ReplaceCopy(Location, Projects, SameOrInside(Location, Dir) and SameOrInside(Dir, Location))
-      else
+      { The spelling ReplaceCopy checks and deletes, also for IsOurCopy. }
+      Location := RemoveBackslashUnlessRoot(ExpandFileName(RemoveBackslashUnlessRoot(Location)));
+      if IsOurCopy(Location) then begin
+        SameAsDefault := SameOrInside(Location, Dir) and SameOrInside(Dir, Location);
+        Kept := ReplaceCopy(Location, Projects, SameAsDefault);
+      end else
         Log('replaced per-user copy: no copy left in ' + Location);
     end;
-    if FileExists(Dir + '\FoodOptimizer.exe') then
+    if not SameAsDefault and FileExists(Dir + '\FoodOptimizer.exe') then
       if ReplaceCopy(Dir, Projects, True) then
         Kept := True;
     Programs := UserShellFolder(Sid, 'Programs', Profile, Profile + '\AppData\Roaming\Microsoft\Windows\Start Menu\Programs');

@@ -177,35 +177,48 @@ def test_an_it_install_keeps_the_users_own_files_in_a_dir_copy(installer, l2_hom
     assert keep.read_bytes() == b"\x80\x04keep"
 
 
-def test_an_it_install_never_deletes_through_a_link(installer, l2_home, cleanup):
+@pytest.mark.parametrize("name", ["Link", "Link "], ids=["plain", "trailing_space"])
+def test_an_it_install_never_deletes_through_a_link(installer, l2_home, cleanup, name):
     """Follow-up review: once IT has installed, the user (no admin needed)
     makes a junction to the all-users folder and writes their own uninstall
     entry naming it as InstallLocation. The next IT install (a repair or an
     upgrade) must not delete through the link: the all-users copy stays
-    whole, the log names the link, and the user's entry is kept. Inno's own
-    RedirectionGuard already stops SYSTEM following a junction a limited
-    user made, where Windows has it; /NOREDIRECTIONGUARD stands for a PC
-    without it, so the installer's own check is what is tested."""
+    whole. A plain link is kept and logged, with the user's entry; a link
+    named with a trailing space (made through \\\\?\\, which Win32 keeps in
+    a middle part but drops from a last one) is looked up as the folder
+    the check sees, which holds no copy. Inno's own RedirectionGuard
+    already stops SYSTEM following a junction a limited user made, where
+    Windows has it; /NOREDIRECTIONGUARD stands for a PC without it, so the
+    installer's own check is what is tested."""
+    import sys
     import winreg
     first = l2.install(installer, "system", all_users=True)
     assert first.rc == 0, first.log[-3000:]
-    junction = l2_home.base / "Link"
-    assert l2.run_as("user", ["cmd", "/c", "mklink", "/J", str(junction), str(PROGRAM_FILES)]) == 0
+    junction = str(l2_home.base) + "\\" + name
+    raw = "\\\\?\\" + junction          # keeps a trailing space
+    make = "import _winapi, sys; _winapi.CreateJunction(sys.argv[1], sys.argv[2])"
+    assert l2.run_as("user", [sys.executable, "-I", "-c", make, str(PROGRAM_FILES), raw]) == 0
+    assert os.path.lexists(raw) and name in os.listdir(l2_home.base)
     try:
         with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, l2.UNINSTALL_SUBKEY, 0, winreg.KEY_SET_VALUE) as key:
-            winreg.SetValueEx(key, "InstallLocation", 0, winreg.REG_SZ, str(junction) + "\\")
+            winreg.SetValueEx(key, "InstallLocation", 0, winreg.REG_SZ, junction + "\\")
         result = l2.install(installer, "system", all_users=True, extra=["/NOREDIRECTIONGUARD"])
         assert result.rc == 0, result.log[-3000:]
         assert (PROGRAM_FILES / "FoodOptimizer.exe").is_file(), result.log[-3000:]
         assert (PROGRAM_FILES / "python" / "python.exe").is_file(), result.log[-3000:]
         assert (PROGRAM_FILES / "unins000.dat").is_file(), result.log[-3000:]
-        assert f"replaced per-user copy: kept {junction} (a folder on its path is a link)" in result.log, \
-            result.log[-3000:]
-        assert l2.uninstall_entry("user") is not None
+        if name == "Link":
+            assert f"replaced per-user copy: kept {junction} (a folder on its path is a link)" in result.log, \
+                result.log[-3000:]
+            assert l2.uninstall_entry("user") is not None
+        else:
+            seen = junction.rstrip()
+            assert f"replaced per-user copy: no copy left in {seen}" in result.log, result.log[-3000:]
+            assert "replaced per-user copy: deleted " + junction not in result.log
     finally:
         # rmdir without /s removes the junction only, never the folder it points at.
-        if os.path.lexists(junction):
-            subprocess.run(["cmd", "/c", "rmdir", str(junction)], check=False)
+        if os.path.lexists(raw):
+            subprocess.run(["cmd", "/c", "rmdir", raw], check=False)
         try:
             winreg.DeleteKey(winreg.HKEY_CURRENT_USER, l2.UNINSTALL_SUBKEY)
         except FileNotFoundError:

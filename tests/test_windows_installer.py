@@ -601,7 +601,7 @@ def test_an_it_install_never_deletes_projects_or_itself():
     holds, or lies in) this install's folder. Both guards come before the
     delete, for the /DIR copy and the default folder alike."""
     keep = _function("ReplaceCopy")
-    assert keep.startswith("function ReplaceCopy(const Dir, Projects: String; const OwnFolder: Boolean): Boolean;")
+    assert keep.startswith("function ReplaceCopy(const RawDir, Projects: String; const OwnFolder: Boolean): Boolean;")
     projects = keep.index("if SameOrInside(Projects, Dir) then")
     assert "Log('replaced per-user copy: kept ' + Dir + ' (it holds the projects folder)')" in keep
     this = keep.index("SameOrInside(Dir, App) or SameOrInside(App, Dir)")
@@ -663,7 +663,7 @@ def test_a_dir_copy_loses_only_its_own_entries():
     keep = _function("ReplaceCopy")
     assert re.search(r"if OwnFolder then\s+DeleteCopy\(Dir\)\s+else\s+DeleteCopyEntries\(Dir\);", keep), keep
     body = _function("ReplacePerUserCopies")
-    assert "Kept := ReplaceCopy(Location, Projects, SameOrInside(Location, Dir) and SameOrInside(Dir, Location))" in body
+    assert "Kept := ReplaceCopy(Location, Projects, SameAsDefault)" in body
     assert "Dir := Profile + '\\AppData\\Local\\Programs\\Food Optimizer';" in body
     assert "if ReplaceCopy(Dir, Projects, True) then" in body
 
@@ -696,8 +696,39 @@ def test_the_default_folder_goes_whole_whichever_way_it_is_found():
     older version's leftovers too), like when found by its path."""
     body = _function("ReplacePerUserCopies")
     default = body.index("Dir := Profile + '\\AppData\\Local\\Programs\\Food Optimizer';")
-    call = body.index("Kept := ReplaceCopy(Location, Projects, SameOrInside(Location, Dir) and SameOrInside(Dir, Location))")
-    assert default < call
+    same = body.index("SameAsDefault := SameOrInside(Location, Dir) and SameOrInside(Dir, Location);")
+    call = body.index("Kept := ReplaceCopy(Location, Projects, SameAsDefault)")
+    assert default < same < call
+    # Handled once: a default folder found through its entry isn't checked
+    # (and logged "kept") a second time by its path.
+    assert body.index("SameAsDefault := False;") < same
+    assert "if not SameAsDefault and FileExists(Dir + '\\FoodOptimizer.exe') then" in body
+
+
+def test_one_spelling_of_the_folder_is_checked_and_deleted():
+    """Last review: Win32 strips a trailing space or dot from a path's last
+    part (ExpandFileName does) but keeps it in a middle part, so "Link \\"
+    could pass the link check as "Link" while the deletes went through
+    "Link ". The folder is expanded once, before IsOurCopy, and ReplaceCopy
+    uses only that expanded string for the link walk, the text guards and
+    both deletes."""
+    body = _function("ReplacePerUserCopies")
+    # The trailing \\ goes first, so ExpandFileName also drops the last
+    # part's trailing space or dot; expanding again changes nothing.
+    expand = body.index("Location := RemoveBackslashUnlessRoot(ExpandFileName(RemoveBackslashUnlessRoot(Location)));")
+    assert expand < body.index("IsOurCopy(Location)")
+    keep = _function("ReplaceCopy")
+    first = keep.index("Dir := RemoveBackslashUnlessRoot(ExpandFileName(RemoveBackslashUnlessRoot(RawDir)));")
+    assert keep.count("RawDir") == 2, keep   # the parameter and that one line
+    assert "  Dir, App: String;" in keep
+    # A middle part keeps its trailing space, and FindFirst on it would look
+    # at another folder: such a path is kept before the link walk.
+    odd = keep.index("if OddNameOnPath(Dir) then")
+    assert first < odd < keep.index("OnALinkPath(Dir)") < keep.index("DeleteCopy(Dir)")
+    assert "Log('replaced per-user copy: kept ' + Dir + ' (a folder name on its path ends in a space or dot)')" in keep
+    name = _function("OddNameOnPath")
+    assert "ExtractFileName(P)" in name and "ExtractFileDir(P)" in name
+    assert "Name[Length(Name)] = ' '" in name and "Name[Length(Name)] = '.'" in name
 
 
 def test_start_menu_is_read_from_user_shell_folders():
