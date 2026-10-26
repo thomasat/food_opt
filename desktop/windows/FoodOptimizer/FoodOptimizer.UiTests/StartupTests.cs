@@ -50,18 +50,34 @@ public class StartupTests
         }
     }
 
+    /// A WebView2 folder that cannot be made (a file in its place) is
+    /// refused before WebView2 starts on it: WebView2's own "couldn't create
+    /// the data directory" box, which waited for a click while the shell
+    /// waited for WebView2, never comes up, and the stopped dialog does.
     [Fact]
     public async Task A_web_view_that_cannot_start_says_so()
     {
         var run = ShellRun.Fresh();
         Directory.CreateDirectory(run.StateDir);
-        File.WriteAllText(Path.Combine(run.StateDir, "WebView2"), "not a folder");
+        var folder = Path.Combine(run.StateDir, "WebView2");
+        File.WriteAllText(folder, "not a folder");
         using var app = ShellApp.Launch(run);
-        var d = app.WaitForDialog(TimeSpan.FromSeconds(30));
-        Uia.WaitFor(d, ControlType.Text, "Food Optimizer stopped unexpectedly", Ten);
-        Uia.WaitFor(d, ControlType.Text, "Your projects are saved. Open Food Optimizer again.", Ten);
-        Uia.Invoke(Uia.WaitFor(d, ControlType.Button, "OK", Ten));
+        var browsers = new HashSet<int>();
+        AutomationElement? d = null;
+        Assert.True(Uia.WaitUntil(() =>
+        {
+            browsers.UnionWith(ShellApp.WebViewBrowsersUsing(folder));
+            return (d = app.Dialog("Food Optimizer")) != null;
+        }, TimeSpan.FromSeconds(30), 100), "no Food Optimizer dialog within 30 s:\n" + string.Join("\n", app.Log()));
+        Uia.WaitFor(d!, ControlType.Text, "Food Optimizer stopped unexpectedly", Ten);
+        Uia.WaitFor(d!, ControlType.Text, "Your projects are saved. Open Food Optimizer again.", Ten);
+        var log = app.Log();
+        Assert.True(browsers.Count == 0, "WebView2 started on the file: pids " + string.Join(",", browsers));
+        Assert.DoesNotContain(log, l => l.Contains(" webview.runtime ", StringComparison.Ordinal));
+        Assert.Equal(3, log.Count(l => l.EndsWith(" webview.failed IOException", StringComparison.Ordinal)));
+        Uia.Invoke(Uia.WaitFor(d!, ControlType.Button, "OK", Ten));
         Assert.True(await app.WaitForExitAsync(TimeSpan.FromSeconds(10)));
         Assert.True(Uia.WaitUntil(() => app.StagePythons().Count == 0, TimeSpan.FromSeconds(5)));
+        Assert.True(File.Exists(folder));
     }
 }
