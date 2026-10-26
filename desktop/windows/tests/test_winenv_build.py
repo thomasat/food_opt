@@ -1,6 +1,7 @@
 """A build that fails part-way stops with exit 1, says `build failed:`, and
 leaves no build record (Review Focus 4: uv failing mid-build). A long clone
 path still builds, and the image is the same from any build folder."""
+import hashlib
 import os
 import shutil
 import subprocess
@@ -111,20 +112,23 @@ def _second_clone(path, commit):
 def test_the_image_does_not_depend_on_the_build_folder():
     """The same commit built from two checkouts in different folders (one
     with a space), into image folders that differ (one with a space and an
-    accent): the same per-file manifest and image hash (Review Focus 4)."""
+    accent): the same per-file manifest and image hash (Review Focus 4), and
+    the same installer bytes."""
     clones = [REPO, WORK / "hd-c 2"]
     outs = [WORK / "hd-o1", WORK / "hd-o 2\u00e9"]
     dist = WORK / "dist"          # where both builds put their installer
     assert not dist.exists() and not any(p.exists() for p in (*outs, clones[1])), "in the way: remove them"
     try:
         _second_clone(clones[1], _clean_head())
-        manifests, records = [], []
+        manifests, records, installers = [], [], []
         for clone, out in zip(clones, outs):
             r = powershell("-File", clone / "desktop" / "windows" / "build_installer.ps1", "-TestBuild",
                            "-OutDir", out, env=own_git_env(), timeout=3600)
             assert r.returncode == 0, r.stdout[-4000:] + r.stderr
             manifests.append((out / "FoodOptimizer.files.txt").read_bytes())
             records.append((out / "FoodOptimizer.build.txt").read_text(encoding="utf-8"))
+            [exe] = dist.glob("*-Windows-test.exe")
+            installers.append(hashlib.sha256(exe.read_bytes()).hexdigest())
         if manifests[0] != manifests[1]:
             one, two = (set(m.decode("utf-8").splitlines()) for m in manifests)
             assert sorted(one ^ two) == []
@@ -133,6 +137,7 @@ def test_the_image_does_not_depend_on_the_build_folder():
         hashes = [next(line for line in rec.split("\n") if line.startswith("image_sha256="))
                   for rec in records]
         assert hashes[0] == hashes[1]
+        assert installers[0] == installers[1]
     finally:
         for folder in (*outs, dist, clones[1]):
             _rmtree(folder)
