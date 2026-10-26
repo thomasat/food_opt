@@ -315,7 +315,8 @@ public class InstallerUiTests
 
     /// <summary>Inno 6.7 answers a second copy with SetupAppRunningError
     /// naming the installer (SetupAppTitle), an OK/Cancel loop while the
-    /// first stays open (Cancel exits 1); SetupAlreadyRunning is never shown.</summary>
+    /// first stays open (Cancel exits 1); SetupAlreadyRunning is never shown,
+    /// so installer_messages.isl leaves it out.</summary>
     [Fact]
     public async Task A_second_installer_says_one_is_already_open()
     {

@@ -58,7 +58,6 @@ DiskSpaceWarningTitle=Not enough space
 DiskSpaceWarning=Needs %1 KB free. This drive has %2 KB.%n%nContinue anyway?
 WizardUninstalling=Uninstalling
 StatusUninstalling=Uninstalling %1
-SetupAlreadyRunning=The installer is already open.
 AbortRetryIgnoreSelectAction=Choose what to do
 AbortRetryIgnoreRetry=&Try again
 AbortRetryIgnoreIgnore=&Continue anyway

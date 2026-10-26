@@ -132,6 +132,9 @@ def test_windows_strings_from_the_spec_table():
     assert w["steps.note.first_opening"] == "First opening takes longer. Keep this window open."
     assert w["webview2.missing.title"] == "Food Optimizer can't open"
     assert w["webview2.missing.body"] == "Ask IT to install Microsoft Edge WebView2 Runtime."
+    # A failed menu command never shows Windows' reason: shell.log has it.
+    assert w["error.command_failed.title"] == "{command} did not work"
+    assert w["error.command_failed.body"] == "Try again, or email sohum.patnaik@fsi.org."
     for i in ("help.get_help.body", "error.could_not_start.body", "error.stopped.body"):
         assert w[i] == m[i], i
 

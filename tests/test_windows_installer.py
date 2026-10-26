@@ -102,10 +102,9 @@ COPY = [
     # Added after the final review (refusing a /DIR that holds other files);
     # awaiting the owner's approval.
     ("CustomMessages", ["FolderNotOurs"], "B", "This folder holds other files. Use an empty folder."),
-    # Added in hardening; awaiting the owner's approval.
+    # Added in hardening; approved by the owner 2026-10-25.
     ("Messages", ["WizardUninstalling"], "T", "Uninstalling"),
     ("Messages", ["StatusUninstalling"], "B", "Uninstalling %1"),
-    ("Messages", ["SetupAlreadyRunning"], "B", "The installer is already open."),
     ("Messages", ["AbortRetryIgnoreSelectAction"], "T", "Choose what to do"),
     ("Messages", ["AbortRetryIgnoreRetry"], "L", "&Try again"),
     ("Messages", ["AbortRetryIgnoreIgnore"], "L", "&Continue anyway"),

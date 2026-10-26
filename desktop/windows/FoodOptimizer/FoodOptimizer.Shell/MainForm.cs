@@ -240,38 +240,28 @@ sealed class MainForm : Form
     }
 
     /// <summary>Runs a menu command. One that fails says so, naming the
-    /// command and, when the OS said why, its reason; the app goes on.</summary>
+    /// command, in our words; its reason goes to shell.log. The app goes on.</summary>
     void Execute(string id)
     {
         _log.Write("command.run", id);
-        string? reason;
+        Exception? failure;
         try
         {
-            reason = Run(id);
-            if (reason == null) return;
-            _log.Write("command.failed", id + " " + nameof(System.ComponentModel.Win32Exception));
+            failure = Run(id);
         }
         catch (Exception ex)
         {
-            _log.Write("command.failed", id + " " + ex.GetType().Name);
-            // A code error is never shown as Windows' text: the title alone.
-            reason = CommandFailure.Reason(ex);
+            failure = ex;
         }
+        if (failure == null) return;
+        _log.Write("command.failed", id + " " + CommandFailure.Logged(failure));
         var command = _messages.Text(id).Replace("&", "", StringComparison.Ordinal);
-        var title = _messages.Format("error.command_failed.title", ("command", command));
-        if (reason == null)
-        {
-            ShellDialogs.Info(this, title);
-            return;
-        }
-        // A brace in Windows' text (a {GUID} path) is not a placeholder.
-        reason = reason.Replace('{', '(').Replace('}', ')');
-        ShellDialogs.Info(this, title, _messages.Format("error.command_failed.body", ("reason", reason)));
+        ShellDialogs.Info(this, _messages.Format("error.command_failed.title", ("command", command)),
+            _messages.Text("error.command_failed.body"));
     }
 
-    /// <summary>The command itself: null when it worked, else Windows'
-    /// reason it did not.</summary>
-    string? Run(string id)
+    /// <summary>The command itself: null when it worked, else why it did not.</summary>
+    Exception? Run(string id)
     {
         var zoom = _web.Controller?.ZoomFactor ?? _settings.Zoom;
         switch (id)

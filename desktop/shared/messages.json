@@ -536,7 +536,7 @@
       "kind": "body",
       "text": {
         "mac": null,
-        "windows": "Windows said: {reason}"
+        "windows": "Try again, or email sohum.patnaik@fsi.org."
       },
       "mac": null,
       "shared": "shell"

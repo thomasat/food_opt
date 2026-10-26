@@ -207,7 +207,8 @@ public class KeysAndMenusTests
         CloseWindow(w!);
     }
 
-    /// A command that fails says so, and the app keeps working.
+    /// A command that fails says so in our words, never Windows'; its
+    /// reason (type and message) goes to shell.log; the app keeps working.
     [Fact]
     public void Open_projects_folder_when_the_path_is_a_file_says_so()
     {
@@ -219,6 +220,11 @@ public class KeysAndMenusTests
         app.Menu("File", "Open Projects Folder");
         var d = app.WaitForDialog(Ten);
         Uia.WaitFor(d, ControlType.Text, "Open Projects Folder did not work", Three);
+        Uia.WaitFor(d, ControlType.Text, "Try again, or email sohum.patnaik@fsi.org.", Three);
+        var shown = d.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Text))
+            .Cast<AutomationElement>().Select(e => e.Current.Name).ToList();
+        Assert.DoesNotContain(shown, t => t.Contains("Windows said", StringComparison.Ordinal) || t.Contains(file, StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(app.Log(), l => l.Contains(" command.failed menu.file.open_projects IOException: ", StringComparison.Ordinal));
         CloseDialogWithOk(d);
         Assert.True(Uia.WaitUntil(() => app.Dialog("Food Optimizer") == null, Three));
         Assert.True(File.Exists(file));

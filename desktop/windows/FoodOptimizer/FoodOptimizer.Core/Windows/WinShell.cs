@@ -66,8 +66,8 @@ public static class WinShell
     }
 
     /// <summary>Opens a file, folder or web address the way Explorer would:
-    /// null when it opened, else Windows' message saying why not.</summary>
-    public static string? Open(string target)
+    /// null when it opened, else the failure saying why not.</summary>
+    public static Exception? Open(string target)
     {
         try
         {
@@ -77,7 +77,7 @@ public static class WinShell
         catch (Exception e)
         {
             // A Win32Exception carries ShellExecuteEx's own error text.
-            return e.Message;
+            return e;
         }
     }
 }
