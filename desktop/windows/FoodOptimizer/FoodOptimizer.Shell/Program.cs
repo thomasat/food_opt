@@ -54,7 +54,9 @@ static class Program
             if (Interlocked.Exchange(ref crashed, 1) == 1) return;
             log.Write("shell.crash", ex?.GetType().FullName ?? "unknown");
             window?.EmergencyShutdown();
-            try { ShellDialogs.Info(null, messages.Text("error.stopped.title"), messages.Text("error.shell_crashed.body")); }
+            // An unhandled exception may come on a pool (MTA) thread; the
+            // dialog needs an STA thread.
+            try { StaThread.Run(() => ShellDialogs.Info(null, messages.Text("error.stopped.title"), messages.Text("error.shell_crashed.body"))); }
             catch (Exception) { }
             Environment.Exit(1);
         }

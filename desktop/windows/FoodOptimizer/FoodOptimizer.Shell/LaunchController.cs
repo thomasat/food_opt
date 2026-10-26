@@ -75,14 +75,17 @@ sealed class LaunchController : IDisposable
     {
         try
         {
-            var session = LauncherSession.Start(_layout.Python, LauncherCommand.Arguments(_layout, _paths), _layout.Root, _log);
+            // The exit is handled on the UI thread, after this method has
+            // set _session (an exit before Start returns is still reported).
+            LauncherSession? session = null;
+            session = LauncherSession.Start(_layout.Python, LauncherCommand.Arguments(_layout, _paths), _layout.Root, _log,
+                code => OnUi(() =>
+                {
+                    if (_session == session && _machine == machine) Execute(machine.OnLauncherExited(code));
+                }));
             var old = _session;
             _session = session;
             old?.Dispose();
-            session.Exited += (_, code) => OnUi(() =>
-            {
-                if (_session == session && _machine == machine) Execute(machine.OnLauncherExited(code));
-            });
             return true;
         }
         catch (LauncherStartException)
@@ -227,6 +230,13 @@ sealed class LaunchController : IDisposable
 
     /// <summary>Logoff is coming: from now on no page may show.</summary>
     public void BeginShutdown() => _machine?.BeginShutdown();
+
+    /// <summary>The logoff was cancelled: the launch goes on as before, and a
+    /// launcher exit that came meanwhile is acted on now.</summary>
+    public void CancelShutdown()
+    {
+        if (_machine is { } m) Execute(m.CancelShutdown());
+    }
 
     /// <summary>Stops the launch: no more pages, the lifeline closed, a
     /// short wait for a clean shutdown (skipped at logoff), then the job.</summary>

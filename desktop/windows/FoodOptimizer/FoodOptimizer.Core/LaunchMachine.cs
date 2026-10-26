@@ -23,6 +23,9 @@ public sealed class LaunchMachine
     int? _deferDeadline;
     int? _relaunchAt;
     int _strikes;
+    LaunchPhase _phaseBeforeShutdown;
+    int? _exitDuringShutdown;
+    bool _stalledMissed;
 
     public LaunchMachine(DateTime launchStartedUtc, PageView view)
     {
@@ -42,6 +45,7 @@ public sealed class LaunchMachine
     public IReadOnlyList<ShellAction> OnTick(PollSnapshot s)
     {
         Ticks++;
+        if (Phase == LaunchPhase.ShuttingDown && Ticks == StalledTick) _stalledMissed = true;
         if (Phase != LaunchPhase.Waiting) return None;
         var actions = new List<ShellAction>();
 
@@ -55,8 +59,9 @@ public sealed class LaunchMachine
             }
         }
 
-        if (Ticks == StalledTick && _armedAt == null && !_timedOut)
+        if ((Ticks == StalledTick || _stalledMissed) && _armedAt == null && !_timedOut)
         {
+            _stalledMissed = false;
             _stalledShown = true;
             actions.Add(new PageShowStalled());
         }
@@ -114,8 +119,8 @@ public sealed class LaunchMachine
 
     public IReadOnlyList<ShellAction> OnHealth(bool healthy, int port, string @base)
     {
-        if (Phase != LaunchPhase.Waiting) return None;
         _checkInFlight = false;
+        if (Phase != LaunchPhase.Waiting) return None;
         if (!healthy || port != Port || @base != Base) return None;
         Phase = LaunchPhase.Loaded;
         return
@@ -129,6 +134,7 @@ public sealed class LaunchMachine
 
     public IReadOnlyList<ShellAction> OnLauncherExited(int code)
     {
+        if (Phase == LaunchPhase.ShuttingDown) _exitDuringShutdown = code;
         if (Phase != LaunchPhase.Waiting) return None;
         if (code == 0)
         {
@@ -174,5 +180,23 @@ public sealed class LaunchMachine
     public void OnResume() => _strikes = 0;
 
     /// <summary>Quitting or logging off: no page may show from now on.</summary>
-    public void BeginShutdown() => Phase = LaunchPhase.ShuttingDown;
+    public void BeginShutdown()
+    {
+        if (Phase == LaunchPhase.ShuttingDown) return;
+        _phaseBeforeShutdown = Phase;
+        _exitDuringShutdown = null;
+        Phase = LaunchPhase.ShuttingDown;
+    }
+
+    /// <summary>A logoff that was cancelled: back to the phase it replaced.
+    /// A launcher exit that arrived meanwhile is applied now; its actions are
+    /// returned.</summary>
+    public IReadOnlyList<ShellAction> CancelShutdown()
+    {
+        if (Phase != LaunchPhase.ShuttingDown) return None;
+        Phase = _phaseBeforeShutdown;
+        if (_exitDuringShutdown is not { } code) return None;
+        _exitDuringShutdown = null;
+        return OnLauncherExited(code);
+    }
 }

@@ -15,28 +15,13 @@ slow = pytest.mark.skipif(os.environ.get("FOODOPT_SLOW_TESTS") != "1",
                           reason="set FOODOPT_SLOW_TESTS=1")
 
 
-def _kill(pid: int) -> None:
-    from launcher import procinfo
-    if procinfo.pid_alive(pid):
-        procinfo.terminate(pid, grace=0.5)
-
-
 @pytest.fixture
 def world(tmp_path):
     from tests.desktop_launcher.harness import make_world
     w = make_world(tmp_path)
     yield w
-    for launch in w.launches:
-        if launch.proc.poll() is None:
-            launch.proc.kill()
-        if launch.proc.stdin is not None:
-            launch.proc.stdin.close()
-        try:
-            launch.proc.wait(5)
-        except Exception:
-            pass
-    for record in w.records():
-        _kill(record["pid"])
+    from tests.desktop_launcher.harness import end_world
+    end_world(w)
 
 
 def _impl_params():

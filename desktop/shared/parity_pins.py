@@ -42,7 +42,8 @@ def section_hash(spec: dict, repo: Path) -> str:
         return digest.hexdigest()
     root = repo / spec["dir"]
     paths = [p for p in root.glob(spec["glob"])
-             if p.is_file() and "__pycache__" not in p.relative_to(root).parts]
+             if p.is_file() and "__pycache__" not in p.relative_to(root).parts
+             and not any(part.startswith(".") for part in p.relative_to(root).parts)]
     for rel in sorted(p.relative_to(root).as_posix() for p in paths):
         digest.update((rel + "\n" + _read_lf(root / rel)).encode("utf-8"))
     return digest.hexdigest()

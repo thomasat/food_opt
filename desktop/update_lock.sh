@@ -28,7 +28,7 @@ fi
 UV_BIN="${FOODOPT_TEST_UV:-$("$DESKTOP_DIR/fetch_uv.sh")}"
 
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+trap 'rm -rf "$TMP" "$MAC_LOCK.new" "$WIN_LOCK.new"' EXIT
 
 # requirements.txt carries Linux-deploy specifics: the +cpu torch wheel
 # variant (and its extra index) exists only on PyTorch's index. PyPI's macOS
@@ -63,26 +63,43 @@ requirements | "$UV_BIN" pip compile - \
 sed -e "s|$TMP/mac.lock|desktop/requirements.lock.txt|g" \
   "$TMP/windows.lock" > "$TMP/windows.named.lock"
 
-# Both compiles succeeded; only now is either committed lock touched.
+# Both compiles succeeded. Each changed lock is first staged beside its
+# committed file as <lock>.new; only when both are staged is either moved into
+# place, so a failed write leaves both committed locks as they were.
 body() {  # the package and hash lines; comments and the header don't count
   grep -E '^[A-Za-z0-9]|^[[:space:]]+--hash=' "$1" || true
 }
+packages() {  # the package lines only
+  grep -E '^[A-Za-z0-9]' "$1" || true
+}
 MAC_CHANGED=0
-install_lock() {  # install_lock <compiled> <committed> <Mac|Windows>
+STAGED=()
+MESSAGES=()
+install_lock() {  # install_lock <compiled> <committed> <Mac|Windows>; stages only
   local name="desktop/${2##*/}"
   if [ ! -f "$2" ]; then
-    cp "$1" "$2"
-    echo "Wrote $name (new)"
+    cp "$1" "$2.new"
+    STAGED+=("$2")
+    MESSAGES+=("Wrote $name (new)")
   elif [ "$(body "$1")" = "$(body "$2")" ]; then
-    echo "$3 lock unchanged (same packages and hashes): $name"
+    MESSAGES+=("$3 lock unchanged (same packages and hashes): $name")
   else
-    cp "$1" "$2"
-    echo "Wrote $name (packages changed)"
+    cp "$1" "$2.new"
+    STAGED+=("$2")
+    if [ "$(packages "$1")" = "$(packages "$2")" ]; then
+      MESSAGES+=("Wrote $name (hashes changed)")
+    else
+      MESSAGES+=("Wrote $name (packages changed)")
+    fi
     if [ "$3" = "Mac" ]; then MAC_CHANGED=1; fi
   fi
 }
 install_lock "$TMP/mac.lock" "$MAC_LOCK" Mac
 install_lock "$TMP/windows.named.lock" "$WIN_LOCK" Windows
+for lock in ${STAGED[@]+"${STAGED[@]}"}; do
+  mv -f "$lock.new" "$lock"
+done
+printf '%s\n' "${MESSAGES[@]}"
 if [ "$MAC_CHANGED" = "1" ]; then
   echo "Mac lock changed: every Mac user will redo the online setup; re-measure EXPECTED_SETUP_MB in launcher.sh"
 fi

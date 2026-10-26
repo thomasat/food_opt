@@ -16,10 +16,10 @@ public class DownloadRulesTests
     [Fact]
     public void Suggested_name_is_the_file_name()
     {
-        Assert.Equal("Round 6 sheet.xlsx", DownloadRules.SuggestedFileName(@"C:\x\Round 6 sheet.xlsx"));
-        Assert.Equal("probe.csv", DownloadRules.SuggestedFileName("probe.csv"));
-        Assert.Equal("download", DownloadRules.SuggestedFileName(""));
-        Assert.Equal("download", DownloadRules.SuggestedFileName(@"C:\x\"));
+        Assert.Equal("Round 6 sheet.xlsx", DownloadRules.SuggestedFileName(@"C:\x\Round 6 sheet.xlsx", null));
+        Assert.Equal("probe.csv", DownloadRules.SuggestedFileName("probe.csv", null));
+        Assert.Equal("download", DownloadRules.SuggestedFileName("", null));
+        Assert.Equal("download", DownloadRules.SuggestedFileName(@"C:\x\", null));
     }
 
     [Fact]
@@ -28,11 +28,69 @@ public class DownloadRulesTests
         // WebView2 numbers the proposal when the name is taken in Downloads;
         // the dialog offers the server's name, and the user may replace it.
         var taken = new HashSet<string> { Path.Combine("D", "probe.csv"), Path.Combine("D", "Round 6 sheet.xlsx") };
-        Assert.Equal("probe.csv", DownloadRules.SuggestedFileName(Path.Combine("D", "probe (4).csv"), taken.Contains));
-        Assert.Equal("Round 6 sheet.xlsx", DownloadRules.SuggestedFileName(Path.Combine("D", "Round 6 sheet (1).xlsx"), taken.Contains));
-        Assert.Equal("notes (2).csv", DownloadRules.SuggestedFileName(Path.Combine("D", "notes (2).csv"), taken.Contains));
-        Assert.Equal("probe (x).csv", DownloadRules.SuggestedFileName(Path.Combine("D", "probe (x).csv"), taken.Contains));
+        Assert.Equal("probe.csv", DownloadRules.SuggestedFileName(Path.Combine("D", "probe (4).csv"), null, taken.Contains));
+        Assert.Equal("Round 6 sheet.xlsx", DownloadRules.SuggestedFileName(Path.Combine("D", "Round 6 sheet (1).xlsx"), null, taken.Contains));
+        Assert.Equal("notes (2).csv", DownloadRules.SuggestedFileName(Path.Combine("D", "notes (2).csv"), null, taken.Contains));
+        Assert.Equal("probe (x).csv", DownloadRules.SuggestedFileName(Path.Combine("D", "probe (x).csv"), null, taken.Contains));
     }
+
+    [Theory]
+    [InlineData("attachment; filename=\"Round (2).csv\"", "Round (2).csv")]
+    [InlineData("attachment; filename*=UTF-8''Round%20%C3%A9.csv", "Round é.csv")]
+    [InlineData("attachment; filename=\"a.csv\"; filename*=UTF-8''b.csv", "b.csv")]
+    [InlineData("attachment; filename=plain.csv", "plain.csv")]
+    [InlineData("attachment; filename=\"..\\\\evil.csv\"", null)]
+    [InlineData("attachment", null)]
+    [InlineData(null, null)]
+    [InlineData("attachment; FILENAME*=utf-8'en'a%20b.csv", "a b.csv")]
+    [InlineData("attachment; filename=\"say \\\"hi\\\".csv\"", "say \"hi\".csv")]
+    [InlineData("attachment; filename=\"a;b.csv\"", "a;b.csv")]
+    [InlineData("attachment; filename=\"\"", null)]
+    [InlineData("attachment; filename*=UTF-8''%ZZ.csv; filename=ok.csv", "ok.csv")]
+    [InlineData("attachment; filename*=UTF-8''%ZZ.csv", null)]
+    [InlineData("attachment; filename*=UTF-8''..%2Fx.csv", null)]
+    [InlineData("attachment; filename*=UTF-8''a%3Ab.csv", null)]
+    public void DispositionFileName_reads_every_form(string? cd, string? want) =>
+        Assert.Equal(want, DownloadRules.DispositionFileName(cd));
+
+    [Fact]
+    public void A_file_really_named_with_a_number_keeps_it() =>
+        Assert.Equal("Round (2).csv", DownloadRules.SuggestedFileName(@"C:\D\Round (2).csv", "attachment; filename=\"Round (2).csv\"", _ => true));
+
+    [Fact]
+    public void A_name_numbered_by_webview_goes_back_to_the_servers() =>
+        Assert.Equal("Round.csv", DownloadRules.SuggestedFileName(@"C:\D\Round (3).csv", "attachment; filename=\"Round.csv\"", _ => true));
+
+    [Fact]
+    public void A_real_numbered_name_that_webview_numbered_again_loses_only_its_number() =>
+        Assert.Equal("Round (2).csv", DownloadRules.SuggestedFileName(@"C:\D\Round (2) (1).csv", "attachment; filename=\"Round (2).csv\"", p => p == @"C:\D\Round (2).csv"));
+
+    [Fact]
+    public void An_accented_name_comes_from_webview_not_the_garbled_header() =>
+        // Streamlit sends latin-1 names as raw bytes; the header string may
+        // hold U+FFFD where WebView2's own name has the accents.
+        Assert.Equal("Crème brûlée.xlsx", DownloadRules.SuggestedFileName(@"C:\D\Crème brûlée (1).xlsx", "attachment; filename=\"Cr\uFFFDme br\uFFFDl\uFFFDe.xlsx\"", p => p == @"C:\D\Crème brûlée.xlsx"));
+
+    [Fact]
+    public void An_accented_real_number_survives_the_garbled_header() =>
+        // WebView2 gave "Cr\uFFFDme (2).csv" for Streamlit's raw latin-1 "Crème (2).csv".
+        Assert.Equal("Crème (2).csv", DownloadRules.SuggestedFileName(@"C:\D\Crème (2).csv", "attachment; filename=\"Cr\uFFFDme (2).csv\"", _ => true));
+
+    [Fact]
+    public void A_garbled_character_stands_only_for_a_non_ascii_one() =>
+        Assert.Equal("Crame.csv", DownloadRules.SuggestedFileName(@"C:\D\Crame (2).csv", "attachment; filename=\"Cr\uFFFDme (2).csv\"", _ => true));
+
+    [Fact]
+    public void A_name_windows_cannot_save_comes_from_webview_cleaned() =>
+        Assert.Equal("Oat milk_ - Batch 1.xlsx", DownloadRules.SuggestedFileName(@"C:\D\Oat milk_ - Batch 1.xlsx", "attachment; filename=\"Oat milk? - Batch 1.xlsx\"", _ => true));
+
+    [Fact]
+    public void The_servers_name_is_matched_ignoring_case() =>
+        Assert.Equal("round (2).CSV", DownloadRules.SuggestedFileName(@"C:\D\round (2).CSV", "attachment; filename=\"Round (2).csv\"", _ => true));
+
+    [Fact]
+    public void Without_a_disposition_name_the_current_rule_applies() =>
+        Assert.Equal("probe.csv", DownloadRules.SuggestedFileName(Path.Combine("D", "probe (4).csv"), "attachment", p => p == Path.Combine("D", "probe.csv")));
 
     [Fact]
     public void Zone_identifier_is_the_alternate_stream()

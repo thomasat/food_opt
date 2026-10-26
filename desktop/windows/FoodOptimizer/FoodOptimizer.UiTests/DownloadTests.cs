@@ -161,6 +161,62 @@ public class DownloadTests
         Assert.Equal(["probe.csv"], Directory.GetFiles(saved).Select(Path.GetFileName));
     }
 
+    /// <summary>Clicks <paramref name="button"/>, whose file the server
+    /// names "&lt;base&gt; (2).csv", with "&lt;base&gt;.csv" in the real Downloads
+    /// folder (where WebView2 proposes names), and checks the Save As box
+    /// offers the server's name. The old rule took the " (2)" for a number
+    /// WebView2 added. Only the files this test creates are removed after.</summary>
+    static void OffersTheServersNumberedName(string button, string baseName, [CallerMemberName] string test = "")
+    {
+        var downloads = FoodOptimizer.Core.Windows.WinShell.DownloadsFolder();
+        Assert.False(string.IsNullOrEmpty(downloads), "no Downloads folder");
+        var plain = Path.Combine(downloads!, baseName + ".csv");
+        var numbered = Path.Combine(downloads!, baseName + " (2).csv");
+        Assert.False(File.Exists(numbered), numbered + " is already there; move it away to run this test");
+        var before = new HashSet<string>(Directory.GetFiles(downloads!), StringComparer.OrdinalIgnoreCase);
+        var madePlain = !File.Exists(plain);
+        if (madePlain) File.WriteAllText(plain, Csv);
+        try
+        {
+            var (app, _) = Loaded(test);
+            using var _app = app;
+            Uia.Invoke(app.WaitFor(ControlType.Button, button, Ten));
+            var dialog = WaitForWindow(app, "Save As");
+            // Explorer may hide known extensions in the box.
+            Assert.Contains(Uia.Value(FileNameBox(dialog)), new[] { baseName + " (2).csv", baseName + " (2)" });
+            Press(dialog, "Cancel");
+            Assert.True(Uia.WaitUntil(() => app.Log().Any(l => l.Contains("download.cancelled")), Ten), string.Join("\n", app.Log()));
+        }
+        finally
+        {
+            // WebView2 downloads into "<guid>.tmp" beside the proposal while
+            // the dialog is open; a test that fails there leaves it behind,
+            // still held for a moment by the closing web view.
+            var made = Directory.GetFiles(downloads!).Where(f => !before.Contains(f) && (f.Equals(numbered, StringComparison.OrdinalIgnoreCase)
+                || f.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".crdownload", StringComparison.OrdinalIgnoreCase)));
+            if (madePlain) made = made.Append(plain);
+            var left = made.ToList();
+            Uia.WaitUntil(() =>
+            {
+                left.RemoveAll(f =>
+                {
+                    try { File.Delete(f); return true; }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return false; }
+                });
+                return left.Count == 0;
+            }, Ten);
+        }
+    }
+
+    [Fact]
+    public void A_file_really_named_with_a_number_keeps_it() =>
+        OffersTheServersNumberedName("Download a numbered CSV", "probe");
+
+    [Fact]
+    public void An_accented_name_keeps_its_accents_and_number() =>
+        // Streamlit sends a latin-1 name as raw bytes in filename="…".
+        OffersTheServersNumberedName("Download an accented CSV", "Crème");
+
     [Fact]
     public void Upload_picks_several_files()
     {

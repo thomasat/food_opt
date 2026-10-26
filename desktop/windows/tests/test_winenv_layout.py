@@ -84,24 +84,30 @@ def test_unsigned_list_is_what_phase_6_signs():
         folder = path.rpartition("/")[0]
         assert folder not in ("python", "python/DLLs"), path
         assert (IMAGE / path).is_file(), path
+    assert set(lines) <= set(build_env.pe_files(IMAGE))
     sample = random.Random(0).sample(lines, min(5, len(lines)))
     statuses = authenticode([IMAGE / p for p in sample])
     assert not [p for p, s in statuses.items() if s[0] == "Valid"]
     assert len(lines) == int(record()["unsigned_binaries"])
 
 
-# Microsoft-signed in the WebView2 NuGet package, but ReadyToRun recompiles
-# them at publish, which drops the signature; phase 6 signs them with ours.
-R2R_RECOMPILED = {"Microsoft.Web.WebView2.Core.dll", "Microsoft.Web.WebView2.WinForms.dll"}
-
-
 def test_the_only_unsigned_shell_files_are_ours():
     shell = set(build_env.shell_listing(PUBLISH))
     assert shell
     lines = UNSIGNED.read_text(encoding="utf-8").splitlines()
-    assert [p for p in lines if p in shell and not p.startswith("FoodOptimizer")
-            and p not in R2R_RECOMPILED] == []
+    assert [p for p in lines if p in shell and not p.startswith("FoodOptimizer")] == []
     assert {"FoodOptimizer.exe", "FoodOptimizer.dll", "FoodOptimizer.Core.dll"} <= set(lines)
+
+
+def test_the_webview2_wrappers_keep_microsofts_signature():
+    """ReadyToRun would recompile them and drop the signature; IT allow-lists
+    by publisher, so they ship as Microsoft signed them."""
+    wrappers = [IMAGE / "Microsoft.Web.WebView2.Core.dll", IMAGE / "Microsoft.Web.WebView2.WinForms.dll"]
+    assert all(p.is_file() for p in wrappers)
+    signatures = authenticode(wrappers)
+    assert len(signatures) == 2
+    bad = {p: s for p, s in signatures.items() if s[0] != "Valid" or not s[1].startswith("Microsoft")}
+    assert bad == {}
 
 
 @pytest.mark.parametrize("name", ["FoodOptimizer.files.txt"])

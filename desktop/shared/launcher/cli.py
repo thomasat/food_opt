@@ -46,8 +46,17 @@ def _int_env(environ: Mapping[str, str], name: str) -> Optional[int]:
     return int(value) if value.isdigit() else None
 
 
+class _Parser(argparse.ArgumentParser):
+    """A usage error exits 1: argparse's own 2 is the code for "unsupported"."""
+
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        sys.stderr.write(f"{self.prog}: error: {message}\n")
+        sys.exit(1)
+
+
 def parse_args(argv: Sequence[str], environ: Mapping[str, str]) -> Options:
-    p = argparse.ArgumentParser(prog="launcher", description="Food Optimizer launcher")
+    p = _Parser(prog="launcher", description="Food Optimizer launcher")
     p.add_argument("--state-dir", required=True, type=Path)
     p.add_argument("--projects-dir", required=True, type=Path)
     p.add_argument("--app", required=True, type=Path)
@@ -283,12 +292,26 @@ class _Run:
         files.clear_status(state)
         if self.server is not None and files.port_file_is(state, self.port, self.server.pid):
             files.remove_port_files(state)
-        files.release_lock(self.lock, self.pid)
+        self.release()
+
+    def release(self) -> None:
+        """Release our lock; log it when it is ours and will not go."""
+        if (files.lock_owner(self.lock) == self.pid
+                and not files.release_lock(self.lock, self.pid)):
+            self.log.say("could not remove launch.lock")
 
     def fatal(self, message: str) -> int:
         self.log.say(f"FATAL: {message}")
         self.cleanup()
         return 1
+
+    def stopped_early(self) -> Optional[int]:
+        """The exit code when a stop was asked (cleaned up and logged like
+        stopped()), else None."""
+        if not self.stop.is_set():
+            return None
+        self.stopped()
+        return 143 if self.reason == "signal" else 0
 
     def stopped(self) -> int:
         self.cleanup()
@@ -330,9 +353,12 @@ class _Run:
                              f"(pid {other if other is not None else 'unknown'}) - exiting")
                 return 0
         try:
+            early = self.stopped_early()
+            if early is not None:
+                return early
             return self.run_locked()
         finally:
-            files.release_lock(self.lock, self.pid)
+            self.release()
 
     def run_locked(self) -> int:
         opts = self.opts
@@ -350,7 +376,9 @@ class _Run:
         if made is not None:
             self.log.say(f"projects backed up to {made}")
 
-        code = self.warm_up()
+        code = self.stopped_early()
+        if code is None:
+            code = self.warm_up()
         if code is not None:
             return code
 
@@ -367,6 +395,7 @@ class _Run:
                     files.write_base_file(opts.state_dir, base)
                 files.write_port_file(opts.state_dir, self.port, self.server.pid)
             except OSError:
+                files.remove_port_files(opts.state_dir)
                 return self.fatal("could not write server.port")
             result = self.wait_healthy(base, offset)
             if result == "healthy":
@@ -386,7 +415,7 @@ class _Run:
 
         self.log.say(f"server healthy on port {self.port} (pid {self.server.pid})")
         files.clear_status(opts.state_dir)
-        files.release_lock(self.lock, self.pid)
+        self.release()
 
         if opts.stdin_lifeline:
             while self.server.poll() is None:

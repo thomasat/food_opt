@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Runtime.InteropServices;
 using System.Windows.Automation;
 using FoodOptimizer.Core;
 
@@ -45,55 +44,6 @@ public class InstalledAppTests
         }
     }
 
-    [ComImport, Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    interface IPropertyStore
-    {
-        void GetCount(out uint count);
-        void GetAt(uint index, out PropertyKey key);
-        void GetValue(ref PropertyKey key, out PropVariant value);
-        void SetValue(ref PropertyKey key, ref PropVariant value);
-        void Commit();
-    }
-
-    [StructLayout(LayoutKind.Sequential, Pack = 4)]
-    public struct PropertyKey
-    {
-        public Guid FormatId;
-        public uint PropertyId;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct PropVariant
-    {
-        public ushort Type;
-        public ushort Reserved1, Reserved2, Reserved3;
-        public IntPtr Value;
-        public IntPtr Value2;
-    }
-
-    [DllImport("shell32.dll")]
-    static extern int SHGetPropertyStoreForWindow(IntPtr hwnd, ref Guid riid, out IPropertyStore store);
-
-    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
-    static extern int SHGetPropertyStoreFromParsingName(string path, IntPtr bindContext, int flags, ref Guid riid, out IPropertyStore store);
-
-    [DllImport("ole32.dll")]
-    static extern int PropVariantClear(ref PropVariant value);
-
-    static readonly Guid PropertyStoreId = new("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99");
-
-    /// <summary>PKEY_AppUserModel_ID from a property store ("" when unset).</summary>
-    static string AppUserModelId(IPropertyStore store)
-    {
-        var key = new PropertyKey { FormatId = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"), PropertyId = 5 };
-        store.GetValue(ref key, out var value);
-        try
-        {
-            return value.Type == 31 ? Marshal.PtrToStringUni(value.Value) ?? "" : "";     // VT_LPWSTR
-        }
-        finally { PropVariantClear(ref value); }
-    }
-
     [Fact]
     public void Window_and_shortcut_share_the_app_id()
     {
@@ -102,17 +52,12 @@ public class InstalledAppTests
         {
             InstallerRun.SilentInstall(run);
             var lnk = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "Food Optimizer.lnk");
-            var riid = PropertyStoreId;
-            Assert.Equal(0, SHGetPropertyStoreFromParsingName(lnk, IntPtr.Zero, 0, ref riid, out var lnkStore));
-            Assert.Equal(AppIdentity.AppUserModelId, AppUserModelId(lnkStore));
-            // The shell sets the ID for its whole process
-            // (SetCurrentProcessExplicitAppUserModelID), which the taskbar
-            // uses for every window that sets none of its own; a window may
-            // carry only that same ID, never another.
+            Assert.Equal(AppIdentity.AppUserModelId, AppIdProbe.OfShortcut(lnk));
+            // The window carries the shortcut's ID itself, not only through
+            // the process-wide one, so the taskbar pins and groups it with
+            // the Start menu entry.
             using var app = ShellApp.Launch(run);
-            riid = PropertyStoreId;
-            Assert.Equal(0, SHGetPropertyStoreForWindow(app.Hwnd, ref riid, out var windowStore));
-            Assert.Contains(AppUserModelId(windowStore), new[] { "", AppIdentity.AppUserModelId });
+            Assert.Equal(AppIdentity.AppUserModelId, AppIdProbe.OfWindow(app.Hwnd));
         }
         finally
         {

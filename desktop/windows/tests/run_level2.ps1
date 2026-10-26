@@ -8,7 +8,8 @@
 # user's desktop, /RL HIGHEST) under an independent uv-managed Python in
 # C:\work\l2\venv; each install or app start drops to the limited user or
 # SYSTEM. The user named by USERNAME must be signed in at the console.
-# Exit code: pytest's (0 = all passed), or 2 if the run could not start.
+# Exit code: pytest's (0 = all passed), or 2 if the run could not start or did not
+# finish in -TimeoutMinutes (its pytest and tasks are then ended and deleted).
 # Windows PowerShell 5.1 rules: ASCII only, no stderr redirection of native
 # commands, $LASTEXITCODE checked after each one.
 [CmdletBinding(PositionalBinding = $false)]
@@ -17,7 +18,8 @@ param(
     [string]$OldInstaller = '',
     [string]$BrokenInstaller = '',
     [string]$K = '',
-    [switch]$Cleanup
+    [switch]$Cleanup,
+    [int]$TimeoutMinutes = 240
 )
 
 Set-StrictMode -Version 2
@@ -90,6 +92,7 @@ if ($K -ne '') { $kArg = '-k "' + $K + '" ' }
 $cleanupValue = '0'
 if ($Cleanup) { $cleanupValue = '1' }
 $cmd = Join-Path 'C:\work\run' 'l2.cmd'
+$basetemp = Join-Path $L2 ('bt-' + (Get-Date -Format 'HHmmss'))
 New-Item -ItemType Directory -Force -Path 'C:\work\run' | Out-Null
 $lines = @(
     '@echo off',
@@ -102,26 +105,55 @@ $lines = @(
     ('set "FOODOPT_L2_ROOT=' + $L2 + '"'),
     'set "PYTHONUTF8=1"',
     ('"' + $python + '" -m pytest ' + ($files -join ' ') + ' ' + $kArg + '-rA -p no:cacheprovider --basetemp "' +
-        (Join-Path $L2 ('bt-' + (Get-Date -Format 'HHmmss'))) + '" --junitxml "' + $junit + '" > "' + $log + '" 2>&1'),
+        $basetemp + '" --junitxml "' + $junit + '" > "' + $log + '" 2>&1'),
     ('>> "' + $log + '" echo EXIT=%ERRORLEVEL%')
 )
 [IO.File]::WriteAllText($cmd, (($lines -join "`r`n") + "`r`n"), (New-Object Text.ASCIIEncoding))
 
 # 5. Run it elevated on the user's desktop, and wait for its EXIT= line.
 $task = 'FoodOptL2-run'
-Invoke-Native 'schtasks /Create' 'schtasks.exe' @('/Create', '/F', '/TN', $task, '/TR', $cmd, '/SC', 'ONCE',
-    '/ST', '23:59', '/RU', $User, '/IT', '/RL', 'HIGHEST') | Out-Null
-Invoke-Native 'schtasks /Run' 'schtasks.exe' @('/Run', '/TN', $task) | Out-Null
-Say "running Level 2 (log: $log)"
 $exit = $null
-while ($null -eq $exit) {
-    Start-Sleep -Seconds 5
-    if (Test-Path -LiteralPath $log) {
-        $tail = @(Get-Content -LiteralPath $log -Tail 3 -ErrorAction SilentlyContinue)
-        foreach ($line in $tail) { if ($line -match '^EXIT=(-?\d+)') { $exit = [int]$Matches[1] } }
+$started = Get-Date
+try {
+    # A start boundary in the past: the task never fires on schedule, only on /Run.
+    Invoke-Native 'schtasks /Create' 'schtasks.exe' @('/Create', '/F', '/TN', $task, '/TR', $cmd, '/SC', 'ONCE',
+        '/SD', '01/01/2020', '/ST', '00:00', '/RU', $User, '/IT', '/RL', 'HIGHEST') | Out-Null
+    Invoke-Native 'schtasks /Run' 'schtasks.exe' @('/Run', '/TN', $task) | Out-Null
+    Say "running Level 2 (log: $log)"
+    $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
+    while ($null -eq $exit) {
+        Start-Sleep -Seconds 5
+        if (Test-Path -LiteralPath $log) {
+            $tail = @(Get-Content -LiteralPath $log -Tail 3 -ErrorAction SilentlyContinue)
+            foreach ($line in $tail) { if ($line -match '^EXIT=(-?\d+)') { $exit = [int]$Matches[1] } }
+        }
+        if ($null -eq $exit -and (Get-Date) -gt $deadline) {
+            Stop-Run "Level 2 did not finish in $TimeoutMinutes minutes"
+        }
     }
 }
-& schtasks.exe /Delete /F /TN $task | Out-Null
+finally {
+    if ($null -eq $exit) {
+        # No EXIT= line (deadline passed, or a failure). /End can leave the
+        # task's children running, so end this run's pytest too (its
+        # --basetemp names it; started after this script), and the job tasks
+        # it can no longer delete itself. A failure here must not skip the
+        # /Delete below.
+        try {
+            & schtasks.exe /End /TN $task | Out-Null
+            $mark = '*' + [Management.Automation.WildcardPattern]::Escape($basetemp) + '*'
+            Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" | Where-Object {
+                $_.CommandLine -like $mark -and $_.CreationDate -ge $started
+            } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+            Get-ScheduledTask -TaskName 'FoodOptL2-*' -ErrorAction SilentlyContinue |
+                Where-Object { $_.TaskName -ne $task } |
+                Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue
+        } catch {
+            [Console]::Error.WriteLine('could not end the timed-out run: ' + $_.Exception.Message)
+        }
+    }
+    & schtasks.exe /Delete /F /TN $task | Out-Null
+}
 Get-Content -LiteralPath $log -Tail 40 | ForEach-Object { Say $_ }
 if (Test-Path -LiteralPath $report) {
     Say '--- report.json ---'

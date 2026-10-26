@@ -102,6 +102,13 @@ COPY = [
     # Added after the final review (refusing a /DIR that holds other files);
     # awaiting the owner's approval.
     ("CustomMessages", ["FolderNotOurs"], "B", "This folder holds other files. Use an empty folder."),
+    # Added in hardening; approved by the owner 2026-10-25.
+    ("Messages", ["WizardUninstalling"], "T", "Uninstalling"),
+    ("Messages", ["StatusUninstalling"], "B", "Uninstalling %1"),
+    ("Messages", ["AbortRetryIgnoreSelectAction"], "T", "Choose what to do"),
+    ("Messages", ["AbortRetryIgnoreRetry"], "L", "&Try again"),
+    ("Messages", ["AbortRetryIgnoreIgnore"], "L", "&Continue anyway"),
+    ("Messages", ["AbortRetryIgnoreCancel"], "L", "Stop installing"),
 ]
 REWRITTEN = {(section, key): text for section, keys, _kind, text in COPY for key in keys}
 
@@ -273,6 +280,7 @@ def test_install_delete_clears_the_bundled_folders():
         {"Type": "filesandordirs", "Name": "{app}\\python"},
         {"Type": "filesandordirs", "Name": "{app}\\app"},
         {"Type": "filesandordirs", "Name": "{app}\\shared"},
+        {"Type": "filesandordirs", "Name": "{app}\\runtimes"},
         {"Type": "files", "Name": "{app}\\*.dll"}]
     assert section_entries("UninstallDelete") == [{"Type": "dirifempty", "Name": "{app}"}]
 
@@ -552,6 +560,189 @@ def test_a_folder_that_is_not_ours_is_refused():
     assert "CustomMessage('FolderNotOurs')" in body
     assert body.index("refused: folder_not_ours") < body.index("refused: needs_space")
     assert parse_isl(ISL)["CustomMessages"]["FolderNotOurs"] == "This folder holds other files. Use an empty folder."
+
+
+def test_the_state_folder_is_never_the_projects_folder():
+    """Review Focus 2: FOODOPT_STATE_DIR may name the projects folder, or a
+    folder holding it, written in another case or with a trailing \\. The
+    uninstall then keeps the state folder rather than delete projects."""
+    body = _function("CurUninstallStepChanged")
+    guard = re.search(r"if SameOrInside\(ProjectsDir, Dir\) then\s+"
+                      r"Log\('state folder kept \(it holds the projects folder\): ' \+ Dir\)\s+else ", body)
+    assert guard, body
+    assert guard.start() < body.index("DelTree(")
+    same = _function("SameOrInside")
+    assert same.startswith("function SameOrInside(const Inner, Outer: String): Boolean;")
+    assert "RemoveBackslashUnlessRoot" in same and "AnsiLowercase" in same
+    # Doubled backslashes, "\\.\\", ".." and "/" too: ExpandFileName is GetFullPathName.
+    assert "RemoveBackslashUnlessRoot(ExpandFileName(Inner))" in same
+    assert "RemoveBackslashUnlessRoot(ExpandFileName(Outer))" in same
+
+
+def test_per_user_copies_are_found_by_their_install_location():
+    """A per-user copy installed with /DIR is found through its uninstall
+    entry, and deleted only while it still holds Food Optimizer (Review
+    Focus 3); the entry is read before it is deleted."""
+    body = _function("ReplacePerUserCopies")
+    read = re.search(r"RegQueryStringValue\(HKU, Sid \+ '\\' \+ UninstallKey, 'InstallLocation', (\w+)\)", body)
+    assert read, body
+    assert read.start() < body.index("RegDeleteKeyIncludingSubkeys")
+    copy = _function("IsOurCopy")
+    assert re.search(r"FileExists\(.*?'FoodOptimizer\.exe'\) and\s+FileExists\(.*?'unins000\.dat'\)", copy)
+    assert "IsOurCopy(Location)" in body
+    assert "Log('replaced per-user copy: deleted ' + " in _code_section()
+
+
+def test_an_it_install_never_deletes_projects_or_itself():
+    """A per-user copy's folder may hold that user's projects (/DIR at the
+    projects folder), and its InstallLocation is the user's to edit: the
+    copy is kept, not deleted, when it holds the projects folder or is (or
+    holds, or lies in) this install's folder. Both guards come before the
+    delete, for the /DIR copy and the default folder alike."""
+    keep = _function("ReplaceCopy")
+    assert keep.startswith("function ReplaceCopy(const RawDir, Projects: String; const OwnFolder: Boolean): Boolean;")
+    projects = keep.index("if SameOrInside(Projects, Dir) then")
+    assert "Log('replaced per-user copy: kept ' + Dir + ' (it holds the projects folder)')" in keep
+    this = keep.index("SameOrInside(Dir, App) or SameOrInside(App, Dir)")
+    assert "Log('replaced per-user copy: kept ' + Dir + ' (it is this install)')" in keep
+    assert "App := ExpandConstant('{app}');" in keep
+    assert max(projects, this) < keep.index("DeleteCopy(Dir)")
+    assert max(projects, this) < keep.index("DeleteCopyEntries(Dir)")
+    body = _function("ReplacePerUserCopies")
+    assert "DeleteCopy(" not in body and "DelTree(" not in body
+    assert "ReplaceCopy(Dir, Projects, True)" in body
+    assert "Projects := UserProjectsDir(Sid, Profile);" in body
+    # A kept copy keeps its Apps entry, so the user's own uninstaller can remove it.
+    assert "Kept := ReplaceCopy(Location, Projects, " in body
+    assert "if Loaded and not Kept and RegKeyExists(HKU, Sid + '\\' + UninstallKey)" in body
+    user = _function("UserProjectsDir")
+    assert "RegQueryStringValue(HKU, Sid + '\\Environment', 'FOODOPT_PROJECTS_DIR', Result)" in user
+    assert "'%USERPROFILE%', Profile" in user and "Profile + '\\FoodOptimizer'" in user
+
+
+def test_a_dir_copy_loses_only_its_own_entries():
+    """Final review: a per-user /DIR copy may share its folder with the
+    user's own files (C:\\Tools, Documents). The IT install deletes only the
+    copy's own entries (every top-level entry of the image, listed from
+    ImageDir when the installer is compiled, so the list can't drift from
+    [Files]; the root *.dll an upgrade clears too; the uninstaller's
+    unins000.*), then the folder only if nothing else is left. The default
+    per-user folder, ours by name, still goes whole."""
+    code = _code_section()
+    # Inno reads a [Code] line starting with "[" as a section tag, comments too.
+    assert not re.search(r"^\s*\[", code[len("[Code]"):], re.M)
+    # The list: the image's own top-level entries, the folder [Files] copies.
+    assert section_entries("Files")[0]["Source"] == "{#ImageDir}\\*"
+    entries = _function("ImageEntries")
+    assert entries.startswith("function ImageEntries: TArrayOfString;")
+    assert re.search(r'^#for \{(\w+) = (\w+) = FindFirst\(AddBackslash\(ImageDir\) \+ "\*", faAnyFile\); \2; '
+                     r'\2 = FindNext\(\1\)\} AddImageEntry$', entries, re.M), entries
+    sub = code[code.index("#sub AddImageEntry"):code.index("#endsub")]
+    assert 'FindGetFileName(' in sub and '!= "."' in sub and '!= ".."' in sub
+    assert re.search(r"^  AddName\(Result, '\{#StringChange\(\w+, \"'\", \"''\"\)\}'\);$", sub, re.M), sub
+    assert "FindClose(" in entries
+    # The delete: each entry, then the folder if empty. Beside the image's
+    # entries: the uninstaller's files, and the very file patterns an
+    # upgrade's [InstallDelete] clears (an older copy's root DLLs); its
+    # folders are image entries already.
+    body = _function("DeleteCopyEntries")
+    assert body.startswith("procedure DeleteCopyEntries(const Dir: String);")
+    assert "Names := ImageEntries;" in body
+    added = re.findall(r"AddName\(Names, '([^']*)'\);", body)
+    upgrade = [e["Name"].removeprefix("{app}\\") for e in section_entries("InstallDelete") if e["Type"] == "files"]
+    assert upgrade == ["*.dll"]
+    assert added == upgrade + ["unins000.*"]
+    assert "DelTree(AddBackslash(Dir) + Names[I], False, True, True)" in body
+    assert "DelTree(Dir," not in body and "DelTree(Dir)" not in body
+    rmdir = body.index("if RemoveDir(Dir) then")
+    assert rmdir > body.index("DelTree(AddBackslash(Dir) + Names[I]")
+    assert "Log('replaced per-user copy: deleted ' + Dir)" in body[rmdir:]
+    assert "Log('replaced per-user copy: kept ' + Dir + ' (it holds other files)')" in body[rmdir:]
+    # Which copy goes which way.
+    keep = _function("ReplaceCopy")
+    assert re.search(r"if OwnFolder then\s+DeleteCopy\(Dir\)\s+else\s+DeleteCopyEntries\(Dir\);", keep), keep
+    body = _function("ReplacePerUserCopies")
+    assert "Kept := ReplaceCopy(Location, Projects, SameAsDefault)" in body
+    assert "Dir := Profile + '\\AppData\\Local\\Programs\\Food Optimizer';" in body
+    assert "if ReplaceCopy(Dir, Projects, True) then" in body
+
+
+def test_an_it_install_never_deletes_through_a_link():
+    """Follow-up review: a user can point their InstallLocation (or a folder
+    on its path) at a junction to another folder, the all-users install's
+    own included, which a text compare can't see. Before any per-user
+    delete, the folder and each folder above it are checked for a reparse
+    point; a copy reached through one is kept, with its Apps entry."""
+    link = _function("OnALinkPath")
+    assert link.startswith("function OnALinkPath(const Dir: String): Boolean;")
+    assert "ExpandFileName(Dir)" in link
+    assert "FindFirst(P, FindRec)" in link
+    assert "FindRec.Attributes and FILE_ATTRIBUTE_REPARSE_POINT <> 0" in link
+    assert "ExtractFileDir(P)" in link and "(Parent = P)" in link
+    keep = _function("ReplaceCopy")
+    guard = keep.index("if OnALinkPath(Dir) then")
+    assert "Log('replaced per-user copy: kept ' + Dir + ' (a folder on its path is a link)')" in keep
+    assert guard < keep.index("DeleteCopy(Dir)") and guard < keep.index("DeleteCopyEntries(Dir)")
+    # Kept (Result stays True) keeps the Apps entry; both copies go through ReplaceCopy.
+    assert keep.index("Result := True;") < guard < keep.index("Result := False;")
+    body = _function("ReplacePerUserCopies")
+    assert "DeleteCopy" not in body and "DelTree(" not in body
+
+
+def test_the_default_folder_goes_whole_whichever_way_it_is_found():
+    """Follow-up review: the default per-user folder's own uninstall entry
+    names it as InstallLocation; found that way it still goes whole (an
+    older version's leftovers too), like when found by its path."""
+    body = _function("ReplacePerUserCopies")
+    default = body.index("Dir := Profile + '\\AppData\\Local\\Programs\\Food Optimizer';")
+    same = body.index("SameAsDefault := SameOrInside(Location, Dir) and SameOrInside(Dir, Location);")
+    call = body.index("Kept := ReplaceCopy(Location, Projects, SameAsDefault)")
+    assert default < same < call
+    # Handled once: a default folder found through its entry isn't checked
+    # (and logged "kept") a second time by its path.
+    assert body.index("SameAsDefault := False;") < same
+    assert "if not SameAsDefault and FileExists(Dir + '\\FoodOptimizer.exe') then" in body
+
+
+def test_one_spelling_of_the_folder_is_checked_and_deleted():
+    """Last review: Win32 strips a trailing space or dot from a path's last
+    part (ExpandFileName does) but keeps it in a middle part, so "Link \\"
+    could pass the link check as "Link" while the deletes went through
+    "Link ". The folder is expanded once, before IsOurCopy, and ReplaceCopy
+    uses only that expanded string for the link walk, the text guards and
+    both deletes."""
+    body = _function("ReplacePerUserCopies")
+    # The trailing \\ goes first, so ExpandFileName also drops the last
+    # part's trailing space or dot; expanding again changes nothing.
+    expand = body.index("Location := RemoveBackslashUnlessRoot(ExpandFileName(RemoveBackslashUnlessRoot(Location)));")
+    assert expand < body.index("IsOurCopy(Location)")
+    keep = _function("ReplaceCopy")
+    first = keep.index("Dir := RemoveBackslashUnlessRoot(ExpandFileName(RemoveBackslashUnlessRoot(RawDir)));")
+    assert keep.count("RawDir") == 2, keep   # the parameter and that one line
+    assert "  Dir, App: String;" in keep
+    # A middle part keeps its trailing space, and FindFirst on it would look
+    # at another folder: such a path is kept before the link walk.
+    odd = keep.index("if OddNameOnPath(Dir) then")
+    assert first < odd < keep.index("OnALinkPath(Dir)") < keep.index("DeleteCopy(Dir)")
+    assert "Log('replaced per-user copy: kept ' + Dir + ' (a folder name on its path ends in a space or dot)')" in keep
+    name = _function("OddNameOnPath")
+    assert "ExtractFileName(P)" in name and "ExtractFileDir(P)" in name
+    assert "Name[Length(Name)] = ' '" in name and "Name[Length(Name)] = '.'" in name
+
+
+def test_start_menu_is_read_from_user_shell_folders():
+    """A redirected Start menu or desktop is read from the user's own User
+    Shell Folders; the usual paths are only the fallbacks."""
+    text = ISS.read_text(encoding="ascii")
+    fallbacks = re.findall(r"UserShellFolder\(Sid, '(\w+)', Profile, ([^;]*)\);", text)
+    assert {name for name, _ in fallbacks} >= {"Programs", "Desktop"}, fallbacks
+    total = text.count("Start Menu\\Programs")
+    assert total >= 1
+    assert sum(fb.count("Start Menu\\Programs") for _, fb in fallbacks) == total
+    helper = _function("UserShellFolder")
+    assert helper.startswith("function UserShellFolder(const Sid, Name, Profile, Fallback: String): String;")
+    assert "User Shell Folders" in helper and "RegQueryStringValue(HKU, " in helper
+    assert "'%USERPROFILE%'" in helper and "'%APPDATA%'" in helper
 
 
 def test_a_failed_build_leaves_no_installer_or_record():

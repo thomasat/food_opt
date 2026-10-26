@@ -44,7 +44,7 @@ sealed class WebRules
     void OpenExternally(string uri)
     {
         _log.Write("open.external", uri);
-        WinShell.Open(uri);
+        _ = WinShell.Open(uri);
     }
 
     void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)

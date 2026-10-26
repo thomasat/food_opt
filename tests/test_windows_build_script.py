@@ -15,6 +15,7 @@ REFUSALS = (
     "refusing to build: version $Version disagrees with desktop/VERSION ($ver)",
     "refusing to build: uncommitted changes (build from a clean worktree at the tag)",
     "refusing to build: HEAD is not tag v$ver (tag first: git tag -a v$ver $short)",
+    "refusing to build: HEAD is not tag v$ver (v$ver is ${tagShort}: check out the tag or bump desktop/VERSION)",
     "refusing to build: bundle_manifest.txt has Windows line endings",
     "refusing to build: bundle_manifest.txt is missing",
     "refusing to build: bundle_manifest.txt is empty",
@@ -24,6 +25,7 @@ REFUSALS = (
     "refusing to build: $tool not found on PATH",
     "refusing to build: image folder is $n characters; at most 80 (clone to a shorter path)",
     "refusing to build: $Image is not an earlier build (it holds $held); choose another -OutDir",
+    "refusing to build: -OutDir is not a valid path: $OutDir",
     "usage: build_installer.ps1 [-Version X.Y.Z] [-Check] [-TestBuild] [-OutDir DIR]",
 )
 
@@ -78,3 +80,42 @@ def test_build_script_never_filters_a_literal_path_with_include():
     unsigned list once held every unsigned file (LICENSE.txt included)."""
     for line in _strict(BUILD).splitlines():
         assert not ("-LiteralPath" in line and "-Include" in line), line
+
+
+def test_no_ps1_string_has_a_variable_followed_by_a_colon():
+    """Inside "...", `$name:` then a space or the closing quote is a parse
+    error in PowerShell (the colon reads as a scope or drive prefix): write
+    ${name}: instead. Scope prefixes ($env:Path) are followed by a name."""
+    bad = []
+    for path in sorted((REPO / "desktop").rglob("*.ps1")):
+        text = path.read_text(encoding="utf-8-sig")
+        for span in re.findall(r'"(?:`.|[^"`])*"', text):
+            for m in re.finditer(r'\$[A-Za-z_]\w*:(?=\s|"|$)', span):
+                bad.append(f"{path.relative_to(REPO)}: {span[:100]}")
+    assert not bad, bad
+
+
+def test_the_unsigned_list_comes_from_pe_files():
+    """Every PE file, whatever its extension (build_env.py pe-files), not only
+    .exe, .dll and .pyd."""
+    text = _strict(BUILD)
+    assert "'pe-files'" in text
+    assert "'.exe', '.dll', '.pyd'" not in text
+
+
+def test_the_python_package_is_unpacked_inside_the_image():
+    """Inside the image, so the 80-character image budget covers it (a long
+    clone path no longer breaks the extraction)."""
+    text = _strict(BUILD)
+    assert "'stage-python'" not in text and ".cache\\stage-python" not in text
+    earlier = re.search(r"\$earlier = @\(([^)]*)\)", text)
+    assert earlier and "'.stage-python'" in earlier.group(1)
+    assert "Join-Path $Image '.stage-python'" in text
+
+
+def test_text_files_are_read_without_bom_detection():
+    """ReadAllText drops a UTF-8 BOM, so VERSION and the manifest would pass
+    with one; build_dmg.sh refuses both."""
+    text = _strict(BUILD)
+    assert "ReadAllText($versionFile" not in text
+    assert "ReadAllText($manifestFile" not in text

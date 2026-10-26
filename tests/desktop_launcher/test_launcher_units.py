@@ -172,3 +172,18 @@ def test_healthy_against_a_local_server():
         srv.shutdown()
         srv.server_close()
     assert cli.healthy(port, "b", timeout=0.5) is False
+
+
+def test_a_lock_that_survives_release_is_logged(tmp_path, monkeypatch):
+    import io
+    import os
+    from launcher import files
+    stream = io.StringIO()
+    opts = cli.Options(state_dir=tmp_path / "s", projects_dir=tmp_path / "p",
+                       app=tmp_path / "a.py")
+    run = cli._Run(opts, {}, files.Log(stream))
+    opts.state_dir.mkdir()
+    assert files.acquire_lock(run.lock, os.getpid(), alive=lambda p: False)[0]
+    monkeypatch.setattr(files.shutil, "rmtree", lambda *a, **k: None)
+    run.release()
+    assert "could not remove launch.lock" in stream.getvalue()

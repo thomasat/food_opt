@@ -162,6 +162,45 @@ def test_a_failed_compile_touches_neither_lock(lock_sandbox):
 
 
 @mac_script
+def test_a_failed_windows_write_leaves_both_locks_as_they_were(lock_sandbox, tmp_path):
+    """A `cp` that fails on the Windows lock's staging write: the Mac lock was
+    staged first, yet neither committed lock changes and no *.new is left."""
+    shim = tmp_path / "shim"
+    shim.mkdir()
+    (shim / "cp").write_text(
+        '#!/bin/bash\n'
+        'case "${!#}" in\n'
+        '  *requirements-windows.lock.txt|*requirements-windows.lock.txt.new) exit 1;;\n'
+        'esac\n'
+        'exec /bin/cp "$@"\n', encoding="utf-8")
+    (shim / "cp").chmod(0o755)
+    text = MAC_LOCK.read_text(encoding="utf-8")
+    lock_sandbox.mac_out.write_text(text.replace("altair==6.2.2", "altair==6.2.3"),
+                                    encoding="utf-8")
+    # the Windows output must differ too, or no write is attempted
+    lock_sandbox.win_out.write_text(
+        lock_sandbox.win_out.read_text(encoding="utf-8").replace(
+            "altair==6.2.2", "altair==6.2.3"), encoding="utf-8")
+    before = lock_sandbox.listing()
+    r = lock_sandbox.run(PATH=f"{shim}:{os.environ['PATH']}")
+    assert r.returncode != 0
+    assert lock_sandbox.listing() == before          # no lock changed, no *.new left
+
+
+@mac_script
+def test_a_hash_only_change_says_hashes_changed(lock_sandbox):
+    text = MAC_LOCK.read_text(encoding="utf-8")
+    changed = re.sub(r"--hash=sha256:([0-9a-f])", lambda m: "--hash=sha256:"
+                     + ("0" if m.group(1) != "0" else "1"), text, count=1)
+    assert changed != text
+    lock_sandbox.mac_out.write_text(changed, encoding="utf-8")
+    r = lock_sandbox.run()
+    assert r.returncode == 0, r.stderr
+    assert "Wrote desktop/requirements.lock.txt (hashes changed)" in r.stdout
+    assert "(packages changed)" not in r.stdout
+
+
+@mac_script
 def test_the_windows_lock_names_the_committed_mac_lock(lock_sandbox):
     """uv writes the -c file's path into its `# via` lines; the compile's
     temporary copy must not reach the committed Windows lock."""

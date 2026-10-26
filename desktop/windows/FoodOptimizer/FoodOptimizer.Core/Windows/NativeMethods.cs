@@ -130,4 +130,44 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool SetForegroundWindow(IntPtr hwnd);
+
+    /// <summary>Restores a minimized window to the state it had before
+    /// (maximized stays maximized).</summary>
+    public const int SW_RESTORE = 9;
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool ShowWindow(IntPtr hwnd, int command);
+
+    public const ushort VT_LPWSTR = 31;
+    public static readonly Guid IID_IPropertyStore = new("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99");
+
+    /// <summary>IPropertyStore's vtable slots after IUnknown's three.</summary>
+    public const int IPropertyStore_SetValue = 6, IPropertyStore_Commit = 7;
+
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    public struct PROPERTYKEY
+    {
+        public Guid FormatId;
+        public uint PropertyId;
+    }
+
+    /// <summary>PKEY_AppUserModel_ID.</summary>
+    public static readonly PROPERTYKEY PKEY_AppUserModel_ID =
+        new() { FormatId = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"), PropertyId = 5 };
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PROPVARIANT
+    {
+        public ushort Type;
+        public ushort Reserved1, Reserved2, Reserved3;
+        public IntPtr Value;
+        public IntPtr Value2;
+    }
+
+    [LibraryImport("shell32.dll")]
+    public static partial int SHGetPropertyStoreForWindow(IntPtr hwnd, in Guid riid, out IntPtr store);
+
+    [LibraryImport("ole32.dll")]
+    public static partial int PropVariantClear(ref PROPVARIANT value);
 }

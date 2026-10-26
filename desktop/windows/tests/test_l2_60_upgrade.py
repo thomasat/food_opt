@@ -1,7 +1,8 @@
 """Level 2: upgrades (spec section 5). An upgrade over an older install
-whose lock differed leaves no stale package, module or shell DLL; a
-reinstall of the same version repairs; a pre-warm that security software
-blocks keeps the install, says so plainly and exits 9 (Review Focus 2)."""
+whose lock differed leaves no stale package, module or shell DLL (at the
+root or under runtimes); a reinstall of the same version repairs; a
+pre-warm that security software blocks keeps the install, says so plainly
+and exits 9 (Review Focus 2)."""
 import hashlib
 import os
 import pathlib
@@ -16,7 +17,8 @@ pytestmark = pytest.mark.usefixtures("clean_machine")
 
 STALE = ("python/Lib/site-packages/stale_pkg/__init__.py",
          "python/Lib/site-packages/stale_pkg-1.0.dist-info/METADATA",
-         "app/old_module.py", "shared/launcher/old_helper.py", "stale_shell.dll")
+         "app/old_module.py", "shared/launcher/old_helper.py", "stale_shell.dll",
+         "runtimes/win-x64/native/FoodOptimizer.Stale.dll")
 
 
 def _variant(name):

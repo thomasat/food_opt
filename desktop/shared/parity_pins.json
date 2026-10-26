@@ -39,7 +39,7 @@
     "shared.launcher": {
       "dir": "desktop/shared/launcher",
       "glob": "**/*.py",
-      "sha256": "c7188857f48e59cfbf177aceed20db99bbb8a020c96265b72b8e18c439eb6fed"
+      "sha256": "73d209c59080650c514f0c10f557516492f63bc991bc535abd3f8877f14e5eec"
     }
   },
   "pairs": {
@@ -58,7 +58,7 @@
         "mac.launcher.runtime_tail",
         "shared.launcher"
       ],
-      "note": "phase 2: Python launcher ported from launcher.sh run-time half; Windows: timed-out port probe is free, append-only log handles, logged unexpected errors, independent guard duties, stale-lock start-time check; Python-only (nothing in launcher.sh to mirror): lifeline reads the raw stdin fd, guard install is idempotent across loads"
+      "note": "phase 2: Python launcher ported from launcher.sh run-time half; Windows: timed-out port probe is free, append-only log handles, logged unexpected errors, independent guard duties, stale-lock start-time check; Python-only (nothing in launcher.sh to mirror): lifeline reads the raw stdin fd, guard install is idempotent across loads; hardening (Python-only, launcher.sh has no counterpart): usage errors exit 1, stop checked before the warm-up, tmp-file open retried, a lock that will not go is logged, no server.base without server.port; serve_guard also ignores secrets.toml (Windows-only until Mac adoption)"
     }
   }
 }

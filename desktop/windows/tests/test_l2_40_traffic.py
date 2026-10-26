@@ -76,5 +76,6 @@ def test_our_processes_connect_only_to_loopback(per_user, capture, l2_home, tmp_
     outside = [e for e in events
                if not ((e["DestAddress"] in l2.LOOPBACK | l2.LISTEN_ANY)
                        and (e["SourceAddress"] in l2.LOOPBACK | l2.LISTEN_ANY))]
+    l2.report("wfp_outside", len(outside))
     assert events, "no events from our processes: the capture saw nothing"
     assert outside == [], outside[:10]

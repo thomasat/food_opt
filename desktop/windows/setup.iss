@@ -86,11 +86,12 @@ Source: "{#ImageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs c
 
 [InstallDelete]
 ; An upgrade starts from a clean Python and app: a package an older lock had
-; must not linger. *.dll at the root: a shell runtime file a newer shell no
-; longer ships.
+; must not linger. runtimes and the root's *.dll: a shell runtime file a
+; newer shell no longer ships.
 Type: filesandordirs; Name: "{app}\python"
 Type: filesandordirs; Name: "{app}\app"
 Type: filesandordirs; Name: "{app}\shared"
+Type: filesandordirs; Name: "{app}\runtimes"
 Type: files; Name: "{app}\*.dll"
 
 [Icons]
@@ -145,6 +146,18 @@ begin
   Result := EnvOr('FOODOPT_STATE_DIR', ExpandConstant('{localappdata}') + '\FoodOptimizer');
 end;
 
+{ Whether Inner is Outer or a folder inside it, whatever the case, with
+  or without a trailing backslash, and however written: ExpandFileName
+  (GetFullPathName) folds doubled backslashes, "." and ".." and "/". }
+function SameOrInside(const Inner, Outer: String): Boolean;
+var
+  I, O: String;
+begin
+  I := AnsiLowercase(RemoveBackslashUnlessRoot(ExpandFileName(Inner)));
+  O := AnsiLowercase(RemoveBackslashUnlessRoot(ExpandFileName(Outer)));
+  Result := (I = O) or (Pos(AddBackslash(O), I) = 1);
+end;
+
 function IsRunningAsSystem: Boolean;
 begin
   Result := (CompareText(GetUserNameString, 'SYSTEM') = 0) or
@@ -176,54 +189,36 @@ begin
   end;
 end;
 
-{ An all-users install replaces every per-user copy: a per-user and an
-  all-users install can't coexist (spec section 5). It runs once the
-  all-users copy is in place, so a cancelled or failed IT install leaves
-  the user's copy alone. Never touches projects or state. A user whose
-  hive isn't loaded keeps an orphan Apps entry. }
-procedure ReplacePerUserCopies;
-var
-  Sids: TArrayOfString;
-  I: Integer;
-  Sid, Profile, Dir, Desktop, ShellFolders: String;
+{ A folder of a user's User Shell Folders (their hive loaded), with
+  %USERPROFILE% and %APPDATA% expanded for that user; Fallback when the
+  hive isn't loaded or the value is missing. }
+function UserShellFolder(const Sid, Name, Profile, Fallback: String): String;
 begin
-  if not RegGetSubkeyNames(HKLM64, ProfileListKey, Sids) then begin
-    Log('replaced per-user copy: no profile list');
+  if not RegQueryStringValue(HKU, Sid + '\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders',
+      Name, Result) or (Result = '') then begin
+    Result := Fallback;
     exit;
   end;
-  for I := 0 to GetArrayLength(Sids) - 1 do begin
-    Sid := Sids[I];
-    { Local and domain accounts (S-1-5-21-*) and Entra ID accounts
-      (S-1-12-1-*, the users of a cloud-joined Intune PC). }
-    if (Pos('S-1-5-21-', Sid) <> 1) and (Pos('S-1-12-1-', Sid) <> 1) then
-      continue;
-    if not RegQueryStringValue(HKLM64, ProfileListKey + '\' + Sid, 'ProfileImagePath', Profile) then
-      continue;
-    StringChangeEx(Profile, '%SystemDrive%', GetEnv('SystemDrive'), True);
-    Dir := Profile + '\AppData\Local\Programs\Food Optimizer';
-    if FileExists(Dir + '\FoodOptimizer.exe') then begin
-      if DelTree(Dir, True, True, True) then
-        Log('replaced per-user copy: deleted ' + Dir)
-      else
-        Log('replaced per-user copy: could not delete ' + Dir);
-    end;
-    DeleteLogged(Profile + '\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Food Optimizer.lnk');
-    DeleteLogged(Profile + '\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Food Optimizer - Start Here.lnk');
-    if RegKeyExists(HKU, Sid) then begin
-      if RegKeyExists(HKU, Sid + '\' + UninstallKey) then begin
-        if RegDeleteKeyIncludingSubkeys(HKU, Sid + '\' + UninstallKey) then
-          Log('replaced per-user copy: deleted the uninstall entry of ' + Sid)
-        else
-          Log('replaced per-user copy: could not delete the uninstall entry of ' + Sid);
-      end;
-      ShellFolders := Sid + '\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders';
-      if RegQueryStringValue(HKU, ShellFolders, 'Desktop', Desktop) then begin
-        StringChangeEx(Desktop, '%USERPROFILE%', Profile, True);
-        DeleteLogged(Desktop + '\Food Optimizer.lnk');
-      end;
-    end else
-      DeleteLogged(Profile + '\Desktop\Food Optimizer.lnk');
-  end;
+  StringChangeEx(Result, '%USERPROFILE%', Profile, True);
+  if (CompareText(Name, 'AppData') <> 0) and (Pos('%APPDATA%', Result) > 0) then
+    StringChangeEx(Result, '%APPDATA%',
+      UserShellFolder(Sid, 'AppData', Profile, Profile + '\AppData\Roaming'), True);
+end;
+
+{ Whether a folder still holds a Food Optimizer install (not only files a
+  user moved there). }
+function IsOurCopy(const Dir: String): Boolean;
+begin
+  Result := FileExists(AddBackslash(Dir) + 'FoodOptimizer.exe') and
+    FileExists(AddBackslash(Dir) + 'unins000.dat');
+end;
+
+procedure DeleteCopy(const Dir: String);
+begin
+  if DelTree(Dir, True, True, True) then
+    Log('replaced per-user copy: deleted ' + Dir)
+  else
+    Log('replaced per-user copy: could not delete ' + Dir);
 end;
 
 { Whether a folder holds anything at all. }
@@ -242,6 +237,211 @@ begin
       until not FindNext(FindRec);
     finally
       FindClose(FindRec);
+    end;
+  end;
+end;
+
+procedure AddName(var Names: TArrayOfString; const Name: String);
+var
+  N: Integer;
+begin
+  N := GetArrayLength(Names);
+  SetArrayLength(Names, N + 1);
+  Names[N] := Name;
+end;
+
+{ Every top-level entry of the image, the folder [Files] copies: listed
+  from ImageDir when the installer is compiled, so it can't drift. }
+function ImageEntries: TArrayOfString;
+begin
+#define EntryHandle
+#define EntryFound
+#sub AddImageEntry
+  #define EntryName FindGetFileName(EntryHandle)
+  #if EntryName != "." && EntryName != ".."
+  AddName(Result, '{#StringChange(EntryName, "'", "''")}');
+  #endif
+#endsub
+#for {EntryHandle = EntryFound = FindFirst(AddBackslash(ImageDir) + "*", faAnyFile); EntryFound; EntryFound = FindNext(EntryHandle)} AddImageEntry
+#if EntryHandle
+  #expr FindClose(EntryHandle)
+#endif
+end;
+
+{ A /DIR copy's folder may also hold the user's own files: only the
+  copy's entries go (the image's, the root DLLs that an upgrade's
+  InstallDelete clears, as an older copy may have others, and the
+  uninstaller's), then the folder if nothing else is left. DelTree with
+  IsDir False deletes the named files or folders; it removes a junction
+  or link itself and never what it points at (it recurses only into
+  folders that are not reparse points). }
+procedure DeleteCopyEntries(const Dir: String);
+var
+  Names: TArrayOfString;
+  I: Integer;
+begin
+  Names := ImageEntries;
+  AddName(Names, '*.dll');
+  AddName(Names, 'unins000.*');
+  for I := 0 to GetArrayLength(Names) - 1 do
+    if not DelTree(AddBackslash(Dir) + Names[I], False, True, True) then
+      Log('replaced per-user copy: could not delete ' + AddBackslash(Dir) + Names[I]);
+  if RemoveDir(Dir) then
+    Log('replaced per-user copy: deleted ' + Dir)
+  else if DirHasEntries(Dir) then
+    Log('replaced per-user copy: kept ' + Dir + ' (it holds other files)')
+  else
+    Log('replaced per-user copy: could not delete ' + Dir);
+end;
+
+{ Whether the folder, or any folder above it, is a junction or other
+  link. A user can point their InstallLocation through one at a folder
+  that isn't theirs (the all-users install's own); a text compare can't
+  see it. FindFirst on a path returns the link's own attributes. }
+function OnALinkPath(const Dir: String): Boolean;
+var
+  P, Parent: String;
+  FindRec: TFindRec;
+begin
+  Result := False;
+  P := RemoveBackslashUnlessRoot(ExpandFileName(Dir));
+  while True do begin
+    if FindFirst(P, FindRec) then begin
+      try
+        if FindRec.Attributes and FILE_ATTRIBUTE_REPARSE_POINT <> 0 then begin
+          Result := True;
+          exit;
+        end;
+      finally
+        FindClose(FindRec);
+      end;
+    end;
+    Parent := RemoveBackslashUnlessRoot(ExtractFileDir(P));
+    if (Parent = P) or (Parent = '') then
+      break;
+    P := Parent;
+  end;
+end;
+
+{ Whether a folder name on the path ends in a space or a dot. Win32
+  drops those from a path's last part (FindFirst on "a " looks at "a"),
+  so OnALinkPath could check another folder than the one deleted. }
+function OddNameOnPath(const Dir: String): Boolean;
+var
+  P, Name: String;
+begin
+  Result := False;
+  P := Dir;
+  while True do begin
+    Name := ExtractFileName(P);
+    if (Name <> '') and ((Name[Length(Name)] = ' ') or (Name[Length(Name)] = '.')) then begin
+      Result := True;
+      exit;
+    end;
+    if (RemoveBackslashUnlessRoot(ExtractFileDir(P)) = P) or (ExtractFileDir(P) = '') then
+      break;
+    P := RemoveBackslashUnlessRoot(ExtractFileDir(P));
+  end;
+end;
+
+{ That user's projects folder: their stored FOODOPT_PROJECTS_DIR (hive
+  loaded), else the default the shell uses. }
+function UserProjectsDir(const Sid, Profile: String): String;
+begin
+  if RegQueryStringValue(HKU, Sid + '\Environment', 'FOODOPT_PROJECTS_DIR', Result) and (Result <> '') then
+    StringChangeEx(Result, '%USERPROFILE%', Profile, True)
+  else
+    Result := Profile + '\FoodOptimizer';
+end;
+
+{ Deletes a per-user copy, but never one reached through a link, nor one
+  holding the user's projects (a /DIR at the projects folder), nor this
+  install's own folder (the user can edit InstallLocation). OwnFolder:
+  the default per-user folder, ours by name, goes whole; a /DIR folder
+  loses only the copy's own entries. True when the copy was kept. One
+  spelling of the folder for every check and delete: Win32 drops a
+  trailing space or dot from a path's last part but keeps it in a middle
+  one, so the raw form could name another folder than the checked one. }
+function ReplaceCopy(const RawDir, Projects: String; const OwnFolder: Boolean): Boolean;
+var
+  Dir, App: String;
+begin
+  Result := True;
+  Dir := RemoveBackslashUnlessRoot(ExpandFileName(RemoveBackslashUnlessRoot(RawDir)));
+  App := ExpandConstant('{app}');
+  if OddNameOnPath(Dir) then
+    Log('replaced per-user copy: kept ' + Dir + ' (a folder name on its path ends in a space or dot)')
+  else if OnALinkPath(Dir) then
+    Log('replaced per-user copy: kept ' + Dir + ' (a folder on its path is a link)')
+  else if SameOrInside(Projects, Dir) then
+    Log('replaced per-user copy: kept ' + Dir + ' (it holds the projects folder)')
+  else if SameOrInside(Dir, App) or SameOrInside(App, Dir) then
+    Log('replaced per-user copy: kept ' + Dir + ' (it is this install)')
+  else begin
+    if OwnFolder then
+      DeleteCopy(Dir)
+    else
+      DeleteCopyEntries(Dir);
+    Result := False;
+  end;
+end;
+
+{ An all-users install replaces every per-user copy: a per-user and an
+  all-users install can't coexist (spec section 5). It runs once the
+  all-users copy is in place, so a cancelled or failed IT install leaves
+  the user's copy alone. A copy installed with /DIR is found through the
+  user's uninstall entry, and loses only its own entries, only while it
+  still holds Food Optimizer. Never touches projects or state: a copy
+  holding the projects folder is kept, with its Apps entry, for the
+  user's own uninstaller (which keeps projects). A user whose hive isn't
+  loaded keeps an orphan Apps entry and any /DIR copy. }
+procedure ReplacePerUserCopies;
+var
+  Sids: TArrayOfString;
+  I: Integer;
+  Sid, Profile, Dir, Location, Programs, Projects: String;
+  Loaded, Kept, SameAsDefault: Boolean;
+begin
+  if not RegGetSubkeyNames(HKLM64, ProfileListKey, Sids) then begin
+    Log('replaced per-user copy: no profile list');
+    exit;
+  end;
+  for I := 0 to GetArrayLength(Sids) - 1 do begin
+    Sid := Sids[I];
+    { Local and domain accounts (S-1-5-21-*) and Entra ID accounts
+      (S-1-12-1-*, the users of a cloud-joined Intune PC). }
+    if (Pos('S-1-5-21-', Sid) <> 1) and (Pos('S-1-12-1-', Sid) <> 1) then
+      continue;
+    if not RegQueryStringValue(HKLM64, ProfileListKey + '\' + Sid, 'ProfileImagePath', Profile) then
+      continue;
+    StringChangeEx(Profile, '%SystemDrive%', GetEnv('SystemDrive'), True);
+    Loaded := RegKeyExists(HKU, Sid);
+    Projects := UserProjectsDir(Sid, Profile);
+    Dir := Profile + '\AppData\Local\Programs\Food Optimizer';
+    Kept := False;
+    SameAsDefault := False;
+    if Loaded and RegQueryStringValue(HKU, Sid + '\' + UninstallKey, 'InstallLocation', Location) and
+        (Location <> '') then begin
+      { The spelling ReplaceCopy checks and deletes, also for IsOurCopy. }
+      Location := RemoveBackslashUnlessRoot(ExpandFileName(RemoveBackslashUnlessRoot(Location)));
+      if IsOurCopy(Location) then begin
+        SameAsDefault := SameOrInside(Location, Dir) and SameOrInside(Dir, Location);
+        Kept := ReplaceCopy(Location, Projects, SameAsDefault);
+      end else
+        Log('replaced per-user copy: no copy left in ' + Location);
+    end;
+    if not SameAsDefault and FileExists(Dir + '\FoodOptimizer.exe') then
+      if ReplaceCopy(Dir, Projects, True) then
+        Kept := True;
+    Programs := UserShellFolder(Sid, 'Programs', Profile, Profile + '\AppData\Roaming\Microsoft\Windows\Start Menu\Programs');
+    DeleteLogged(Programs + '\Food Optimizer.lnk');
+    DeleteLogged(Programs + '\Food Optimizer - Start Here.lnk');
+    DeleteLogged(UserShellFolder(Sid, 'Desktop', Profile, Profile + '\Desktop') + '\Food Optimizer.lnk');
+    if Loaded and not Kept and RegKeyExists(HKU, Sid + '\' + UninstallKey) then begin
+      if RegDeleteKeyIncludingSubkeys(HKU, Sid + '\' + UninstallKey) then
+        Log('replaced per-user copy: deleted the uninstall entry of ' + Sid)
+      else
+        Log('replaced per-user copy: could not delete the uninstall entry of ' + Sid);
     end;
   end;
 end;
@@ -479,7 +679,9 @@ begin
     UnpinFromQuickAccess(ProjectsDir);
   if CurUninstallStep = usPostUninstall then begin
     Dir := RemoveBackslashUnlessRoot(StateDir);
-    if CompareText(ExtractFileName(Dir), 'FoodOptimizer') = 0 then begin
+    if SameOrInside(ProjectsDir, Dir) then
+      Log('state folder kept (it holds the projects folder): ' + Dir)
+    else if CompareText(ExtractFileName(Dir), 'FoodOptimizer') = 0 then begin
       for I := 1 to 5 do begin
         if not DirExists(Dir) then
           break;

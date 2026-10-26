@@ -32,13 +32,14 @@ def _unlink(path: Path) -> None:
 
 def atomic_write(path: Path, data: bytes, attempts: int = 5, delay: float = 0.05) -> None:
     """Write <path>.tmp, then rename it over `path`. A PermissionError on the
-    rename (a file briefly held open) is retried; the last one is raised."""
+    open, the write or the rename (a file briefly held open) is retried; the
+    last one removes the tmp file and is raised."""
     path = Path(path)
     tmp = _tmp(path)
-    with open(tmp, "wb") as fh:
-        fh.write(data)
     for attempt in range(1, attempts + 1):
         try:
+            with open(tmp, "wb") as fh:
+                fh.write(data)
             os.replace(tmp, path)
             return
         except PermissionError:
@@ -167,11 +168,12 @@ def acquire_lock(lock_dir: Path, pid: int, alive: Callable[[int], bool],
 
 
 def release_lock(lock_dir: Path, pid: int) -> bool:
-    """Remove the lock only when it is `pid`'s."""
+    """Remove the lock only when it is `pid`'s. False when it is not ours or
+    the folder is still there afterwards."""
     if lock_owner(lock_dir) != pid:
         return False
     shutil.rmtree(lock_dir, ignore_errors=True)
-    return True
+    return not Path(lock_dir).exists()
 
 
 # ---------- backups ----------

@@ -73,5 +73,18 @@ def test_a_change_on_one_side_fails(tmp_path):
     assert mod.stale_sections(doc, tmp_path) == ["mac.swift.page"]
 
 
+def test_a_dotfile_does_not_change_a_dir_pin(tmp_path):
+    pages = tmp_path / "desktop" / "shared" / "pages"
+    shutil.copytree(REPO / "desktop" / "shared" / "pages", pages,
+                    ignore=shutil.ignore_patterns("__pycache__"))
+    mod = _module()
+    spec = {"dir": "desktop/shared/pages", "glob": "*"}
+    before = mod.section_hash(spec, tmp_path)
+    (pages / ".DS_Store").write_bytes(b"\0\1")
+    (pages / ".cache").mkdir()
+    (pages / ".cache" / "x.js").write_text("x", encoding="utf-8")
+    assert mod.section_hash(spec, tmp_path) == before
+
+
 def test_repinning_needs_a_note():
     assert _module().main(["--pair", "page"]) == 2

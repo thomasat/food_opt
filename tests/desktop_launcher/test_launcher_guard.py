@@ -335,6 +335,34 @@ def test_user_config_files_are_ignored(tmp_path):
     assert guarded.stdout.rstrip("\n") == "None  False", guarded
 
 
+_SECRETS = """
+    import os, sys
+    from streamlit import config
+    if sys.argv[1] == "guard":
+        load("foodopt_serve_guard", sys.argv[2]).ignore_user_config_files()
+    config.get_config_options(force_reparse=True)
+    from streamlit.runtime.secrets import secrets_singleton
+    secrets_singleton.load_if_toml_exists()
+    print(os.environ.get("FOODOPT_PROBE_HOME"), os.environ.get("FOODOPT_PROBE_CWD"),
+          config.get_option("secrets.files"))
+"""
+
+
+def test_user_secrets_files_are_ignored(tmp_path):
+    home = tmp_path / "home"
+    (home / ".streamlit").mkdir(parents=True)
+    (home / ".streamlit" / "secrets.toml").write_text('FOODOPT_PROBE_HOME = "home"\n', encoding="utf-8")
+    cwd = tmp_path / "projects"
+    (cwd / ".streamlit").mkdir(parents=True)
+    (cwd / ".streamlit" / "secrets.toml").write_text('FOODOPT_PROBE_CWD = "cwd"\n', encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("FOODOPT_PROBE")}
+    env.update(HOME=str(home), USERPROFILE=str(home))
+    control = _run(_SECRETS, "none", SERVE_GUARD, env=env, cwd=cwd)
+    assert control.stdout.startswith("home cwd"), control
+    guarded = _run(_SECRETS, "guard", SERVE_GUARD, env=env, cwd=cwd)
+    assert guarded.stdout.rstrip("\n") == "None None []", guarded
+
+
 # ---------- what the launcher relies on in its dependencies ----------
 
 def _installed(package, rel):

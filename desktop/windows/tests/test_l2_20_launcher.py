@@ -44,10 +44,9 @@ def test_the_launcher_suite_passes_on_the_installed_app(per_user, tmp_path):
                            cwd=l2.REPO, env=env, capture_output=True, text=True, encoding="utf-8",
                            errors="replace", timeout=3600)
     finally:
-        # The suite's world fixture ends a launch it still holds with
-        # TerminateProcess, which on Windows leaves that launch's real
-        # Streamlit running (the shell's job object prevents this for
-        # users). Count what it left, then end it, so the install stays
+        # The suite's world fixture ends every launch, server and child it
+        # started (harness.end_world): nothing of the install's Python may
+        # outlive it. Count what is left and end it, so the install stays
         # unused for the modules after this one.
         left = l2.processes_under(per_user.root / "python")
         l2.report("launcher_suite_leftover_pythons", len(left))
@@ -57,6 +56,7 @@ def test_the_launcher_suite_passes_on_the_installed_app(per_user, tmp_path):
     passed = re.findall(r"^PASSED \S+::(\w+)", out, re.M)
     missing = [name for name in REQUIRED_PASSES if name not in passed]
     assert missing == [], out[-6000:]
+    assert left == [], left
 
 
 def test_packaged_app_checks_pass_with_the_installed_python(per_user, tmp_path):

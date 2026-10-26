@@ -15,4 +15,13 @@ public static class Zoom
     public static double Smaller(double z) => Clamp(z - Step);
 
     public static bool Same(double a, double b) => Math.Abs(a - b) < 0.001;
+
+    /// <summary>The page reported a zoom. Reapply = the clamped value when
+    /// the page is not already at it; Save = the clamped value when it is not
+    /// what is saved.</summary>
+    public static (double? Reapply, double? Save) OnReported(double reported, double saved)
+    {
+        var z = Clamp(reported);
+        return (Same(z, reported) ? null : z, Same(z, saved) ? null : z);
+    }
 }

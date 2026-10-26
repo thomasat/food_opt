@@ -19,8 +19,17 @@ public sealed class SetupWizard : IDisposable
     [DllImport("user32.dll")] static extern IntPtr SendMessageW(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] static extern bool PostMessageW(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] static extern bool PrintWindow(IntPtr hwnd, IntPtr hdc, uint flags);
+    [DllImport("user32.dll")] static extern bool IsWindow(IntPtr hwnd);
 
-    SetupWizard(Process process) => Process = process;
+    /// <summary>Top-level windows open before this installer started: an
+    /// earlier test's leftover dialog is never taken for this one's.</summary>
+    readonly HashSet<int> _before;
+
+    SetupWizard(Process process, HashSet<int> before)
+    {
+        Process = process;
+        _before = before;
+    }
 
     public Process Process { get; }
     public HashSet<string> Seen { get; } = new(StringComparer.Ordinal);
@@ -30,14 +39,34 @@ public sealed class SetupWizard : IDisposable
         Environment.GetEnvironmentVariable("FOODOPT_UI_INSTALLER") is { Length: > 0 } s
             ? s : throw new InvalidOperationException("FOODOPT_UI_INSTALLER is not set (run_ui_tests.ps1 -Installer)");
 
-    /// <summary>A wizard over a process already started (the uninstaller).</summary>
-    public static SetupWizard Attach(Process process) => new(process);
+    /// <summary>A wizard over a process already started (the uninstaller);
+    /// <paramref name="before"/> is TopWindows() from before it started.</summary>
+    public static SetupWizard Attach(Process process, HashSet<int> before) => new(process, before);
 
     public static SetupWizard Start(string installer, string args, IDictionary<string, string> env)
     {
+        var before = TopWindows();
         var info = new ProcessStartInfo(installer, args) { UseShellExecute = false };
         foreach (var (k, v) in env) info.Environment[k] = v;
-        return new SetupWizard(Process.Start(info)!);
+        return new SetupWizard(Process.Start(info)!, before);
+    }
+
+    /// <summary>The handles of the desktop's top-level windows now.</summary>
+    public static HashSet<int> TopWindows()
+    {
+        var o = new HashSet<int>();
+        foreach (var w in AutomationElement.RootElement.FindAll(TreeScope.Children, Condition.TrueCondition).Cast<AutomationElement>())
+        {
+            try { o.Add(w.Current.NativeWindowHandle); }
+            catch (ElementNotAvailableException) { }
+        }
+        return o;
+    }
+
+    bool IsNew(AutomationElement w)
+    {
+        try { return !_before.Contains(w.Current.NativeWindowHandle); }
+        catch (ElementNotAvailableException) { return false; }
     }
 
     /// <summary>The wizard's window ("Install Food Optimizer"), owned by the
@@ -147,29 +176,70 @@ public sealed class SetupWizard : IDisposable
     public AutomationElement WaitForDialog(string textContains, TimeSpan t)
     {
         AutomationElement? found = null;
-        bool Match()
+        if (!Uia.WaitUntil(() => (found = FindDialog(textContains)) != null, t, 250))
+            throw new Xunit.Sdk.XunitException($"no installer dialog saying '{textContains}' within {t.TotalSeconds:0} s");
+        return found!;
+    }
+
+    /// <summary>The dialog WaitForDialog waits for, if it is open now
+    /// (its texts kept in Seen), else null.</summary>
+    public AutomationElement? FindDialog(string textContains)
+    {
+        var main = FindWindow();
+        // UI Automation lists a dialog the wizard owns under the wizard.
+        var candidates = AutomationElement.RootElement.FindAll(TreeScope.Children, Condition.TrueCondition)
+            .Cast<AutomationElement>()
+            .Where(w => IsNew(w) && (main == null || w.Current.NativeWindowHandle != main.Current.NativeWindowHandle))
+            .ToList();
+        if (main != null)
+            candidates.AddRange(main.FindAll(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Window)).Cast<AutomationElement>());
+        foreach (var w in candidates)
         {
-            var main = FindWindow();
-            // UI Automation lists a dialog the wizard owns under the wizard.
-            var candidates = AutomationElement.RootElement.FindAll(TreeScope.Children, Condition.TrueCondition)
-                .Cast<AutomationElement>()
-                .Where(w => main == null || w.Current.NativeWindowHandle != main.Current.NativeWindowHandle)
-                .ToList();
-            if (main != null)
-                candidates.AddRange(main.FindAll(TreeScope.Descendants,
-                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Window)).Cast<AutomationElement>());
-            foreach (var w in candidates)
+            try
             {
                 var texts = w.FindAll(TreeScope.Descendants, Condition.TrueCondition).Cast<AutomationElement>().Select(Uia.NameOf);
-                if (texts.Any(x => x.Contains(textContains, StringComparison.Ordinal))) { found = w; return true; }
+                if (!texts.Any(x => x.Contains(textContains, StringComparison.Ordinal))) continue;
+                Note(w);
+                Seen.Add(Uia.NameOf(w));
+                return w;
             }
-            return false;
+            catch (ElementNotAvailableException) { }
         }
-        if (!Uia.WaitUntil(Match, t, 250))
-            throw new Xunit.Sdk.XunitException($"no installer dialog saying '{textContains}' within {t.TotalSeconds:0} s");
-        Note(found!);
-        Seen.Add(Uia.NameOf(found!));
-        return found!;
+        return null;
+    }
+
+    /// <summary>The texts of the open top-level windows of a class (the
+    /// uninstaller's TUninstallProgressForm), also kept in Seen.</summary>
+    public IReadOnlyList<string> TextsOf(string className)
+    {
+        var names = new List<string>();
+        foreach (var w in AutomationElement.RootElement.FindAll(TreeScope.Children, Condition.TrueCondition).Cast<AutomationElement>())
+        {
+            try
+            {
+                if (Uia.SafeClass(w) != className || !IsNew(w)) continue;
+                Seen.Add(Uia.NameOf(w));
+                names.AddRange(Note(w));
+            }
+            catch (ElementNotAvailableException) { }
+        }
+        return names;
+    }
+
+    static readonly Dictionary<string, int> Commands = new() { ["OK"] = 1, ["Cancel"] = 2, ["Yes"] = 6, ["No"] = 7 };
+
+    /// <summary>Clicks a message box's button and waits for the box to
+    /// close; a click the box missed (BM_CLICK can fail on an inactive
+    /// dialog) is sent again as WM_COMMAND with the button's ID.</summary>
+    public void Dismiss(AutomationElement dialog, string button)
+    {
+        var hwnd = new IntPtr(dialog.Current.NativeWindowHandle);
+        Click(dialog, button);
+        if (Uia.WaitUntil(() => !IsWindow(hwnd), TimeSpan.FromSeconds(10), 250)) return;
+        PostMessageW(hwnd, 0x0111, Commands[button], IntPtr.Zero);
+        if (!Uia.WaitUntil(() => !IsWindow(hwnd), TimeSpan.FromSeconds(20), 250))
+            throw new Xunit.Sdk.XunitException($"the dialog '{Uia.NameOf(dialog)}' stayed open 30 s after {button}");
     }
 
     public async Task<int> WaitForExitAsync(TimeSpan timeout)
@@ -223,18 +293,24 @@ public sealed class SetupWizard : IDisposable
     public static readonly string[] Buttons = ["Next", "Install", "Cancel", "Back", "Finish", "OK", "Yes", "No"];
 
     /// <summary>Every text the installer may show: our messages with their
-    /// placeholders filled, one entry per paragraph, plus Inno's buttons.</summary>
+    /// placeholders filled, one entry per paragraph, plus Inno's buttons.
+    /// SetupAppRunningError also names the installer (SetupAppTitle) when
+    /// a second copy starts.</summary>
     public static IReadOnlySet<string> AllowedTexts(string version)
     {
         var isl = ParseIsl(Path.Combine(Repo(), "desktop", "windows", "installer_messages.isl"));
         var allowed = new HashSet<string>(Buttons, StringComparer.Ordinal);
+        void Add(string value, string arg)
+        {
+            var text = value.Replace("&", "").Replace("[name]", "Food Optimizer").Replace("[ver]", version)
+                .Replace("%1", arg);
+            foreach (var para in text.Split("%n%n")) allowed.Add(para.Replace("%n", " ").Trim());
+        }
         foreach (var section in isl.Values)
             foreach (var value in section.Values)
-            {
-                var text = value.Replace("&", "").Replace("[name]", "Food Optimizer").Replace("[ver]", version)
-                    .Replace("%1", "Food Optimizer");
-                foreach (var para in text.Split("%n%n")) allowed.Add(para.Replace("%n", " ").Trim());
-            }
+                Add(value, "Food Optimizer");
+        var messages = isl["Messages"];
+        Add(messages["SetupAppRunningError"], messages["SetupAppTitle"]);
         return allowed;
     }
 

@@ -281,3 +281,21 @@ def per_user(installer):
     if entry and _ours(entry.get("InstallLocation", "")):
         l2.kill_under(home.root)
         l2.uninstall(home.root, "user", env=home.env)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _end_l2_jobs():
+    """Whatever happens, no scheduled task run_as created outlives the run."""
+    yield
+    l2 = sys.modules.get("l2_support")
+    if l2 is not None:
+        l2.end_all_jobs()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _report_installer_sha256():
+    """Level 2 only (FOODOPT_L2_INSTALLER set; the L1 test_winenv_* runs never
+    set it): once per run, whatever subset of tests runs, the report names
+    the installer's sha256."""
+    if os.environ.get("FOODOPT_L2_INSTALLER"):
+        _l2().report_installer_sha256()
