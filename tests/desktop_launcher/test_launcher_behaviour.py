@@ -590,3 +590,19 @@ def test_a_projects_folder_that_cannot_be_made_is_logged(py, world, tmp_path):
     log = world.log_text()
     assert "FATAL" in log and str(projects) in log, log
     assert not world.lock_dir.exists()
+
+
+@posix_only
+def test_a_projects_folder_failure_with_lock_held_releases_the_lock(py, world, tmp_path):
+    from tests.desktop_launcher.harness import BOOT, _env, _popen
+    blocker = tmp_path / "a-regular-file"
+    blocker.write_bytes(b"x")
+    world.projects_dir = blocker / "FoodOptimizer"
+    world.state_dir.mkdir(parents=True)
+    cmd = py.command(world, ["--lock-held"])
+    script = 'mkdir "$1" && echo $$ > "$1/pid" && exec "$2" -I -X utf8 -B -c "$3" "${@:4}"'
+    launch = _popen(world, ["/bin/bash", "-c", script, "_", str(world.lock_dir), cmd[0],
+                            BOOT, *cmd[7:]], _env(world, None), subprocess.DEVNULL)
+    assert launch.wait(15) == 1
+    assert "FATAL" in world.log_text()
+    assert _gone(world.lock_dir)

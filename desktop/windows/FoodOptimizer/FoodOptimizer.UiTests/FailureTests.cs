@@ -136,8 +136,11 @@ public class FailureTests
     public void A_lock_held_by_a_launch_that_is_ending_is_taken_over()
     {
         var run = ShellRun.Fresh();
-        using var holder = Process.Start(new ProcessStartInfo("ping.exe", "-n 9 127.0.0.1")
+        using var holder = Process.Start(new ProcessStartInfo(Path.Combine(run.Stage, "python", "python.exe"),
+            "-c \"import time; time.sleep(8)\"")
         {
+            // A python holder: the launcher counts only a live python started
+            // before the lock's pid file as the lock's owner.
             UseShellExecute = false,
             CreateNoWindow = true,
         })!;

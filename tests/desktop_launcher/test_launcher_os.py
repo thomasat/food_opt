@@ -168,32 +168,35 @@ def test_a_connect_probe_that_times_out_still_counts_as_free(monkeypatch):
     assert ports.port_is_free(port)
 
 
-def _system_pid_we_cannot_inspect():
-    """A pid another account owns whose start time we cannot read (Windows:
-    SYSTEM processes answer ACCESS_DENIED, which pid_alive counts as alive)."""
+def _pid_of_another_user():
+    """A live pid another account owns that is not python (so not a lock
+    owner). Windows: SYSTEM processes, preferring one whose start time we
+    cannot read (ACCESS_DENIED, which pid_alive counts as alive). POSIX:
+    pid 1 (launchd / init)."""
     if sys.platform != "win32":
-        return 1 if procinfo.pid_alive(1) else None   # launchd / init is not python
+        return 1 if procinfo.pid_alive(1) else None
     out = subprocess.run(["tasklist", "/FI", "USERNAME eq SYSTEM", "/FO", "CSV", "/NH"],
                          capture_output=True, text=True).stdout
+    found = []
     for line in out.splitlines():
         parts = line.strip().strip('"').split('","')
-        if len(parts) > 1 and parts[1].isdigit():
+        if len(parts) > 1 and parts[1].isdigit() and int(parts[1]) > 4:
             pid = int(parts[1])
-            if (pid > 4 and procinfo.pid_alive(pid)
-                    and procinfo.process_start_time(pid) is None):
-                return pid
-    return None
+            image = procinfo.process_image(pid) or ""
+            if procinfo.pid_alive(pid) and not image.replace("\\", "/").rsplit("/", 1)[-1].lower().startswith("python"):
+                found.append(pid)
+    unreadable = [p for p in found if procinfo.process_start_time(p) is None]
+    return (unreadable or found or [None])[0]
 
 
-def test_a_pid_owned_by_another_user_is_not_a_lock_owner(tmp_path):
-    import io
-    from launcher import cli, files
-    pid = _system_pid_we_cannot_inspect()
+def test_a_pid_owned_by_another_user_is_not_a_lock_owner(py, world):
+    from tests.desktop_launcher.conftest import healthy_launch
+    pid = _pid_of_another_user()
     if pid is None:
-        pytest.skip("no live pid with an unreadable start time on this machine")
-    opts = cli.Options(state_dir=tmp_path / "s", projects_dir=tmp_path / "p",
-                       app=tmp_path / "a.py")
-    run = cli._Run(opts, {}, files.Log(io.StringIO()))
-    run.lock.mkdir(parents=True)
-    (run.lock / "pid").write_bytes(f"{pid}\n".encode())
-    assert run.lock_owner_alive(pid) is False
+        if sys.platform == "win32":
+            pytest.fail("tasklist found no SYSTEM-owned process")
+        pytest.skip("pid 1 is not visible here")
+    world.lock_dir.mkdir(parents=True)
+    (world.lock_dir / "pid").write_bytes(f"{pid}\n".encode())
+    healthy_launch(py, world)
+    assert _until(lambda: not world.lock_dir.exists(), 5)

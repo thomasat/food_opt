@@ -351,8 +351,7 @@ class _Run:
         try:
             self.make_dir(opts.projects_dir)
         except OSError as e:
-            self.log.say(f"FATAL: could not create the projects folder {opts.projects_dir}: {e}")
-            return 1
+            return self.fatal(f"could not create the projects folder {opts.projects_dir}: {e}")
         if opts.stdin_lifeline:
             self.start_lifeline()
 
