@@ -2,6 +2,7 @@
 path, the Host check and the user-config isolation, end to end. Slow."""
 import socket
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -74,6 +75,18 @@ def test_real_streamlit_answers_only_on_its_base_path_and_host(py, world):
     if lan is not None:
         with pytest.raises(OSError):
             socket.create_connection((lan, port), timeout=2).close()
+
+
+def test_real_streamlit_serves_the_base_path_from_the_environment(py, world):
+    _, port, pid = _launch(py, world)
+    base = world.base()
+    assert _raw(port, f"/{base}/_stcore/health", f"127.0.0.1:{port}") == (200, b"ok")
+    assert _raw(port, "/_stcore/health", f"127.0.0.1:{port}")[0] == 404
+    assert base not in world.log_text()
+    command = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True,
+                             text=True).stdout if sys.platform != "win32" else None
+    if command is not None:
+        assert command.strip() and base not in command
 
 
 def test_real_streamlit_ignores_user_config_files(py, world):

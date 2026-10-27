@@ -51,7 +51,7 @@ def _serve_pids(world):
 
 
 def test_unsupported_machine_exits_2_and_creates_nothing(impl, world):
-    launch = impl.start(world, env={"FOODOPT_TEST_ARCH": "x86_64"})
+    launch = impl.start(world, env={"FOODOPT_TEST_ARCH": "x86_64", "FOODOPT_TEST_HOOKS": "1"})
     before = _listing(world.state_dir)   # launcher.sh's bundle: setup done by the harness
     assert launch.wait(10) == 2
     assert "unsupported machine" in launch.output()
@@ -332,7 +332,9 @@ def test_the_base_path_file_and_the_server_agree(py, world):
     assert torn == []
     assert re.match(rb"^[A-Za-z0-9_-]{32}\n$", world.base_file.read_bytes())
     base = world.base()
-    assert f"--server.baseUrlPath={base}" in world.records("serve")[0]["argv"]
+    serve = world.records("serve")[0]
+    assert not any(base in arg for arg in serve["argv"])
+    assert serve["env"]["STREAMLIT_SERVER_BASE_URL_PATH"] == base
     assert world.health(f"/{base}/_stcore/health") == 200
     assert world.health("/_stcore/health") == 404
     launch.stop()
@@ -363,7 +365,11 @@ def test_children_get_a_clean_environment(py, world):
                                    "STREAMLIT_SERVER_PORT": "1", "HTTPS_PROXY": "http://p:1",
                                    "http_proxy": "http://p:1", "ALL_PROXY": "http://p:1"})
     for r in _children(world):
-        assert set(r["env"]) == {"PYTHONUSERBASE", "GIT_PYTHON_REFRESH"}, r["env"]
+        expected = {"PYTHONUSERBASE", "GIT_PYTHON_REFRESH"}
+        if r["kind"] == "serve":
+            expected.add("STREAMLIT_SERVER_BASE_URL_PATH")
+            assert r["env"]["STREAMLIT_SERVER_BASE_URL_PATH"] == world.base()
+        assert set(r["env"]) == expected, r["env"]
         assert r["env"]["GIT_PYTHON_REFRESH"] == "quiet"
         assert r["userbase"] == str(world.state_dir / "no-user-base")
     assert not (world.state_dir / "no-user-base").exists()

@@ -18,7 +18,9 @@ Start (every path is an argument; nothing is found by looking around):
         [--health-timeout S]  default 180
 
 Environment: FOODOPT_IDLE_TIMEOUT_SECS (default 900, counted in 5 s ticks),
-FOODOPT_PORT_BASE (first port to try; tests), FOODOPT_TEST_ARCH (tests).
+FOODOPT_PORT_BASE (first port to try; tests), FOODOPT_TEST_ARCH (tests; honoured only
+when FOODOPT_TEST_HOOKS=1). The server's base path is handed to it as
+STREAMLIT_SERVER_BASE_URL_PATH, never on its command line.
 
 Files in the state dir, byte for byte as launcher.sh writes them:
     status.txt      "<text>|<percent>\\n" (percent empty when unknown), written

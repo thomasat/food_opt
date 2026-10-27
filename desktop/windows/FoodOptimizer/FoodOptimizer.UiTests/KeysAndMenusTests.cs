@@ -170,7 +170,7 @@ public class KeysAndMenusTests
     [Fact]
     public void Show_log_file_without_a_log_says_so()
     {
-        var run = ShellRun.Fresh() with { Env = new Dictionary<string, string> { ["FOODOPT_TEST_ARCH"] = "x86" } };
+        var run = ShellRun.Fresh() with { Env = new Dictionary<string, string> { ["FOODOPT_TEST_ARCH"] = "x86", ["FOODOPT_TEST_HOOKS"] = "1" } };
         using var app = ShellApp.Launch(run);
         app.WaitFor(ControlType.Text, "This PC is not supported", TimeSpan.FromSeconds(30));
         Assert.False(File.Exists(Path.Combine(app.StateDir, "launcher.log")));

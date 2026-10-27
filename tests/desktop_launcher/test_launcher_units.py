@@ -24,7 +24,8 @@ def test_parse_args_defaults():
     assert o.child_script.name == "child.py" and o.child_script.parent.name == "launcher"
     assert not o.stdin_lifeline and not o.lock_held
     assert _opts({"FOODOPT_IDLE_TIMEOUT_SECS": "10"}).idle_timeout == 10
-    o = _opts({"FOODOPT_PORT_BASE": "30000", "FOODOPT_TEST_ARCH": "arm64"},
+    o = _opts({"FOODOPT_PORT_BASE": "30000", "FOODOPT_TEST_ARCH": "arm64",
+               "FOODOPT_TEST_HOOKS": "1"},
               "--stdin-lifeline", "--lock-held", "--base-path", "none",
               "--warmup-timeout", "2", "--health-timeout", "3")
     assert (o.port_base, o.test_arch, o.base_path) == (30000, "arm64", "none")
@@ -67,12 +68,27 @@ def test_child_env(tmp_path):
     assert not (tmp_path / "no-user-base").exists()
 
 
+def test_child_env_carries_the_base_path_only_in_the_environment(tmp_path):
+    environ = {"STREAMLIT_SERVER_BASE_URL_PATH": "evil", "PATH": "/bin"}
+    assert childenv.child_env(environ, tmp_path, base="abc")[
+        "STREAMLIT_SERVER_BASE_URL_PATH"] == "abc"
+    assert "STREAMLIT_SERVER_BASE_URL_PATH" not in childenv.child_env(environ, tmp_path)
+    assert "STREAMLIT_SERVER_BASE_URL_PATH" not in childenv.child_env(
+        environ, tmp_path, base=None)
+
+
+def test_test_arch_needs_the_hooks_opt_in():
+    assert _opts({"FOODOPT_TEST_ARCH": "x86"}).test_arch is None
+    assert _opts({"FOODOPT_TEST_ARCH": "x86", "FOODOPT_TEST_HOOKS": "1"}).test_arch == "x86"
+    assert _opts({"FOODOPT_TEST_ARCH": "x86", "FOODOPT_TEST_HOOKS": "0"}).test_arch is None
+
+
 def test_streamlit_flags_are_the_spec_list():
     assert childenv.streamlit_flags(18501, "abc") == [
         "--server.headless=true",
         "--server.address=127.0.0.1",
         "--server.port=18501",
-        "--server.baseUrlPath=abc",
+        "--logger.hideWelcomeMessage=true",
         "--browser.gatherUsageStats=false",
         "--client.toolbarMode=minimal",
         "--client.showErrorDetails=none",

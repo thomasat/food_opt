@@ -73,7 +73,7 @@ def serve(app, flags):
             fh.write("taken\n")
         sys.stderr.write(f"Port {port} is not available\n")
         return 1
-    base = _flag(flags, "server.baseUrlPath")
+    base = os.environ.get("STREAMLIT_SERVER_BASE_URL_PATH")
     health = f"/{base}/_stcore/health" if base else "/_stcore/health"
     ready_at = time.monotonic() + float(os.environ.get("FOODOPT_FAKE_HEALTH_DELAY_SECS", "0"))
 

@@ -120,7 +120,7 @@ def test_stale_server_files_are_not_loaded(per_user, l2_home):
 
 
 def test_unsupported_machine_shows_the_unsupported_page(per_user, l2_home):
-    job = l2.start_shell(per_user.root, l2_home, env={"FOODOPT_TEST_ARCH": "x86"})
+    job = l2.start_shell(per_user.root, l2_home, env={"FOODOPT_TEST_ARCH": "x86", "FOODOPT_TEST_HOOKS": "1"})
     try:
         log = l2_home.state / "shell.log"
         assert l2.wait_log(log, r"launcher\.exit 2", 30), log.read_text(encoding="utf-8", errors="replace")

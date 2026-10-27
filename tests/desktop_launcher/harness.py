@@ -201,6 +201,7 @@ def _env(world: World, env: Optional[dict]) -> dict:
         out["USERPROFILE"] = str(world.home)
     else:
         out["FOODOPT_TEST_ARCH"] = "arm64"
+        out["FOODOPT_TEST_HOOKS"] = "1"
     out["FOODOPT_IDLE_TIMEOUT_SECS"] = "600"
     out["FOODOPT_PORT_BASE"] = str(free_port_block())
     out["FOODOPT_FAKE_RECORD"] = str(world.record)

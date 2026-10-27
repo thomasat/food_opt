@@ -76,7 +76,8 @@ def parse_args(argv: Sequence[str], environ: Mapping[str, str]) -> Options:
                    health_timeout=ns.health_timeout,
                    idle_timeout=900 if idle is None else idle,
                    port_base=_int_env(environ, "FOODOPT_PORT_BASE"),
-                   test_arch=environ.get("FOODOPT_TEST_ARCH") or None)
+                   test_arch=(environ.get("FOODOPT_TEST_ARCH") or None)
+                   if environ.get("FOODOPT_TEST_HOOKS") == "1" else None)
 
 
 def preflight(platform_name: str, arch: Optional[str]) -> Optional[str]:
@@ -164,13 +165,13 @@ class _Run:
                 self.status_failed = True
                 self.log.say(f"could not write status.txt: {err}")
 
-    def spawn(self, kind: str, *rest: str) -> subprocess.Popen:
+    def spawn(self, kind: str, *rest: str, base: Optional[str] = None) -> subprocess.Popen:
         handle = self.log.child_handle()
         try:
             return subprocess.Popen(
                 childenv.child_command(self.opts.python, self.opts.child_script, kind, *rest),
                 cwd=str(self.opts.projects_dir),
-                env=childenv.child_env(self.environ, self.opts.state_dir),
+                env=childenv.child_env(self.environ, self.opts.state_dir, base),
                 stdin=subprocess.DEVNULL, stdout=handle, stderr=subprocess.STDOUT,
                 **childenv.popen_kwargs())
         finally:
@@ -404,7 +405,8 @@ class _Run:
             base = childenv.new_base_path() if opts.base_path == "auto" else None
             offset = self.log_size()
             self.server = self.spawn("serve", str(opts.app),
-                                     *childenv.streamlit_flags(self.port, base))
+                                     *childenv.streamlit_flags(self.port, base),
+                                     base=base)
             try:
                 if base:
                     files.write_base_file(opts.state_dir, base)
