@@ -77,3 +77,10 @@ def test_windows_start_here_says_what_the_spec_requires():
     assert "Setup time depends on your connection and computer." not in text
     for banned in ("Finder", "Applications", "⌘", "~/", r"\bMac\b", r"\bNumbers\b", "Apple"):
         assert not re.search(banned, text), banned
+
+
+def test_no_render_ships_an_html_comment():
+    """PENDING markers are comments in the source; a marker on a text line
+    would leak into the render users read."""
+    assert "<!--" not in read_lf(WIN)
+    assert "<!--" not in read_lf(MAC)

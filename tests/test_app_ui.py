@@ -3409,8 +3409,9 @@ def test_first_run_copy_gives_the_honest_timing():
 
 def test_windows_first_opening_copy():
     """Windows downloads nothing: its first opening is slow for another
-    reason, and says so in one sentence, the same on the page and in Start
-    Here — never the Mac's download sentence."""
+    reason, and says so in one sentence — never the Mac's download
+    sentence. The window note says "this window"; Start Here, read before
+    the app opens, says "the app's window", on purpose."""
     from tests.shared_texts import texts
     root = pathlib.Path(APP_PATH).resolve().parent
     sentence = "First opening takes longer. Keep this window open."

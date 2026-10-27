@@ -20,7 +20,8 @@ projects are stored separately and are retained.
 <!-- windows -->
 INSTALL
 1. Open the Food Optimizer installer you downloaded. If Edge warns about
-   the download, choose Keep. <!-- PENDING(Edge download warning words, from checklist W1) -->
+   the download, choose Keep.
+   <!-- PENDING(Edge download warning words, from checklist W1) -->
    Windows may not recognize the app yet. Click More info. Check the
    publisher is Food System Innovations, then click Run anyway.
    <!-- PENDING(exact SmartScreen words on a signed build) -->

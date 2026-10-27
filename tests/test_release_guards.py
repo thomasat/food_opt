@@ -154,8 +154,9 @@ release_tag_only = pytest.mark.skipif(not _at_release_tag(), reason="release tag
 @release_tag_only
 def test_no_pending_marker_at_a_release_tag():
     """At the release tag, no sent text may still hold a PENDING(...)
-    marker: the README, the release page, the download email and the
-    Windows README."""
+    marker: the README, the release page, the download email, the
+    Windows README and Start Here's source (start_here.src.md, whose
+    markers are comments the render drops)."""
     version = read_version()
     for rel in SENT_TEXTS:
         rel = rel.format(v=version)

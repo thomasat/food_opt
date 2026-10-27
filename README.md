@@ -15,7 +15,9 @@ Requires **Apple silicon (M1 or newer)** and **macOS 13 Ventura or newer**. Chec
 
 First-time setup downloads about **1 GB** and needs about **6 GB of free space**. Setup time depends on your connection and computer. You can use the app offline afterward; a future update may need another download.
 
-**Updating?** Quit Food Optimizer before replacing it in Applications. Your saved projects are kept. In Numbers, select the sheet tabs if workbook links do not open.
+In Numbers, select the sheet tabs if workbook links do not open.
+
+**Updating?** Quit Food Optimizer before replacing it in Applications. Your saved projects are kept.
 
 ## Install on Windows
 
