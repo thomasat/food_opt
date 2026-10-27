@@ -6,10 +6,11 @@ One page. The full spec is `docs/superpowers/specs/2026-10-23-windows-port-desig
 
 ## Why a thin shell and a shared launcher
 
-- The Mac and Windows apps run the same Python: one shared launcher
-  (`desktop/shared/launcher`) starts the Streamlit server, reports status
-  and cleans up; one set of pages (`desktop/shared/pages`) is what both
-  windows show. A bug fixed once is fixed on both.
+- In this release only the Windows app runs the shared launcher
+  (`desktop/shared/launcher`) and pages (`desktop/shared/pages`). They
+  mirror the Mac's `launcher.sh` and Swift pages; the Mac parity pins make
+  drift on the Mac side fail a test, and the Mac adopts them in a later
+  release.
 - The Windows shell is a thin C# program (`FoodOptimizer.exe`): a WebView2
   window plus the code that starts the launcher and shows its status. It
   holds no product logic, so it stays small enough to review.
@@ -63,8 +64,8 @@ own stdin pipe for no measurable gain.
 ## Deterministic build
 
 The same tag builds the same files: pinned Python and runtime DLLs, locked
-dependencies and a sorted file list. The build runs twice and compares. The
-per-file hash list (`FoodOptimizer-<ver>-Windows.files.txt`) ships with each release, so
+dependencies and a sorted file list. The release gate on the VM builds from two folders and compares the image
+and installer bytes. The per-file hash list (`FoodOptimizer-<ver>-Windows.files.txt`) ships with each release, so
 IT can verify an install or write hash rules.
 
 ## What changed in review
@@ -72,7 +73,7 @@ IT can verify an install or write hash rules.
 - The all-users installer no longer deletes per-user copies or their
   uninstall keys (see Install).
 - The shell, not the installer, pins Quick access (see Install).
-- no SBOM: it was dropped from the release; the per-file list stays.
+- No SBOM: it was dropped from the release; the per-file list stays.
 - The running check is per scope (see Install).
 - Allow-listing advice is scoped to the product: publisher + product,
   path and hash rules, never the vendors' signers machine-wide.

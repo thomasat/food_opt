@@ -63,13 +63,13 @@ Level 2 downloads ~1 GB of dependencies into a throwaway temp HOME
 The Mac gate is the locked venv, built from the Mac lock:
 
 ```bash
-uv venv ~/.cache/food-opt/venv-locked
+uv venv --python 3.13 ~/.cache/food-opt/venv-locked   # add --clear to rebuild
 uv pip install --python ~/.cache/food-opt/venv-locked/bin/python \
   -r desktop/requirements.lock.txt "pytest>=9,<10" matplotlib
 ~/.cache/food-opt/venv-locked/bin/python -m pytest -q -p no:cacheprovider
 ```
 
-Expect `0 failed`. A conda or other environment fails 12 golden fixture
+The lock is for CPython 3.13. Expect `0 failed`. A conda or other environment fails 12 golden fixture
 comparisons, because its scipy differs; that is by design. Never re-record
 the goldens outside the locked venv. Slow launcher tests need
 `FOODOPT_SLOW_TESTS=1`.
@@ -78,7 +78,7 @@ The Windows full suite runs in the VM, in the image-Python venv from
 `windows/README.md`, "Test":
 
 ```
-python -m pytest tests tests\desktop_launcher tests\desktop_page -q -p no:cacheprovider -rf --basetemp C:\work\<fresh>
+set FOODOPT_SLOW_TESTS=& set PYTHONDONTWRITEBYTECODE=1& set GIT_PYTHON_REFRESH=quiet& C:\work\venv\Scripts\python.exe -m pytest tests tests\desktop_launcher tests\desktop_page -q -p no:cacheprovider -rf --basetemp C:\work\<fresh>
 ```
 
 ## Signing + notarization (required before distributing)

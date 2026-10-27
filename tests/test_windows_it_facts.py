@@ -182,13 +182,14 @@ def test_allow_listing_names_every_signer_in_the_install():
 
 def test_allow_listing_is_scoped_to_the_product():
     section = _flat(_section("Allow-listing"))
-    for needle in ("Program Files\\Food Optimizer", "publisher", "product", "FoodOptimizer-<ver>-Windows.files.txt",
-                   "AppLocker", "default rules", "per-user"):
+    for needle in ("%PROGRAMFILES%\\Food Optimizer\\*", "publisher", "product", "FoodOptimizer-<ver>-Windows.files.txt",
+                   "AppLocker", "default rules", "per-user", "Get-AppLockerFileInformation", "New-CIPolicy",
+                   "Do not allow the Python Software Foundation or Microsoft signers machine-wide"):
         assert needle in section, needle
     assert "all four signers" not in section
 
 
 def test_the_test_overrides_are_documented():
-    text = _flat(_readme())
+    text = _flat(_reference())
     for name in ("FOODOPT_STATE_DIR", "FOODOPT_PROJECTS_DIR", "FOODOPT_TEST_HOOKS"):
         assert name in text, name

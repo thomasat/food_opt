@@ -17,7 +17,8 @@ SIZE_GATE = REPO / "desktop" / "windows" / "size_gate.json"
 
 
 def _flat(path) -> str:
-    return " ".join(path.read_text(encoding="utf-8").split())
+    text = path if isinstance(path, str) else path.read_text(encoding="utf-8")
+    return " ".join(text.split())
 
 
 def _checklist(text) -> str:
@@ -131,14 +132,14 @@ def _mac_section(heading):
 
 
 def test_desktop_readme_says_how_to_run_the_tests():
-    section = _flat_text(_mac_section("## Run the tests"))
+    section = _flat(_mac_section("## Run the tests"))
     for needle in ("uv venv", "desktop/requirements.lock.txt", "pytest", "matplotlib", "0 failed", "12", "golden",
-                   "--basetemp"):
+                   "--basetemp", "uv venv --python 3.13", "PYTHONDONTWRITEBYTECODE=1", "tests tests\\desktop_launcher tests\\desktop_page"):
         assert needle in section, needle
 
 
 def test_windows_readme_lists_the_vm_quirks():
-    section = _flat_text(_section(WIN_README.read_text(encoding="utf-8"), "## Test"))
+    section = _flat(_section(WIN_README.read_text(encoding="utf-8"), "## Test"))
     for needle in ("core.autocrlf false", "/SD 01/01/2020", "signed in", "sleep"):
         assert needle in section, needle
 
@@ -159,10 +160,5 @@ def test_design_note_exists():
     text = path.read_text(encoding="utf-8")
     assert len(text.splitlines()) <= 120
     flat = " ".join(text.split())
-    for needle in ("shared launcher", "Job Object", "per-user", "all-users", "no " + "SB" + "OM"):
-        # split: test_windows_installer's guard bans the word in tests
+    for needle in ("shared launcher", "Job Object", "per-user", "all-users", "No SBOM"):
         assert needle in flat, needle
-
-
-def _flat_text(text) -> str:
-    return " ".join(text.split())

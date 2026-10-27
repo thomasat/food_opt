@@ -123,9 +123,9 @@ Uninstall:
 - `/LOG=<file>` writes the installer's log; every refusal is logged as
   `refused: <reason>` and the pre-warm as `prewarm rc=<n> secs=<n>`.
 - A per-user and an all-users copy never coexist. An all-users install
-  deletes every per-user copy in the default folder, its Start menu
-  entries, and (for users signed in at the time) its Apps entry and
-  desktop shortcut. A per-user install over an all-users copy is refused.
+  never changes a per-user copy. When that user next opens Food Optimizer,
+  it runs their copy's own uninstaller; projects are kept. A per-user
+  install over an all-users copy is refused.
 - Uninstalling deletes the app and the user's `%LOCALAPPDATA%\FoodOptimizer`
   and keeps the projects in `%USERPROFILE%\FoodOptimizer`. A SYSTEM
   uninstall cannot reach users' `%LOCALAPPDATA%`, so their state folders
@@ -219,7 +219,8 @@ FoodOptimizer.exe                        the window (.NET, WebView2)
   not JSON is reported as damaged.
 - Moving them: `FOODOPT_STATE_DIR` and `FOODOPT_PROJECTS_DIR` replace the
   two folders above (the tests use them; IT may set them in the user's
-  environment before the first launch).
+  environment before the first launch). Uninstall deletes a moved state
+  folder only when it is named `FoodOptimizer`.
 - Nothing is encrypted by the app (it relies on BitLocker). The logs list
   file paths, which include the Windows user name. `launcher.log` moves to
   `launcher.log.1` at each launch; `shell.log` moves to `shell.log.1` at
@@ -256,14 +257,23 @@ The rules:
 
 - A publisher + product rule (AppLocker, WDAC or Defender for Endpoint) for
   Food System Innovations' files, Food Optimizer as the product.
-- A path rule for `C:\Program Files\Food Optimizer\*` (the all-users
+- A path rule for `%PROGRAMFILES%\Food Optimizer\*` (the all-users
   install, where only administrators can write).
-- Hash rules from the release's `FoodOptimizer-<ver>-Windows.files.txt` for
-  the vendor-signed files.
+- Hash rules for the vendor-signed files: check the installed files against
+  the release's `FoodOptimizer-<ver>-Windows.files.txt` (flat SHA-256 values,
+  not the PE hashes AppLocker and WDAC use), then generate the rules from
+  those files with `Get-AppLockerFileInformation -Directory "<install folder>"
+  -Recurse | New-AppLockerPolicy -RuleType Hash ...` or
+  `New-CIPolicy -Level Hash`.
+- Third-party DLLs and `.pyd` files that Food System Innovations re-signed
+  keep their own product name, so under WDAC they need the path rule or
+  hash rules; a publisher + product rule covers only Food Optimizer's own
+  files.
 - Do not allow the Python Software Foundation or Microsoft signers
   machine-wide: the path or hash rule already covers their files here.
-- AppLocker's default rules allow only `%PROGRAMFILES%` and `%WINDIR%`, so
-  they block a per-user install (it runs from the user's profile). Use the
+- AppLocker's default rules allow non-admins only `%PROGRAMFILES%` and
+  `%WINDIR%`, so they block a per-user install (it runs from the user's
+  profile). Use the
   all-users install on such PCs.
 
 ## Test

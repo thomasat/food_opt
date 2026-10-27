@@ -430,7 +430,9 @@ def test_release_record_keys_follow_the_image_record():
     for path in [BUILD, REPO / "desktop" / "README.md", WINDOWS / "README.md"]:
         assert "sbom" not in path.read_text(encoding="utf-8").lower(), path
     # The tests too, except this assertion and the release notes' banned words.
-    allowed = {pathlib.Path(__file__).resolve(), (REPO / "tests" / "test_release_texts.py").resolve()}
+    # test_windows_docs.py pins the design note's "No SBOM" line.
+    allowed = {pathlib.Path(__file__).resolve(), (REPO / "tests" / "test_release_texts.py").resolve(),
+               (REPO / "tests" / "test_windows_docs.py").resolve()}
     for path in sorted((REPO / "tests").rglob("*.py")):
         if path.resolve() not in allowed:
             assert "sbom" not in path.read_text(encoding="utf-8").lower(), path
