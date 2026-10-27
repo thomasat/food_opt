@@ -917,6 +917,48 @@ def test_read_uploaded_csv_reads_a_single_column():
     assert list(df["Ingredient"]) == ["Oats", "Rice"]
 
 
+def test_read_uploaded_csv_reads_dot_thousands_in_a_semicolon_file():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(_csv("Ingredient;Lowest;Highest\nWater;1.250;2.000\n"))
+    assert df["Lowest"].iloc[0] == 1250.0
+    assert df["Highest"].iloc[0] == 2000.0
+
+
+def test_read_uploaded_csv_reads_both_separators():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(_csv("Ingredient;Lowest\nWater;1.234,5\n"))
+    assert df["Lowest"].iloc[0] == 1234.5
+    assert _pd.api.types.is_float_dtype(df["Lowest"])
+
+
+def test_read_uploaded_csv_ignores_text_columns_when_choosing_the_decimal():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(
+        _csv("Ingredient;Lowest;Notes\nOats;7.4;use 2,5 g\nRice;3.1;ok\n"))
+    assert list(df["Lowest"]) == [7.4, 3.1]
+    assert df["Notes"].iloc[0] == "use 2,5 g"
+
+
+def test_read_uploaded_csv_notes_of_numbers_alone_do_not_flip_dot_decimals():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(_csv("Ingredient;Lowest;Notes\nOats;7.4;2,5\n"))
+    assert df["Lowest"].iloc[0] == 7.4
+
+
+def test_read_uploaded_csv_keeps_quoted_comma_text_in_a_comma_file():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(_csv('Ingredient,Note\nOats,"1,5 cups"\n'))
+    assert df["Note"].iloc[0] == "1,5 cups"
+
+
+def test_read_uploaded_csv_removes_the_export_escape():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(_csv("Formulation,Note\n1,'=SUM(A1)\n2,'-sweet\n"))
+    assert list(df["Note"]) == ["=SUM(A1)", "-sweet"]
+    df = read_uploaded_csv(_csv("Note\nit's\n"))
+    assert df["Note"].iloc[0] == "it's"
+
+
 def test_every_csv_upload_reads_through_the_one_reader():
     import pathlib
     root = pathlib.Path(__file__).resolve().parent.parent

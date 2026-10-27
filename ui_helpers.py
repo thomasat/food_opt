@@ -927,11 +927,57 @@ def reset_grids():
     st.session_state.pop(ING_PENDING_KEY, None)
 
 
+_NUMBER_CELL = re.compile(r"^[+-]?\d[\d.,]*$")
+_DOT_THOUSANDS = re.compile(r"^[+-]?\d{1,3}(\.\d{3})+$")
+_EXPORT_ESCAPE = re.compile(r"^'[=+\-@\t\r]")
+
+
+def _number_format(text, sep):
+    """(decimal, thousands) for pd.read_csv, judged from the numeric columns
+    only: a dot decimal anywhere wins; else a ';' file with a comma decimal
+    or dot thousands (1.250) reads European; else plain dots."""
+    rows = list(csv.reader(io.StringIO(text), delimiter=sep))[1:]
+    columns = {}
+    for row in rows:
+        for position, cell in enumerate(row):
+            columns.setdefault(position, []).append(cell.strip())
+    dot = european = False
+    for cells in columns.values():
+        cells = [cell for cell in cells if cell]
+        if not all(_NUMBER_CELL.match(cell) for cell in cells):
+            continue
+        for cell in cells:
+            has_dot, has_comma = "." in cell, "," in cell
+            if has_dot and has_comma:
+                if cell.rfind(".") > cell.rfind(","):
+                    dot = True
+                else:
+                    european = True
+            elif has_dot:
+                if _DOT_THOUSANDS.match(cell):
+                    european = True
+                else:
+                    dot = True
+            elif has_comma:
+                european = True
+    if not dot and european and sep == ";":
+        return ",", "."
+    return ".", None
+
+
+def _unescape_export(cell):
+    """The CSV export's leading ' before = + - @ tab CR, taken off again."""
+    if isinstance(cell, str) and _EXPORT_ESCAPE.match(cell):
+        return cell[1:]
+    return cell
+
+
 def read_uploaded_csv(uploaded):
     """An uploaded CSV, read the way the spreadsheet that wrote it meant:
     UTF-8 (with or without the BOM Excel adds) or Windows' cp1252; commas,
-    semicolons or tabs between columns; and decimal commas when a
-    semicolon-separated file (French and most European Excel) uses them."""
+    semicolons or tabs between columns; numbers judged from numeric columns
+    only (decimal commas and dot thousands in ';' files); and the export's
+    escape apostrophe before = + - @ taken off text cells."""
     raw = uploaded.getvalue()
     try:
         text = raw.decode("utf-8-sig")
@@ -942,6 +988,9 @@ def read_uploaded_csv(uploaded):
         sep = csv.Sniffer().sniff("\n".join(lines[:5]), delimiters=",;\t").delimiter
     except csv.Error:
         sep = ","
-    body = "\n".join(lines[1:])
-    decimal = "," if sep == ";" and re.search(r"\d,\d", body) else "."
-    return pd.read_csv(io.StringIO(text), sep=sep, decimal=decimal)
+    decimal, thousands = _number_format(text, sep)
+    df = pd.read_csv(io.StringIO(text), sep=sep, decimal=decimal, thousands=thousands)
+    for column in df.columns:
+        if pd.api.types.is_string_dtype(df[column].dtype):
+            df[column] = df[column].map(_unescape_export)
+    return df
