@@ -209,18 +209,20 @@ FoodOptimizer.exe                        the window (.NET, WebView2)
 ### Network
 
 - In a measured session, no process in Food Optimizer's tree, WebView2's
-  included, connected anywhere but 127.0.0.1 (Level 2's
+  included, connected anywhere but loopback (127.0.0.1, ::1) (Level 2's
   `test_our_processes_connect_only_to_loopback`). The audit uses the
-  Windows Filtering Platform and counts FoodOptimizer.exe, every process
-  started under it (python.exe, msedgewebview2.exe) and anything run from
-  the install folder.
-- Food Optimizer starts WebView2 with `--disable-background-networking`,
-  `--disable-component-update`, `--disable-domain-reliability`,
-  `--no-pings`, `--no-proxy-server` and
-  `--host-resolver-rules="MAP * ~NOTFOUND, EXCLUDE 127.0.0.1"`. Without
-  them, WebView2 156 sent DNS queries in every session and, within a
-  minute, reached config.edge.skype.com, edge.microsoft.com and a
-  Microsoft download host.
+  Windows Filtering Platform and counts FoodOptimizer.exe, the processes
+  under it (python.exe, msedgewebview2.exe; the tree is sampled every
+  0.25 s) and anything run from the install folder.
+- Food Optimizer starts WebView2 with switches that, measured on WebView2
+  156, each stopped traffic it made without them:
+  `--disable-background-networking` (config.edge.skype.com),
+  `--disable-component-update` (edge.microsoft.com's component updater
+  and a Microsoft download host), `--no-proxy-server` (wpad lookups) and
+  `--host-resolver-rules="MAP * ~NOTFOUND, EXCLUDE 127.0.0.1"` (DNS
+  queries for the app's own status page).
+  `--disable-domain-reliability` and `--no-pings` are defence in depth: a
+  session never triggered what they turn off.
 - It also turns on custom crash reporting (no crash dumps go to
   Microsoft), turns off the SmartScreen reputation check for its pages, and
   blocks every page request except to its own loopback address.

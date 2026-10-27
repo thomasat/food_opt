@@ -8,7 +8,6 @@ non-loopback address. Admin."""
 import collections
 import datetime
 import os
-import re
 import subprocess
 import time
 
@@ -20,6 +19,14 @@ from conftest import L2Home
 NAVIGATE = l2.NAVIGATE
 WEBVIEW2 = "msedgewebview2.exe"
 DIRECTION = {"%%14592": "in", "%%14593": "out"}      # WFP's inbound / outbound
+# The largest gap allowed between two good samples of the shell's tree.
+# TreeWatch samples every 0.25 s and a Win32_Process query takes ~35-55 ms
+# on VM_BUILD, so a cycle is ~0.3 s; the first sample also waits for
+# powershell.exe to start (~0.2-0.3 s) and its first query (~0.3 s). A
+# process that lives shorter than the gap could be missed (its image rule
+# still catches anything under the install folder). 2 s is ~6 cycles: room
+# for a busy moment while the shell, Python and WebView2 start together.
+MAX_GAP_S = 2.0
 
 
 @pytest.fixture(scope="module")
@@ -54,11 +61,12 @@ def test_the_capture_sees_our_python(per_user, capture):
 def session(per_user, capture, tmp_path_factory):
     """Two sessions of the installed shell (open 60 s, then closed at
     once), the packaged checks between them, and every WFP event since:
-    (events, {pid: {"image", "cmd", "created"}} of the shell's tree)."""
+    (events, {pid: {"image", "cmd", "created"}} of the shell's tree, the
+    tree samples: one TreeWatch.polls() per session)."""
     home = L2Home("w40").make()
     tmp_path = tmp_path_factory.mktemp("traffic")
     t0 = datetime.datetime.now(datetime.timezone.utc)
-    tree = {}
+    tree, polls = {}, []
     for keep_open in (60, 0):
         after = l2.log_size(home.state / "shell.log")
         job = l2.start_shell(per_user.root, home)
@@ -74,6 +82,7 @@ def session(per_user, capture, tmp_path_factory):
             l2.wait_for(lambda: not l2.processes_under(per_user.root / "python"), 10)
             l2.wait_for(lambda: not watch.alive(), 20, 0.5)
             tree.update(watch.stop())
+            polls.append(watch.polls())
         if keep_open:
             env = dict(os.environ)
             env["HOME"] = env["USERPROFILE"] = str(tmp_path)
@@ -86,7 +95,7 @@ def session(per_user, capture, tmp_path_factory):
             assert checks.returncode == 0, checks.stdout[-3000:]
     time.sleep(5)
     events = [e for e in l2.wfp_events(t0) if l2.ours(e, per_user.root, tree)]
-    return events, tree
+    return events, tree, polls
 
 
 def _image(path: str) -> str:
@@ -94,18 +103,14 @@ def _image(path: str) -> str:
 
 
 def _browser_arguments() -> list:
-    """WebEnvironment.BrowserArguments' switches (its literals joined)."""
-    source = (l2.REPO / "desktop" / "windows" / "FoodOptimizer" / "FoodOptimizer.Shell"
-              / "WebEnvironment.cs").read_text(encoding="utf-8")
-    expr = re.search(r"public const string BrowserArguments\s*=([^;]*);", source).group(1)
-    text = "".join(m.replace('\\"', '"') for m in re.findall(r'"((?:[^"\\]|\\.)*)"', expr))
-    return re.findall(r'--[a-z-]+(?:="[^"]*"|=\S+)?', text)
+    return l2.browser_arguments((l2.REPO / "desktop" / "windows" / "FoodOptimizer" / "FoodOptimizer.Shell"
+                                 / "WebEnvironment.cs").read_text(encoding="utf-8"))
 
 
 def test_the_tree_includes_webview2(session):
     """The audit counts WebView2: its processes are in the shell's tree, and
     their own connections (to the app on 127.0.0.1) are among the events."""
-    events, tree = session
+    events, tree, _polls = session
     assert any(_image(p["image"]) == WEBVIEW2 for p in tree.values()), tree
     assert any(_image(e["Application"]) == WEBVIEW2 for e in events), collections.Counter(
         _image(e["Application"]) for e in events)
@@ -115,7 +120,7 @@ def test_webview2_runs_with_our_browser_arguments(session):
     """WebEnvironment.BrowserArguments reach WebView2's browser process (the
     msedgewebview2.exe without --type=) on its command line, and the host
     rule reaches its network service."""
-    _events, tree = session
+    _events, tree, _polls = session
     flags = _browser_arguments()
     assert flags
     webview = [p["cmd"] for p in tree.values() if _image(p["image"]) == WEBVIEW2]
@@ -130,7 +135,8 @@ def test_webview2_runs_with_our_browser_arguments(session):
 
 
 def test_our_processes_connect_only_to_loopback(session):
-    events, tree = session
+    events, tree, polls = session
+    l2.report("tree_polls", polls)
     counts = collections.Counter(_image(e["Application"]) for e in events)
     l2.report("wfp_events_by_process", dict(counts))
     l2.report("tree_processes", dict(collections.Counter(_image(p["image"]) for p in tree.values())))
@@ -144,4 +150,5 @@ def test_our_processes_connect_only_to_loopback(session):
     l2.report("wfp_outside_by_process", {k: dict(v) for k, v in destinations.items()})
     l2.report("wfp_outside", len(outside))
     assert events, "no events from our processes: the capture saw nothing"
+    assert all(p["ok"] and not p["failed"] and p["max_gap_s"] <= MAX_GAP_S for p in polls), polls
     assert outside == [], outside[:10]

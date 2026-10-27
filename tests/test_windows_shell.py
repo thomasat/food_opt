@@ -174,15 +174,22 @@ def test_powershell_scripts_are_ascii():
 BROWSER_ARGUMENTS = ["--disable-background-networking", "--disable-component-update",
                      "--disable-domain-reliability", "--no-pings", "--no-proxy-server",
                      '--host-resolver-rules="MAP * ~NOTFOUND, EXCLUDE 127.0.0.1"']
-_SWITCH = re.compile(r'--[a-z-]+(?:="[^"]*"|=\S+)?')
 
 
-def browser_arguments(source: str) -> list:
-    """The switches in WebEnvironment.BrowserArguments (string literals
-    joined with +, \\" unescaped)."""
-    expr = re.search(r"public const string BrowserArguments\s*=([^;]*);", source).group(1)
-    text = "".join(m.replace('\\"', '"') for m in re.findall(r'"((?:[^"\\]|\\.)*)"', expr))
-    return _SWITCH.findall(text)
+def _l2_support():
+    """desktop/windows/tests/l2_support.py (stdlib only, loadable on any OS):
+    its browser_arguments() is the one parser of BrowserArguments, shared
+    with Level 2's command-line check."""
+    import importlib.util
+    import sys
+    name = "l2_support_shell_tests"
+    if name not in sys.modules:
+        path = REPO / "desktop" / "windows" / "tests" / "l2_support.py"
+        spec = importlib.util.spec_from_file_location(name, path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    return sys.modules[name]
 
 
 WEBVIEW_SETTINGS = {
@@ -210,7 +217,7 @@ def test_webview_settings_are_the_spec_list():
     assert "IsCustomCrashReportingEnabled = true" in env
     # I4: WebView2's background networking off.
     assert "AdditionalBrowserArguments = BrowserArguments" in env
-    assert browser_arguments(env) == BROWSER_ARGUMENTS
+    assert _l2_support().browser_arguments(env) == BROWSER_ARGUMENTS
     # Every environment the shell makes goes through WebEnvironment.
     makers = [p.name for p, source in _shell_sources().items()
               if "CoreWebView2Environment.CreateAsync" in _strip_comments(source)]

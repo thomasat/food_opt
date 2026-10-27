@@ -147,3 +147,62 @@ def test_wfp_events_read_the_connecting_process_id(l2, monkeypatch):
                        "SourceAddress": "127.0.0.1", "DestAddress": "127.0.0.1", "DestPort": "64415",
                        "ProcessID": "3076"}]
     assert l2.ours(events[0], r"C:\FOL2\s\Food Optimizer", {3076})
+
+
+def test_a_reused_shell_pid_never_adopts_a_strangers_tree(l2):
+    """Fix round 1: once the shell's start time is known, a process that
+    reuses its pid is not the shell."""
+    rows = [_row(10, 1, 500, "stranger.exe"), _row(11, 10, 501, "child.exe")]
+    assert l2.process_tree(10, rows, {10: 100}) == set()
+    assert l2.process_tree(10, rows, {10: 500}) == {10, 11}
+
+
+class _FakeLoop:
+    """powershell.exe's sampling loop: one JSON line per sample."""
+
+    def __init__(self, lines):
+        self.stdout, self.killed = iter(lines), False
+
+    def poll(self):
+        return None
+
+    def kill(self):
+        self.killed = True
+
+    def wait(self, timeout=None):
+        return 0
+
+
+def test_the_tree_watch_counts_good_and_failed_samples(l2, monkeypatch):
+    """Fix round 1: a sample that does not parse is counted, not swallowed;
+    the largest gap between good samples (start and stop included) is kept;
+    the shell's start time is read once at start()."""
+    shell = _row(10, 1, 100, "FoodOptimizer.exe")
+    lines = [json.dumps([shell, _row(12, 10, 102, "msedgewebview2.exe")]), "not json {",
+             json.dumps([shell, _row(12, 10, 102, "msedgewebview2.exe"), _row(13, 12, 103, "msedgewebview2.exe")]),
+             ""]
+    monkeypatch.setattr(l2, "process_rows", lambda where="": [shell] if where == "ProcessId=10" else [])
+    loop = _FakeLoop(lines)
+    started = []
+    monkeypatch.setattr(l2.subprocess, "Popen", lambda args, **kw: started.append(args) or loop)
+    watch = l2.TreeWatch(10).start()
+    watch._thread.join(5)
+    seen = watch.stop()
+    assert set(seen) == {10, 12, 13} and seen[10]["created"] == 100
+    polls = watch.polls()
+    assert (polls["ok"], polls["failed"], polls["interval_s"]) == (2, 1, 0.25)
+    assert 0 <= polls["max_gap_s"] < 5 and loop.killed
+    assert "Win32_Process" in started[0][-1] and "Start-Sleep -Milliseconds 250" in started[0][-1]
+
+
+def test_browser_arguments_is_one_parser(l2):
+    """Fix round 1: the shell's BrowserArguments (literals joined with +,
+    a quoted value kept whole), read by l2_support for both the Mac pin
+    and Level 2's command-line check."""
+    source = ('public const string BrowserArguments =\n    "--a-b --c " +\n'
+              '    "--d=\\"MAP * ~NOTFOUND, EXCLUDE 127.0.0.1\\"";\n')
+    assert l2.browser_arguments(source) == ["--a-b", "--c", '--d="MAP * ~NOTFOUND, EXCLUDE 127.0.0.1"']
+    for name in ("tests/test_windows_shell.py", "tests/test_windows_it_facts.py",
+                 "desktop/windows/tests/test_l2_40_traffic.py"):
+        text = (REPO / name).read_text(encoding="utf-8")
+        assert "browser_arguments(" in text and "public const string BrowserArguments" not in text, name

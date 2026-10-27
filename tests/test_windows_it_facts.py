@@ -135,8 +135,12 @@ def test_network_section_names_the_measured_audit_and_flags():
     """I4: the Network section states what Level 2 measures (the shell's
     whole process tree, WebView2 included) and names each switch that turns
     WebView2's background networking off (WebEnvironment.BrowserArguments)."""
-    from tests.test_windows_shell import browser_arguments
-    flags = browser_arguments((SHELL / "WebEnvironment.cs").read_text(encoding="utf-8"))
+    import importlib.util
+    import sys
+    spec = importlib.util.spec_from_file_location("l2_support_it_facts", WINDOWS / "tests" / "l2_support.py")
+    l2 = sys.modules[spec.name] = importlib.util.module_from_spec(spec)   # dataclasses look it up
+    spec.loader.exec_module(l2)
+    flags = l2.browser_arguments((SHELL / "WebEnvironment.cs").read_text(encoding="utf-8"))
     assert flags
     net = _flat(_section("Network"))
     for flag in flags:

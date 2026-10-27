@@ -976,17 +976,20 @@ def ours(event: dict, root, pids=()) -> bool:
 
 # ---------- the shell's process tree ----------
 
-_PROCESS_ROWS = (
-    "@(Get-CimInstance Win32_Process | ForEach-Object { [pscustomobject]@{ "
-    "pid = [int]$_.ProcessId; ppid = [int]$_.ParentProcessId; "
-    "created = $(if ($null -ne $_.CreationDate) { $_.CreationDate.ToFileTimeUtc() } else { 0 }); "
-    "image = [string]$_.ExecutablePath; cmd = [string]$_.CommandLine } }) | ConvertTo-Json -Compress")
+def _process_rows_script(where: str = "") -> str:
+    """PowerShell for Win32_Process rows as one JSON line: pid, parent pid,
+    creation time (FILETIME, UTC), image and command line."""
+    flt = f" -Filter '{where}'" if where else ""
+    return ("@(Get-CimInstance Win32_Process" + flt + " | ForEach-Object { [pscustomobject]@{ "
+            "pid = [int]$_.ProcessId; ppid = [int]$_.ParentProcessId; "
+            "created = $(if ($null -ne $_.CreationDate) { $_.CreationDate.ToFileTimeUtc() } else { 0 }); "
+            "image = [string]$_.ExecutablePath; cmd = [string]$_.CommandLine } }) | ConvertTo-Json -Compress")
 
 
-def process_rows() -> list:
-    """Every process: pid, parent pid, creation time (FILETIME, UTC), image
-    and command line (Win32_Process; admin sees every user's)."""
-    rows = _powershell_json(_PROCESS_ROWS) or []
+def process_rows(where: str = "") -> list:
+    """Every process (or those matching a WQL filter): Win32_Process rows,
+    as _process_rows_script reads them (admin sees every user's)."""
+    rows = _powershell_json(_process_rows_script(where)) or []
     return rows if isinstance(rows, list) else [rows]
 
 
@@ -994,9 +997,10 @@ def process_tree(root_pid: int, rows=None, known=None) -> set:
     """The pids of root_pid and its descendants, by ParentProcessId. A child
     counts only if it started after its parent (a reused parent pid does
     not adopt strangers). known: {pid: creation time} seen in the tree
-    before; those still running (same pid, same start) seed the walk too, so
-    a child whose parent has exited (WebView2 outlives the shell by a
-    moment) stays in."""
+    before, the root's included once its start is known; those still
+    running (same pid, same start) seed the walk, so a child whose parent
+    has exited (WebView2 outlives the shell by a moment) stays in, and a
+    reused root pid is not taken for the shell."""
     rows = process_rows() if rows is None else rows
     created = {r["pid"]: r["created"] for r in rows}
     children = {}
@@ -1004,7 +1008,8 @@ def process_tree(root_pid: int, rows=None, known=None) -> set:
         if r["pid"] != r["ppid"]:
             children.setdefault(r["ppid"], []).append(r["pid"])
     known = known or {}
-    todo = [p for p in created if p == root_pid or known.get(p) == created[p]]
+    todo = [p for p in created
+            if known.get(p) == created[p] or (p == root_pid and p not in known)]
     tree = set()
     while todo:
         pid = todo.pop()
@@ -1016,46 +1021,106 @@ def process_tree(root_pid: int, rows=None, known=None) -> set:
 
 
 class TreeWatch:
-    """The shell's process tree, polled every second between start() and
-    stop() and accumulated: {pid: {"image", "cmd", "created"}} of every
-    process that was in it at any poll."""
+    """The shell's process tree, sampled every INTERVAL_S between start()
+    and stop() and accumulated: {pid: {"image", "cmd", "created"}} of every
+    process that was in it at any sample. One long-lived PowerShell writes
+    a Win32_Process JSON line per sample (a query takes ~35-55 ms on
+    VM_BUILD; a fresh powershell.exe per sample took ~0.5 s more), so the
+    gap between samples stays small. polls() says how many samples parsed,
+    how many failed and the largest gap between good ones (start and stop
+    count as ends), so a watch that went blind shows."""
+
+    INTERVAL_S = 0.25
 
     def __init__(self, root_pid: int):
         self.root_pid, self.seen = root_pid, {}
-        self._stop, self._thread = threading.Event(), None
+        self.ok = self.failed = 0
+        self.max_gap_s = 0.0
+        self._proc = self._thread = None
+        self._last = None
+        self._lock = threading.Lock()
 
-    def poll(self) -> set:
-        rows = process_rows()
-        tree = process_tree(self.root_pid, rows, {p: e["created"] for p, e in self.seen.items()})
-        by_pid = {r["pid"]: r for r in rows}
-        for pid in tree:
-            entry = self.seen.setdefault(pid, {"image": "", "cmd": "", "created": by_pid[pid]["created"]})
-            entry["image"] = by_pid[pid]["image"] or entry["image"]
-            entry["cmd"] = by_pid[pid]["cmd"] or entry["cmd"]
-        return tree
+    def take(self, rows) -> set:
+        """One sample: the tree in rows, added to seen."""
+        with self._lock:
+            tree = process_tree(self.root_pid, rows, {p: e["created"] for p, e in self.seen.items()})
+            by_pid = {r["pid"]: r for r in rows}
+            for pid in tree:
+                entry = self.seen.setdefault(pid, {"image": "", "cmd": "", "created": by_pid[pid]["created"]})
+                entry["image"] = by_pid[pid]["image"] or entry["image"]
+                entry["cmd"] = by_pid[pid]["cmd"] or entry["cmd"]
+            return tree
 
-    def _run(self):
-        while not self._stop.is_set():
+    def _mark(self, good: bool):
+        now = time.monotonic()
+        with self._lock:
+            if good:
+                self.ok += 1
+                self.max_gap_s = max(self.max_gap_s, now - self._last)
+                self._last = now
+            else:
+                self.failed += 1
+
+    def _read(self):
+        for line in self._proc.stdout:
+            line = line.strip().lstrip("\ufeff")
+            if not line:
+                continue
             try:
-                self.poll()
-            except (RuntimeError, ValueError, subprocess.TimeoutExpired):
-                pass
-            self._stop.wait(1.0)
+                rows = json.loads(line)
+                self.take(rows if isinstance(rows, list) else [rows])
+            except (ValueError, KeyError, TypeError):
+                self._mark(False)
+                continue
+            self._mark(True)
 
     def start(self):
-        self._thread = threading.Thread(target=self._run, daemon=True)
+        # The root's start time first, while the shell is known to be up:
+        # a later sample never takes a reused pid for it.
+        root = [r for r in process_rows(f"ProcessId={int(self.root_pid)}") if r["pid"] == self.root_pid]
+        if root:
+            self.take(root)
+        loop = ("[Console]::OutputEncoding = [Text.Encoding]::UTF8; while ($true) { "
+                "[Console]::Out.WriteLine((" + _process_rows_script() + ")); [Console]::Out.Flush(); "
+                f"Start-Sleep -Milliseconds {int(self.INTERVAL_S * 1000)} }}")
+        self._last = time.monotonic()
+        self._proc = subprocess.Popen(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", loop],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, encoding="utf-8", errors="replace",
+            creationflags=CREATE_NO_WINDOW)
+        self._thread = threading.Thread(target=self._read, daemon=True)
         self._thread.start()
         return self
 
     def alive(self) -> bool:
         return any(pid_alive(pid) for pid in self.seen)
 
+    def polls(self) -> dict:
+        with self._lock:
+            return {"ok": self.ok, "failed": self.failed, "max_gap_s": round(self.max_gap_s, 2),
+                    "interval_s": self.INTERVAL_S}
+
     def stop(self) -> dict:
-        self._stop.set()
-        if self._thread:
-            self._thread.join(30)
-        self.poll()
+        if self._proc is not None:
+            ended_early = self._proc.poll() is not None
+            self._proc.kill()
+            self._proc.wait(30)
+            if self._thread:
+                self._thread.join(30)
+            with self._lock:
+                self.max_gap_s = max(self.max_gap_s, time.monotonic() - self._last)
+                if ended_early:
+                    self.failed += 1
         return self.seen
+
+
+def browser_arguments(source: str) -> list:
+    """The switches in WebEnvironment.cs's BrowserArguments: its string
+    literals joined (they may be split with +), \\" unescaped, cut into
+    --name or --name=value (a quoted value kept whole)."""
+    expr = re.search(r"public const string BrowserArguments\s*=([^;]*);", source).group(1)
+    text = "".join(m.replace('\\"', '"') for m in re.findall(r'"((?:[^"\\]|\\.)*)"', expr))
+    return re.findall(r'--[a-z-]+(?:="[^"]*"|=\S+)?', text)
 
 
 # ---------- the report ----------
