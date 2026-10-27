@@ -20,18 +20,24 @@ PROGRAM_FILES = pathlib.Path(os.environ.get("ProgramFiles", r"C:\Program Files")
 DEFAULT_USER_ROOT = pathlib.Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Food Optimizer"
 
 
-def _remove(scope):
+def _remove(scope, env=None):
     entry = l2.uninstall_entry(scope)
     if entry and entry.get("InstallLocation"):
         l2.kill_under(entry["InstallLocation"])
-        l2.uninstall(entry["InstallLocation"], "user" if scope == "user" else "system")
+        if scope == "user":
+            l2.uninstall(entry["InstallLocation"], "user", env=env)
+        else:
+            l2.uninstall(entry["InstallLocation"], "system")
 
 
 @pytest.fixture
-def cleanup():
+def cleanup(l2_home):
+    """The per-user copy first, with the test's folders: its uninstaller
+    then deletes (or keeps) the test's state folder and unpins the test's
+    projects folder, never the signed-in user's own."""
     yield
+    _remove("user", l2_home.env)
     _remove("machine")
-    _remove("user")
 
 
 def _loaded_shell(root, home):
@@ -226,6 +232,29 @@ def _planted_link(installer, home, name):
             winreg.DeleteKey(winreg.HKEY_CURRENT_USER, l2.UNINSTALL_SUBKEY)
         except FileNotFoundError:
             pass
+
+
+def test_an_elevated_launch_never_runs_a_per_user_uninstaller(installer, l2_home, cleanup):
+    """Fix round 1: the IT copy opened with admin rights (here from the
+    elevated runner) does not look for a per-user copy: that copy's
+    unins000.exe is the user's to replace, and would run as admin."""
+    keep, links = _default_per_user_copy(installer, l2_home)
+    result = l2.install(installer, "system", all_users=True)
+    assert result.rc == 0, result.log[-3000:]
+    files = l2.manifest(DEFAULT_USER_ROOT, skip=())
+    entry = l2.uninstall_entry("user")
+    job = l2.run_as("admin", [str(PROGRAM_FILES / "FoodOptimizer.exe")], env=l2_home.env, wait=False)
+    try:
+        assert job.elevated
+        m = l2.wait_log(l2_home.state / "shell.log", r"percopy\.(skipped|uninstall|none)( .*)?", 60)
+        assert m and m.group(0).strip() == "percopy.skipped elevated", _shell_log(l2_home)
+        l2.wait_for(lambda: False, 10)          # an uninstaller, had one started, would be at work by now
+        assert l2.manifest(DEFAULT_USER_ROOT, skip=()) == files
+        assert l2.uninstall_entry("user") == entry
+        for lnk in links:
+            assert lnk.is_file(), lnk
+    finally:
+        _close(job, PROGRAM_FILES)
 
 
 def test_a_planted_junction_is_never_touched_by_the_it_install(installer, l2_home, cleanup):

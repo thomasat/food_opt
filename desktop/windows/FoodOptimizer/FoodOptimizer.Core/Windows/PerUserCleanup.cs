@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.Versioning;
+using System.Security.Principal;
 using Microsoft.Win32;
 
 namespace FoodOptimizer.Core.Windows;
@@ -27,6 +28,11 @@ public static class PerUserCleanup
         if (!layout.AllUsers) return;
         try
         {
+            if (!PerUserCopy.ShouldRun(layout.AllUsers, Elevated()))
+            {
+                log.Write("percopy.skipped", "elevated");
+                return;
+            }
             var dir = PerUserCopy.Choose(layout.Root, InstallLocation(), DefaultDir(), File.Exists, IsReparsePoint);
             if (dir == null)
             {
@@ -50,18 +56,41 @@ public static class PerUserCleanup
             log.Write("percopy.uninstall", dir);
             _ = Task.Run(() =>
             {
-                using (process)
+                try
                 {
-                    if (process.WaitForExit(ExitWait))
-                        log.Write("percopy.exit", process.ExitCode.ToString(CultureInfo.InvariantCulture));
-                    else
-                        log.Write("percopy.timeout");
+                    using (process)
+                    {
+                        if (process.WaitForExit(ExitWait))
+                            log.Write("percopy.exit", process.ExitCode.ToString(CultureInfo.InvariantCulture));
+                        else
+                            log.Write("percopy.timeout");
+                    }
+                }
+                catch (Exception e)
+                {
+                    log.Write("percopy.failed", e.GetType().Name);
                 }
             });
         }
         catch (Exception e)
         {
             log.Write("percopy.failed", e.GetType().Name);
+        }
+    }
+
+    /// <summary>This process runs with admin rights: SYSTEM, or an elevated
+    /// administrator (a filtered UAC token is not in the role). Unknown
+    /// counts as elevated.</summary>
+    static bool Elevated()
+    {
+        try
+        {
+            using var id = WindowsIdentity.GetCurrent();
+            return id.IsSystem || new WindowsPrincipal(id).IsInRole(WindowsBuiltInRole.Administrator);
+        }
+        catch (Exception)
+        {
+            return true;
         }
     }
 

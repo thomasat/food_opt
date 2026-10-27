@@ -675,6 +675,14 @@ def test_the_installer_never_acts_on_other_users():
             sources = [arg]
         for source in sources:
             assert any(a in source for a in allowed), (call.group(0), source)
+            # A state folder is a per-user location: only a per-user
+            # uninstall deletes one (fix round 1 ruling).
+            if "StateDir" in source:
+                routine = _routine_at(code, call.start())
+                local = routine.index(call.group(0))
+                guard = re.search(r"if IsAdminInstallMode then\s+"
+                                  r"Log\('state folder kept \(all-users uninstall\): ' \+ Dir\)\s+else ", routine)
+                assert guard and guard.start() < local, routine
 
 
 def test_the_app_finds_a_per_user_copy_where_the_installer_puts_it():
@@ -693,6 +701,15 @@ def test_the_app_finds_a_per_user_copy_where_the_installer_puts_it():
             '"Programs", PerUserCopy.FolderName)') in cleanup
     # The switches the README gives IT for a silent uninstall.
     assert '["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"]' in rule
+    # Never with admin rights: the uninstaller found through HKCU and
+    # %LOCALAPPDATA% is the user's to replace (fix round 1).
+    assert "public static bool ShouldRun(bool allUsers, bool elevated) => allUsers && !elevated;" in rule
+    run = cleanup[cleanup.index("public static void Run("):]
+    skipped = run.index('log.Write("percopy.skipped", "elevated")')
+    assert run.index("PerUserCopy.ShouldRun(") < skipped < run.index("PerUserCopy.Choose(")
+    assert "IsSystem" in cleanup and "WindowsBuiltInRole.Administrator" in cleanup
+    # The marker the all-users installer writes: never chosen, however spelled.
+    assert 'fileExists(Path.Combine(dir, "all-users"))' in rule
 
 
 def test_uninstall_keeps_state_when_an_it_copy_exists():
@@ -701,7 +718,7 @@ def test_uninstall_keeps_state_when_an_it_copy_exists():
     keeps it while an all-users copy is installed."""
     body = _function("CurUninstallStepChanged")
     post = body[body.index("if CurUninstallStep = usPostUninstall then"):]
-    keep = re.search(r"if not IsAdminInstallMode and MachineCopyExists then\s+"
+    keep = re.search(r"else if MachineCopyExists then\s+"
                      r"Log\('state folder kept \(an all-users copy uses it\): ' \+ Dir\)\s+else ", post)
     assert keep, post
     assert keep.start() < post.index("DelTree(")

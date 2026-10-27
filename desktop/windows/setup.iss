@@ -491,7 +491,11 @@ begin
   end;
   if CurUninstallStep = usPostUninstall then begin
     Dir := RemoveBackslashUnlessRoot(StateDir);
-    if not IsAdminInstallMode and MachineCopyExists then
+    { A state folder is a per-user location: an all-users (elevated)
+      uninstall deletes none (D1). }
+    if IsAdminInstallMode then
+      Log('state folder kept (all-users uninstall): ' + Dir)
+    else if MachineCopyExists then
       Log('state folder kept (an all-users copy uses it): ' + Dir)
     else if SameOrInside(ProjectsDir, Dir) then
       Log('state folder kept (it holds the projects folder): ' + Dir)

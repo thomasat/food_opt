@@ -127,11 +127,11 @@ Uninstall:
 - An all-users install never changes a per-user copy. When that user
   next opens Food Optimizer, it runs their copy's own uninstaller; projects
   are kept. A per-user install over an all-users copy is refused.
-- Uninstalling deletes the app and the user's `%LOCALAPPDATA%\FoodOptimizer`
-  and keeps the projects in `%USERPROFILE%\FoodOptimizer`. A per-user
-  uninstall keeps that state folder while an all-users copy is installed
-  (both use it). A SYSTEM uninstall cannot reach users' `%LOCALAPPDATA%`,
-  so their state folders stay.
+- Uninstalling a per-user copy deletes the app and the user's
+  `%LOCALAPPDATA%\FoodOptimizer` and keeps the projects in
+  `%USERPROFILE%\FoodOptimizer`; it keeps that state folder while an
+  all-users copy is installed (both use it). An all-users uninstall
+  deletes the app only: every user's state folder and projects stay.
 - No reboot. Upgrade by running the new installer with the same command;
   it replaces the bundled Python and app folders whole.
 

@@ -120,6 +120,31 @@ public sealed class PerUserCopyTests : IDisposable
     }
 
     [Fact]
+    public void A_folder_holding_the_all_users_marker_is_never_chosen()
+    {
+        // Own root spelled so no text compare sees it (8.3, \\?\): the
+        // marker the all-users installer writes still gives it away.
+        Copy(Custom);
+        File.WriteAllText(Path.Combine(Custom, "all-users"), "all-users");
+        Copy(Default);
+        Assert.Equal(Default, Choose(Custom));
+        File.WriteAllText(Path.Combine(Default, "all-users"), "all-users");
+        Assert.Null(Choose(Custom));
+    }
+
+    [Theory]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, false)]
+    [InlineData(false, true, false)]
+    public void Only_an_all_users_copy_run_without_admin_rights_cleans_up(bool allUsers, bool elevated, bool runs)
+    {
+        // An elevated (or SYSTEM) launch would run a user-writable
+        // unins000.exe with admin rights.
+        Assert.Equal(runs, PerUserCopy.ShouldRun(allUsers, elevated));
+    }
+
+    [Fact]
     public void The_uninstaller_command_is_silent_and_ours()
     {
         Assert.Equal(Path.Combine(Custom, "unins000.exe"), PerUserCopy.Uninstaller(Custom));

@@ -75,18 +75,24 @@ def other_user(installer):
             l2.report("other_profile_left", sid)
 
 
-def _remove(scope):
+def _remove(scope, env=None):
     entry = l2.uninstall_entry(scope)
     if entry and entry.get("InstallLocation"):
         l2.kill_under(entry["InstallLocation"])
-        l2.uninstall(entry["InstallLocation"], "user" if scope == "user" else "system")
+        if scope == "user":
+            l2.uninstall(entry["InstallLocation"], "user", env=env)
+        else:
+            l2.uninstall(entry["InstallLocation"], "system")
 
 
 @pytest.fixture
-def cleanup():
+def cleanup(l2_home):
+    """The per-user copy first, with the test's folders: its uninstaller
+    then deletes (or keeps) the test's state folder and unpins the test's
+    projects folder, never the signed-in user's own."""
     yield
+    _remove("user", l2_home.env)
     _remove("machine")
-    _remove("user")
 
 
 def _log(home) -> str:
