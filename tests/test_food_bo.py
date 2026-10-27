@@ -333,6 +333,24 @@ def test_history_csv_carries_the_units_the_screen_shows(tmp_path, monkeypatch):
     assert df["Taste"].iloc[0] == 3.0
 
 
+def test_history_csv_escapes_formula_text(tmp_path, monkeypatch):
+    """A text cell that starts = + - @ tab or CR is a formula to a
+    spreadsheet; the export prefixes ' to it. Numbers are left alone."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("csvesc")
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_objective("Taste", 1.0, goal="max", min_val=-10, max_val=10)
+    notes = ['=HYPERLINK("x")', "+1", "-sweet", "@cmd", "\tx"]
+    for i, note in enumerate(notes, start=1):
+        opt.tell({"Water": 10.0 * i}, {"Taste": -1.5}, formulation_no=i,
+                 batch_no=1, note=note)
+    df = pd.read_csv(io.StringIO(opt.history_csv()), dtype=str,
+                     keep_default_na=False)
+    assert list(df["Note"]) == ["'" + n for n in notes]
+    assert list(df["Taste"]) == ["-1.5"] * len(notes)
+    assert list(df["Water (g)"]) == ["10.0", "20.0", "30.0", "40.0", "50.0"]
+
+
 def test_history_csv_backfills_variable_added_mid_run(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     opt = FoodOptimizer("csv_midrun")

@@ -1646,6 +1646,22 @@ ACQ_TIE_RTOL = 1e-4
 ACQ_TIE_DECIMALS = 3
 
 
+def _escape_csv_text(cell):
+    """A text cell a spreadsheet would run as a formula (it starts with
+    = + - @ tab or CR) gets a leading '. A text that parses as a negative
+    number ("-1.5") is left alone, so it stays a number when imported back;
+    "+1" is escaped all the same (it is a formula to a spreadsheet)."""
+    if isinstance(cell, str) and cell[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        if cell[0] == "-":
+            try:
+                float(cell)
+                return cell
+            except ValueError:
+                pass
+        return "'" + cell
+    return cell
+
+
 def _pick_restart(candidates, values):
     """The restart a suggestion is taken from: of those within ACQ_TIE_RTOL
     of the best value (a floor of 1 in absolute terms, for log values near
@@ -4351,7 +4367,10 @@ class FoodOptimizer:
         backfilled to 0 in X_history for earlier rows, while recipe_history is
         never backfilled and would export a blank there.
         """
-        return self.history_export_frame().to_csv(index=False)
+        frame = self.history_export_frame().copy()
+        for column in frame.columns:
+            frame[column] = frame[column].map(_escape_csv_text)
+        return frame.to_csv(index=False)
 
     # ------------------------------------------------------------------ #
     #  The workbook

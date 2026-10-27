@@ -9027,6 +9027,19 @@ def test_a_note_survives_a_csv_round_trip(burger):
         reloaded.notes_history
 
 
+def test_a_formula_note_survives_a_csv_round_trip(burger):
+    """The export prefixes ' to a note that starts with =; the reader takes it
+    off again, so the note comes back as typed."""
+    from ui_helpers import read_uploaded_csv
+    burger.tell({"Pea protein": 12.0, "Methylcellulose": 1.2},
+                {"Juiciness": 6.0, "Firmness": 5.0}, formulation_no=1,
+                batch_no=1, note="=1+1")
+    text = FoodOptimizer("burger").history_csv()
+    assert "'=1+1" in text
+    df = read_uploaded_csv(io.BytesIO(text.encode("utf-8")))
+    assert list(df["Note"]) == ["=1+1"]
+
+
 # ------------------------------------------------------------------ #
 #  Copy wave (2026-09-13): the behaviour behind the words. A button
 #  that names what it deletes, a counter that says "complete", the
