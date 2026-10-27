@@ -122,9 +122,10 @@ Uninstall:
   (all users; `HKCU\...` for a per-user copy), value `DisplayVersion`.
 - `/LOG=<file>` writes the installer's log; every refusal is logged as
   `refused: <reason>` and the pre-warm as `prewarm rc=<n> secs=<n>`.
-- An all-users install with `/DIR` outside Program Files gives that
-  folder Program Files' permissions: users can read and run it, not
-  change it (`acl: locked <folder>` in the log).
+- An all-users install with `/DIR` outside Program Files makes that
+  folder Administrators' and gives it Program Files' permissions before
+  copying: users can read and run it, not change it (`acl: locked
+  <folder>` in the log). The folder must be empty or this copy's own.
 - A running per-user copy is seen only in its own user's session, while
   an IT upgrade waits for every user's running all-users copy.
 - An all-users install never changes a per-user copy. When that user

@@ -267,6 +267,61 @@ begin
   end;
 end;
 
+{ Runs icacls (Args) and logs Done, or Failed and its code. }
+function RunIcacls(const Args, Done, Failed: String): Boolean;
+var
+  Code: Integer;
+begin
+  Result := Exec(ExpandConstant('{sys}\icacls.exe'), Args, '', SW_HIDE, ewWaitUntilTerminated, Code) and (Code = 0);
+  if Result then
+    Log(Done)
+  else
+    Log(Failed + ' ' + IntToStr(Code));
+end;
+
+{ Whether App is this all-users copy's own folder (HKLM, which no user can
+  write): an upgrade of a folder locked when it was first installed. }
+function RegisteredHere(const App: String): Boolean;
+var
+  Loc: String;
+begin
+  Result := RegQueryStringValue(HKLM64, UninstallKey, 'InstallLocation', Loc) and (Loc <> '') and
+    SameOrInside(Loc, App) and SameOrInside(App, Loc);
+end;
+
+{ M4. Under Program Files an all-users copy inherits its rule: users read
+  and run it, never change it. A /DIR elsewhere would inherit the drive's
+  (C:\ lets every signed-in user change a new folder), or be a folder a
+  user made first and owns. Before any file is copied, icacls makes the
+  folder and all in it Administrators', drops every rule set on them, and
+  gives the folder Program Files' own rule: SYSTEM and Administrators
+  full, Users read and run. Anything in it now was put there before the
+  lock, by someone else: False (PrepareToInstall refuses), unless this
+  is the registered all-users folder (an upgrade). icacls failures are
+  logged; the install goes on. }
+function LockDownAppDir(const App: String): Boolean;
+var
+  Q: String;
+begin
+  Result := True;
+  if SameOrInside(App, ExpandConstant('{commonpf64}')) then
+    exit;
+  Q := '"' + RemoveBackslashUnlessRoot(App) + '"';
+  if not ForceDirectories(App) then
+    Log('acl: could not create ' + App);
+  if RegisteredHere(App) then
+    RunIcacls(Q + ' /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX', 'acl: locked ' + App, 'acl: failed')
+  else begin
+    RunIcacls(Q + ' /setowner *S-1-5-32-544 /T /C', 'acl: owner ' + App, 'acl: owner failed');
+    RunIcacls(Q + ' /reset /T /C', 'acl: reset ' + App, 'acl: reset failed');
+    RunIcacls(Q + ' /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX', 'acl: locked ' + App, 'acl: failed');
+    if DirHasEntries(App) then begin
+      Log('acl: entries found after the lock');
+      Result := False;
+    end;
+  end;
+end;
+
 { The first refusal that applies, or ''. Silent: exit 7; interactive: the
   Preparing page with Cancel. }
 function PrepareToInstall(var NeedsRestart: Boolean): String;
@@ -313,6 +368,11 @@ begin
     end;
   end else
     Log('free space: unknown for ' + App);
+  { Last: a refusal above leaves the folder as it was. }
+  if IsAdminInstallMode and not LockDownAppDir(App) then begin
+    Log('refused: folder_not_ours');
+    Result := CustomMessage('FolderNotOurs');
+  end;
 end;
 
 { Our Welcome text alone: Inno would append its own "Click Next..." line,
@@ -418,28 +478,6 @@ begin
   Result := Rc;
 end;
 
-{ Under Program Files an all-users copy inherits its rule: users read and
-  run it, never change it. A /DIR elsewhere would inherit the drive's, and
-  C:\ lets every signed-in user change a new folder, so the app's files
-  could be swapped under everyone (M4). icacls replaces the inherited rule
-  with Program Files' own: SYSTEM and Administrators full, Users read and
-  run. A failure is logged; the install goes on. }
-procedure LockDownAppDir;
-var
-  App: String;
-  Code: Integer;
-begin
-  App := RemoveBackslashUnlessRoot(ExpandConstant('{app}'));
-  if SameOrInside(App, ExpandConstant('{commonpf64}')) then
-    exit;
-  if Exec(ExpandConstant('{sys}\icacls.exe'),
-      '"' + App + '" /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX',
-      '', SW_HIDE, ewWaitUntilTerminated, Code) and (Code = 0) then
-    Log('acl: locked ' + App)
-  else
-    Log('acl: failed ' + IntToStr(Code));
-end;
-
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then begin
@@ -451,8 +489,6 @@ begin
         looks for this user's per-user copy. }
       if not SaveStringToFile(ExpandConstant('{app}\all-users'), 'all-users' + #13#10, False) then
         Log('could not write ' + ExpandConstant('{app}\all-users'));
-      { Before the pre-warm runs Python from the folder as SYSTEM. }
-      LockDownAppDir;
     end;
     if not IsAdminInstallMode then begin
       if not ForceDirectories(ProjectsDir) then

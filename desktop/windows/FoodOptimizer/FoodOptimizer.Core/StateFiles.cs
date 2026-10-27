@@ -59,7 +59,9 @@ public static partial class StateFiles
 
     static bool AllDigits(string s) => s.Length > 0 && s.All(char.IsAsciiDigit);
 
-    /// <summary>The server's base path: one URL-safe token, or null.</summary>
+    /// <summary>The server's base path: one URL-safe token of 8 to 64
+    /// characters (the launcher's are 32), or null. A shorter one would not
+    /// be redacted from shell.log (LogRedaction.MinBaseLength).</summary>
     public static string? ParseBase(string text)
     {
         var t = text.Trim();
@@ -71,6 +73,6 @@ public static partial class StateFiles
     public static bool IsFresh(DateTime modifiedUtc, DateTime launchStartedUtc) =>
         modifiedUtc >= launchStartedUtc - TimeSpan.FromSeconds(2);
 
-    [GeneratedRegex("^[A-Za-z0-9_-]{1,64}$")]
+    [GeneratedRegex("^[A-Za-z0-9_-]{8,64}$")]
     private static partial Regex BaseToken();
 }
