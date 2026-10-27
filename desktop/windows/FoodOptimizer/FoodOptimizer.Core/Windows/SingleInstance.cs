@@ -82,32 +82,39 @@ public sealed class SingleInstance : IDisposable
 public static class InstallerMutex
 {
     const uint Synchronize = 0x00100000;
-    const int ErrorAccessDenied = 5;
+    const int ErrorAccessDenied = 5, ErrorAlreadyExists = 183;
 
     /// <summary>The Global name's security descriptor, in SDDL.</summary>
     public static string GlobalSddl(string userSid) =>
         "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;" + userSid + ")(A;;0x00100000;;;AU)";
 
+    /// <summary>Holds the name; logs "mutex.held &lt;name&gt; created" (this
+    /// app made it) or "... opened" (another app had it already).</summary>
     public static WaitHandle? Hold(string name, ShellLog log)
     {
+        var global = name.StartsWith(@"Global\", StringComparison.OrdinalIgnoreCase);
         try
         {
-            WaitHandle held = name.StartsWith(@"Global\", StringComparison.OrdinalIgnoreCase)
-                ? HoldGlobal(name)
-                : new Mutex(initiallyOwned: false, name);
-            log.Write("mutex.held", name);
+            bool created;
+            WaitHandle held = global
+                ? HoldGlobal(name, out created)
+                : new Mutex(initiallyOwned: false, name, out created);
+            log.Write("mutex.held", name + (created ? " created" : " opened"));
             return held;
         }
         catch (Exception e)
         {
-            log.Write("mutex.global_failed", e is Win32Exception w ? "win32_" + w.NativeErrorCode : e.GetType().Name);
+            log.Write(global ? "mutex.global_failed" : "mutex.failed",
+                e is Win32Exception w ? "win32_" + w.NativeErrorCode : e.GetType().Name);
             return null;
         }
     }
 
-    static WaitHandle HoldGlobal(string name)
+    static WaitHandle HoldGlobal(string name, out bool created)
     {
-        var user = WindowsIdentity.GetCurrent().User?.Value ?? throw new InvalidOperationException("token.no_user");
+        string user;
+        using (var identity = WindowsIdentity.GetCurrent())
+            user = identity.User?.Value ?? throw new InvalidOperationException("token.no_user");
         if (!NativeMethods.ConvertStringSecurityDescriptorToSecurityDescriptorW(GlobalSddl(user), 1, out var sd, IntPtr.Zero))
             throw new Win32Exception(Marshal.GetLastPInvokeError());
         try
@@ -118,20 +125,23 @@ public static class InstallerMutex
                 SecurityDescriptor = sd,
             };
             var handle = NativeMethods.CreateMutexW(attributes, false, name);
+            var error = Marshal.GetLastPInvokeError();
+            if (!handle.IsInvalid)
+            {
+                created = error != ErrorAlreadyExists;
+                return new Held(handle);
+            }
+            handle.Dispose();
+            if (error != ErrorAccessDenied) throw new Win32Exception(error);
+            // Another user's all-users app made it: waiting is all we may, and need.
+            handle = NativeMethods.OpenMutexW(Synchronize, false, name);
             if (handle.IsInvalid)
             {
-                var error = Marshal.GetLastPInvokeError();
+                error = Marshal.GetLastPInvokeError();
                 handle.Dispose();
-                if (error != ErrorAccessDenied) throw new Win32Exception(error);
-                // Another user's all-users app made it: waiting is all we may, and need.
-                handle = NativeMethods.OpenMutexW(Synchronize, false, name);
-                if (handle.IsInvalid)
-                {
-                    error = Marshal.GetLastPInvokeError();
-                    handle.Dispose();
-                    throw new Win32Exception(error);
-                }
+                throw new Win32Exception(error);
             }
+            created = false;
             return new Held(handle);
         }
         finally

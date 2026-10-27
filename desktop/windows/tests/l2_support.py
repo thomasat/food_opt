@@ -88,6 +88,7 @@ WARM_RELAUNCH_LIMIT_S = {"x64": 30, "arm64": 13}
 
 L2 = pathlib.Path(os.environ.get("FOODOPT_L2_ROOT") or r"C:\work\l2")
 JOBS = L2 / "jobs"
+OTHER_JOBS = JOBS / "other"       # OTHER_USER's job specs and results, apart from SYSTEM's
 LOGS = L2 / "logs"
 CREATE_NO_WINDOW = 0x08000000
 _counter = itertools.count(1)
@@ -225,10 +226,11 @@ def run_as(kind: str, argv: Sequence[str], *, env=None, cwd=None, wait=True, tim
         proc = subprocess.Popen([str(a) for a in argv], env=full_env, cwd=cwd)
         job = Job(_name("admin"), kind, pathlib.Path(), proc=proc)
         return job.wait(timeout) if wait else job
-    JOBS.mkdir(parents=True, exist_ok=True)
+    folder = OTHER_JOBS if kind == "other" else JOBS
+    folder.mkdir(parents=True, exist_ok=True)
     name = _name("j")
-    spec = JOBS / f"{name}.json"
-    result = JOBS / f"{name}.result.json"
+    spec = folder / f"{name}.json"
+    result = folder / f"{name}.result.json"
     # Only the extras travel: the job runs in its identity's own environment
     # (the user's, or SYSTEM's as Intune would run it).
     spec.write_text(json.dumps({"argv": [str(a) for a in argv], "env": dict(env or {}),
@@ -305,7 +307,7 @@ def other_user_sid() -> Optional[str]:
 def add_other_user() -> str:
     """Creates OTHER_USER with a fresh random password (kept in this process
     only, never logged), in Users and Performance Log Users, and lets it
-    write the job folder. Returns its SID."""
+    write its own job folder only. Returns its SID."""
     global _other_password
     if other_user_sid() is not None:
         remove_other_user()
@@ -321,9 +323,26 @@ def add_other_user() -> str:
     r = _powershell(f"Add-LocalGroupMember -SID '{PERFORMANCE_LOG_USERS}' -Member '{OTHER_USER}'")
     if r.returncode != 0:
         raise RuntimeError(f"Add-LocalGroupMember: {r.stderr}")
-    JOBS.mkdir(parents=True, exist_ok=True)
-    grant(JOBS, OTHER_USER)
+    protect_jobs()
+    OTHER_JOBS.mkdir(parents=True, exist_ok=True)
+    grant(OTHER_JOBS, OTHER_USER)
     return other_user_sid()
+
+
+def protect_jobs() -> None:
+    """The job folder, whose specs SYSTEM's job runner reads, writable by
+    Administrators, SYSTEM and the signed-in user only: under C:\\ every
+    Authenticated User inherits Modify, OTHER_USER too."""
+    JOBS.mkdir(parents=True, exist_ok=True)
+    user = os.environ.get("USERNAME") or getpass.getuser()
+    r = subprocess.run(["icacls", str(JOBS), "/inheritance:r", "/grant:r", "*S-1-5-32-544:(OI)(CI)F",
+                        "*S-1-5-18:(OI)(CI)F", f"{user}:(OI)(CI)M"], capture_output=True, text=True,
+                       errors="replace", creationflags=CREATE_NO_WINDOW)
+    if r.returncode != 0:
+        raise RuntimeError(f"icacls {JOBS} /inheritance:r: {r.stdout}")
+
+
+_grants: list = []                # (folder, account) given by grant(), taken back by remove_other_user()
 
 
 def grant(folder, account: str) -> None:
@@ -332,6 +351,7 @@ def grant(folder, account: str) -> None:
                        text=True, errors="replace", creationflags=CREATE_NO_WINDOW)
     if r.returncode != 0:
         raise RuntimeError(f"icacls {folder} /grant {account}: {r.stdout}")
+    _grants.append((str(folder), account))
 
 
 def kill_user_processes(account: str) -> None:
@@ -355,10 +375,14 @@ def remove_other_user() -> None:
             if r.returncode == 0:
                 break
             time.sleep(2)
+        # Its ACEs go while the name still resolves (a folder already
+        # deleted is harmless).
+        for folder, account in [g for g in _grants if g[1] == OTHER_USER]:
+            if os.path.exists(folder):
+                subprocess.run(["icacls", folder, "/remove", account], capture_output=True,
+                               creationflags=CREATE_NO_WINDOW)
+        _grants[:] = [g for g in _grants if g[1] != OTHER_USER]
         subprocess.run(["net", "user", OTHER_USER, "/delete"], capture_output=True,
-                       creationflags=CREATE_NO_WINDOW)
-    if JOBS.exists():
-        subprocess.run(["icacls", str(JOBS), "/remove", OTHER_USER], capture_output=True,
                        creationflags=CREATE_NO_WINDOW)
     _other_password = None
 

@@ -19,13 +19,15 @@ pytestmark = pytest.mark.usefixtures("clean_machine")
 PROGRAM_FILES = pathlib.Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Food Optimizer"
 GUID = "3CC8CB77-0313-4A7D-9582-9896F0A3A8B3"
 ALL_USERS = rf"Global\FoodOptimizer.Running.AllUsers.{GUID}"
-# Every Global name an installer has ever checked for the running app:
+# Every Global name an installer has ever checked: for the running app,
 # the old one (AppMutex, before 0.9.0's per-scope check) and both of
-# today's names in the Global namespace.
+# today's names in the Global namespace; for another installer, the
+# Global SetupMutex name (all-users installers only, since 0.9.0).
 EVERY_GLOBAL_NAME = (rf"Global\FoodOptimizer.Running.{GUID}",
                      rf"Global\FoodOptimizer.Running.PerUser.{GUID}",
-                     ALL_USERS)
-HELD = r"mutex\.(held|global_failed)( .*)?"
+                     ALL_USERS,
+                     r"Global\FoodOptimizer.Setup.0E00CC2F-4E51-4EBF-A229-A910D5742A39")
+HELD = r"mutex\.(held|global_failed|failed)( .*)?"
 
 # Creates each name with an Everyone-full DACL, writes "<name>=<created>"
 # lines, then holds them until the stop file appears (15 minutes at most).
@@ -54,7 +56,7 @@ def other_user(installer):
     try:
         # It must be able to run a password task (batch logon); if not,
         # stop here rather than change local security policy.
-        probe = l2.L2 / "jobs" / "other-probe.txt"
+        probe = l2.OTHER_JOBS / "probe.txt"
         probe.unlink(missing_ok=True)
         rc = l2.run_as_other(["cmd.exe", "/c", f"echo ok>{probe}"], timeout=180)
         assert rc == 0 and probe.read_text().strip() == "ok", f"{l2.OTHER_USER} cannot run a batch task (rc {rc})"
@@ -149,25 +151,25 @@ def test_an_it_upgrade_sees_another_users_app(installer, other_user, cleanup):
     assert "refused: app_running" in again.log
     assert (PROGRAM_FILES / "all-users").is_file()
     assert m and m.group(1) == "held", _log(home)[-3000:]
-    assert f"mutex.held {ALL_USERS}" in _log(home), _log(home)[-3000:]
+    assert f"mutex.held {ALL_USERS} created" in _log(home), _log(home)[-3000:]
 
 
 def test_my_app_sees_the_global_name_another_user_made(installer, other_user, l2_home, cleanup):
     first = l2.install(installer, "system", all_users=True)
     assert first.rc == 0, first.log[-3000:]
-    # FoL2Other's shell takes the name first (an older shell logs no
-    # mutex line: the wait then just ends, and the last check fails).
-    other, home, _m = _start_other_shell("o3", 30)
+    # FoL2Other's shell made the name before mine starts, so the roles can't swap.
+    other, home, m = _start_other_shell("o3", 120)
     try:
+        assert m and m.group(1) == "held", _log(home)[-3000:]
+        assert f"mutex.held {ALL_USERS} created" in _log(home), _log(home)[-3000:]
         mine = l2.start_shell(PROGRAM_FILES, l2_home)
         try:
             assert l2.wait_log(l2_home.state / "shell.log", HELD, 120), _log(l2_home)[-3000:]
             text = _log(l2_home)
-            assert not re.search(r"mutex\.global_failed", text), text[-3000:]
-            assert f"mutex.held {ALL_USERS}" in text, text[-3000:]
+            assert not re.search(r"mutex\.(global_)?failed", text), text[-3000:]
+            assert f"mutex.held {ALL_USERS} opened" in text, text[-3000:]
         finally:
             l2.end_job(mine)
-        assert f"mutex.held {ALL_USERS}" in _log(home), _log(home)[-3000:]
     finally:
         l2.end_job(other)
     l2.wait_for(lambda: not l2.processes_under(PROGRAM_FILES), 30)

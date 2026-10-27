@@ -173,8 +173,8 @@ def test_prewarm_failure_names_it_and_the_address():
 # ---------- setup.iss (Task 4) ----------
 
 APP_ID = "{DE876ED9-927A-45AD-AD9B-D6E4B4C9A4A3}"
-SETUP_MUTEX = ("FoodOptimizer.Setup.0E00CC2F-4E51-4EBF-A229-A910D5742A39,"
-               "Global\\FoodOptimizer.Setup.0E00CC2F-4E51-4EBF-A229-A910D5742A39")
+SETUP_NAME = "FoodOptimizer.Setup.0E00CC2F-4E51-4EBF-A229-A910D5742A39"
+SETUP_MUTEX = "{code:SetupMutexNames}"
 APP_IDENTITY = WINDOWS / "FoodOptimizer" / "FoodOptimizer.Core" / "AppIdentity.cs"
 
 
@@ -266,6 +266,22 @@ def test_mutexes_and_app_id_match_the_shell():
     assert re.search(r"^\s*AppMutex\s*=", ISS.read_text(encoding="ascii"), re.M | re.I) is None
     ids = [e["AppUserModelID"] for e in section_entries("Icons") if "AppUserModelID" in e]
     assert ids and set(ids) == {ident["AppUserModelId"]}
+
+
+def test_setup_mutex_is_per_scope():
+    """One installer at a time, per scope (I2): a per-user installer checks
+    and holds only this session's name, so another user's installer (or
+    anyone holding the Global name) can't hold it up; an all-users one also
+    the Global name, every session's. Inno expands SetupMutex after
+    InitializeSetup, so {code:} works there."""
+    assert setup_directives()["SetupMutex"] == "{code:SetupMutexNames}"
+    body = _function("SetupMutexNames")
+    assert body.startswith("function SetupMutexNames(Param: String): String;")
+    assert re.search(r"Result := '%s';\s+if IsAdminInstallMode then\s+"
+                     r"Result := Result \+ ',Global\\%s';" % (re.escape(SETUP_NAME), re.escape(SETUP_NAME)),
+                     body), body
+    # The Global setup name appears nowhere else.
+    assert ISS.read_text(encoding="ascii").count("Global\\" + SETUP_NAME) == 1
 
 
 def test_running_checks_are_per_scope():

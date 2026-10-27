@@ -43,9 +43,13 @@ public class SingleInstanceTests
         var logPath = TempLog();
         var held = InstallerMutex.Hold(name, new ShellLog(logPath));
         Assert.NotNull(held);
-        Assert.Contains(" mutex.held " + name + "\n", File.ReadAllText(logPath));
+        Assert.Contains(" mutex.held " + name + " created\n", File.ReadAllText(logPath));
         Assert.True(Mutex.TryOpenExisting(name, out var other));
         other.Dispose();
+        var again = InstallerMutex.Hold(name, new ShellLog(logPath));
+        Assert.NotNull(again);
+        Assert.Contains(" mutex.held " + name + " opened\n", File.ReadAllText(logPath));
+        again.Dispose();
         held.Dispose();
         Assert.False(Mutex.TryOpenExisting(name, out _));
         File.Delete(logPath);
@@ -65,8 +69,11 @@ public class SingleInstanceTests
         Assert.NotNull(held);
         try
         {
-            Assert.Contains(" mutex.held " + name + "\n", File.ReadAllText(logPath));
-            var aces = Dacl(held).OfType<CommonAce>().ToList();
+            Assert.Contains(" mutex.held " + name + " created\n", File.ReadAllText(logPath));
+            var sd = Descriptor(held);
+            // Protected: nothing is inherited into it.
+            Assert.True(sd.ControlFlags.HasFlag(ControlFlags.DiscretionaryAclProtected), sd.ControlFlags.ToString());
+            var aces = sd.DiscretionaryAcl!.OfType<CommonAce>().ToList();
             var au = new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null);
             var forAu = aces.Where(a => a.SecurityIdentifier == au).ToList();
             Assert.Contains(forAu, a => a.AceQualifier == AceQualifier.AccessAllowed && a.AccessMask == Synchronize);
@@ -83,6 +90,10 @@ public class SingleInstanceTests
             }, allowed);
             Assert.True(Mutex.TryOpenExisting(name, out var other));
             other.Dispose();
+            var again = InstallerMutex.Hold(name, new ShellLog(logPath));
+            Assert.NotNull(again);
+            Assert.Contains(" mutex.held " + name + " opened\n", File.ReadAllText(logPath));
+            again.Dispose();
         }
         finally
         {
@@ -94,10 +105,11 @@ public class SingleInstanceTests
 
     static string TempLog() => Path.Combine(Path.GetTempPath(), "foodopt-mutex-test-" + Guid.NewGuid().ToString("N") + ".log");
 
-    /// The handle's DACL as the kernel holds it (GetSecurityInfo; the
-    /// managed GetAccessControl needs a package the app does not ship).
+    /// The handle's security descriptor (its DACL and control flags) as
+    /// the kernel holds it (GetSecurityInfo; the managed GetAccessControl
+    /// needs a package the app does not ship).
     [SupportedOSPlatform("windows")]
-    static RawAcl Dacl(WaitHandle handle)
+    static RawSecurityDescriptor Descriptor(WaitHandle handle)
     {
         const int SeKernelObject = 6, DaclSecurityInformation = 4;
         var rc = GetSecurityInfo(handle.SafeWaitHandle.DangerousGetHandle(), SeKernelObject, DaclSecurityInformation,
@@ -107,7 +119,7 @@ public class SingleInstanceTests
         {
             var bytes = new byte[GetSecurityDescriptorLength(sd)];
             Marshal.Copy(sd, bytes, 0, bytes.Length);
-            return new RawSecurityDescriptor(bytes, 0).DiscretionaryAcl!;
+            return new RawSecurityDescriptor(bytes, 0);
         }
         finally
         {

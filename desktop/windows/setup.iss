@@ -59,8 +59,9 @@ DisableReadyPage=yes
 DisableWelcomePage=no
 ShowLanguageDialog=no
 ; No AppMutex: it is one list for both scopes. The code below checks the
-; running app's name per scope instead (RunningName, AppClosed).
-SetupMutex=FoodOptimizer.Setup.0E00CC2F-4E51-4EBF-A229-A910D5742A39,Global\FoodOptimizer.Setup.0E00CC2F-4E51-4EBF-A229-A910D5742A39
+; running app's name per scope instead (RunningName, AppClosed). SetupMutex
+; is per scope too (SetupMutexNames; Inno expands it after InitializeSetup).
+SetupMutex={code:SetupMutexNames}
 CloseApplications=yes
 CloseApplicationsFilter=*.exe,*.dll,*.pyd
 RestartApplications=no
@@ -174,6 +175,17 @@ begin
     Result := 'Global\FoodOptimizer.Running.AllUsers.3CC8CB77-0313-4A7D-9582-9896F0A3A8B3'
   else
     Result := 'Local\FoodOptimizer.Running.PerUser.3CC8CB77-0313-4A7D-9582-9896F0A3A8B3';
+end;
+
+{ One installer at a time, per scope: a per-user installer checks and
+  holds only this session's name, so no other user can hold it up; an
+  all-users one also the Global name, so two all-users installers never
+  run at once, whatever their sessions. }
+function SetupMutexNames(Param: String): String;
+begin
+  Result := 'FoodOptimizer.Setup.0E00CC2F-4E51-4EBF-A229-A910D5742A39';
+  if IsAdminInstallMode then
+    Result := Result + ',Global\FoodOptimizer.Setup.0E00CC2F-4E51-4EBF-A229-A910D5742A39';
 end;
 
 { Inno's AppMutex check, for this scope's name only: OK checks again;
