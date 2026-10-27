@@ -513,6 +513,26 @@
       },
       "mac": null,
       "shared": "shell"
+    },
+    {
+      "id": "error.start_here_missing.title",
+      "kind": "title",
+      "text": {
+        "mac": null,
+        "windows": "Start Here is missing"
+      },
+      "mac": null,
+      "shared": "shell"
+    },
+    {
+      "id": "error.start_here_missing.body",
+      "kind": "body",
+      "text": {
+        "mac": null,
+        "windows": "Reinstall Food Optimizer to get it back."
+      },
+      "mac": null,
+      "shared": "shell"
     }
   ],
   "menus": [

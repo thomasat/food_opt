@@ -18,6 +18,7 @@ sealed class PageHost
     bool _hasPending;
     PageView? _pendingView;
     PageView? _lastView;
+    string? _appBase;
     readonly List<string> _history = [];
     const int HistoryLimit = 200;
     int _showGeneration;
@@ -36,8 +37,10 @@ sealed class PageHost
 
     public event EventHandler? RetryRequested;
 
-    /// <summary>Wires up a (new) web view and shows what was asked for meanwhile.</summary>
-    public void Attach(CoreWebView2 core, Uri? app)
+    /// <summary>Wires up a (new) web view and shows what was asked for
+    /// meanwhile: the app at <paramref name="app"/> (under the base path
+    /// <paramref name="appBase"/>) once loaded, else the page.</summary>
+    public void Attach(CoreWebView2 core, Uri? app, string? appBase)
     {
         _core = core;
         _bootScriptId = null;
@@ -47,7 +50,7 @@ sealed class PageHost
         core.WebMessageReceived += OnWebMessage;
         if (app != null)
         {
-            NavigateToApp(app);
+            NavigateToApp(app, appBase);
             return;
         }
         // A new web view (first, or after a browser-process crash).
@@ -146,15 +149,18 @@ sealed class PageHost
         if (_pageReady) Flush();
     }
 
-    public void NavigateToApp(Uri uri)
+    /// <summary>Shows the app. shell.log gets its address without the
+    /// base path <paramref name="appBase"/> (M3).</summary>
+    public void NavigateToApp(Uri uri, string? appBase)
     {
+        _appBase = appBase;
         _queue.Clear();
         ShowingApp = true;
         ExpectingPage = false;
         _pageReady = false;
         _hasPending = false;
         _showGeneration++;
-        _log.Write("app.navigate", uri.AbsoluteUri);
+        _log.Write("app.navigate", LogRedaction.Redact(uri.AbsoluteUri, appBase));
         try { _core?.Navigate(uri.AbsoluteUri); }
         catch (Exception e) { _log.Write("app.navigate_failed", e.GetType().Name); }
     }
@@ -190,6 +196,6 @@ sealed class PageHost
         if (e.Source.StartsWith(PageBridge.Origin + "/", StringComparison.Ordinal) && message == PageBridge.RetryMessage)
             RetryRequested?.Invoke(this, EventArgs.Empty);
         else
-            _log.Write("message.ignored", e.Source);
+            _log.Write("message.ignored", LogRedaction.Redact(e.Source, _appBase));
     }
 }

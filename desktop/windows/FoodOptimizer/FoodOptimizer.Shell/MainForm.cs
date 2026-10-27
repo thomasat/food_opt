@@ -204,7 +204,7 @@ sealed class MainForm : Form
                 _launch.OnLoadFailed();
             }
         };
-        _page.Attach(core, _launch.Loaded ? _launch.AppUri : null);
+        _page.Attach(core, _launch.Loaded ? _launch.AppUri : null, _launch.Base);
     }
 
     static bool Down(int vk) => NativeMethods.GetKeyState(vk) < 0;
@@ -309,7 +309,7 @@ sealed class MainForm : Form
                 break;
             case MenuIds.StartHere:
                 if (File.Exists(_layout.StartHere)) return WinShell.Open(_layout.StartHere);
-                ShellDialogs.Info(this, _messages.Text("error.missing_part.title"), _messages.Text("error.missing_part.body"));
+                ShellDialogs.Info(this, _messages.Text("error.start_here_missing.title"), _messages.Text("error.start_here_missing.body"));
                 break;
             case MenuIds.GetHelp:
                 ShellDialogs.Info(this, _messages.Text("help.get_help.title"), _messages.Text("help.get_help.body"));

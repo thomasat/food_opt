@@ -8,7 +8,8 @@ namespace FoodOptimizer.Shell;
 /// server and page, web links open in the default browser, nothing loads
 /// from the internet, the page's alert/confirm/prompt are native Food
 /// Optimizer dialogs and the right-click menu keeps only editing commands.
-/// Attached again to each new web view after a browser-process crash.</summary>
+/// Attached again to each new web view after a browser-process crash.
+/// The addresses it logs leave out the base path (M3).</summary>
 sealed class WebRules
 {
     const int BlockedLogLimit = 20;
@@ -43,7 +44,7 @@ sealed class WebRules
 
     void OpenExternally(string uri)
     {
-        _log.Write("open.external", uri);
+        _log.Write("open.external", LogRedaction.Redact(uri, _launch.Base));
         _ = WinShell.Open(uri);
     }
 
@@ -61,7 +62,7 @@ sealed class WebRules
             default:
                 e.Cancel = true;
                 if (history) _log.Write("nav.history_blocked");
-                else _log.Write("nav.blocked", e.Uri);
+                else _log.Write("nav.blocked", LogRedaction.Redact(e.Uri, _launch.Base));
                 return;
         }
     }
@@ -70,14 +71,14 @@ sealed class WebRules
     {
         if (NavigationRules.ForFrame(e.Uri, Context) == NavDecision.Allow) return;
         e.Cancel = true;
-        _log.Write("frame.blocked", e.Uri);
+        _log.Write("frame.blocked", LogRedaction.Redact(e.Uri, _launch.Base));
     }
 
     void OnNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
     {
         e.Handled = true;
         if (NavigationRules.ForNewWindow(e.Uri) == NavDecision.OpenExternally) OpenExternally(e.Uri);
-        else _log.Write("window.blocked", e.Uri);
+        else _log.Write("window.blocked", LogRedaction.Redact(e.Uri, _launch.Base));
     }
 
     void OnWebResourceRequested(CoreWebView2Environment env, CoreWebView2WebResourceRequestedEventArgs e)
@@ -85,7 +86,7 @@ sealed class WebRules
         var uri = e.Request.Uri;
         if (NavigationRules.IsResourceAllowed(uri, _launch.Port)) return;
         e.Response = env.CreateWebResourceResponse(null, 403, "Blocked", "");
-        if (_blockedLogged++ < BlockedLogLimit) _log.Write("request.blocked", uri);
+        if (_blockedLogged++ < BlockedLogLimit) _log.Write("request.blocked", LogRedaction.Redact(uri, _launch.Base));
     }
 
     void OnContextMenuRequested(object? sender, CoreWebView2ContextMenuRequestedEventArgs e)

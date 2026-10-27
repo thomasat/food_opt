@@ -7,7 +7,8 @@
 ; Per-user by default (%LOCALAPPDATA%\Programs\Food Optimizer, no admin);
 ; /ALLUSERS installs to Program Files for IT. Three pages: Welcome, Install,
 ; Finish. Every message a user can reach is in installer_messages.isl.
-; No PowerShell, no network and no download: Pascal and Shell COM only.
+; No PowerShell, no network and no download: Pascal and Shell COM, and
+; icacls for an all-users /DIR outside Program Files (LockDownAppDir).
 ; ASCII only. tests/test_windows_installer.py pins the directives below.
 
 #if VER < EncodeVer(6,3,0)
@@ -417,6 +418,28 @@ begin
   Result := Rc;
 end;
 
+{ Under Program Files an all-users copy inherits its rule: users read and
+  run it, never change it. A /DIR elsewhere would inherit the drive's, and
+  C:\ lets every signed-in user change a new folder, so the app's files
+  could be swapped under everyone (M4). icacls replaces the inherited rule
+  with Program Files' own: SYSTEM and Administrators full, Users read and
+  run. A failure is logged; the install goes on. }
+procedure LockDownAppDir;
+var
+  App: String;
+  Code: Integer;
+begin
+  App := RemoveBackslashUnlessRoot(ExpandConstant('{app}'));
+  if SameOrInside(App, ExpandConstant('{commonpf64}')) then
+    exit;
+  if Exec(ExpandConstant('{sys}\icacls.exe'),
+      '"' + App + '" /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX',
+      '', SW_HIDE, ewWaitUntilTerminated, Code) and (Code = 0) then
+    Log('acl: locked ' + App)
+  else
+    Log('acl: failed ' + IntToStr(Code));
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then begin
@@ -428,6 +451,8 @@ begin
         looks for this user's per-user copy. }
       if not SaveStringToFile(ExpandConstant('{app}\all-users'), 'all-users' + #13#10, False) then
         Log('could not write ' + ExpandConstant('{app}\all-users'));
+      { Before the pre-warm runs Python from the folder as SYSTEM. }
+      LockDownAppDir;
     end;
     if not IsAdminInstallMode then begin
       if not ForceDirectories(ProjectsDir) then

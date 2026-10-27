@@ -13,6 +13,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import time
 from datetime import datetime, timezone
 
@@ -99,6 +100,28 @@ def _retry_locked(fn, *args, attempts=5, delay=0.1):
             time.sleep(delay * attempt)
 
 
+def _write_hidden(path, text):
+    """Windows only: writes `path` and marks it hidden. Windows refuses to
+    open an existing hidden file for writing ("w" asks to replace it), so
+    the mark comes off first and goes back on after."""
+    import ctypes
+    from ctypes import wintypes
+    k = ctypes.WinDLL("kernel32", use_last_error=True)
+    k.GetFileAttributesW.argtypes = [wintypes.LPCWSTR]
+    k.GetFileAttributesW.restype = wintypes.DWORD
+    k.SetFileAttributesW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD]
+    k.SetFileAttributesW.restype = wintypes.BOOL
+    hidden, normal, invalid = 0x2, 0x80, 0xFFFFFFFF
+    attributes = k.GetFileAttributesW(path)
+    if attributes != invalid and attributes & hidden:
+        k.SetFileAttributesW(path, (attributes & ~hidden) or normal)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+    attributes = k.GetFileAttributesW(path)
+    if attributes != invalid:
+        k.SetFileAttributesW(path, (attributes & ~normal) | hidden)
+
+
 class LocalStorage:
     persist_empty_on_init = False  # nothing on disk until the user creates or edits
     persist_after_load = True      # re-save after load only when the file is behind the
@@ -143,10 +166,14 @@ class LocalStorage:
 
     def remember_opened(self, name):
         """Note `name` as the project last opened. Best effort: a folder
-        that refuses the write only loses the reopen."""
+        that refuses the write only loses the reopen. On Windows the note is
+        a hidden file: Explorer lists dot files beside the projects."""
         try:
-            with open(self._LAST_OPENED, "w", encoding="utf-8") as f:
-                f.write(name)
+            if sys.platform == "win32":
+                _write_hidden(self._LAST_OPENED, name)
+            else:
+                with open(self._LAST_OPENED, "w", encoding="utf-8") as f:
+                    f.write(name)
         except OSError:
             pass
 

@@ -47,6 +47,10 @@ sealed class LaunchController : IDisposable
     public int? Port => _machine?.Port;
     public bool Loaded => _machine?.Phase == LaunchPhase.Loaded;
 
+    /// <summary>This launch's base path, once its server is found; shell.log
+    /// never holds it (M3).</summary>
+    public string? Base => _machine?.Base;
+
     /// <summary>The app URL once loaded, for a recreated web view.</summary>
     public Uri? AppUri { get; private set; }
 
@@ -140,7 +144,7 @@ sealed class LaunchController : IDisposable
                     break;
                 case Navigate n:
                     AppUri = n.Uri;
-                    _page.NavigateToApp(n.Uri);
+                    _page.NavigateToApp(n.Uri, Base);
                     break;
                 case StartHealthWatch w:
                     _watchUri = w.Uri;
