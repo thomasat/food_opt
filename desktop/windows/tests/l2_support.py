@@ -310,7 +310,9 @@ def add_other_user() -> str:
     if other_user_sid() is not None:
         remove_other_user()
     password = _new_password()
-    r = subprocess.run(["net", "user", OTHER_USER, password, "/add", "/passwordchg:no", "/expires:never"],
+    # /Y answers net's question about passwords over 14 characters (with no
+    # console to ask, it exits -1).
+    r = subprocess.run(["net", "user", OTHER_USER, password, "/add", "/passwordchg:no", "/expires:never", "/Y"],
                        capture_output=True, text=True, errors="replace", creationflags=CREATE_NO_WINDOW)
     if r.returncode != 0:
         raise RuntimeError(f"net user {OTHER_USER} /add exited {r.returncode}")
