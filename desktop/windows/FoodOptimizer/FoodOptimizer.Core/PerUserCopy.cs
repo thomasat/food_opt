@@ -8,6 +8,10 @@ public static class PerUserCopy
     /// <summary>The uninstaller's switches: no window, no box, no restart.</summary>
     public static readonly IReadOnlyList<string> UninstallArguments = ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"];
 
+    /// <summary>The install folder's name (setup.iss DefaultDirName, under
+    /// {userpf} for a per-user install).</summary>
+    public const string FolderName = "Food Optimizer";
+
     public static string Uninstaller(string dir) => Path.Combine(dir, "unins000.exe");
 
     /// <summary>The folder whose unins000.exe to run, or null. Candidates in

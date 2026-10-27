@@ -677,6 +677,24 @@ def test_the_installer_never_acts_on_other_users():
             assert any(a in source for a in allowed), (call.group(0), source)
 
 
+def test_the_app_finds_a_per_user_copy_where_the_installer_puts_it():
+    """D1: the app reads the uninstall entry Inno writes for this AppId and
+    falls back to the per-user default folder ({userpf}, which is
+    %LOCALAPPDATA%\\Programs, plus DefaultDirName's folder)."""
+    cleanup = (CORE / "Windows" / "PerUserCleanup.cs").read_text(encoding="utf-8")
+    key = re.search(r"UninstallKey = '([^']+)';", _code_section()).group(1)
+    assert f'@"{key}"' in cleanup
+    prefix = "{autopf}\\"
+    folder = setup_directives()["DefaultDirName"]
+    assert folder.startswith(prefix)
+    rule = (CORE / "PerUserCopy.cs").read_text(encoding="utf-8")
+    assert 'public const string FolderName = "%s";' % folder[len(prefix):] in rule
+    assert ('Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), '
+            '"Programs", PerUserCopy.FolderName)') in cleanup
+    # The switches the README gives IT for a silent uninstall.
+    assert '["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"]' in rule
+
+
 def test_uninstall_keeps_state_when_an_it_copy_exists():
     """D1: the all-users app runs a per-user copy's uninstaller while it
     uses the same state folder (settings, WebView2): a per-user uninstall
@@ -720,7 +738,7 @@ def test_unpin_only_what_the_app_pinned():
     settings_name = re.search(r'Settings = "([^"]+)"', (CORE / "StateFiles.cs").read_text(encoding="utf-8")).group(1)
     pinned = _function("AppPinnedProjects")
     assert f"LoadStringFromFile(AddBackslash(StateDir) + '{settings_name}', S)" in pinned, pinned
-    assert "Pos('\"quickAccessPinned\": true', S) > 0" in pinned, pinned
+    assert "Pos('\"quickAccessPinned\": true', String(S)) > 0" in pinned, pinned
     # The app writes exactly that text (indented JSON; ShellSettingsTests
     # pins the bytes).
     settings = (CORE / "ShellSettings.cs").read_text(encoding="utf-8")

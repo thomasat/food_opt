@@ -110,7 +110,6 @@ Type: dirifempty; Name: "{app}"
 [Code]
 const
   UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{DE876ED9-927A-45AD-AD9B-D6E4B4C9A4A3}_is1';
-  ProfileListKey = 'SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList';
   QuickAccess = 'shell:::{679f85cb-0220-4080-b29b-5540cc05aab6}';
   MaxRoot = {#MaxRoot};
   DiskFreeGB = {#DiskFreeGB};
@@ -190,12 +189,14 @@ end;
 
 { Inno's AppMutex check, for this scope's name only: OK checks again;
   Cancel, and every run with /SUPPRESSMSGBOXES, stops before anything
-  changes (Setup exits 1, as with AppMutex). }
-function AppClosed(const Msg: String): Boolean;
+  changes (Setup exits 1, as with AppMutex). Quiet (a silent uninstall,
+  which the all-users app starts for this user's per-user copy) stops
+  without a box, whatever the switches. }
+function AppClosed(const Msg: String; const Quiet: Boolean): Boolean;
 begin
   Result := True;
   while CheckForMutexes(RunningName) do
-    if SuppressibleMsgBox(FmtMessage(Msg, ['Food Optimizer']), mbError, MB_OKCANCEL, IDCANCEL) <> IDOK then begin
+    if Quiet or (SuppressibleMsgBox(FmtMessage(Msg, ['Food Optimizer']), mbError, MB_OKCANCEL, IDCANCEL) <> IDOK) then begin
       Log('refused: app_running');
       Result := False;
       exit;
@@ -205,7 +206,7 @@ end;
 { Inno runs this just before its own AppMutex check. }
 function InitializeSetup: Boolean;
 begin
-  Result := AppClosed(SetupMessage(msgSetupAppRunningError));
+  Result := AppClosed(SetupMessage(msgSetupAppRunningError), False);
 end;
 
 function MachineCopyExists: Boolean;
@@ -221,48 +222,6 @@ begin
   for I := 1 to ParamCount do
     if CompareText(ParamStr(I), Name) = 0 then
       Result := True;
-end;
-
-procedure DeleteLogged(const Path: String);
-begin
-  if FileExists(Path) then begin
-    if DeleteFile(Path) then
-      Log('replaced per-user copy: deleted ' + Path)
-    else
-      Log('replaced per-user copy: could not delete ' + Path);
-  end;
-end;
-
-{ A folder of a user's User Shell Folders (their hive loaded), with
-  %USERPROFILE% and %APPDATA% expanded for that user; Fallback when the
-  hive isn't loaded or the value is missing. }
-function UserShellFolder(const Sid, Name, Profile, Fallback: String): String;
-begin
-  if not RegQueryStringValue(HKU, Sid + '\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders',
-      Name, Result) or (Result = '') then begin
-    Result := Fallback;
-    exit;
-  end;
-  StringChangeEx(Result, '%USERPROFILE%', Profile, True);
-  if (CompareText(Name, 'AppData') <> 0) and (Pos('%APPDATA%', Result) > 0) then
-    StringChangeEx(Result, '%APPDATA%',
-      UserShellFolder(Sid, 'AppData', Profile, Profile + '\AppData\Roaming'), True);
-end;
-
-{ Whether a folder still holds a Food Optimizer install (not only files a
-  user moved there). }
-function IsOurCopy(const Dir: String): Boolean;
-begin
-  Result := FileExists(AddBackslash(Dir) + 'FoodOptimizer.exe') and
-    FileExists(AddBackslash(Dir) + 'unins000.dat');
-end;
-
-procedure DeleteCopy(const Dir: String);
-begin
-  if DelTree(Dir, True, True, True) then
-    Log('replaced per-user copy: deleted ' + Dir)
-  else
-    Log('replaced per-user copy: could not delete ' + Dir);
 end;
 
 { Whether a folder holds anything at all. }
@@ -281,211 +240,6 @@ begin
       until not FindNext(FindRec);
     finally
       FindClose(FindRec);
-    end;
-  end;
-end;
-
-procedure AddName(var Names: TArrayOfString; const Name: String);
-var
-  N: Integer;
-begin
-  N := GetArrayLength(Names);
-  SetArrayLength(Names, N + 1);
-  Names[N] := Name;
-end;
-
-{ Every top-level entry of the image, the folder [Files] copies: listed
-  from ImageDir when the installer is compiled, so it can't drift. }
-function ImageEntries: TArrayOfString;
-begin
-#define EntryHandle
-#define EntryFound
-#sub AddImageEntry
-  #define EntryName FindGetFileName(EntryHandle)
-  #if EntryName != "." && EntryName != ".."
-  AddName(Result, '{#StringChange(EntryName, "'", "''")}');
-  #endif
-#endsub
-#for {EntryHandle = EntryFound = FindFirst(AddBackslash(ImageDir) + "*", faAnyFile); EntryFound; EntryFound = FindNext(EntryHandle)} AddImageEntry
-#if EntryHandle
-  #expr FindClose(EntryHandle)
-#endif
-end;
-
-{ A /DIR copy's folder may also hold the user's own files: only the
-  copy's entries go (the image's, the root DLLs that an upgrade's
-  InstallDelete clears, as an older copy may have others, and the
-  uninstaller's), then the folder if nothing else is left. DelTree with
-  IsDir False deletes the named files or folders; it removes a junction
-  or link itself and never what it points at (it recurses only into
-  folders that are not reparse points). }
-procedure DeleteCopyEntries(const Dir: String);
-var
-  Names: TArrayOfString;
-  I: Integer;
-begin
-  Names := ImageEntries;
-  AddName(Names, '*.dll');
-  AddName(Names, 'unins000.*');
-  for I := 0 to GetArrayLength(Names) - 1 do
-    if not DelTree(AddBackslash(Dir) + Names[I], False, True, True) then
-      Log('replaced per-user copy: could not delete ' + AddBackslash(Dir) + Names[I]);
-  if RemoveDir(Dir) then
-    Log('replaced per-user copy: deleted ' + Dir)
-  else if DirHasEntries(Dir) then
-    Log('replaced per-user copy: kept ' + Dir + ' (it holds other files)')
-  else
-    Log('replaced per-user copy: could not delete ' + Dir);
-end;
-
-{ Whether the folder, or any folder above it, is a junction or other
-  link. A user can point their InstallLocation through one at a folder
-  that isn't theirs (the all-users install's own); a text compare can't
-  see it. FindFirst on a path returns the link's own attributes. }
-function OnALinkPath(const Dir: String): Boolean;
-var
-  P, Parent: String;
-  FindRec: TFindRec;
-begin
-  Result := False;
-  P := RemoveBackslashUnlessRoot(ExpandFileName(Dir));
-  while True do begin
-    if FindFirst(P, FindRec) then begin
-      try
-        if FindRec.Attributes and FILE_ATTRIBUTE_REPARSE_POINT <> 0 then begin
-          Result := True;
-          exit;
-        end;
-      finally
-        FindClose(FindRec);
-      end;
-    end;
-    Parent := RemoveBackslashUnlessRoot(ExtractFileDir(P));
-    if (Parent = P) or (Parent = '') then
-      break;
-    P := Parent;
-  end;
-end;
-
-{ Whether a folder name on the path ends in a space or a dot. Win32
-  drops those from a path's last part (FindFirst on "a " looks at "a"),
-  so OnALinkPath could check another folder than the one deleted. }
-function OddNameOnPath(const Dir: String): Boolean;
-var
-  P, Name: String;
-begin
-  Result := False;
-  P := Dir;
-  while True do begin
-    Name := ExtractFileName(P);
-    if (Name <> '') and ((Name[Length(Name)] = ' ') or (Name[Length(Name)] = '.')) then begin
-      Result := True;
-      exit;
-    end;
-    if (RemoveBackslashUnlessRoot(ExtractFileDir(P)) = P) or (ExtractFileDir(P) = '') then
-      break;
-    P := RemoveBackslashUnlessRoot(ExtractFileDir(P));
-  end;
-end;
-
-{ That user's projects folder: their stored FOODOPT_PROJECTS_DIR (hive
-  loaded), else the default the shell uses. }
-function UserProjectsDir(const Sid, Profile: String): String;
-begin
-  if RegQueryStringValue(HKU, Sid + '\Environment', 'FOODOPT_PROJECTS_DIR', Result) and (Result <> '') then
-    StringChangeEx(Result, '%USERPROFILE%', Profile, True)
-  else
-    Result := Profile + '\FoodOptimizer';
-end;
-
-{ Deletes a per-user copy, but never one reached through a link, nor one
-  holding the user's projects (a /DIR at the projects folder), nor this
-  install's own folder (the user can edit InstallLocation). OwnFolder:
-  the default per-user folder, ours by name, goes whole; a /DIR folder
-  loses only the copy's own entries. True when the copy was kept. One
-  spelling of the folder for every check and delete: Win32 drops a
-  trailing space or dot from a path's last part but keeps it in a middle
-  one, so the raw form could name another folder than the checked one. }
-function ReplaceCopy(const RawDir, Projects: String; const OwnFolder: Boolean): Boolean;
-var
-  Dir, App: String;
-begin
-  Result := True;
-  Dir := RemoveBackslashUnlessRoot(ExpandFileName(RemoveBackslashUnlessRoot(RawDir)));
-  App := ExpandConstant('{app}');
-  if OddNameOnPath(Dir) then
-    Log('replaced per-user copy: kept ' + Dir + ' (a folder name on its path ends in a space or dot)')
-  else if OnALinkPath(Dir) then
-    Log('replaced per-user copy: kept ' + Dir + ' (a folder on its path is a link)')
-  else if SameOrInside(Projects, Dir) then
-    Log('replaced per-user copy: kept ' + Dir + ' (it holds the projects folder)')
-  else if SameOrInside(Dir, App) or SameOrInside(App, Dir) then
-    Log('replaced per-user copy: kept ' + Dir + ' (it is this install)')
-  else begin
-    if OwnFolder then
-      DeleteCopy(Dir)
-    else
-      DeleteCopyEntries(Dir);
-    Result := False;
-  end;
-end;
-
-{ An all-users install replaces every per-user copy: a per-user and an
-  all-users install can't coexist (spec section 5). It runs once the
-  all-users copy is in place, so a cancelled or failed IT install leaves
-  the user's copy alone. A copy installed with /DIR is found through the
-  user's uninstall entry, and loses only its own entries, only while it
-  still holds Food Optimizer. Never touches projects or state: a copy
-  holding the projects folder is kept, with its Apps entry, for the
-  user's own uninstaller (which keeps projects). A user whose hive isn't
-  loaded keeps an orphan Apps entry and any /DIR copy. }
-procedure ReplacePerUserCopies;
-var
-  Sids: TArrayOfString;
-  I: Integer;
-  Sid, Profile, Dir, Location, Programs, Projects: String;
-  Loaded, Kept, SameAsDefault: Boolean;
-begin
-  if not RegGetSubkeyNames(HKLM64, ProfileListKey, Sids) then begin
-    Log('replaced per-user copy: no profile list');
-    exit;
-  end;
-  for I := 0 to GetArrayLength(Sids) - 1 do begin
-    Sid := Sids[I];
-    { Local and domain accounts (S-1-5-21-*) and Entra ID accounts
-      (S-1-12-1-*, the users of a cloud-joined Intune PC). }
-    if (Pos('S-1-5-21-', Sid) <> 1) and (Pos('S-1-12-1-', Sid) <> 1) then
-      continue;
-    if not RegQueryStringValue(HKLM64, ProfileListKey + '\' + Sid, 'ProfileImagePath', Profile) then
-      continue;
-    StringChangeEx(Profile, '%SystemDrive%', GetEnv('SystemDrive'), True);
-    Loaded := RegKeyExists(HKU, Sid);
-    Projects := UserProjectsDir(Sid, Profile);
-    Dir := Profile + '\AppData\Local\Programs\Food Optimizer';
-    Kept := False;
-    SameAsDefault := False;
-    if Loaded and RegQueryStringValue(HKU, Sid + '\' + UninstallKey, 'InstallLocation', Location) and
-        (Location <> '') then begin
-      { The spelling ReplaceCopy checks and deletes, also for IsOurCopy. }
-      Location := RemoveBackslashUnlessRoot(ExpandFileName(RemoveBackslashUnlessRoot(Location)));
-      if IsOurCopy(Location) then begin
-        SameAsDefault := SameOrInside(Location, Dir) and SameOrInside(Dir, Location);
-        Kept := ReplaceCopy(Location, Projects, SameAsDefault);
-      end else
-        Log('replaced per-user copy: no copy left in ' + Location);
-    end;
-    if not SameAsDefault and FileExists(Dir + '\FoodOptimizer.exe') then
-      if ReplaceCopy(Dir, Projects, True) then
-        Kept := True;
-    Programs := UserShellFolder(Sid, 'Programs', Profile, Profile + '\AppData\Roaming\Microsoft\Windows\Start Menu\Programs');
-    DeleteLogged(Programs + '\Food Optimizer.lnk');
-    DeleteLogged(Programs + '\Food Optimizer - Start Here.lnk');
-    DeleteLogged(UserShellFolder(Sid, 'Desktop', Profile, Profile + '\Desktop') + '\Food Optimizer.lnk');
-    if Loaded and not Kept and RegKeyExists(HKU, Sid + '\' + UninstallKey) then begin
-      if RegDeleteKeyIncludingSubkeys(HKU, Sid + '\' + UninstallKey) then
-        Log('replaced per-user copy: deleted the uninstall entry of ' + Sid)
-      else
-        Log('replaced per-user copy: could not delete the uninstall entry of ' + Sid);
     end;
   end;
 end;
@@ -608,23 +362,6 @@ begin
     end;
 end;
 
-procedure PinToQuickAccess(const Dir: String);
-var
-  Shell: Variant;
-begin
-  try
-    Shell := CreateOleObject('Shell.Application');
-    if not VarIsEmpty(QuickAccessItem(Shell, Dir)) then begin
-      Log('quickaccess: already listed ' + Dir);
-      exit;
-    end;
-    Shell.Namespace(Dir).Self.InvokeVerb('pintohome');
-    Log('quickaccess: pinned ' + Dir);
-  except
-    Log('quickaccess failed: ' + GetExceptionMessage);
-  end;
-end;
-
 procedure UnpinFromQuickAccess(const Dir: String);
 var
   Shell, Item: Variant;
@@ -641,6 +378,17 @@ begin
   except
     Log('quickaccess failed: ' + GetExceptionMessage);
   end;
+end;
+
+{ Whether the app pinned the projects folder (D2): it pins it at its first
+  launch and records that in settings.json (ShellSettings writes exactly
+  this text). A pin the user made stays. }
+function AppPinnedProjects: Boolean;
+var
+  S: AnsiString;
+begin
+  Result := LoadStringFromFile(AddBackslash(StateDir) + 'settings.json', S) and
+    (Pos('"quickAccessPinned": true', String(S)) > 0);
 end;
 
 { Pays Defender's first scan at install time and catches a blocked runtime
@@ -672,16 +420,18 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then begin
+    { An all-users install never changes a per-user copy (D1): that
+      user's next launch of this copy runs the per-user copy's own
+      uninstaller. The app pins the projects folder (D2). }
     if IsAdminInstallMode then begin
-      { The shell reads it: this copy's app holds the all-users name. }
+      { The shell reads it: this copy's app holds the all-users name and
+        looks for this user's per-user copy. }
       if not SaveStringToFile(ExpandConstant('{app}\all-users'), 'all-users' + #13#10, False) then
         Log('could not write ' + ExpandConstant('{app}\all-users'));
-      ReplacePerUserCopies;
     end;
     if not IsAdminInstallMode then begin
       if not ForceDirectories(ProjectsDir) then
         Log('could not create ' + ProjectsDir);
-      PinToQuickAccess(ProjectsDir);
     end;
     Prewarm;
   end;
@@ -726,13 +476,24 @@ begin
   { After the user confirms, where Inno checks AppMutex; Abort here ends
     the uninstall before anything changes. }
   if (CurUninstallStep = usAppMutexCheck) and
-      not AppClosed(SetupMessage(msgUninstallAppRunningError)) then
+      not AppClosed(SetupMessage(msgUninstallAppRunningError), UninstallSilent) then
     Abort;
-  if (CurUninstallStep = usUninstall) and not IsAdminInstallMode then
-    UnpinFromQuickAccess(ProjectsDir);
+  { The all-users app runs a per-user copy's uninstaller (D1) while it
+    uses the same state folder and pin: both stay while an all-users copy
+    is installed. }
+  if (CurUninstallStep = usUninstall) and not IsAdminInstallMode then begin
+    if MachineCopyExists then
+      Log('quickaccess: kept (an all-users copy uses it)')
+    else if AppPinnedProjects then
+      UnpinFromQuickAccess(ProjectsDir)
+    else
+      Log('quickaccess: not pinned by the app');
+  end;
   if CurUninstallStep = usPostUninstall then begin
     Dir := RemoveBackslashUnlessRoot(StateDir);
-    if SameOrInside(ProjectsDir, Dir) then
+    if not IsAdminInstallMode and MachineCopyExists then
+      Log('state folder kept (an all-users copy uses it): ' + Dir)
+    else if SameOrInside(ProjectsDir, Dir) then
       Log('state folder kept (it holds the projects folder): ' + Dir)
     else if CompareText(ExtractFileName(Dir), 'FoodOptimizer') = 0 then begin
       for I := 1 to 5 do begin

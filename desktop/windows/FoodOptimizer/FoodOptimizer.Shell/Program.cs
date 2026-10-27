@@ -48,6 +48,9 @@ static class Program
         }
 
         var settings = ShellSettings.Load(paths.SettingsPath);
+        // D1: an all-users copy hands this user's per-user copy, if any, to
+        // that copy's own uninstaller (started here, not waited for).
+        PerUserCleanup.Run(layout, log);
 
         var crashed = 0;
         void Crash(Exception? ex)

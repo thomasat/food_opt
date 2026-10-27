@@ -124,14 +124,14 @@ Uninstall:
   `refused: <reason>` and the pre-warm as `prewarm rc=<n> secs=<n>`.
 - A running per-user copy is seen only in its own user's session, while
   an IT upgrade waits for every user's running all-users copy.
-- A per-user and an all-users copy never coexist. An all-users install
-  never changes a per-user copy. When that user next opens Food Optimizer,
-  it runs their copy's own uninstaller; projects are kept. A per-user
-  install over an all-users copy is refused.
+- An all-users install never changes a per-user copy. When that user
+  next opens Food Optimizer, it runs their copy's own uninstaller; projects
+  are kept. A per-user install over an all-users copy is refused.
 - Uninstalling deletes the app and the user's `%LOCALAPPDATA%\FoodOptimizer`
-  and keeps the projects in `%USERPROFILE%\FoodOptimizer`. A SYSTEM
-  uninstall cannot reach users' `%LOCALAPPDATA%`, so their state folders
-  stay.
+  and keeps the projects in `%USERPROFILE%\FoodOptimizer`. A per-user
+  uninstall keeps that state folder while an all-users copy is installed
+  (both use it). A SYSTEM uninstall cannot reach users' `%LOCALAPPDATA%`,
+  so their state folders stay.
 - No reboot. Upgrade by running the new installer with the same command;
   it replaces the bundled Python and app folders whole.
 
@@ -231,13 +231,16 @@ FoodOptimizer.exe                        the window (.NET, WebView2)
 ### Files, registry and services
 
 - Shortcuts: two in Start (Food Optimizer, and Food Optimizer - Start
-  Here) and one on the desktop (unless `/NODESKTOPSHORTCUT`). The app,
-  not the installer, pins the projects folder to Quick access at its first
-  launch.
+  Here) and one on the desktop (unless `/NODESKTOPSHORTCUT`). Food
+  Optimizer pins the projects folder to Quick access the first time each
+  user opens it. Uninstalling a per-user copy unpins it only if the app
+  pinned it.
 - The only registry entry is the uninstall key, which Inno Setup writes
-  (HKCU per user, HKLM for all users). The all-users installer never
-  deletes anything in a user's profile: at a user's next launch of the IT
-  copy, that user's own per-user copy runs its own uninstaller.
+  (HKCU per user, HKLM for all users). The app only reads its own HKCU
+  uninstall key (to find this user's per-user copy) and writes none.
+- The all-users installer never deletes anything in a user's profile: at
+  a user's next launch of the IT copy, that user's own per-user copy runs
+  its own uninstaller, silently.
 - No services, scheduled tasks, drivers or shell extensions.
 
 ### Allow-listing

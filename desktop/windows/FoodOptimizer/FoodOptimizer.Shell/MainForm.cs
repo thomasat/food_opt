@@ -126,6 +126,28 @@ sealed class MainForm : Form
         base.OnShown(e);
         _launch.Start();
         await CreateWebViewAsync();
+        if (!IsDisposed) PinProjectsFolder();
+    }
+
+    /// <summary>D2: makes the projects folder and, the first time for this
+    /// user (both install types, no admin), pins it to Quick access, here
+    /// on the UI thread (Shell COM needs an STA thread). Recorded in
+    /// settings.json, so a user who unpins it later keeps it unpinned and
+    /// the uninstaller unpins only what the app pinned.</summary>
+    void PinProjectsFolder()
+    {
+        try
+        {
+            Directory.CreateDirectory(_paths.ProjectsDir);
+        }
+        catch (Exception ex)
+        {
+            _log.Write("projects.create_failed", ex.GetType().Name);
+            return;
+        }
+        if (!QuickAccessRule.ShouldPin(_settings) || !QuickAccess.Pin(_paths.ProjectsDir, _log)) return;
+        _settings.QuickAccessPinned = true;
+        if (!_settings.Save(_paths.SettingsPath)) _log.Write("settings.save_failed");
     }
 
     /// <summary>Creates the web view, trying again for a few seconds (a

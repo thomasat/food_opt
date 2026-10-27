@@ -15,6 +15,7 @@ SHELL_CS = sorted(
 # Literals that read like words but are not screen text.
 ALLOWED_CS_LITERALS = {
     "Start Here.txt",  # a file name; phase 5 installs it
+    "Food Optimizer",  # the install folder's name (setup.iss DefaultDirName; PerUserCopy.FolderName)
 }
 
 _VERBATIM = re.compile(r'@"(?:[^"]|"")*"')

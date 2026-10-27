@@ -29,7 +29,8 @@ One page. The full spec is `docs/superpowers/specs/2026-10-23-windows-port-desig
   At a user's next launch of the IT copy, that user's own per-user copy runs
   its own uninstaller; their projects and state stay.
 - The app, not the installer, pins the projects folder to Quick access, at
-  its first launch. The installer then needs nothing from a user's profile.
+  its first launch. The all-users installer then needs nothing from a
+  user's profile, and an uninstall unpins only what the app pinned.
 - A running check per scope: per-user copies are seen in their own session,
   the IT copy by every user.
 
