@@ -90,9 +90,84 @@ def test_version_file_is_one_x_y_z_line():
 def test_readme_download_links_name_the_version():
     text = (REPO / "README.md").read_text(encoding="utf-8")
     dmgs = re.findall(r"FoodOptimizer-(\d+\.\d+\.\d+)\.dmg", text)
+    exes = re.findall(r"FoodOptimizer-(\d+\.\d+\.\d+)-Windows\.exe", text)
     tags = re.findall(r"releases/download/v(\d+\.\d+\.\d+)/", text)
-    assert dmgs and tags, (dmgs, tags)
-    assert set(dmgs) | set(tags) == {read_version()}, (dmgs, tags)
+    assert dmgs and exes and tags, (dmgs, exes, tags)
+    assert set(dmgs) | set(exes) | set(tags) == {read_version()}, (dmgs, exes, tags)
+    links = re.findall(r"\]\((https://[^)]+)\)", text)
+    assert any(link.endswith(".dmg") for link in links) and any(link.endswith("-Windows.exe") for link in links)
+
+
+# The release's download links and the files a release publishes (the
+# SBOM and the per-file list are attached, not advertised).
+URL_BASE = "https://github.com/thomasat/food_opt/releases/download"
+# A claim no test backs yet; one level of parentheses inside.
+PENDING = re.compile(r"PENDING\(((?:[^()]|\([^()]*\))*)\)")
+# The texts sent at a release: none may hold a PENDING marker at the tag.
+SENT_TEXTS = ("README.md", "desktop/release_notes/{v}.md", "desktop/windows/download_email.md",
+              "desktop/windows/README.md")
+
+
+def release_assets(v):
+    return {"dmg": f"FoodOptimizer-{v}.dmg", "exe": f"FoodOptimizer-{v}-Windows.exe",
+            "sbom": f"FoodOptimizer-{v}-Windows.cdx.json", "files": f"FoodOptimizer-{v}-Windows.files.txt"}
+
+
+def test_download_links_are_this_versions_release_assets():
+    """Every release-download link in the README, the release page and the
+    download email is one of this version's assets (desktop/VERSION)."""
+    version = read_version()
+    allowed = {f"{URL_BASE}/v{version}/{name}" for name in release_assets(version).values()}
+    for rel in ("README.md", f"desktop/release_notes/{version}.md", "desktop/windows/download_email.md"):
+        urls = re.findall(r"https://[^\s)\]>\"']*releases/download/[^\s)\]>\"']*",
+                          (REPO / rel).read_text(encoding="utf-8"))
+        assert urls, rel
+        assert set(urls) <= allowed, (rel, set(urls) - allowed)
+    email = (REPO / "desktop" / "windows" / "download_email.md").read_text(encoding="utf-8")
+    assert set(re.findall(r"FoodOptimizer-(\d+\.\d+\.\d+)", email)) == {version}
+
+
+def test_windows_readme_names_no_stale_installer():
+    text = (REPO / "desktop" / "windows" / "README.md").read_text(encoding="utf-8")
+    version = read_version()
+    named = set(re.findall(r"FoodOptimizer-(\S+?)-Windows", text))
+    assert named <= {version, "X.Y.Z", f"{version}-test", "0.0.1", "<ver>"}, named
+
+
+def test_both_readmes_carry_the_same_windows_requirements():
+    win = (REPO / "desktop" / "windows" / "README.md").read_text(encoding="utf-8")
+    block = win[win.index("## System requirements (copy-paste"):]
+    line = next(l for l in block.splitlines()[1:] if l.strip())
+    assert line.startswith("Needs Windows 10 or 11 (64-bit)")
+    assert line in (REPO / "README.md").read_text(encoding="utf-8")
+
+
+def _at_release_tag():
+    probe = subprocess.run(["git", "describe", "--exact-match", "--tags", "HEAD"], cwd=REPO,
+                           capture_output=True, text=True)
+    return probe.returncode == 0 and probe.stdout.strip() == f"v{read_version()}"
+
+
+release_tag_only = pytest.mark.skipif(not _at_release_tag(), reason="release tag only")
+
+
+@release_tag_only
+def test_no_pending_marker_at_a_release_tag():
+    """At the release tag, no sent text may still hold a PENDING(...)
+    marker: the README, the release page, the download email and the
+    Windows README."""
+    version = read_version()
+    for rel in SENT_TEXTS:
+        rel = rel.format(v=version)
+        assert not PENDING.search((REPO / rel).read_text(encoding="utf-8")), rel
+
+
+def test_sent_texts_exist_and_their_markers_parse():
+    """The tag check above reads these files; each exists, and every
+    PENDING( in it is a whole marker the check can see."""
+    for rel in SENT_TEXTS:
+        text = (REPO / rel.format(v=read_version())).read_text(encoding="utf-8")
+        assert text.count("PENDING(") == len(PENDING.findall(text)), rel
 
 
 def test_release_notes_match_the_version():

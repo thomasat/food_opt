@@ -5,7 +5,8 @@
 Windows build: unsigned, internal testing only.
 
 The design is `docs/superpowers/specs/2026-10-23-windows-port-design.md`.
-Signing and the release steps come in phase 6.
+Releasing: "Release (Windows half)" below, inside the combined ritual in
+`desktop/README.md`.
 
 ## System requirements (copy-paste for emails / download page)
 
@@ -45,7 +46,7 @@ runtime, the app, the shared launcher and Start Here (phase 3b), then
 `dotnet publish` of the shell (`FoodOptimizer.exe`, copied to the image
 root), the image gate (the shell's files listed apart from
 `image_files.txt`), the unsigned list, the per-file manifest, the image
-record, `ISCC setup.iss`, the size gate and the release record. A VM build
+record, `ISCC setup.iss`, the size gate, the SBOM and the release record. A VM build
 takes about 6 minutes (ISCC about 2).
 
 Output:
@@ -59,9 +60,19 @@ Output:
   vendor (phase 6 signs them; it includes `FoodOptimizer.exe`, the shell's
   own DLLs, and the two WebView2 wrappers that ReadyToRun recompiles).
 - `dist\FoodOptimizer-<ver>-Windows[-test].exe`: the installer.
+- `dist\FoodOptimizer-<ver>-Windows[-test].files.txt`: a byte copy of the
+  per-file list, published as a release asset.
+- `dist\FoodOptimizer-<ver>-Windows[-test].cdx.json`: the software bill of
+  materials (CycloneDX 1.6), written by `sbom.py` under the image's Python
+  from the image's own package metadata, the shell's `deps.json` with its
+  NuGet `.nuspec` files, and `sbom_declared.json`. It fails the build on a
+  package whose licence it cannot read, on a lock mismatch, and on an
+  unsigned file no component owns.
 - `dist\FoodOptimizer-<ver>-Windows[-test].build.txt`: the release record:
   the image record, then `inno_setup`, `installer`, `installer_bytes`,
-  `installer_sha256`, `disk_free_gb`, `size_gate` and `signed=no`.
+  `installer_sha256`, `disk_free_gb`, `size_gate`, `files_list_sha256`,
+  `sbom_sha256`, `sbom_components`, `sbom_gpl_licensed`,
+  `sbom_gpl_mentions` and `signed=no`.
 
 **Size gate.** `size_gate.json` holds the ceilings for the installer and
 the image (the first measurement plus 10%, rounded up to 10 MiB) and the
@@ -150,6 +161,94 @@ Uninstall exit codes (`unins000.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART`):
 |---|---|---|
 | `0` | Uninstalled | Success |
 | `1` | Food Optimizer is running (or the uninstaller could not start); nothing changed | Retry |
+
+## For IT teams (reference)
+
+A repo reference, never sent: the release page has five lines for IT.
+The switches, exit codes and detection key are above.
+
+### Requirements
+
+- Windows 10 22H2 (build 19045) or Windows 11, 64-bit. Arm PCs run it
+  under x64 emulation.
+- Microsoft Edge WebView2 Runtime (Evergreen), which Windows 10 and 11
+  receive through Windows Update. Without it the app shows "Food Optimizer
+  can't open" with "Ask IT to install Microsoft Edge WebView2 Runtime."
+- No internet needed, at install or at run time.
+
+### What runs
+
+```
+FoodOptimizer.exe                        the window (.NET, WebView2)
+  python.exe -I -X utf8 -B -m launcher   the bundled Python, from <install folder>\python
+    python.exe                           the local server (Streamlit)
+    python.exe                           a warm-up child
+  msedgewebview2.exe (several)           from the Microsoft Edge WebView2 Runtime folder
+```
+
+- Every launch runs in its own Windows Job Object; closing the window ends
+  the Python tree.
+- The server listens on 127.0.0.1 only, on a random port, under an
+  unguessable base path, and refuses any request whose Host header is not
+  its own. No inbound firewall rule is needed.
+- At install, the pre-warm imports the main libraries once, so on-access
+  scanning happens then, not at the first open (exit code 9 if blocked).
+
+### Network
+
+- FoodOptimizer.exe and the bundled python.exe connect only to loopback:
+  Level 2's `test_our_processes_connect_only_to_loopback` audits a full
+  session with the Windows Filtering Platform.
+- The WebView2 Runtime's own processes may contact Microsoft for updates
+  and diagnostic data under the PC's policies. Food Optimizer turns on
+  custom crash reporting (no crash dumps go to Microsoft), turns off the
+  SmartScreen reputation check for its pages, and blocks every page
+  request except to its own loopback address.
+- The bundled Python ignores proxy settings. Links the user clicks open in
+  the default browser.
+
+### Data at rest
+
+- State, per user: `%LOCALAPPDATA%\FoodOptimizer\`, holding `server.port`,
+  `server.base`, `status.txt`, `status.txt.tmp`, `launch.lock`,
+  `launcher.log`, `launcher.log.1`, `settings.json`, `shell.log`,
+  `shell.log.1` and the `WebView2` folder (the page's browser profile).
+- Projects, per user: `%USERPROFILE%\FoodOptimizer\`, one `<name>.pkl`
+  file of JSON each. At each launch, when a project changed, a dated copy
+  goes into a subfolder there; the newest 10 launch copies are kept.
+- Project files are read as JSON only and never unpickled: a file that is
+  not JSON is reported as damaged.
+- Nothing is encrypted by the app (it relies on BitLocker). The logs list
+  file paths, which include the Windows user name. `launcher.log` moves to
+  `launcher.log.1` at each launch; `shell.log` moves to `shell.log.1` at
+  1,000,000 bytes.
+
+### Files, registry and services
+
+- Shortcuts: two in Start (Food Optimizer, and Food Optimizer - Start
+  Here) and one on the desktop (unless `/NODESKTOPSHORTCUT`). Per-user
+  installs pin the projects folder to Quick access.
+- The only registry entry is the uninstall key, which Inno Setup writes
+  (HKCU per user, HKLM for all users). An all-users install also deletes
+  each replaced per-user copy's uninstall key.
+- No services, scheduled tasks, drivers or shell extensions.
+
+### Allow-listing
+
+The binaries keep their vendors' signatures; only those their vendors left
+unsigned (`build\FoodOptimizer.unsigned.txt`) are signed by Food System
+Innovations. Allow all four signers:
+
+- Food System Innovations: the installer, the uninstaller,
+  `FoodOptimizer.exe` and the files it signs;
+- Python Software Foundation: `python.exe`, `pythonw.exe`, `python313.dll`
+  and CPython's own modules;
+- Microsoft Windows Software Compatibility Publisher: the C++ runtime DLLs
+  beside `python.exe`;
+- Microsoft Corporation: the .NET runtime files.
+
+Each release also attaches the SBOM (`FoodOptimizer-<ver>-Windows.cdx.json`)
+and the per-file hash list (`FoodOptimizer-<ver>-Windows.files.txt`).
 
 ## Test
 
@@ -254,7 +353,7 @@ rules enforced for Exe, Msi, Script and Appx.
 - **L1** The machine state: the effective AppLocker policy, the ASR rule
   and the firewall.
 - **L2** As `fostd`, double-click the installer in Downloads → AppLocker
-  blocks it. Record the exact words ("Blocked? Forward this email to IT.").
+  blocks it. Record the exact words.
 - **L3** The IT install: SYSTEM runs the all-users command → record the
   exit code and the time.
 - **L4** As `fostd`: open from Start, open the yogurt pilot, download a
@@ -270,3 +369,36 @@ make a 4-core, 8 GB, 80 GB Fusion VM with a local admin, add the SSH key
 and the `FoodOpt-SSH-In` firewall rule, take snapshot "Locked fresh", then
 the agent configures the profile over SSH. Not yet run: results go here
 ("Seen on <date>, unsigned build: ...").
+
+## Release (Windows half)
+
+Steps 6 and 7 of the combined ritual ("Publishing a release" in
+`desktop/README.md`), after the tag `vX.Y.Z` is pushed. On VM_BUILD:
+
+1. A VM-local clone at the tag (never a shared folder):
+
+   ```
+   git clone --branch vX.Y.Z https://github.com/thomasat/food_opt "C:\work\release X.Y.Z"
+   ```
+
+2. The release build (no switch: it refuses unless the tree is clean and
+   HEAD is the tag) from that clone, then signing:
+
+   ```
+   powershell -NoProfile -ExecutionPolicy Bypass -File desktop\windows\build_installer.ps1
+   ```
+
+   PENDING(signing step)
+3. pytest under the image's Python at the tag, as in "Test" above: 0
+   failed, apart from a list stated in the release PR.
+4. Level 2 with the three installers and `-Cleanup` (`run_level2.ps1`, as
+   in "Test"), then `run_ui_tests.ps1` with both filters (Installer and
+   Installed, then the default set). Its
+   `test_our_processes_connect_only_to_loopback` backs the release page's
+   "sends nothing".
+5. The manual checklist W1 to W17 and the locked-down profile L1 to L6.
+   A patch release that changes only shared Python may run the `[S]` items
+   only.
+6. Hand back to the Mac at step 7 of the ritual: it copies
+   `dist\FoodOptimizer-X.Y.Z-Windows.exe` and its `.build.txt`, `.files.txt`
+   and `.cdx.json`.
