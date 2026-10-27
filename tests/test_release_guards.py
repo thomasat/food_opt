@@ -99,7 +99,7 @@ def test_readme_download_links_name_the_version():
 
 
 # The release's download links and the files a release publishes (the
-# SBOM and the per-file list are attached, not advertised).
+# per-file list is attached, not advertised).
 URL_BASE = "https://github.com/thomasat/food_opt/releases/download"
 # A claim no test backs yet; one level of parentheses inside.
 PENDING = re.compile(r"PENDING\(((?:[^()]|\([^()]*\))*)\)")
@@ -110,7 +110,7 @@ SENT_TEXTS = ("README.md", "desktop/release_notes/{v}.md", "desktop/windows/down
 
 def release_assets(v):
     return {"dmg": f"FoodOptimizer-{v}.dmg", "exe": f"FoodOptimizer-{v}-Windows.exe",
-            "sbom": f"FoodOptimizer-{v}-Windows.cdx.json", "files": f"FoodOptimizer-{v}-Windows.files.txt"}
+            "files": f"FoodOptimizer-{v}-Windows.files.txt"}
 
 
 def test_download_links_are_this_versions_release_assets():

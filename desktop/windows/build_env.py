@@ -559,9 +559,37 @@ def _gate(repo, image, publish=None) -> list[str]:
     return problems
 
 
+def _listing_cmd(args) -> int:
+    """`listing [--write] [--repo <path>]`: check desktop/windows/image_files.txt
+    against expected_listing(repo), or rewrite it. A stale check prints a diff."""
+    import difflib
+    args = list(args)
+    repo = pathlib.Path(__file__).resolve().parent.parent.parent
+    if "--repo" in args:
+        at = args.index("--repo")
+        repo = pathlib.Path(args[at + 1])
+        del args[at:at + 2]
+    if args not in ([], ["--write"]):
+        print("usage: build_env.py listing [--write] [--repo <path>]")
+        return 2
+    golden = repo / "desktop" / "windows" / "image_files.txt"
+    want = "".join(f"{e}\n" for e in expected_listing(repo))
+    have = golden.read_text(encoding="utf-8") if golden.exists() else ""
+    if args == ["--write"]:
+        golden.write_bytes(want.encode("utf-8"))
+        return 0
+    if have == want:
+        return 0
+    sys.stdout.writelines(difflib.unified_diff(have.splitlines(True), want.splitlines(True),
+                                               "image_files.txt", "expected"))
+    return 1
+
+
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     cmd, args = (argv[0], argv[1:]) if argv else ("", [])
+    if cmd == "listing":
+        return _listing_cmd(args)
     if cmd == "assemble" and len(args) == 2:
         assemble(*args)
         return 0
@@ -608,7 +636,8 @@ def main(argv=None) -> int:
         return 0
     print("usage: build_env.py assemble <repo> <image> | strip <image> | compile <image>"
           " | shell <publish> <image> | gate <repo> <image> [--shell <publish>]"
-          " | files <image> <out.txt> | pe-files <image> <out.txt>")
+          " | files <image> <out.txt> | pe-files <image> <out.txt>"
+          " | listing [--write]")
     return 2
 
 

@@ -46,8 +46,11 @@ runtime, the app, the shared launcher and Start Here (phase 3b), then
 `dotnet publish` of the shell (`FoodOptimizer.exe`, copied to the image
 root), the image gate (the shell's files listed apart from
 `image_files.txt`), the unsigned list, the per-file manifest, the image
-record, `ISCC setup.iss`, the size gate, the SBOM and the release record. A VM build
+record, `ISCC setup.iss`, the size gate and the release record. A VM build
 takes about 6 minutes (ISCC about 2).
+
+`python desktop/windows/build_env.py listing --write` rewrites `image_files.txt`
+from the repo; review the diff. Without `--write` it prints the diff and exits 1 when stale.
 
 Output:
 
@@ -62,17 +65,10 @@ Output:
 - `dist\FoodOptimizer-<ver>-Windows[-test].exe`: the installer.
 - `dist\FoodOptimizer-<ver>-Windows[-test].files.txt`: a byte copy of the
   per-file list, published as a release asset.
-- `dist\FoodOptimizer-<ver>-Windows[-test].cdx.json`: the software bill of
-  materials (CycloneDX 1.6), written by `sbom.py` under the image's Python
-  from the image's own package metadata, the shell's `deps.json` with its
-  NuGet `.nuspec` files, and `sbom_declared.json`. It fails the build on a
-  package whose licence it cannot read, on a lock mismatch, and on an
-  unsigned file no component owns.
 - `dist\FoodOptimizer-<ver>-Windows[-test].build.txt`: the release record:
   the image record, then `inno_setup`, `installer`, `installer_bytes`,
-  `installer_sha256`, `disk_free_gb`, `size_gate`, `files_list_sha256`,
-  `sbom_sha256`, `sbom_components`, `sbom_gpl_licensed`,
-  `sbom_gpl_mentions` and `signed=no`.
+  `installer_sha256`, `disk_free_gb`, `size_gate`, `files_list_sha256`
+  and `signed=no`.
 
 **Size gate.** `size_gate.json` holds the ceilings for the installer and
 the image (the first measurement plus 10%, rounded up to 10 MiB) and the
@@ -247,8 +243,8 @@ Innovations. Allow all four signers:
   beside `python.exe`;
 - Microsoft Corporation: the .NET runtime files.
 
-Each release also attaches the SBOM (`FoodOptimizer-<ver>-Windows.cdx.json`)
-and the per-file hash list (`FoodOptimizer-<ver>-Windows.files.txt`).
+Each release also attaches the per-file hash list
+(`FoodOptimizer-<ver>-Windows.files.txt`).
 
 ## Test
 
@@ -400,5 +396,4 @@ Steps 6 and 7 of the combined ritual ("Publishing a release" in
    A patch release that changes only shared Python may run the `[S]` items
    only.
 6. Hand back to the Mac at step 7 of the ritual: it copies
-   `dist\FoodOptimizer-X.Y.Z-Windows.exe` and its `.build.txt`, `.files.txt`
-   and `.cdx.json`.
+   `dist\FoodOptimizer-X.Y.Z-Windows.exe` and its `.build.txt` and `.files.txt`.

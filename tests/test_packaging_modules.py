@@ -5,17 +5,16 @@ usage stats."""
 import ast
 import pathlib
 import re
+import sys
 import tomllib
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "desktop"))
+from bundle_listing import expected_bundle_listing, read_manifest  # noqa: E402
 BUILD = (REPO / "desktop" / "build_dmg.sh").read_text(encoding="utf-8")
 LOCAL = {p.stem for p in REPO.glob("*.py")}
 MANIFEST = REPO / "desktop" / "shared" / "bundle_manifest.txt"
 GOLDEN = REPO / "desktop" / "mac_bundle_files.txt"
-# What the Mac bundle carries besides the manifest's files.
-MAC_ONLY_FILES = {"Info.plist", "MacOS/FoodOptimizer", "MacOS/uv",
-                  "Resources/launcher.sh", "Resources/requirements.lock.txt",
-                  "Resources/icon.icns"}
 SHIPPED_DATA = [
     "data/ingredients_template.csv",
     "data/samples/yogurt_pilot/Yogurt pilot - Round 6 to score.json",
@@ -23,21 +22,6 @@ SHIPPED_DATA = [
     "data/samples/yogurt_pilot/Round 6 results (pilot).xlsx",
     "data/samples/burger_setup/Example setup - plant-based burger.json",
 ]
-
-
-def read_manifest():
-    return MANIFEST.read_text(encoding="utf-8").splitlines()
-
-
-def expected_bundle_listing(manifest):
-    """Every entry under Contents/ the Mac build makes from this manifest:
-    files, and each parent directory with a trailing /, sorted."""
-    files = MAC_ONLY_FILES | {f"Resources/{entry}" for entry in manifest}
-    dirs = set()
-    for path in files:
-        parts = path.split("/")[:-1]
-        dirs |= {"/".join(parts[:i]) + "/" for i in range(1, len(parts) + 1)}
-    return sorted(files | dirs)
 
 
 def _local_imports(path):

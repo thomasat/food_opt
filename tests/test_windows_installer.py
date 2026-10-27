@@ -420,15 +420,15 @@ def test_release_record_keys_follow_the_image_record():
             "size_gate", "signed"]
     for key in tail + ["dotnet_sdk", "shell_files"]:
         assert key in keys, key
-    # Phase 6: the SBOM and the per-file list beside the installer, each
-    # with its hash, in the release record before 'signed=no'.
+    # The per-file list beside the installer, with its hash, is the last
+    # key before 'signed=no'; no SBOM keys.
     block = text[text.index("Write-Lf $InstallerRecord"):]
     block = block[:block.index("))")]
-    sbom_keys = ["files_list_sha256", "sbom_sha256", "sbom_components", "sbom_gpl_licensed",
-                 "sbom_gpl_mentions"]
-    for key in sbom_keys:
-        assert key in keys, key
-        assert block.index("installer_sha256=") < block.index(key + "=") < block.index("'signed=no'"), key
+    after = block[block.index("installer_sha256=") + 1:]
+    found = re.findall(r'"([a-z0-9_]+)=|\'([a-z0-9_]+)=', after)
+    assert [a or b for a, b in found] == ["disk_free_gb", "size_gate", "files_list_sha256", "signed"]
+    for path in [BUILD, REPO / "desktop" / "README.md", WINDOWS / "README.md"]:
+        assert "sbom" not in path.read_text(encoding="utf-8").lower(), path
 
 
 def test_a_rebuild_over_an_image_with_the_shell_is_allowed():
@@ -758,20 +758,15 @@ def test_a_failed_build_leaves_no_installer_or_record():
     text = BUILD.read_text(encoding="ascii")
     catch = text[text.rindex("} catch {"):]
     catch = catch[:catch.index("\n}\n")]
-    for name in ("$Record", "$Installer", "$InstallerRecord", "$FilesOut", "$SbomOut"):
+    for name in ("$Record", "$Installer", "$InstallerRecord", "$FilesOut"):
         assert name in catch, name
 
 
-def test_build_writes_the_sbom_and_file_list():
-    """Phase 6: <dist> gets <name>.files.txt (a byte copy of the per-file
-    list) and <name>.cdx.json (sbom.py build, under the image's Python with
-    -I so the script folder stays off sys.path)."""
+def test_build_writes_the_file_list():
+    """<dist> gets <name>.files.txt, a byte copy of the per-file list."""
     text = BUILD.read_text(encoding="ascii")
-    for needle in ("sbom.py", "'build'", "'--unsigned'", "'--inno'", ".files.txt'", ".cdx.json'"):
-        assert needle in text, needle
-    line = next(l for l in text.splitlines() if "Invoke-Native 'sbom'" in l)
-    assert line.index("'-I'") < line.index("sbom.py"), line
-    assert text.index("$step = 'size gate'") < text.index("$step = 'sbom'") < text.index("$step = 'release record'")
+    assert ".files.txt'" in text
+    assert text.index("$step = 'size gate'") < text.index("$step = 'file list'") < text.index("$step = 'release record'")
 
 
 def test_every_inno_exit_code_is_documented():
@@ -784,3 +779,40 @@ def test_every_inno_exit_code_is_documented():
     unins = text[text.index("Uninstall exit codes"):]
     for row in ("| `0` |", "| `1` |"):
         assert row in unins, row
+
+
+def test_listings_write_is_a_no_op_on_a_clean_tree(tmp_path):
+    """Both `--write` forms leave the committed goldens byte-identical, and
+    a stale golden makes the check form exit 1."""
+    import shutil
+    import subprocess
+    import sys
+    copy = tmp_path / "repo"
+    for rel in ("desktop/shared/bundle_manifest.txt", "desktop/mac_bundle_files.txt",
+                "desktop/windows/image_files.txt"):
+        (copy / rel).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(REPO / rel, copy / rel)
+    shared = REPO / "desktop" / "shared"
+    for pattern in ("launcher/**/*.py", "pages/status.html", "pages/status.css",
+                    "pages/status.js", "messages.json"):
+        for path in shared.glob(pattern):
+            if path.is_file() and "__pycache__" not in path.parts:
+                target = copy / "desktop" / "shared" / path.relative_to(shared)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(path, target)
+    tools = [[sys.executable, str(WINDOWS / "build_env.py"), "listing"],
+             [sys.executable, str(REPO / "desktop" / "bundle_listing.py")]]
+    goldens = [copy / "desktop/windows/image_files.txt", copy / "desktop/mac_bundle_files.txt"]
+    for tool, golden in zip(tools, goldens):
+        before = golden.read_bytes()
+        assert before == (REPO / golden.relative_to(copy)).read_bytes()
+        run = lambda *extra: subprocess.run([*tool, *extra, "--repo", str(copy)],
+                                            capture_output=True, text=True)
+        assert run().returncode == 0
+        assert run("--write").returncode == 0
+        assert golden.read_bytes() == before
+        golden.write_bytes(before + b"stale/entry.txt\n")
+        stale = run()
+        assert stale.returncode == 1 and "stale/entry.txt" in stale.stdout
+        assert run("--write").returncode == 0
+        assert golden.read_bytes() == before

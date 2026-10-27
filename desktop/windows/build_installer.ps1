@@ -2,9 +2,8 @@
 # holding python.org Python with the Windows lock installed, Microsoft's C++
 # runtime, the app, the shared launcher, Start Here and the shell
 # (FoodOptimizer.exe), then <dist>\FoodOptimizer-<ver>-Windows.exe from
-# setup.iss (Inno Setup 6.3+), size-gated by size_gate.json, with the SBOM
-# (<name>.cdx.json, from sbom.py) and the per-file hash list (<name>.files.txt)
-# beside it. Build time only
+# setup.iss (Inno Setup 6.3+), size-gated by size_gate.json, with the per-file hash list
+# (<name>.files.txt) beside it. Build time only
 # (the VM now, CI later); nothing in the image calls PowerShell, uv or the
 # network at run time. The version is desktop/VERSION; there is no other.
 #
@@ -247,7 +246,6 @@ if ($TestBuild) { $InstallerName += '-test' }
 $Installer = Join-Path $Dist ($InstallerName + '.exe')
 $InstallerRecord = Join-Path $Dist ($InstallerName + '.build.txt')
 $FilesOut = Join-Path $Dist ($InstallerName + '.files.txt')
-$SbomOut = Join-Path $Dist ($InstallerName + '.cdx.json')
 $Pins = Get-Content -LiteralPath (Join-Path $WindowsDir 'pins.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $started = Get-Date
 
@@ -339,7 +337,7 @@ try {
     #    the old image (a package an older lock had, a removed app module),
     #    nor an older installer of this name.
     $step = 'clean'
-    foreach ($side in @($Record, $FilesList, $UnsignedList, $Installer, $InstallerRecord, $FilesOut, $SbomOut)) {
+    foreach ($side in @($Record, $FilesList, $UnsignedList, $Installer, $InstallerRecord, $FilesOut)) {
         if (Test-Path -LiteralPath $side) { Remove-Item -LiteralPath $side -Force }
     }
     try {
@@ -580,19 +578,9 @@ try {
         }
     }
 
-    # 13b. The release assets beside the installer: the per-file hash list
-    #      (a byte copy) and the SBOM, read from the image's own metadata by
-    #      sbom.py under the image's Python (-I: its folder is off sys.path).
-    #      NuGet's nuspecs come from the package cache and the SDK's packs.
-    $step = 'sbom'
+    # 13b. The per-file hash list beside the installer (a byte copy).
+    $step = 'file list'
     Copy-Item -LiteralPath $FilesList -Destination $FilesOut -Force
-    $NugetRoot = Join-Path $env:USERPROFILE '.nuget\packages'
-    if ($env:NUGET_PACKAGES) { $NugetRoot = $env:NUGET_PACKAGES }
-    $sbomLines = Invoke-Native 'sbom' $Py @('-I', '-X', 'utf8', '-B', (Join-Path $WindowsDir 'sbom.py'), 'build', $Image, $lock, $SbomOut, '--version', $ver, '--commit', $commit, '--unsigned', $UnsignedList, '--signed', 'no', '--inno', $innoVersion, '--nuget-root', $NugetRoot, '--nuget-root', (Join-Path $env:ProgramFiles 'dotnet\packs'))
-    foreach ($line in @($sbomLines)) { Say $line }
-    $sbomValues = Read-Values $sbomLines
-    $sbomSha = Get-Sha256 $SbomOut
-    if ($sbomValues['sbom_sha256'] -ne $sbomSha) { throw ('sbom.py reported ' + $sbomValues['sbom_sha256'] + ', the file is ' + $sbomSha) }
     $filesListSha = Get-Sha256 $FilesOut
 
     # 14. The release record: the image record without 'signed', then the
@@ -607,16 +595,12 @@ try {
         "disk_free_gb=$diskFreeGb",
         "size_gate=$sizeGate",
         "files_list_sha256=$filesListSha",
-        "sbom_sha256=$sbomSha",
-        ('sbom_components=' + $sbomValues['sbom_components']),
-        ('sbom_gpl_licensed=' + $sbomValues['sbom_gpl_licensed']),
-        ('sbom_gpl_mentions=' + $sbomValues['sbom_gpl_mentions']),
         'signed=no'
     ))
 } catch {
     # A failed build leaves no record and no installer (one named like a
     # release, with no record beside it, could be mistaken for one).
-    foreach ($partial in @($Record, $Installer, $InstallerRecord, $FilesOut, $SbomOut)) {
+    foreach ($partial in @($Record, $Installer, $InstallerRecord, $FilesOut)) {
         if (Test-Path -LiteralPath $partial) { Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue }
     }
     if ($script:ExactFailure -ne '') {

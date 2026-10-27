@@ -105,7 +105,7 @@ def test_windows_release_half():
                    "run_ui_tests.ps1", "W1", "L1", "test_our_processes_connect_only_to_loopback"):
         assert needle in half, needle
     hand_back = half[half.index("Hand back to the Mac"):]
-    for name in (".build.txt", ".files.txt", ".cdx.json"):
+    for name in (".build.txt", ".files.txt"):
         assert name in hand_back, name
     assert "report.json" not in hand_back
 
@@ -122,5 +122,5 @@ def test_windows_readme_pending_markers():
 
 def test_windows_readme_names_the_release_assets():
     out = WIN_README.read_text(encoding="utf-8")
-    for needle in (".files.txt", ".cdx.json", "files_list_sha256", "sbom_sha256"):
+    for needle in (".files.txt", "files_list_sha256"):
         assert needle in out, needle

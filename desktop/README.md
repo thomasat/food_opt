@@ -44,8 +44,9 @@ To ship a new module or data file:
 2. add `Resources/<path>` (and any new folder) to `desktop/mac_bundle_files.txt`;
 3. run `./desktop/test_e2e.sh`.
 
-The golden list is edited by hand on purpose: a file reaching the bundle
-is a decision, not a side effect.
+The golden list is a decision, not a side effect: edit it by hand, or run
+`python desktop/bundle_listing.py --write` and review the diff before
+committing (without `--write` it prints the diff and exits 1 when stale).
 
 ## Test
 
@@ -143,10 +144,8 @@ version X.Y.Z:
 7. ⚠ Copy and check. `scp` from the VM into the release worktree's
    `desktop/dist/`, beside the dmg and its record:
    `FoodOptimizer-X.Y.Z-Windows.exe`, `FoodOptimizer-X.Y.Z-Windows.build.txt`,
-   `FoodOptimizer-X.Y.Z-Windows.files.txt` and
-   `FoodOptimizer-X.Y.Z-Windows.cdx.json`. Each file's hash must be its
-   record's (`dmg_sha256`, `installer_sha256`, `files_list_sha256`,
-   `sbom_sha256`), and both records must say `tree_clean=yes`,
+   `FoodOptimizer-X.Y.Z-Windows.files.txt`. Each file's hash must be its
+   record's (`dmg_sha256`, `installer_sha256`, `files_list_sha256`), and both records must say `tree_clean=yes`,
    `signed=yes` and the tag's commit (the Mac's also `notarized=yes`):
 
    ```bash
@@ -156,14 +155,13 @@ version X.Y.Z:
    ```
 
 8. ⚠ Draft. The release page is `desktop/release_notes/X.Y.Z.md` as
-   committed; the SBOM and the per-file list are attached, not advertised:
+   committed; the per-file list is attached, not advertised:
 
    ```bash
    gh release create vX.Y.Z --draft --verify-tag --title "Food Optimizer X.Y.Z" \
      --notes-file desktop/release_notes/X.Y.Z.md \
      desktop/dist/FoodOptimizer-X.Y.Z.dmg \
      desktop/dist/FoodOptimizer-X.Y.Z-Windows.exe \
-     desktop/dist/FoodOptimizer-X.Y.Z-Windows.cdx.json \
      desktop/dist/FoodOptimizer-X.Y.Z-Windows.files.txt
    gh release view vX.Y.Z --json assets
    ```
