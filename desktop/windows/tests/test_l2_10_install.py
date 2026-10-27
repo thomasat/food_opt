@@ -37,9 +37,24 @@ def test_shortcuts_point_at_the_app(per_user):
             == str(per_user.root / "Start Here.txt").lower())
 
 
-def test_projects_folder_is_made_and_pinned(per_user):
-    assert per_user.home.projects.is_dir()
-    assert l2.in_quick_access(per_user.home.projects), l2.quick_access()
+def test_projects_folder_is_made_and_pinned_on_first_launch(per_user):
+    """The installer makes the projects folder; the app, not the installer,
+    pins it to Quick access at its first launch (D2) and records that."""
+    home = per_user.home
+    assert home.projects.is_dir()
+    assert not l2.in_quick_access(home.projects), l2.quick_access()
+    job = l2.start_shell(per_user.root, home)
+    try:
+        m = l2.wait_log(home.state / "shell.log", r"quickaccess\.(pinned|listed|failed)( .*)?", l2.FIRST_OPEN_LIMIT_S)
+        assert m and m.group(1) == "pinned", l2._text(home.state / "shell.log")[-3000:]
+        assert l2.in_quick_access(home.projects), l2.quick_access()
+        assert l2.wait_for(lambda: '"quickAccessPinned": true' in l2.settings_text(home), 10), l2.settings_text(home)
+    finally:
+        for hwnd in l2.top_windows(job.pid):
+            l2.close_window(hwnd)
+        if not l2.wait_for(lambda: not job.alive(), 10):
+            l2.kill_under(per_user.root)
+        l2.wait_for(lambda: not l2.processes_under(per_user.root), 10)
 
 
 def test_prewarm_ran_at_install(per_user):

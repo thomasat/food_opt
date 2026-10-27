@@ -19,6 +19,7 @@ public sealed class ShellSettingsTests : IDisposable
             Zoom = 1.3,
             LastOpenedVersion = "0.9.0",
             Window = new SavedWindow(@"\\.\DISPLAY1", 320, 90, 1280, 860, true),
+            QuickAccessPinned = true,
         };
         Assert.True(s.Save(Path));
         var back = ShellSettings.Load(Path);
@@ -26,6 +27,7 @@ public sealed class ShellSettingsTests : IDisposable
         Assert.Equal(1.3, back.Zoom);
         Assert.Equal("0.9.0", back.LastOpenedVersion);
         Assert.Equal(s.Window, back.Window);
+        Assert.True(back.QuickAccessPinned);
         using var doc = JsonDocument.Parse(File.ReadAllBytes(Path));
         Assert.Equal(1, doc.RootElement.GetProperty("version").GetInt32());
         Assert.Equal(@"\\.\DISPLAY1", doc.RootElement.GetProperty("window").GetProperty("monitor").GetString());
@@ -38,6 +40,31 @@ public sealed class ShellSettingsTests : IDisposable
         Assert.Equal(1.0, s.Zoom);
         Assert.Null(s.LastOpenedVersion);
         Assert.Null(s.Window);
+        Assert.False(s.QuickAccessPinned);
+    }
+
+    /// <summary>The uninstaller searches settings.json for this exact text
+    /// (setup.iss): it unpins only what the app pinned.</summary>
+    [Fact]
+    public void The_pin_flag_is_written_as_the_uninstaller_reads_it()
+    {
+        Assert.True(new ShellSettings { QuickAccessPinned = true }.Save(Path));
+        Assert.Contains("\"quickAccessPinned\": true", File.ReadAllText(Path));
+        Assert.True(new ShellSettings().Save(Path));
+        var text = File.ReadAllText(Path);
+        Assert.Contains("\"quickAccessPinned\": false", text);
+        Assert.DoesNotContain("\"quickAccessPinned\": true", text);
+    }
+
+    [Theory]
+    [InlineData("""{"quickAccessPinned":"yes","zoom":1.2}""", false)]
+    [InlineData("""{"quickAccessPinned":1}""", false)]
+    [InlineData("""{"quickAccessPinned":true}""", true)]
+    [InlineData("""{"quickAccessPinned":false}""", false)]
+    public void The_pin_flag_is_read_only_as_a_boolean(string text, bool expected)
+    {
+        File.WriteAllText(Path, text);
+        Assert.Equal(expected, ShellSettings.Load(Path).QuickAccessPinned);
     }
 
     [Fact]

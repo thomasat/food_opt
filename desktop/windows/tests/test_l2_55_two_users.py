@@ -173,3 +173,36 @@ def test_my_app_sees_the_global_name_another_user_made(installer, other_user, l2
     finally:
         l2.end_job(other)
     l2.wait_for(lambda: not l2.processes_under(PROGRAM_FILES), 30)
+
+
+def test_an_it_install_leaves_another_users_running_copy(installer, other_user, cleanup):
+    """D1: FoL2Other has a per-user copy, open in its own session, when IT
+    installs for all users. The IT install neither waits for it (its name
+    is Local to that session) nor changes it: its files stay byte for byte
+    and the app keeps running."""
+    home = L2Home("o4").make()
+    l2.grant(home.base, l2.OTHER_USER)
+    log = home.base / "setup.log"
+    rc = l2.run_as_other([str(installer), *l2.SILENT, f"/LOG={log}", f"/DIR={home.root}"], env=home.env)
+    assert rc == 0, l2._text(log)[-3000:]
+    assert (home.root / "FoodOptimizer.exe").is_file()
+    before = l2.manifest(home.root, skip=())
+    job = l2.run_as_other([str(home.root / "FoodOptimizer.exe")], env=home.env, wait=False)
+    try:
+        m = l2.wait_log(home.state / "shell.log", HELD, 120)
+        assert m and m.group(1) == "held", _log(home)[-3000:]
+        assert f"mutex.held Local\\FoodOptimizer.Running.PerUser.{GUID}" in _log(home), _log(home)[-3000:]
+        result = l2.install(installer, "system", all_users=True, close_apps=False)
+        assert result.rc == 0, result.log[-3000:]
+        assert job.alive()
+        assert l2.manifest(home.root, skip=()) == before, result.log[-3000:]
+        assert "per-user copy" not in result.log
+    finally:
+        l2.end_job(job)
+        l2.wait_for(lambda: not l2.processes_under(home.root), 30)
+        # Its own uninstaller, as it (the IT copy is still there, so its
+        # state folder stays; the account goes at the end of the module).
+        if (home.root / "unins000.exe").is_file():
+            l2.run_as_other([str(home.root / "unins000.exe"), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"],
+                            env=home.env)
+            l2.wait_for(lambda: not (home.root / "FoodOptimizer.exe").exists(), 120)

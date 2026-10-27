@@ -580,6 +580,31 @@ def in_quick_access(path) -> bool:
     return any(os.path.normcase(p) == want for p in quick_access())
 
 
+def pin(path) -> None:
+    """Pins a folder to Quick access, as a user would by hand."""
+    p = str(path).replace("'", "''")
+    _powershell(f"$f = (New-Object -ComObject Shell.Application).Namespace('{p}'); "
+                "if ($f) { $f.Self.InvokeVerb('pintohome') }")
+
+
+def unpin_under(folder) -> list:
+    """Unpins every Quick access entry at or under folder, gone or not: the
+    app pins each test's projects folder at its first launch (D2), and
+    Level 2's folders are its own. Returns the paths it unpinned."""
+    p = str(folder).rstrip("\\").replace("'", "''")
+    return _powershell_json(
+        "$qa = (New-Object -ComObject Shell.Application).Namespace("
+        "'shell:::{679f85cb-0220-4080-b29b-5540cc05aab6}'); $done = @(); "
+        "foreach ($i in @($qa.Items())) { $q = [string]$i.Path; "
+        f"if ($q -eq '{p}' -or $q.StartsWith('{p}\\', [StringComparison]::OrdinalIgnoreCase)) "
+        "{ $i.InvokeVerb('unpinfromhome'); $done += $q } }; ConvertTo-Json @($done)") or []
+
+
+def settings_text(home) -> str:
+    """The shell's settings.json in home's state folder ('' if none)."""
+    return _text(pathlib.Path(home.state) / "settings.json")
+
+
 def manifest(dir, skip=("unins000.exe", "unins000.dat")) -> str:
     text, _files, _size = _load_build_env().file_manifest(dir)
     return "".join(line + "\n" for line in text.splitlines() if line[66:] not in skip)

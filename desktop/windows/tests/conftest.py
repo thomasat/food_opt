@@ -293,6 +293,20 @@ def _end_l2_jobs():
 
 
 @pytest.fixture(scope="session", autouse=True)
+def _unpin_l2_folders():
+    """Level 2 only: the app pins each test's projects folder to Quick
+    access at its first launch (D2). Pins an earlier run left under
+    C:\\FOL2 go first (the folder names repeat from run to run), and
+    this run's go at the end."""
+    if not os.environ.get("FOODOPT_L2_INSTALLER"):
+        yield
+        return
+    _l2().unpin_under(L2_BASE)
+    yield
+    _l2().unpin_under(L2_BASE)
+
+
+@pytest.fixture(scope="session", autouse=True)
 def _report_installer_sha256():
     """Level 2 only (FOODOPT_L2_INSTALLER set; the L1 test_winenv_* runs never
     set it): once per run, whatever subset of tests runs, the report names

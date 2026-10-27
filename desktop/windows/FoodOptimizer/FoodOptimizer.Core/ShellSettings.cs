@@ -3,8 +3,8 @@ using System.Text.Json;
 
 namespace FoodOptimizer.Core;
 
-/// <summary>settings.json in the state folder: zoom, window placement and
-/// the version last opened. A bad field falls back to its default and the
+/// <summary>settings.json in the state folder: zoom, window placement, the
+/// version last opened and whether the app pinned the projects folder. A bad field falls back to its default and the
 /// rest is kept, so a hand-edited or truncated file never stops the app.</summary>
 public sealed class ShellSettings
 {
@@ -12,6 +12,9 @@ public sealed class ShellSettings
     public double Zoom { get; set; } = Core.Zoom.Default;
     public string? LastOpenedVersion { get; set; }
     public SavedWindow? Window { get; set; }
+    /// <summary>The app pinned the projects folder to Quick access (D2). The
+    /// uninstaller searches the file for "quickAccessPinned": true.</summary>
+    public bool QuickAccessPinned { get; set; }
 
     public static ShellSettings Load(string path)
     {
@@ -31,6 +34,8 @@ public sealed class ShellSettings
                 s.LastOpenedVersion = lv.GetString();
             if (root.TryGetProperty("window", out var w) && w.ValueKind == JsonValueKind.Object)
                 s.Window = ReadWindow(w);
+            if (root.TryGetProperty("quickAccessPinned", out var q) && q.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                s.QuickAccessPinned = q.GetBoolean();
         }
         catch (Exception)
         {
@@ -76,6 +81,7 @@ public sealed class ShellSettings
                 j.WriteBoolean("maximized", w.Maximized);
                 j.WriteEndObject();
             }
+            j.WriteBoolean("quickAccessPinned", QuickAccessPinned);
             j.WriteEndObject();
         }
         buffer.WriteByte((byte)'\n');

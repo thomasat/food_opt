@@ -299,17 +299,18 @@ def test_running_checks_are_per_scope():
                      % (re.escape(every), re.escape(per)), name), name
     closed = _function("AppClosed")
     assert "while CheckForMutexes(RunningName) do" in closed
-    assert ("if SuppressibleMsgBox(FmtMessage(Msg, ['Food Optimizer']), mbError, MB_OKCANCEL, IDCANCEL)"
-            " <> IDOK then begin") in closed
+    assert ("if Quiet or (SuppressibleMsgBox(FmtMessage(Msg, ['Food Optimizer']), mbError, MB_OKCANCEL, IDCANCEL)"
+            " <> IDOK) then begin") in closed
     assert closed.index("Log('refused: app_running')") < closed.index("Result := False;")
     # Setup checks where AppMutex was checked (Inno runs InitializeSetup
     # just before it); the uninstaller after the user confirms, at the step
     # Inno gives its own check (usAppMutexCheck), where Abort ends it.
-    assert re.search(r"Result := AppClosed\(SetupMessage\(msgSetupAppRunningError\)\);",
+    assert re.search(r"Result := AppClosed\(SetupMessage\(msgSetupAppRunningError\), False\);",
                      _function("InitializeSetup"))
     unins = _function("CurUninstallStepChanged")
     assert re.search(r"if \(CurUninstallStep = usAppMutexCheck\) and\s+"
-                     r"not AppClosed\(SetupMessage\(msgUninstallAppRunningError\)\) then\s+Abort;", unins), unins
+                     r"not AppClosed\(SetupMessage\(msgUninstallAppRunningError\), UninstallSilent\) then\s+Abort;",
+                     unins), unins
     assert "InitializeUninstall" not in _code_section()
     # The marker: written only by the all-users installer, deleted by its uninstaller.
     code = _code_section()
@@ -603,22 +604,6 @@ def _function(name):
     return code[start:start + end]
 
 
-def test_an_it_install_finds_entra_id_users_too():
-    """Entra ID-joined PCs (Intune's own) give users S-1-12-1-* SIDs; a
-    local or domain account is S-1-5-21-*. Both get their copy replaced."""
-    body = _function("ReplacePerUserCopies")
-    assert "'S-1-5-21-'" in body and "'S-1-12-1-'" in body
-
-
-def test_per_user_copies_go_only_after_the_it_install_succeeded():
-    """A cancelled or failed IT install must not have deleted the user's
-    copy already: the replacement runs at ssPostInstall, not ssInstall."""
-    body = _function("CurStepChanged")
-    post = body.index("ssPostInstall")
-    assert "ssInstall)" not in body.replace("ssPostInstall", "")
-    assert body.index("ReplacePerUserCopies") > post
-
-
 def test_an_upgrade_cannot_be_cancelled_once_files_are_deleted():
     """[InstallDelete] runs before the copy and rollback cannot restore it:
     on the Installing page of an upgrade, Cancel is refused."""
@@ -654,170 +639,95 @@ def test_the_state_folder_is_never_the_projects_folder():
     assert "RemoveBackslashUnlessRoot(ExpandFileName(Outer))" in same
 
 
-def test_per_user_copies_are_found_by_their_install_location():
-    """A per-user copy installed with /DIR is found through its uninstall
-    entry, and deleted only while it still holds Food Optimizer (Review
-    Focus 3); the entry is read before it is deleted."""
-    body = _function("ReplacePerUserCopies")
-    read = re.search(r"RegQueryStringValue\(HKU, Sid \+ '\\' \+ UninstallKey, 'InstallLocation', (\w+)\)", body)
-    assert read, body
-    assert read.start() < body.index("RegDeleteKeyIncludingSubkeys")
-    copy = _function("IsOurCopy")
-    assert re.search(r"FileExists\(.*?'FoodOptimizer\.exe'\) and\s+FileExists\(.*?'unins000\.dat'\)", copy)
-    assert "IsOurCopy(Location)" in body
-    assert "Log('replaced per-user copy: deleted ' + " in _code_section()
+# ---------- D1, D2: the IT install leaves users' copies alone ----------
+
+CORE = WINDOWS / "FoodOptimizer" / "FoodOptimizer.Core"
 
 
-def test_an_it_install_never_deletes_projects_or_itself():
-    """A per-user copy's folder may hold that user's projects (/DIR at the
-    projects folder), and its InstallLocation is the user's to edit: the
-    copy is kept, not deleted, when it holds the projects folder or is (or
-    holds, or lies in) this install's folder. Both guards come before the
-    delete, for the /DIR copy and the default folder alike."""
-    keep = _function("ReplaceCopy")
-    assert keep.startswith("function ReplaceCopy(const RawDir, Projects: String; const OwnFolder: Boolean): Boolean;")
-    projects = keep.index("if SameOrInside(Projects, Dir) then")
-    assert "Log('replaced per-user copy: kept ' + Dir + ' (it holds the projects folder)')" in keep
-    this = keep.index("SameOrInside(Dir, App) or SameOrInside(App, Dir)")
-    assert "Log('replaced per-user copy: kept ' + Dir + ' (it is this install)')" in keep
-    assert "App := ExpandConstant('{app}');" in keep
-    assert max(projects, this) < keep.index("DeleteCopy(Dir)")
-    assert max(projects, this) < keep.index("DeleteCopyEntries(Dir)")
-    body = _function("ReplacePerUserCopies")
-    assert "DeleteCopy(" not in body and "DelTree(" not in body
-    assert "ReplaceCopy(Dir, Projects, True)" in body
-    assert "Projects := UserProjectsDir(Sid, Profile);" in body
-    # A kept copy keeps its Apps entry, so the user's own uninstaller can remove it.
-    assert "Kept := ReplaceCopy(Location, Projects, " in body
-    assert "if Loaded and not Kept and RegKeyExists(HKU, Sid + '\\' + UninstallKey)" in body
-    user = _function("UserProjectsDir")
-    assert "RegQueryStringValue(HKU, Sid + '\\Environment', 'FOODOPT_PROJECTS_DIR', Result)" in user
-    assert "'%USERPROFILE%', Profile" in user and "Profile + '\\FoodOptimizer'" in user
+def _routine_at(code, pos):
+    """The procedure or function of [Code] that holds position pos."""
+    starts = list(re.finditer(r"^(?:procedure|function) (\w+)", code[:pos], re.M))
+    return _function(starts[-1].group(1))
 
 
-def test_a_dir_copy_loses_only_its_own_entries():
-    """Final review: a per-user /DIR copy may share its folder with the
-    user's own files (C:\\Tools, Documents). The IT install deletes only the
-    copy's own entries (every top-level entry of the image, listed from
-    ImageDir when the installer is compiled, so the list can't drift from
-    [Files]; the root *.dll an upgrade clears too; the uninstaller's
-    unins000.*), then the folder only if nothing else is left. The default
-    per-user folder, ours by name, still goes whole."""
-    code = _code_section()
-    # Inno reads a [Code] line starting with "[" as a section tag, comments too.
-    assert not re.search(r"^\s*\[", code[len("[Code]"):], re.M)
-    # The list: the image's own top-level entries, the folder [Files] copies.
-    assert section_entries("Files")[0]["Source"] == "{#ImageDir}\\*"
-    entries = _function("ImageEntries")
-    assert entries.startswith("function ImageEntries: TArrayOfString;")
-    assert re.search(r'^#for \{(\w+) = (\w+) = FindFirst\(AddBackslash\(ImageDir\) \+ "\*", faAnyFile\); \2; '
-                     r'\2 = FindNext\(\1\)\} AddImageEntry$', entries, re.M), entries
-    sub = code[code.index("#sub AddImageEntry"):code.index("#endsub")]
-    assert 'FindGetFileName(' in sub and '!= "."' in sub and '!= ".."' in sub
-    assert re.search(r"^  AddName\(Result, '\{#StringChange\(\w+, \"'\", \"''\"\)\}'\);$", sub, re.M), sub
-    assert "FindClose(" in entries
-    # The delete: each entry, then the folder if empty. Beside the image's
-    # entries: the uninstaller's files, and the very file patterns an
-    # upgrade's [InstallDelete] clears (an older copy's root DLLs); its
-    # folders are image entries already.
-    body = _function("DeleteCopyEntries")
-    assert body.startswith("procedure DeleteCopyEntries(const Dir: String);")
-    assert "Names := ImageEntries;" in body
-    added = re.findall(r"AddName\(Names, '([^']*)'\);", body)
-    upgrade = [e["Name"].removeprefix("{app}\\") for e in section_entries("InstallDelete") if e["Type"] == "files"]
-    assert upgrade == ["*.dll"]
-    assert added == upgrade + ["unins000.*"]
-    assert "DelTree(AddBackslash(Dir) + Names[I], False, True, True)" in body
-    assert "DelTree(Dir," not in body and "DelTree(Dir)" not in body
-    rmdir = body.index("if RemoveDir(Dir) then")
-    assert rmdir > body.index("DelTree(AddBackslash(Dir) + Names[I]")
-    assert "Log('replaced per-user copy: deleted ' + Dir)" in body[rmdir:]
-    assert "Log('replaced per-user copy: kept ' + Dir + ' (it holds other files)')" in body[rmdir:]
-    # Which copy goes which way.
-    keep = _function("ReplaceCopy")
-    assert re.search(r"if OwnFolder then\s+DeleteCopy\(Dir\)\s+else\s+DeleteCopyEntries\(Dir\);", keep), keep
-    body = _function("ReplacePerUserCopies")
-    assert "Kept := ReplaceCopy(Location, Projects, SameAsDefault)" in body
-    assert "Dir := Profile + '\\AppData\\Local\\Programs\\Food Optimizer';" in body
-    assert "if ReplaceCopy(Dir, Projects, True) then" in body
-
-
-def test_an_it_install_never_deletes_through_a_link():
-    """Follow-up review: a user can point their InstallLocation (or a folder
-    on its path) at a junction to another folder, the all-users install's
-    own included, which a text compare can't see. Before any per-user
-    delete, the folder and each folder above it are checked for a reparse
-    point; a copy reached through one is kept, with its Apps entry."""
-    link = _function("OnALinkPath")
-    assert link.startswith("function OnALinkPath(const Dir: String): Boolean;")
-    assert "ExpandFileName(Dir)" in link
-    assert "FindFirst(P, FindRec)" in link
-    assert "FindRec.Attributes and FILE_ATTRIBUTE_REPARSE_POINT <> 0" in link
-    assert "ExtractFileDir(P)" in link and "(Parent = P)" in link
-    keep = _function("ReplaceCopy")
-    guard = keep.index("if OnALinkPath(Dir) then")
-    assert "Log('replaced per-user copy: kept ' + Dir + ' (a folder on its path is a link)')" in keep
-    assert guard < keep.index("DeleteCopy(Dir)") and guard < keep.index("DeleteCopyEntries(Dir)")
-    # Kept (Result stays True) keeps the Apps entry; both copies go through ReplaceCopy.
-    assert keep.index("Result := True;") < guard < keep.index("Result := False;")
-    body = _function("ReplacePerUserCopies")
-    assert "DeleteCopy" not in body and "DelTree(" not in body
-
-
-def test_the_default_folder_goes_whole_whichever_way_it_is_found():
-    """Follow-up review: the default per-user folder's own uninstall entry
-    names it as InstallLocation; found that way it still goes whole (an
-    older version's leftovers too), like when found by its path."""
-    body = _function("ReplacePerUserCopies")
-    default = body.index("Dir := Profile + '\\AppData\\Local\\Programs\\Food Optimizer';")
-    same = body.index("SameAsDefault := SameOrInside(Location, Dir) and SameOrInside(Dir, Location);")
-    call = body.index("Kept := ReplaceCopy(Location, Projects, SameAsDefault)")
-    assert default < same < call
-    # Handled once: a default folder found through its entry isn't checked
-    # (and logged "kept") a second time by its path.
-    assert body.index("SameAsDefault := False;") < same
-    assert "if not SameAsDefault and FileExists(Dir + '\\FoodOptimizer.exe') then" in body
-
-
-def test_one_spelling_of_the_folder_is_checked_and_deleted():
-    """Last review: Win32 strips a trailing space or dot from a path's last
-    part (ExpandFileName does) but keeps it in a middle part, so "Link \\"
-    could pass the link check as "Link" while the deletes went through
-    "Link ". The folder is expanded once, before IsOurCopy, and ReplaceCopy
-    uses only that expanded string for the link walk, the text guards and
-    both deletes."""
-    body = _function("ReplacePerUserCopies")
-    # The trailing \\ goes first, so ExpandFileName also drops the last
-    # part's trailing space or dot; expanding again changes nothing.
-    expand = body.index("Location := RemoveBackslashUnlessRoot(ExpandFileName(RemoveBackslashUnlessRoot(Location)));")
-    assert expand < body.index("IsOurCopy(Location)")
-    keep = _function("ReplaceCopy")
-    first = keep.index("Dir := RemoveBackslashUnlessRoot(ExpandFileName(RemoveBackslashUnlessRoot(RawDir)));")
-    assert keep.count("RawDir") == 2, keep   # the parameter and that one line
-    assert "  Dir, App: String;" in keep
-    # A middle part keeps its trailing space, and FindFirst on it would look
-    # at another folder: such a path is kept before the link walk.
-    odd = keep.index("if OddNameOnPath(Dir) then")
-    assert first < odd < keep.index("OnALinkPath(Dir)") < keep.index("DeleteCopy(Dir)")
-    assert "Log('replaced per-user copy: kept ' + Dir + ' (a folder name on its path ends in a space or dot)')" in keep
-    name = _function("OddNameOnPath")
-    assert "ExtractFileName(P)" in name and "ExtractFileDir(P)" in name
-    assert "Name[Length(Name)] = ' '" in name and "Name[Length(Name)] = '.'" in name
-
-
-def test_start_menu_is_read_from_user_shell_folders():
-    """A redirected Start menu or desktop is read from the user's own User
-    Shell Folders; the usual paths are only the fallbacks."""
+def test_the_installer_never_acts_on_other_users():
+    """D1 (owner): the elevated installer never deletes in a per-user
+    location and never reads another user's profile or hive; a user's own
+    next launch runs their per-user copy's uninstaller instead. It no
+    longer pins Quick access either (the app does, D2). Every delete names
+    this install's folder, this user's state folder or Setup's temp folder,
+    directly or through a variable set from one of them."""
     text = ISS.read_text(encoding="ascii")
-    fallbacks = re.findall(r"UserShellFolder\(Sid, '(\w+)', Profile, ([^;]*)\);", text)
-    assert {name for name, _ in fallbacks} >= {"Programs", "Desktop"}, fallbacks
-    total = text.count("Start Menu\\Programs")
-    assert total >= 1
-    assert sum(fb.count("Start Menu\\Programs") for _, fb in fallbacks) == total
-    helper = _function("UserShellFolder")
-    assert helper.startswith("function UserShellFolder(const Sid, Name, Profile, Fallback: String): String;")
-    assert "User Shell Folders" in helper and "RegQueryStringValue(HKU, " in helper
-    assert "'%USERPROFILE%'" in helper and "'%APPDATA%'" in helper
+    for needle in ("HKU", "ProfileList", "ProfileImagePath", "ReplacePerUserCopies", "pintohome",
+                   "PinToQuickAccess", "User Shell Folders"):
+        assert needle not in text, needle
+    code = _code_section()
+    allowed = ("{app}", "StateDir", "ExpandConstant('{tmp}')")
+    calls = list(re.finditer(r"\b(DelTree|DeleteFile|RemoveDir)\(([^,)]*)", code))
+    assert calls
+    for call in calls:
+        arg = call.group(2).strip()
+        if re.fullmatch(r"\w+", arg):
+            routine = _routine_at(code, call.start())
+            sources = re.findall(r"\b%s := ([^;]*);" % arg, routine)
+            assert sources, (call.group(0), routine)
+        else:
+            sources = [arg]
+        for source in sources:
+            assert any(a in source for a in allowed), (call.group(0), source)
+
+
+def test_uninstall_keeps_state_when_an_it_copy_exists():
+    """D1: the all-users app runs a per-user copy's uninstaller while it
+    uses the same state folder (settings, WebView2): a per-user uninstall
+    keeps it while an all-users copy is installed."""
+    body = _function("CurUninstallStepChanged")
+    post = body[body.index("if CurUninstallStep = usPostUninstall then"):]
+    keep = re.search(r"if not IsAdminInstallMode and MachineCopyExists then\s+"
+                     r"Log\('state folder kept \(an all-users copy uses it\): ' \+ Dir\)\s+else ", post)
+    assert keep, post
+    assert keep.start() < post.index("DelTree(")
+    assert "Result := RegKeyExists(HKLM64, UninstallKey);" in _function("MachineCopyExists")
+
+
+def test_a_silent_uninstall_shows_no_box():
+    """D1: the app starts the per-user uninstaller with /VERYSILENT
+    /SUPPRESSMSGBOXES and nobody sees it. Inno shows no confirmation and
+    no "projects are kept" box when silent; our own running-app box is
+    skipped when the uninstall is silent, whatever the switches."""
+    closed = _function("AppClosed")
+    assert closed.startswith("function AppClosed(const Msg: String; const Quiet: Boolean): Boolean;")
+    assert re.search(r"if Quiet or \(SuppressibleMsgBox\(", closed), closed
+    unins = _function("CurUninstallStepChanged")
+    assert "not AppClosed(SetupMessage(msgUninstallAppRunningError), UninstallSilent) then" in unins
+    assert "Result := AppClosed(SetupMessage(msgSetupAppRunningError), False);" in _function("InitializeSetup")
+    for name in ("CurUninstallStepChanged", "UnpinFromQuickAccess", "QuickAccessItem", "AppPinnedProjects"):
+        assert "MsgBox" not in _function(name), name
+
+
+def test_unpin_only_what_the_app_pinned():
+    """D2: the app pins the projects folder at its first launch and records
+    it in settings.json; the per-user uninstaller unpins only then (a pin
+    the user made stays), and never while an all-users copy uses the
+    folder. The installer no longer pins, but still makes the folder."""
+    body = _function("CurUninstallStepChanged")
+    assert re.search(r"if \(CurUninstallStep = usUninstall\) and not IsAdminInstallMode then begin\s+"
+                     r"if MachineCopyExists then\s+"
+                     r"Log\('quickaccess: kept \(an all-users copy uses it\)'\)\s+"
+                     r"else if AppPinnedProjects then\s+"
+                     r"UnpinFromQuickAccess\(ProjectsDir\)\s+"
+                     r"else\s+Log\('quickaccess: not pinned by the app'\);\s+end;", body), body
+    settings_name = re.search(r'Settings = "([^"]+)"', (CORE / "StateFiles.cs").read_text(encoding="utf-8")).group(1)
+    pinned = _function("AppPinnedProjects")
+    assert f"LoadStringFromFile(AddBackslash(StateDir) + '{settings_name}', S)" in pinned, pinned
+    assert "Pos('\"quickAccessPinned\": true', S) > 0" in pinned, pinned
+    # The app writes exactly that text (indented JSON; ShellSettingsTests
+    # pins the bytes).
+    settings = (CORE / "ShellSettings.cs").read_text(encoding="utf-8")
+    assert 'j.WriteBoolean("quickAccessPinned", QuickAccessPinned);' in settings
+    assert "Indented = true" in settings
+    assert re.search(r"if not IsAdminInstallMode then begin\s+if not ForceDirectories\(ProjectsDir\) then",
+                     _function("CurStepChanged"))
 
 
 def test_a_failed_build_leaves_no_installer_or_record():

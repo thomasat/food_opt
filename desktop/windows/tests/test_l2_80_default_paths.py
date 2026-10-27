@@ -1,7 +1,8 @@
 """Level 2: a per-user install with no FOODOPT_* variables uses the user's
 own default folders (spec section 5): projects in %USERPROFILE%\\FoodOptimizer,
-pinned to Quick access; state in %LOCALAPPDATA%\\FoodOptimizer. A silent
-uninstall deletes the state, keeps the projects and unpins them.
+made by the installer and pinned to Quick access by the app at its first
+launch (D2); state in %LOCALAPPDATA%\\FoodOptimizer. A silent uninstall
+deletes the state, keeps the projects and unpins them.
 
 It runs in the signed-in user's own profile, so it needs both folders
 absent (move them aside first) and removes what it made."""
@@ -71,15 +72,19 @@ def test_a_default_install_uses_the_users_own_folders(installer):
         assert result.rc == 0, result.log[-3000:]
         assert l2.uninstall_entry("user")["InstallLocation"] == str(ROOT) + "\\"
         assert PROJECTS.is_dir()
-        assert l2.in_quick_access(PROJECTS)
+        assert not l2.in_quick_access(PROJECTS)
         home = RealHome()
         job = l2.start_shell(ROOT, home)
         try:
             assert l2.wait_log(STATE / "shell.log", NAVIGATE, l2.FIRST_OPEN_LIMIT_S), \
                 (STATE / "shell.log").read_text(encoding="utf-8", errors="replace")[-3000:] \
                 if (STATE / "shell.log").exists() else "no shell.log"
+            assert l2.wait_log(STATE / "shell.log", r"quickaccess\.pinned", 30), \
+                (STATE / "shell.log").read_text(encoding="utf-8", errors="replace")[-3000:]
+            assert l2.in_quick_access(PROJECTS)
         finally:
             _close(job, ROOT)
+        assert '"quickAccessPinned": true' in l2.settings_text(home)
         keep = PROJECTS / "Keep me.pkl"
         keep.write_bytes(b"\x80\x04keep")
         assert l2.uninstall(ROOT, "user") == 0

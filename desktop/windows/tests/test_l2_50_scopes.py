@@ -1,8 +1,10 @@
 """Level 2: install scopes (spec section 5): per-user by default, all-users
-for IT and Intune (SYSTEM), the two scopes never coexist, a running app
-holds an install or uninstall (Review Focus 1 and 4), and an install folder
-over the 80-character budget is refused (Review Focus 5). Every test starts
-from a clean machine and uninstalls what it installed."""
+for IT and Intune (SYSTEM). The IT install never changes a per-user copy;
+that user's next launch of the IT copy runs the copy's own uninstaller
+(D1). A running app holds an install or uninstall (Review Focus 1 and 4),
+and an install folder over the 80-character budget is refused (Review
+Focus 5). Every test starts from a clean machine and uninstalls what it
+installed."""
 import os
 import pathlib
 import subprocess
@@ -97,125 +99,126 @@ def test_per_user_install_refuses_when_it_installed_it(installer, l2_home, clean
     assert not l2_home.root.exists()
 
 
-def test_all_users_install_replaces_a_per_user_copy(installer, l2_home, cleanup):
-    assert l2.install(installer, "user", env=l2_home.env).rc == 0
+# ---------- D1: the IT install leaves per-user copies alone ----------
+
+PERCOPY = r"percopy\.(uninstall|none)( .*)?"
+
+
+def _shell_log(home) -> str:
+    return l2._text(home.state / "shell.log")[-3000:]
+
+
+def _default_per_user_copy(installer, home):
+    """A per-user copy in the default folder, its shortcuts, and a project
+    the IT install and the cleanup must keep."""
+    result = l2.install(installer, "user", env=home.env)
+    assert result.rc == 0, result.log[-3000:]
     assert (DEFAULT_USER_ROOT / "FoodOptimizer.exe").is_file()
-    l2_home.projects.mkdir(parents=True, exist_ok=True)
-    keep = l2_home.projects / "Keep me.pkl"
-    keep.write_bytes(b"\x80\x04keep")
-    dirs = l2.shortcut_dirs("user")
-    result = l2.install(installer, "system", all_users=True)
-    assert result.rc == 0, result.log[-3000:]
-    assert not DEFAULT_USER_ROOT.exists()
-    assert l2.uninstall_entry("user") is None
-    assert not (dirs["programs"] / "Food Optimizer.lnk").exists()
-    assert not (dirs["programs"] / "Food Optimizer - Start Here.lnk").exists()
-    assert not (dirs["desktop"] / "Food Optimizer.lnk").exists()
-    assert l2.uninstall_entry("machine") is not None
-    assert keep.read_bytes() == b"\x80\x04keep"
-
-
-def _custom_dir_copy(installer, home):
-    """A per-user copy installed with /DIR beside the user folder, and a
-    project the IT install must keep."""
-    folder = home.base / "Custom FO"
-    result = l2.install(installer, "user", dir=folder, env=home.env)
-    assert result.rc == 0, result.log[-3000:]
-    assert l2.uninstall_entry("user")["InstallLocation"] == str(folder) + "\\"
     home.projects.mkdir(parents=True, exist_ok=True)
     keep = home.projects / "Keep me.pkl"
     keep.write_bytes(b"\x80\x04keep")
-    return folder, keep
+    dirs = l2.shortcut_dirs("user")
+    links = [dirs["programs"] / "Food Optimizer.lnk", dirs["programs"] / "Food Optimizer - Start Here.lnk",
+             dirs["desktop"] / "Food Optimizer.lnk"]
+    for lnk in links:
+        assert lnk.is_file(), lnk
+    return keep, links
 
 
-def test_all_users_install_replaces_a_per_user_dir_copy(installer, l2_home, cleanup):
-    folder, keep = _custom_dir_copy(installer, l2_home)
+def test_all_users_install_leaves_a_per_user_copy_untouched(installer, l2_home, cleanup):
+    """D1 (owner): the elevated installer never deletes in a per-user
+    location. The user's copy, its Apps entry and its shortcuts are
+    exactly as they were."""
+    keep, links = _default_per_user_copy(installer, l2_home)
+    files = l2.manifest(DEFAULT_USER_ROOT, skip=())
+    entry = l2.uninstall_entry("user")
+    shortcuts = {lnk: lnk.read_bytes() for lnk in links}
     result = l2.install(installer, "system", all_users=True)
     assert result.rc == 0, result.log[-3000:]
-    assert not folder.exists(), result.log[-3000:]
-    assert f"replaced per-user copy: deleted {folder}" in result.log
-    assert l2.uninstall_entry("user") is None
+    assert l2.uninstall_entry("machine") is not None
+    assert l2.manifest(DEFAULT_USER_ROOT, skip=()) == files, result.log[-3000:]
+    assert l2.uninstall_entry("user") == entry
+    for lnk, data in shortcuts.items():
+        assert lnk.read_bytes() == data, lnk
     assert keep.read_bytes() == b"\x80\x04keep"
+    assert "per-user copy" not in result.log
 
 
-def test_an_it_install_leaves_a_folder_that_is_no_longer_a_copy(installer, l2_home, cleanup):
-    """Review Focus 3: the user's /DIR folder no longer holds Food Optimizer
-    (its files were moved out and the user's own put in): the IT install
-    leaves the folder and what is in it."""
-    folder, keep = _custom_dir_copy(installer, l2_home)
-    (folder / "FoodOptimizer.exe").unlink()
-    (folder / "unins000.dat").unlink()
-    mine = folder / "Mine.txt"
-    mine.write_bytes(b"mine")
+def test_that_users_next_launch_removes_it(installer, l2_home, cleanup):
+    """D1: when that user next opens the IT copy, it runs their per-user
+    copy's own uninstaller, silently and as them. The copy, its Apps entry
+    and its shortcuts go; their projects and the state folder the IT copy
+    shares (settings.json) stay; the IT copy opens as usual."""
+    keep, links = _default_per_user_copy(installer, l2_home)
     result = l2.install(installer, "system", all_users=True)
     assert result.rc == 0, result.log[-3000:]
-    assert mine.read_bytes() == b"mine", result.log[-3000:]
-    assert f"replaced per-user copy: deleted {folder}" not in result.log
-    assert keep.read_bytes() == b"\x80\x04keep"
+    job = l2.start_shell(PROGRAM_FILES, l2_home)
+    try:
+        m = l2.wait_log(l2_home.state / "shell.log", PERCOPY, 60)
+        assert m and m.group(1) == "uninstall", _shell_log(l2_home)
+        assert m.group(2).strip().rstrip("\\").lower() == str(DEFAULT_USER_ROOT).lower(), m.group(0)
+        assert l2.wait_for(lambda: not DEFAULT_USER_ROOT.exists() and l2.uninstall_entry("user") is None, 120), \
+            _shell_log(l2_home)
+        assert l2.wait_log(l2_home.state / "shell.log", r"percopy\.exit 0\b", 120), _shell_log(l2_home)
+        for lnk in links:
+            assert l2.wait_for(lambda: not lnk.exists(), 30), lnk
+        assert l2.wait_log(l2_home.state / "shell.log", NAVIGATE, l2.FIRST_OPEN_LIMIT_S), _shell_log(l2_home)
+        assert keep.read_bytes() == b"\x80\x04keep"
+        assert (l2_home.state / "settings.json").is_file(), _shell_log(l2_home)
+        assert (l2_home.state / "shell.log").is_file()
+        assert l2.uninstall_entry("machine") is not None
+        assert (PROGRAM_FILES / "FoodOptimizer.exe").is_file()
+    finally:
+        _close(job, PROGRAM_FILES)
 
 
-def test_an_it_install_keeps_the_users_own_files_in_a_dir_copy(installer, l2_home, cleanup):
-    """Final review: the user's /DIR folder holds a file of theirs beside
-    the copy. The IT install deletes the copy's own entries and keeps the
-    folder with that file. A junction inside the copy is removed, never
-    followed: the folder it points at keeps its file."""
-    folder, keep = _custom_dir_copy(installer, l2_home)
-    other = folder / "Other.txt"
-    other.write_bytes(b"other")
-    target = l2_home.base / "Linked"
-    target.mkdir()
-    (target / "Linked.txt").write_bytes(b"linked")
-    subprocess.run(["cmd", "/c", "mklink", "/J", str(folder / "app" / "Linked"), str(target)],
-                   check=True, capture_output=True)
-    result = l2.install(installer, "system", all_users=True)
-    assert result.rc == 0, result.log[-3000:]
-    assert other.read_bytes() == b"other", result.log[-3000:]
-    assert sorted(p.name for p in folder.iterdir()) == ["Other.txt"], result.log[-3000:]
-    assert f"replaced per-user copy: kept {folder} (it holds other files)" in result.log, result.log[-3000:]
-    assert (target / "Linked.txt").read_bytes() == b"linked"
-    assert l2.uninstall_entry("user") is None
-    assert keep.read_bytes() == b"\x80\x04keep"
+def _canary(home):
+    """A folder of the user's own that looks like a copy of ours (our
+    files' bytes) beside a file of theirs."""
+    canary = home.base / "Canary"
+    canary.mkdir()
+    (canary / "Mine.txt").write_bytes(b"mine")
+    for name in ("FoodOptimizer.exe", "unins000.exe", "unins000.dat"):
+        (canary / name).write_bytes((PROGRAM_FILES / name).read_bytes())
+    return canary
 
 
-@pytest.mark.parametrize("name", ["Link", "Link "], ids=["plain", "trailing_space"])
-def test_an_it_install_never_deletes_through_a_link(installer, l2_home, cleanup, name):
-    """Follow-up review: once IT has installed, the user (no admin needed)
-    makes a junction to the all-users folder and writes their own uninstall
-    entry naming it as InstallLocation. The next IT install (a repair or an
-    upgrade) must not delete through the link: the all-users copy stays
-    whole. A plain link is kept and logged, with the user's entry; a link
-    named with a trailing space (made through \\\\?\\, which Win32 keeps in
-    a middle part but drops from a last one) is looked up as the folder
-    the check sees, which holds no copy. Inno's own RedirectionGuard
-    already stops SYSTEM following a junction a limited user made, where
-    Windows has it; /NOREDIRECTIONGUARD stands for a PC without it, so the
-    installer's own check is what is tested."""
+def _planted_link(installer, home, name):
+    """Once IT has installed, the user (no admin needed) makes a junction
+    named `name` to a canary folder and writes their own Apps entry naming
+    it as InstallLocation. The next IT install (a repair or an upgrade;
+    /NOREDIRECTIONGUARD stands for a PC without Windows' RedirectionGuard)
+    must leave the canary byte for byte, and the user's next launch of the
+    IT copy must not run anything from it: a copy reached through a link,
+    or through a name Win32 would trim, is never chosen."""
     import sys
     import winreg
     first = l2.install(installer, "system", all_users=True)
     assert first.rc == 0, first.log[-3000:]
-    junction = str(l2_home.base) + "\\" + name
+    canary = _canary(home)
+    before = l2.manifest(canary, skip=())
+    junction = str(home.base) + "\\" + name
     raw = "\\\\?\\" + junction          # keeps a trailing space
     make = "import _winapi, sys; _winapi.CreateJunction(sys.argv[1], sys.argv[2])"
-    assert l2.run_as("user", [sys.executable, "-I", "-c", make, str(PROGRAM_FILES), raw]) == 0
-    assert os.path.lexists(raw) and name in os.listdir(l2_home.base)
+    assert l2.run_as("user", [sys.executable, "-I", "-c", make, str(canary), raw]) == 0
+    assert os.path.lexists(raw) and name in os.listdir(home.base)
+    job = None
     try:
         with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, l2.UNINSTALL_SUBKEY, 0, winreg.KEY_SET_VALUE) as key:
             winreg.SetValueEx(key, "InstallLocation", 0, winreg.REG_SZ, junction + "\\")
         result = l2.install(installer, "system", all_users=True, extra=["/NOREDIRECTIONGUARD"])
         assert result.rc == 0, result.log[-3000:]
-        assert (PROGRAM_FILES / "FoodOptimizer.exe").is_file(), result.log[-3000:]
-        assert (PROGRAM_FILES / "python" / "python.exe").is_file(), result.log[-3000:]
-        assert (PROGRAM_FILES / "unins000.dat").is_file(), result.log[-3000:]
-        if name == "Link":
-            assert f"replaced per-user copy: kept {junction} (a folder on its path is a link)" in result.log, \
-                result.log[-3000:]
-            assert l2.uninstall_entry("user") is not None
-        else:
-            seen = junction.rstrip()
-            assert f"replaced per-user copy: no copy left in {seen}" in result.log, result.log[-3000:]
-            assert "replaced per-user copy: deleted " + junction not in result.log
+        assert l2.manifest(canary, skip=()) == before, result.log[-3000:]
+        assert (PROGRAM_FILES / "FoodOptimizer.exe").is_file() and (PROGRAM_FILES / "unins000.dat").is_file()
+        assert "per-user copy" not in result.log
+        job = l2.start_shell(PROGRAM_FILES, home)
+        m = l2.wait_log(home.state / "shell.log", PERCOPY, 60)
+        assert m and m.group(1) == "none", _shell_log(home)
+        assert l2.manifest(canary, skip=()) == before
+        assert l2.uninstall_entry("user") is not None
     finally:
+        if job is not None:
+            _close(job, PROGRAM_FILES)
         # rmdir without /s removes the junction only, never the folder it points at.
         if os.path.lexists(raw):
             subprocess.run(["cmd", "/c", "rmdir", raw], check=False)
@@ -225,70 +228,12 @@ def test_an_it_install_never_deletes_through_a_link(installer, l2_home, cleanup,
             pass
 
 
-def test_an_it_install_keeps_projects_inside_a_per_user_copy(installer, l2_home, cleanup):
-    """The user installed with /DIR at their own projects folder (stored in
-    their environment as FOODOPT_PROJECTS_DIR): the IT install keeps that
-    copy, and every project in it, and leaves its Apps entry so the user's
-    own uninstaller (which keeps projects) can still remove it."""
-    import winreg
-    folder = l2_home.projects
-    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0,
-                        winreg.KEY_READ | winreg.KEY_SET_VALUE) as key:
-        try:
-            before = winreg.QueryValueEx(key, "FOODOPT_PROJECTS_DIR")
-        except FileNotFoundError:
-            before = None
-        winreg.SetValueEx(key, "FOODOPT_PROJECTS_DIR", 0, winreg.REG_SZ, str(folder))
-        try:
-            result = l2.install(installer, "user", dir=folder, env=l2_home.env)
-            assert result.rc == 0, result.log[-3000:]
-            assert (folder / "FoodOptimizer.exe").is_file()
-            keep = folder / "Keep me.pkl"
-            keep.write_bytes(b"\x80\x04keep")
-            it = l2.install(installer, "system", all_users=True)
-            assert it.rc == 0, it.log[-3000:]
-            assert keep.is_file(), it.log[-3000:]
-            assert keep.read_bytes() == b"\x80\x04keep"
-            assert "(it holds the projects folder)" in it.log, it.log[-3000:]
-            assert l2.uninstall_entry("user") is not None
-            assert l2.uninstall(folder, "user", env=l2_home.env) == 0
-            assert keep.read_bytes() == b"\x80\x04keep", l2.last_uninstall_log()[-3000:]
-        finally:
-            if before is None:
-                winreg.DeleteValue(key, "FOODOPT_PROJECTS_DIR")
-            else:
-                winreg.SetValueEx(key, "FOODOPT_PROJECTS_DIR", 0, before[1], before[0])
+def test_a_planted_junction_is_never_touched_by_the_it_install(installer, l2_home, cleanup):
+    _planted_link(installer, l2_home, "Link")
 
 
-_SHELL_FOLDERS = r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders"
-
-
-def test_all_users_install_finds_a_redirected_start_menu(installer, l2_home, cleanup):
-    """The user's Start menu lives elsewhere (folder redirection): the IT
-    install deletes the per-user shortcuts where that user's Start menu is."""
-    import winreg
-    programs = l2_home.base / "Start Menu" / "Programs"
-    programs.mkdir(parents=True)
-    key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, _SHELL_FOLDERS, 0,
-                         winreg.KEY_READ | winreg.KEY_SET_VALUE)
-    with key:
-        try:
-            before = winreg.QueryValueEx(key, "Programs")
-        except FileNotFoundError:
-            before = None
-        winreg.SetValueEx(key, "Programs", 0, winreg.REG_EXPAND_SZ, str(programs))
-        try:
-            assert l2.install(installer, "user", env=l2_home.env).rc == 0
-            assert (programs / "Food Optimizer.lnk").is_file()
-            result = l2.install(installer, "system", all_users=True)
-            assert result.rc == 0, result.log[-3000:]
-            for name in ("Food Optimizer.lnk", "Food Optimizer - Start Here.lnk"):
-                assert not (programs / name).exists(), result.log[-3000:]
-        finally:
-            if before is None:
-                winreg.DeleteValue(key, "Programs")
-            else:
-                winreg.SetValueEx(key, "Programs", 0, before[1], before[0])
+def test_an_odd_named_copy_is_never_touched_by_the_it_install(installer, l2_home, cleanup):
+    _planted_link(installer, l2_home, "Link ")
 
 
 def test_it_install_waits_for_a_running_copy(installer, l2_home, cleanup):

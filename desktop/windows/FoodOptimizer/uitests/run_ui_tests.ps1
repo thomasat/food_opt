@@ -59,6 +59,17 @@ finally {
     schtasks /Delete /TN $task /F | Out-Null
 }
 
+# The app pins each test's projects folder to Quick access at its first
+# launch; the tests' folders (under %TEMP%\foodopt-ui) are unpinned again.
+$uiRoot = Join-Path ([IO.Path]::GetTempPath()) "foodopt-ui"
+try {
+    $qa = (New-Object -ComObject Shell.Application).Namespace("shell:::{679f85cb-0220-4080-b29b-5540cc05aab6}")
+    foreach ($item in @($qa.Items())) {
+        $p = [string]$item.Path
+        if ($p.StartsWith($uiRoot, [StringComparison]::OrdinalIgnoreCase)) { $item.InvokeVerb("unpinfromhome") }
+    }
+} catch { Write-Output "ui tests: could not unpin the test folders" }
+
 if (Test-Path -LiteralPath $out) { Get-Content -LiteralPath $out }
 if (-not (Test-Path -LiteralPath $rc)) { Write-Output "ui tests: rc=timeout"; exit 3 }
 $code = [int]((Get-Content -LiteralPath $rc -Raw).Trim())
