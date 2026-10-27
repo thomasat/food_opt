@@ -53,6 +53,11 @@ public sealed class LauncherSession : IDisposable
         try { job = new JobObject(); }
         catch (Win32Exception e) { throw new LauncherStartException(e.Message, e); }
 
+        // The launcher starts with Process.Start and is assigned to its job right
+        // after, not created suspended: python's own start-up takes tens of
+        // milliseconds before it can start a child, a failed assign kills the
+        // tree, so CREATE_SUSPENDED would add a hand-written CreateProcess with
+        // its own stdin pipe for no measurable gain.
         var process = new Process { StartInfo = info, EnableRaisingEvents = true };
         var started = DateTime.UtcNow;
         try

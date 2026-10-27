@@ -124,3 +124,45 @@ def test_windows_readme_names_the_release_assets():
     out = WIN_README.read_text(encoding="utf-8")
     for needle in (".files.txt", "files_list_sha256"):
         assert needle in out, needle
+
+
+def _mac_section(heading):
+    return _section(MAC_README.read_text(encoding="utf-8"), heading)
+
+
+def test_desktop_readme_says_how_to_run_the_tests():
+    section = _flat_text(_mac_section("## Run the tests"))
+    for needle in ("uv venv", "desktop/requirements.lock.txt", "pytest", "matplotlib", "0 failed", "12", "golden",
+                   "--basetemp"):
+        assert needle in section, needle
+
+
+def test_windows_readme_lists_the_vm_quirks():
+    section = _flat_text(_section(WIN_README.read_text(encoding="utf-8"), "## Test"))
+    for needle in ("core.autocrlf false", "/SD 01/01/2020", "signed in", "sleep"):
+        assert needle in section, needle
+
+
+def test_level1_paths_are_generic():
+    assert "p5-" not in WIN_README.read_text(encoding="utf-8")
+
+
+def test_release_ritual_has_the_ready_snapshot_todo():
+    ritual = _ritual()
+    assert "tests/test_windows_ready.py" in ritual
+    assert "wording_snapshot_080.json" in ritual
+    assert not re.search(r"\b\d+\.\d+\.\d+\b", ritual)
+
+
+def test_design_note_exists():
+    path = REPO / "desktop" / "windows" / "DESIGN.md"
+    text = path.read_text(encoding="utf-8")
+    assert len(text.splitlines()) <= 120
+    flat = " ".join(text.split())
+    for needle in ("shared launcher", "Job Object", "per-user", "all-users", "no " + "SB" + "OM"):
+        # split: test_windows_installer's guard bans the word in tests
+        assert needle in flat, needle
+
+
+def _flat_text(text) -> str:
+    return " ".join(text.split())

@@ -178,3 +178,17 @@ def test_allow_listing_names_every_signer_in_the_install():
                    "Microsoft Corporation"):
         assert signer in section, signer
     assert "every binary it installs" not in section
+
+
+def test_allow_listing_is_scoped_to_the_product():
+    section = _flat(_section("Allow-listing"))
+    for needle in ("Program Files\\Food Optimizer", "publisher", "product", "FoodOptimizer-<ver>-Windows.files.txt",
+                   "AppLocker", "default rules", "per-user"):
+        assert needle in section, needle
+    assert "all four signers" not in section
+
+
+def test_the_test_overrides_are_documented():
+    text = _flat(_readme())
+    for name in ("FOODOPT_STATE_DIR", "FOODOPT_PROJECTS_DIR", "FOODOPT_TEST_HOOKS"):
+        assert name in text, name

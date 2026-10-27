@@ -182,6 +182,9 @@ FoodOptimizer.exe                        the window (.NET, WebView2)
   msedgewebview2.exe (several)           from the Microsoft Edge WebView2 Runtime folder
 ```
 
+- `FOODOPT_TEST_HOOKS=1` turns on test-only switches such as
+  `FOODOPT_TEST_ARCH`; without it they are ignored. Never set it outside
+  tests.
 - Every launch runs in its own Windows Job Object; closing the window ends
   the Python tree.
 - The server listens on 127.0.0.1 only, on a random port, under an
@@ -214,6 +217,9 @@ FoodOptimizer.exe                        the window (.NET, WebView2)
   goes into a subfolder there; the newest 10 launch copies are kept.
 - Project files are read as JSON only and never unpickled: a file that is
   not JSON is reported as damaged.
+- Moving them: `FOODOPT_STATE_DIR` and `FOODOPT_PROJECTS_DIR` replace the
+  two folders above (the tests use them; IT may set them in the user's
+  environment before the first launch).
 - Nothing is encrypted by the app (it relies on BitLocker). The logs list
   file paths, which include the Windows user name. `launcher.log` moves to
   `launcher.log.1` at each launch; `shell.log` moves to `shell.log.1` at
@@ -222,18 +228,21 @@ FoodOptimizer.exe                        the window (.NET, WebView2)
 ### Files, registry and services
 
 - Shortcuts: two in Start (Food Optimizer, and Food Optimizer - Start
-  Here) and one on the desktop (unless `/NODESKTOPSHORTCUT`). Per-user
-  installs pin the projects folder to Quick access.
+  Here) and one on the desktop (unless `/NODESKTOPSHORTCUT`). The app,
+  not the installer, pins the projects folder to Quick access at its first
+  launch.
 - The only registry entry is the uninstall key, which Inno Setup writes
-  (HKCU per user, HKLM for all users). An all-users install also deletes
-  each replaced per-user copy's uninstall key.
+  (HKCU per user, HKLM for all users). The all-users installer never
+  deletes anything in a user's profile: at a user's next launch of the IT
+  copy, that user's own per-user copy runs its own uninstaller.
 - No services, scheduled tasks, drivers or shell extensions.
 
 ### Allow-listing
 
-The binaries keep their vendors' signatures; only those their vendors left
-unsigned (`build\FoodOptimizer.unsigned.txt`) are signed by Food System
-Innovations. Allow all four signers:
+Scope the rules to the product, not to the signers. The files carry their
+vendors' signatures; only those their vendors left unsigned
+(`build\FoodOptimizer.unsigned.txt`) are signed by Food System Innovations.
+What the files carry:
 
 - Food System Innovations: the installer, the uninstaller,
   `FoodOptimizer.exe` and the files it signs;
@@ -243,8 +252,19 @@ Innovations. Allow all four signers:
   beside `python.exe`;
 - Microsoft Corporation: the .NET runtime files.
 
-Each release also attaches the per-file hash list
-(`FoodOptimizer-<ver>-Windows.files.txt`).
+The rules:
+
+- A publisher + product rule (AppLocker, WDAC or Defender for Endpoint) for
+  Food System Innovations' files, Food Optimizer as the product.
+- A path rule for `C:\Program Files\Food Optimizer\*` (the all-users
+  install, where only administrators can write).
+- Hash rules from the release's `FoodOptimizer-<ver>-Windows.files.txt` for
+  the vendor-signed files.
+- Do not allow the Python Software Foundation or Microsoft signers
+  machine-wide: the path or hash rule already covers their files here.
+- AppLocker's default rules allow only `%PROGRAMFILES%` and `%WINDIR%`, so
+  they block a per-user install (it runs from the user's profile). Use the
+  all-users install on such PCs.
 
 ## Test
 
@@ -253,13 +273,26 @@ and in the VM (`desktop\windows\tests`, with a test environment on top of
 the bundled Python that writes nothing into the image):
 
 ```
-uv venv C:\work\p5-venv --python desktop\windows\build\FoodOptimizer\python\python.exe --system-site-packages
-uv pip install --python C:\work\p5-venv\Scripts\python.exe -c desktop\requirements-windows.lock.txt "pytest>=9,<10" matplotlib
-uv pip uninstall --python C:\work\p5-venv\Scripts\python.exe numpy packaging pillow python-dateutil six tzdata colorama
-set FOODOPT_SLOW_TESTS=1& set PYTHONDONTWRITEBYTECODE=1& C:\work\p5-venv\Scripts\python.exe -m pytest desktop\windows\tests -k "not l2" -q -p no:cacheprovider
+uv venv C:\work\venv --python desktop\windows\build\FoodOptimizer\python\python.exe --system-site-packages
+uv pip install --python C:\work\venv\Scripts\python.exe -c desktop\requirements-windows.lock.txt "pytest>=9,<10" matplotlib
+uv pip uninstall --python C:\work\venv\Scripts\python.exe numpy packaging pillow python-dateutil six tzdata colorama
+set FOODOPT_SLOW_TESTS=1& set PYTHONDONTWRITEBYTECODE=1& C:\work\venv\Scripts\python.exe -m pytest desktop\windows\tests -k "not l2" -q -p no:cacheprovider
 ```
 
-The uninstall step keeps the image's own copies of those packages in use.
+These packages are already in the image's Python; removing the venv's
+copies makes the tests import the image's own.
+
+The VM's quirks:
+
+- Clone with `git -c core.autocrlf=false clone ...` and then
+  `git config core.autocrlf false`, so files stay LF.
+- Long or UI work runs as a scheduled task:
+  `schtasks /Create /TN <name> /TR "<cmd>" /SC ONCE /SD 01/01/2020 /ST 00:00 /RU <user> /IT /F`
+  never fires on its own schedule; start it with `schtasks /Run` and delete
+  it afterwards with `schtasks /Delete /F /TN <name>`.
+- UI tests need the owner signed in at the console (`quser` shows
+  `console ... Active`) and nobody touching the VM window.
+- Turn sleep off on the VM, or a long run stops half way.
 
 **Level 2** installs the built installer for real, as the limited user,
 as SYSTEM and as admin, on VM_BUILD with the owner signed in at the
@@ -269,7 +302,7 @@ console. Build the two test installers, then run everything:
 powershell -NoProfile -ExecutionPolicy Bypass -File desktop\windows\tests\make_test_installer.ps1 -Variant old
 powershell -NoProfile -ExecutionPolicy Bypass -File desktop\windows\tests\make_test_installer.ps1 -Variant broken
 powershell -NoProfile -ExecutionPolicy Bypass -File desktop\windows\tests\run_level2.ps1 -Installer desktop\windows\dist\FoodOptimizer-<ver>-Windows-test.exe -OldInstaller C:\work\l2\installers\FoodOptimizer-0.0.1-Windows-old.exe -BrokenInstaller C:\work\l2\installers\FoodOptimizer-<ver>-Windows-broken.exe -Cleanup
-powershell -NoProfile -ExecutionPolicy Bypass -File desktop\windows\FoodOptimizer\uitests\run_ui_tests.ps1 -Stage C:\work\p5-stage -Installer desktop\windows\dist\FoodOptimizer-<ver>-Windows-test.exe -Filter "--filter-trait Category=Installer --filter-trait Category=Installed"
+powershell -NoProfile -ExecutionPolicy Bypass -File desktop\windows\FoodOptimizer\uitests\run_ui_tests.ps1 -Stage C:\work\stage -Installer desktop\windows\dist\FoodOptimizer-<ver>-Windows-test.exe -Filter "--filter-trait Category=Installer --filter-trait Category=Installed"
 ```
 
 `run_level2.ps1` ends with `EXIT=0` and prints `C:\work\l2\report.json`
@@ -345,6 +378,10 @@ On a Windows 11 Enterprise evaluation VM: a standard user (`fostd`), no
 network, Defender real-time on with the rare-file rule
 (`01443614-cd74-433a-b99e-2ecdc07bfc25`) enabled, AppLocker's default
 rules enforced for Exe, Msi, Script and Appx.
+Smart App Control is off on the evaluation image (it blocks unsigned
+builds outright; on a signed build, note its state in L1). AppLocker's
+default rules allow only `%PROGRAMFILES%` and `%WINDIR%` for non-admins,
+which is why L2 blocks the per-user installer and L3 uses the IT install.
 
 - **L1** The machine state: the effective AppLocker policy, the ASR rule
   and the firewall.
