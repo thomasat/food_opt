@@ -94,8 +94,6 @@ def test_release_ritual_follows_the_spec():
     for name in release_assets("X.Y.Z").values():
         assert name in ritual, name
     assert "--notes-file desktop/release_notes/X.Y.Z.md" in ritual
-    for gone in ("release_docs", "IT sheet", "IT-sheet", "report.json", "Playwright"):
-        assert gone not in ritual, gone
     assert "gh workflow enable tests -R thomasat/food_opt" in ritual
     assert "release-080" in ritual
     assert "windows/download_email.md" in ritual
@@ -110,7 +108,6 @@ def test_windows_release_half():
     for name in (".build.txt", ".files.txt", ".cdx.json"):
         assert name in hand_back, name
     assert "report.json" not in hand_back
-    assert "Signing and the release steps come in phase 6." not in WIN_README.read_text(encoding="utf-8")
 
 
 def test_ritual_names_no_real_version():

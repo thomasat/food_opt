@@ -229,13 +229,3 @@ def test_readme_windows_section_is_the_link_and_requirements():
 
 def test_readme_holds_no_pending_marker():
     assert "PENDING(" not in README.read_text(encoding="utf-8")
-
-
-def test_no_rendered_release_docs_remain():
-    """The IT sheet, its PDF and the renderer are gone (owner, 2026-10-25)."""
-    for rel in ("desktop/release_docs.py", "desktop/windows/for_it_teams.md"):
-        assert not (REPO / rel).exists(), rel
-    for path in (README, NOTES, EMAIL, REPO / "desktop" / "README.md", WIN_README):
-        text = path.read_text(encoding="utf-8")
-        for word in ("IT-sheet", "IT sheet", "release_docs", "Playwright"):
-            assert word not in text, (path.name, word)

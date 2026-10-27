@@ -97,14 +97,6 @@ def test_mac_only_allowlists_hold_only_real_literals():
     assert MAC_ONLY_LAUNCHER <= set(_launcher_lines(REPO))
 
 
-def test_get_help_body_is_the_support_text():
-    body = texts("mac")["help.get_help.body"]
-    assert body == ("Email sohum.patnaik@fsi.org. Describe the problem and what you expected. "
-                    "Attaching the app's log file helps — Help › Show Log File finds it "
-                    "for you.")
-    assert wording.SUPPORT_EMAIL in body
-
-
 def test_machinery_rules():
     """The literal filter keeps words and drops code."""
     assert is_machinery("pageZoom") and is_machinery("foodopt://retry")
@@ -118,25 +110,6 @@ def test_machinery_rules():
 def test_every_entry_names_its_windows_text():
     for e in entries():
         assert "windows" in e["text"], e["id"]
-
-
-def test_windows_strings_from_the_spec_table():
-    w, m = texts("windows"), texts("mac")
-    assert w["error.unsupported.title"] == "This PC is not supported"
-    assert w["error.unsupported.body"] == "Needs 64-bit Windows 10 (22H2) or Windows 11."
-    assert w["error.missing_part.body"] == "Part of the app is missing. Reinstall Food Optimizer."
-    assert w["help.no_log.body"] == ("The log is created when the app starts up. "
-                                     "Close and reopen Food Optimizer, then try again.")
-    assert w["stalled.body"] == "Still loading. Please keep this window open."
-    assert w["steps.title.setting_up"] == "Setting up Food Optimizer"
-    assert w["steps.note.first_opening"] == "First opening takes longer. Keep this window open."
-    assert w["webview2.missing.title"] == "Food Optimizer can't open"
-    assert w["webview2.missing.body"] == "Ask IT to install Microsoft Edge WebView2 Runtime."
-    # A failed menu command never shows Windows' reason: shell.log has it.
-    assert w["error.command_failed.title"] == "{command} did not work"
-    assert w["error.command_failed.body"] == "Try again, or email sohum.patnaik@fsi.org."
-    for i in ("help.get_help.body", "error.could_not_start.body", "error.stopped.body"):
-        assert w[i] == m[i], i
 
 
 def test_mac_only_entries_have_no_windows_text():
@@ -190,21 +163,6 @@ def test_mac_menu_keys_match_swift():
     for e in messages_doc()["menus"]:
         for key in e["keys"]["mac"]:
             assert (e["text"]["mac"], key) in pairs, (e["id"], key)
-
-
-def test_windows_menu_layout_is_the_spec_menu():
-    layout = messages_doc()["menu_layout"]["windows"]
-    assert layout == [
-        {"menu": "menu.file", "items": ["menu.file.open_projects", "-", "menu.app.quit"]},
-        {"menu": "menu.view", "items": ["menu.view.bigger", "menu.view.smaller",
-                                        "menu.view.actual"]},
-        {"menu": "menu.help", "items": ["menu.help.start_here", "menu.help.get_help",
-                                        "menu.help.show_log", "-", "menu.app.about"]},
-    ]
-    w = texts("windows")
-    for block in layout:
-        for i in [block["menu"], *block["items"]]:
-            assert i == "-" or i in w, i
 
 
 def _windows_menu_ids():

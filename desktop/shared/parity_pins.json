@@ -1,5 +1,5 @@
 {
-  "_comment": "Hash pins pairing Mac sections with the shared ports that mirror them. When a test says a section is stale: mirror the change on the other side, then run python desktop/shared/parity_pins.py --pair <pair> --note \"<what was mirrored>\" in the same commit.",
+  "_comment": "Hash pins pairing Mac sections with the shared ports that mirror them. When a test says a section is stale: mirror the change on the other side, then run python desktop/shared/parity_pins.py --pair <pair> --note \"<what was mirrored>\" in the same commit. The shared side is covered by the behaviour suites (tests/desktop_launcher, tests/desktop_page), not by pins.",
   "sections": {
     "mac.swift.page_texts": {
       "file": "desktop/FoodOptimizerApp.swift",
@@ -30,16 +30,6 @@
       "start": "# ---------- start the server ----------",
       "end": null,
       "sha256": "67d02d1e62cfc33777054f31065e161cce5de5e7a5b44e8878ec3d823a49ef2b"
-    },
-    "shared.pages": {
-      "dir": "desktop/shared/pages",
-      "glob": "*",
-      "sha256": "06eac248b19e31854e9d7e487f300983bde4684f6719c70e8641bdeba3d0696d"
-    },
-    "shared.launcher": {
-      "dir": "desktop/shared/launcher",
-      "glob": "**/*.py",
-      "sha256": "73d209c59080650c514f0c10f557516492f63bc991bc535abd3f8877f14e5eec"
     }
   },
   "pairs": {
@@ -47,16 +37,14 @@
       "sections": [
         "mac.swift.page_texts",
         "mac.swift.page",
-        "mac.swift.page_events",
-        "shared.pages"
+        "mac.swift.page_events"
       ],
       "note": "phase 2: shared page ported from the Swift window"
     },
     "launcher": {
       "sections": [
         "mac.launcher.runtime_head",
-        "mac.launcher.runtime_tail",
-        "shared.launcher"
+        "mac.launcher.runtime_tail"
       ],
       "note": "phase 2: Python launcher ported from launcher.sh run-time half; Windows: timed-out port probe is free, append-only log handles, logged unexpected errors, independent guard duties, stale-lock start-time check; Python-only (nothing in launcher.sh to mirror): lifeline reads the raw stdin fd, guard install is idempotent across loads; hardening (Python-only, launcher.sh has no counterpart): usage errors exit 1, stop checked before the warm-up, tmp-file open retried, a lock that will not go is logged, no server.base without server.port; serve_guard also ignores secrets.toml (Windows-only until Mac adoption)"
     }

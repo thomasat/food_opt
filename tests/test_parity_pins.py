@@ -74,11 +74,11 @@ def test_a_change_on_one_side_fails(tmp_path):
 
 
 def test_a_dotfile_does_not_change_a_dir_pin(tmp_path):
-    pages = tmp_path / "desktop" / "shared" / "pages"
-    shutil.copytree(REPO / "desktop" / "shared" / "pages", pages,
-                    ignore=shutil.ignore_patterns("__pycache__"))
+    pages = tmp_path / "pages"
+    pages.mkdir()
+    (pages / "a.html").write_text("a", encoding="utf-8")
     mod = _module()
-    spec = {"dir": "desktop/shared/pages", "glob": "*"}
+    spec = {"dir": "pages", "glob": "*"}
     before = mod.section_hash(spec, tmp_path)
     (pages / ".DS_Store").write_bytes(b"\0\1")
     (pages / ".cache").mkdir()
