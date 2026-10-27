@@ -125,7 +125,11 @@ Uninstall:
 - An all-users install with `/DIR` outside Program Files makes that
   folder Administrators' and gives it Program Files' permissions before
   copying: users can read and run it, not change it (`acl: locked
-  <folder>` in the log). The folder must be empty or this copy's own.
+  <folder>` in the log). It refuses a folder that holds files (unless
+  it is this copy's own), that a user owns, or that is or lies under a
+  link (junction).
+- Put a `/DIR` under a folder only admins can change: `C:\` itself, or
+  a folder IT made.
 - A running per-user copy is seen only in its own user's session, while
   an IT upgrade waits for every user's running all-users copy.
 - An all-users install never changes a per-user copy. When that user

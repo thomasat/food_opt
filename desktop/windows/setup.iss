@@ -7,8 +7,8 @@
 ; Per-user by default (%LOCALAPPDATA%\Programs\Food Optimizer, no admin);
 ; /ALLUSERS installs to Program Files for IT. Three pages: Welcome, Install,
 ; Finish. Every message a user can reach is in installer_messages.isl.
-; No PowerShell, no network and no download: Pascal and Shell COM, and
-; icacls for an all-users /DIR outside Program Files (LockDownAppDir).
+; No PowerShell, no network and no download: Pascal, Shell COM and, for an
+; all-users /DIR outside Program Files, Win32 security calls (LockFolder).
 ; ASCII only. tests/test_windows_installer.py pins the directives below.
 
 #if VER < EncodeVer(6,3,0)
@@ -115,13 +115,51 @@ const
   MaxRoot = {#MaxRoot};
   DiskFreeGB = {#DiskFreeGB};
   GiB = 1073741824;
+  { The all-users install folder's rule outside Program Files: owner
+    Administrators; protected (nothing inherited); SYSTEM and
+    Administrators full; Users read and run (0x1200a9 = FILE_GENERIC_READ
+    or FILE_GENERIC_EXECUTE), as Program Files gives its folders. }
+  AppDirRule = 'O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)';
+  { CreateFileW: READ_CONTROL, WRITE_DAC, WRITE_OWNER, FILE_READ_ATTRIBUTES
+    and FILE_LIST_DIRECTORY (a data right, so the sharing below applies);
+    share read and write, never delete, so neither the folder nor a folder
+    above it can be renamed or replaced while it is open; the folder
+    itself, never what a link points at. }
+  AppDirAccess = $E0081;
+  AppDirShare = 3;
+  AppDirOpenExisting = 3;
+  AppDirFlags = $02200000;
+  SeFileObject = 1;
+  OwnerInfo = 1;
+  { OWNER, DACL and PROTECTED_DACL_SECURITY_INFORMATION ($80000005). }
+  OwnerDaclProtected = -2147483643;
+  WinLocalSystemSid = 22;
+  WinBuiltinAdministratorsSid = 26;
 
 var
   DesktopCheck: TNewCheckBox;
   PrewarmFailed: Boolean;
   Upgrading: Boolean;
+  { The locked install folder, open until the copy ends. }
+  AppDirHandle: NativeInt;
 
 function GetTickCount: DWORD; external 'GetTickCount@kernel32.dll stdcall';
+function CreateFileW(const Name: String; Access, Share: Integer; Security: NativeInt; Disposition, Flags: Integer;
+  Template: NativeInt): NativeInt; external 'CreateFileW@kernel32.dll stdcall';
+function CloseHandle(Handle: NativeInt): Integer; external 'CloseHandle@kernel32.dll stdcall';
+function LocalFree(Mem: NativeInt): NativeInt; external 'LocalFree@kernel32.dll stdcall';
+function ConvertStringSecurityDescriptorToSecurityDescriptorW(const Sddl: String; Revision: Integer;
+  var Descriptor: NativeInt; Size: NativeInt): Integer;
+  external 'ConvertStringSecurityDescriptorToSecurityDescriptorW@advapi32.dll stdcall';
+function GetSecurityDescriptorOwner(Descriptor: NativeInt; var Owner: NativeInt; var Defaulted: Integer): Integer;
+  external 'GetSecurityDescriptorOwner@advapi32.dll stdcall';
+function GetSecurityDescriptorDacl(Descriptor: NativeInt; var Present: Integer; var Dacl: NativeInt;
+  var Defaulted: Integer): Integer; external 'GetSecurityDescriptorDacl@advapi32.dll stdcall';
+function GetSecurityInfo(Handle: NativeInt; ObjectType, Info: Integer; var Owner: NativeInt;
+  Group, Dacl, Sacl: NativeInt; var Descriptor: NativeInt): Integer; external 'GetSecurityInfo@advapi32.dll stdcall';
+function SetSecurityInfo(Handle: NativeInt; ObjectType, Info: Integer; Owner, Group, Dacl, Sacl: NativeInt): Integer;
+  external 'SetSecurityInfo@advapi32.dll stdcall';
+function IsWellKnownSid(Sid: NativeInt; SidType: Integer): Integer; external 'IsWellKnownSid@advapi32.dll stdcall';
 
 function EndsText(const Tail, S: String): Boolean;
 begin
@@ -267,18 +305,6 @@ begin
   end;
 end;
 
-{ Runs icacls (Args) and logs Done, or Failed and its code. }
-function RunIcacls(const Args, Done, Failed: String): Boolean;
-var
-  Code: Integer;
-begin
-  Result := Exec(ExpandConstant('{sys}\icacls.exe'), Args, '', SW_HIDE, ewWaitUntilTerminated, Code) and (Code = 0);
-  if Result then
-    Log(Done)
-  else
-    Log(Failed + ' ' + IntToStr(Code));
-end;
-
 { Whether App is this all-users copy's own folder (HKLM, which no user can
   write): an upgrade of a folder locked when it was first installed. }
 function RegisteredHere(const App: String): Boolean;
@@ -289,37 +315,138 @@ begin
     SameOrInside(Loc, App) and SameOrInside(App, Loc);
 end;
 
+{ Whether Path, or a folder above it (the drive root aside), is a link: a
+  junction or a symbolic link. }
+function OnALink(const Path: String): Boolean;
+var
+  P, Up: String;
+  FindRec: TFindRec;
+begin
+  Result := False;
+  P := RemoveBackslashUnlessRoot(ExpandFileName(Path));
+  while True do begin
+    Up := ExtractFileDir(P);
+    if (Up = '') or (Up = P) then
+      exit;
+    if FindFirst(P, FindRec) then begin
+      try
+        if FindRec.Attributes and FILE_ATTRIBUTE_REPARSE_POINT <> 0 then begin
+          Log('acl: a link: ' + P);
+          Result := True;
+          exit;
+        end;
+      finally
+        FindClose(FindRec);
+      end;
+    end;
+    P := Up;
+  end;
+end;
+
+procedure CloseAppDir;
+begin
+  if AppDirHandle <> 0 then
+    CloseHandle(AppDirHandle);
+  AppDirHandle := 0;
+end;
+
+{ Whether the open folder is Administrators' or SYSTEM's: not a folder a
+  user made, who could keep a handle that changes its rule after ours. }
+function OwnedByAdmins: Boolean;
+var
+  Owner, Descriptor: NativeInt;
+  Rc: Integer;
+begin
+  Result := False;
+  Descriptor := 0;
+  Rc := GetSecurityInfo(AppDirHandle, SeFileObject, OwnerInfo, Owner, 0, 0, 0, Descriptor);
+  if Rc <> 0 then begin
+    Log('acl: owner unknown ' + IntToStr(Rc));
+    exit;
+  end;
+  try
+    Result := (IsWellKnownSid(Owner, WinBuiltinAdministratorsSid) <> 0) or
+      (IsWellKnownSid(Owner, WinLocalSystemSid) <> 0);
+    if not Result then
+      Log('acl: not owned by Administrators or SYSTEM');
+  finally
+    LocalFree(Descriptor);
+  end;
+end;
+
+{ Opens App as itself and gives it AppDirRule, owner and rule in one call
+  (inheritable entries reach what is already inside). The folder stays
+  open until the copy ends. False, logged, at any failure. }
+function LockFolder(const App: String): Boolean;
+var
+  Descriptor, Owner, Dacl: NativeInt;
+  Present, Defaulted, Rc: Integer;
+begin
+  Result := False;
+  AppDirHandle := CreateFileW(App, AppDirAccess, AppDirShare, 0, AppDirOpenExisting, AppDirFlags, 0);
+  if AppDirHandle = -1 then begin
+    AppDirHandle := 0;
+    Log('acl: could not open ' + App + ' (' + IntToStr(DLLGetLastError) + ')');
+    exit;
+  end;
+  { Open, it can no longer be swapped: look again. }
+  if OnALink(App) or not OwnedByAdmins then
+    exit;
+  Descriptor := 0;
+  if ConvertStringSecurityDescriptorToSecurityDescriptorW(AppDirRule, 1, Descriptor, 0) = 0 then begin
+    Log('acl: rule not built (' + IntToStr(DLLGetLastError) + ')');
+    exit;
+  end;
+  try
+    if (GetSecurityDescriptorOwner(Descriptor, Owner, Defaulted) = 0) or
+        (GetSecurityDescriptorDacl(Descriptor, Present, Dacl, Defaulted) = 0) then begin
+      Log('acl: rule not read (' + IntToStr(DLLGetLastError) + ')');
+      exit;
+    end;
+    Rc := SetSecurityInfo(AppDirHandle, SeFileObject, OwnerDaclProtected, Owner, 0, Dacl, 0);
+    if Rc <> 0 then begin
+      Log('acl: failed ' + IntToStr(Rc));
+      exit;
+    end;
+  finally
+    LocalFree(Descriptor);
+  end;
+  Log('acl: locked ' + App);
+  Result := True;
+end;
+
 { M4. Under Program Files an all-users copy inherits its rule: users read
   and run it, never change it. A /DIR elsewhere would inherit the drive's
-  (C:\ lets every signed-in user change a new folder), or be a folder a
-  user made first and owns. Before any file is copied, icacls makes the
-  folder and all in it Administrators', drops every rule set on them, and
-  gives the folder Program Files' own rule: SYSTEM and Administrators
-  full, Users read and run. Anything in it now was put there before the
-  lock, by someone else: False (PrepareToInstall refuses), unless this
-  is the registered all-users folder (an upgrade). icacls failures are
-  logged; the install goes on. }
+  (C:\ lets every signed-in user change a new folder). Before any file is
+  copied the folder gets Program Files' rule, in one call on the folder
+  itself (LockFolder). Refused (False), with nothing changed, when it or
+  a folder above it is a link, when it holds anything (unless it is this
+  all-users copy's registered folder, an upgrade), or when a user owns it;
+  refused too when the lock fails or something got in before it. }
 function LockDownAppDir(const App: String): Boolean;
-var
-  Q: String;
 begin
   Result := True;
   if SameOrInside(App, ExpandConstant('{commonpf64}')) then
     exit;
-  Q := '"' + RemoveBackslashUnlessRoot(App) + '"';
-  if not ForceDirectories(App) then
-    Log('acl: could not create ' + App);
-  if RegisteredHere(App) then
-    RunIcacls(Q + ' /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX', 'acl: locked ' + App, 'acl: failed')
-  else begin
-    RunIcacls(Q + ' /setowner *S-1-5-32-544 /T /C', 'acl: owner ' + App, 'acl: owner failed');
-    RunIcacls(Q + ' /reset /T /C', 'acl: reset ' + App, 'acl: reset failed');
-    RunIcacls(Q + ' /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX', 'acl: locked ' + App, 'acl: failed');
-    if DirHasEntries(App) then begin
-      Log('acl: entries found after the lock');
-      Result := False;
-    end;
+  Result := False;
+  if OnALink(App) then
+    exit;
+  if not RegisteredHere(App) and DirHasEntries(App) then begin
+    Log('acl: not empty: ' + App);
+    exit;
   end;
+  if not ForceDirectories(App) then begin
+    Log('acl: could not create ' + App);
+    exit;
+  end;
+  if LockFolder(App) then begin
+    if RegisteredHere(App) or not DirHasEntries(App) then
+      Result := True
+    else
+      Log('acl: entries found after the lock');
+  end;
+  if not Result then
+    CloseAppDir;
 end;
 
 { The first refusal that applies, or ''. Silent: exit 7; interactive: the
@@ -495,6 +622,7 @@ begin
         Log('could not create ' + ProjectsDir);
     end;
     Prewarm;
+    CloseAppDir;
   end;
 end;
 
