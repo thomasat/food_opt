@@ -43,6 +43,28 @@ public sealed class InstallLayoutTests : IDisposable
             UserPaths.Resolve(n => empty.GetValueOrDefault(n), "/l", "/u"));
     }
 
+    /// The all-users installer writes {app}\all-users: that copy's shell
+    /// holds the Global name every user's installer and shell can see.
+    [Fact]
+    public void All_users_marker_picks_the_global_name()
+    {
+        File.WriteAllText(Path.Combine(_dir, "all-users"), "all-users\n");
+        var l = InstallLayout.FromExeDirectory(_dir);
+        Assert.True(l.AllUsers);
+        Assert.Equal(AppIdentity.RunningAllUsers, l.RunningMutex);
+    }
+
+    [Fact]
+    public void No_marker_is_per_user()
+    {
+        var l = InstallLayout.FromExeDirectory(_dir);
+        Assert.False(l.AllUsers);
+        Assert.Equal(AppIdentity.RunningPerUser, l.RunningMutex);
+        // A folder named all-users is not the marker either.
+        Directory.CreateDirectory(Path.Combine(_dir, "all-users"));
+        Assert.False(InstallLayout.FromExeDirectory(_dir).AllUsers);
+    }
+
     [Fact]
     public void Missing_parts_are_listed()
     {

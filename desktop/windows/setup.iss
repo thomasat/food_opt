@@ -58,9 +58,8 @@ DisableProgramGroupPage=yes
 DisableReadyPage=yes
 DisableWelcomePage=no
 ShowLanguageDialog=no
-; The shell holds AppIdentity.SingleInstanceMutex (this session) and
-; AppIdentity.InstallerMutex (every session, so a SYSTEM install sees it).
-AppMutex=Local\FoodOptimizer.SingleInstance.3CC8CB77-0313-4A7D-9582-9896F0A3A8B3,Global\FoodOptimizer.Running.3CC8CB77-0313-4A7D-9582-9896F0A3A8B3
+; No AppMutex: it is one list for both scopes. The code below checks the
+; running app's name per scope instead (RunningName, AppClosed).
 SetupMutex=FoodOptimizer.Setup.0E00CC2F-4E51-4EBF-A229-A910D5742A39,Global\FoodOptimizer.Setup.0E00CC2F-4E51-4EBF-A229-A910D5742A39
 CloseApplications=yes
 CloseApplicationsFilter=*.exe,*.dll,*.pyd
@@ -104,6 +103,7 @@ Filename: "{app}\FoodOptimizer.exe"; Description: "{cm:OpenApp}"; Flags: postins
 Filename: "{app}\Start Here.txt"; Description: "{cm:OpenStartHere}"; Flags: postinstall shellexec nowait skipifsilent unchecked runasoriginaluser
 
 [UninstallDelete]
+Type: files; Name: "{app}\all-users"
 Type: dirifempty; Name: "{app}"
 
 [Code]
@@ -162,6 +162,38 @@ function IsRunningAsSystem: Boolean;
 begin
   Result := (CompareText(GetUserNameString, 'SYSTEM') = 0) or
     EndsText('\config\systemprofile', GetEnv('USERPROFILE'));
+end;
+
+{ The name this scope's running app holds (AppIdentity.cs): a per-user
+  copy's only in its own session (Local), so no other user's app can hold
+  up a per-user install or uninstall; the all-users copy's in every
+  session (Global), so an IT upgrade waits for every user's app. }
+function RunningName: String;
+begin
+  if IsAdminInstallMode then
+    Result := 'Global\FoodOptimizer.Running.AllUsers.3CC8CB77-0313-4A7D-9582-9896F0A3A8B3'
+  else
+    Result := 'Local\FoodOptimizer.Running.PerUser.3CC8CB77-0313-4A7D-9582-9896F0A3A8B3';
+end;
+
+{ Inno's AppMutex check, for this scope's name only: OK checks again;
+  Cancel, and every run with /SUPPRESSMSGBOXES, stops before anything
+  changes (Setup exits 1, as with AppMutex). }
+function AppClosed(const Msg: String): Boolean;
+begin
+  Result := True;
+  while CheckForMutexes(RunningName) do
+    if SuppressibleMsgBox(FmtMessage(Msg, ['Food Optimizer']), mbError, MB_OKCANCEL, IDCANCEL) <> IDOK then begin
+      Log('refused: app_running');
+      Result := False;
+      exit;
+    end;
+end;
+
+{ Inno runs this just before its own AppMutex check. }
+function InitializeSetup: Boolean;
+begin
+  Result := AppClosed(SetupMessage(msgSetupAppRunningError));
 end;
 
 function MachineCopyExists: Boolean;
@@ -628,8 +660,12 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then begin
-    if IsAdminInstallMode then
+    if IsAdminInstallMode then begin
+      { The shell reads it: this copy's app holds the all-users name. }
+      if not SaveStringToFile(ExpandConstant('{app}\all-users'), 'all-users' + #13#10, False) then
+        Log('could not write ' + ExpandConstant('{app}\all-users'));
       ReplacePerUserCopies;
+    end;
     if not IsAdminInstallMode then begin
       if not ForceDirectories(ProjectsDir) then
         Log('could not create ' + ProjectsDir);
@@ -675,6 +711,11 @@ var
   Dir: String;
   I: Integer;
 begin
+  { After the user confirms, where Inno checks AppMutex; Abort here ends
+    the uninstall before anything changes. }
+  if (CurUninstallStep = usAppMutexCheck) and
+      not AppClosed(SetupMessage(msgUninstallAppRunningError)) then
+    Abort;
   if (CurUninstallStep = usUninstall) and not IsAdminInstallMode then
     UnpinFromQuickAccess(ProjectsDir);
   if CurUninstallStep = usPostUninstall then begin

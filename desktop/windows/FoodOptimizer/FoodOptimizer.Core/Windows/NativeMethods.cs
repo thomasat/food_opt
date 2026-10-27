@@ -74,6 +74,30 @@ internal static partial class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool CloseHandle(IntPtr handle);
 
+    [StructLayout(LayoutKind.Sequential)]
+    public struct SECURITY_ATTRIBUTES
+    {
+        public uint Length;
+        public IntPtr SecurityDescriptor;
+        public int InheritHandle;
+    }
+
+    [LibraryImport("advapi32.dll", EntryPoint = "ConvertStringSecurityDescriptorToSecurityDescriptorW",
+        SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool ConvertStringSecurityDescriptorToSecurityDescriptorW(string sddl, uint revision,
+        out IntPtr securityDescriptor, IntPtr size);
+
+    [LibraryImport("kernel32.dll", EntryPoint = "CreateMutexW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    public static partial SafeWaitHandle CreateMutexW(in SECURITY_ATTRIBUTES attributes,
+        [MarshalAs(UnmanagedType.Bool)] bool initialOwner, string name);
+
+    [LibraryImport("kernel32.dll", EntryPoint = "OpenMutexW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    public static partial SafeWaitHandle OpenMutexW(uint access, [MarshalAs(UnmanagedType.Bool)] bool inherit, string name);
+
+    [LibraryImport("kernel32.dll")]
+    public static partial IntPtr LocalFree(IntPtr memory);
+
     [LibraryImport("kernel32.dll", EntryPoint = "DeleteFileW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool DeleteFileW(string path);

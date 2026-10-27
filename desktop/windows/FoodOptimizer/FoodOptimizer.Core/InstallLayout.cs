@@ -35,6 +35,14 @@ public sealed record InstallLayout(string Root)
     public string StatusPage => Path.Combine(PagesDir, "status.html");
     public string StartHere => Path.Combine(Root, "Start Here.txt");
 
+    /// <summary>Installed for all users: the all-users installer writes the
+    /// file "all-users" into its folder (a per-user one never does).</summary>
+    public bool AllUsers => File.Exists(Path.Combine(Root, "all-users"));
+
+    /// <summary>The name this copy's running app holds: the one the
+    /// installer and uninstaller of its scope check.</summary>
+    public string RunningMutex => AllUsers ? AppIdentity.RunningAllUsers : AppIdentity.RunningPerUser;
+
     /// <summary>The page files that are missing (the window can show no page without them).</summary>
     public IReadOnlyList<string> MissingForPage() =>
         new[] { "status.html", "status.css", "status.js" }

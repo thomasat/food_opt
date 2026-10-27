@@ -42,7 +42,8 @@ SILENT = ("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS"
 
 # The installer's exit codes (Inno Setup's 0-8, plus our 9; the README's
 # table). app_running is pinned by Task 8: what Inno's AppMutex check
-# returned under /SUPPRESSMSGBOXES while the app ran.
+# returned under /SUPPRESSMSGBOXES while the app ran; setup.iss's own
+# per-scope check (AppClosed) keeps that code.
 EXIT_CODES = {
     "ok": 0,
     "init_failed": 1,
@@ -212,10 +213,11 @@ def _runner_pythonw() -> str:
 
 
 def run_as(kind: str, argv: Sequence[str], *, env=None, cwd=None, wait=True, timeout=1800):
-    """Run argv as "user" (limited token, interactive desktop), "system" or
-    "admin". env holds extra variables only, laid over that identity's own
-    environment. wait=True returns the exit code; wait=False returns the Job."""
-    if kind not in ("user", "system", "admin"):
+    """Run argv as "user" (limited token, interactive desktop), "system",
+    "admin" or "other" (OTHER_USER, see run_as_other). env holds extra
+    variables only, laid over that identity's own environment. wait=True
+    returns the exit code; wait=False returns the Job."""
+    if kind not in ("user", "system", "admin", "other"):
         raise ValueError(kind)
     if kind == "admin":
         full_env = dict(os.environ)
@@ -235,7 +237,16 @@ def run_as(kind: str, argv: Sequence[str], *, env=None, cwd=None, wait=True, tim
     task = f"FoodOptL2-{name}"
     runner = L2 / "l2_job.py"
     command = f'"{_runner_pythonw()}" "{runner}" "{spec}"'
-    who = ["/RU", "SYSTEM"] if kind == "system" else ["/RU", os.environ.get("USERNAME") or getpass.getuser(), "/IT"]
+    if kind == "system":
+        who = ["/RU", "SYSTEM"]
+    elif kind == "other":
+        if _other_password is None:
+            raise RuntimeError(f"{OTHER_USER} does not exist: add_other_user() first")
+        # A password task: OTHER_USER is not signed in, so it runs in its
+        # own non-interactive session (batch logon).
+        who = ["/RU", OTHER_USER, "/RP", _other_password]
+    else:
+        who = ["/RU", os.environ.get("USERNAME") or getpass.getuser(), "/IT"]
     created = subprocess.run(["schtasks", "/Create", "/F", "/TN", task, "/TR", command, *NEVER_ON_SCHEDULE,
                               *who], capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
     if created.returncode != 0:
@@ -255,6 +266,134 @@ def run_as(kind: str, argv: Sequence[str], *, env=None, cwd=None, wait=True, tim
     return job.wait(timeout) if wait else job
 
 
+# ---------- a second user on the PC (Review Focus 2) ----------
+
+# A local account that is not signed in: a member of Users and of
+# Performance Log Users only. VM_BUILD's "Log on as a batch job" right
+# (SeBatchLogonRight) is Administrators, Backup Operators and Performance
+# Log Users (measured 2026-10-26), so that group lets it run a password
+# task without admin rights or a policy change.
+OTHER_USER = "FoL2Other"
+PERFORMANCE_LOG_USERS = "S-1-5-32-559"
+_other_password: Optional[str] = None
+
+
+def _new_password() -> str:
+    """24 random characters with every class Windows' complexity rule asks for."""
+    import secrets
+    import string
+    classes = (string.ascii_uppercase, string.ascii_lowercase, string.digits, "!#%+-=_.")
+    while True:
+        chars = [secrets.choice("".join(classes)) for _ in range(24)]
+        if all(any(c in cls for c in chars) for cls in classes):
+            return "".join(chars)
+
+
+def _powershell(script: str, timeout=300) -> subprocess.CompletedProcess:
+    return subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                           "-Command", script], capture_output=True, text=True, errors="replace",
+                          timeout=timeout, creationflags=CREATE_NO_WINDOW)
+
+
+def other_user_sid() -> Optional[str]:
+    r = _powershell(f"$u = Get-LocalUser -Name '{OTHER_USER}' -ErrorAction SilentlyContinue; "
+                    "if ($u) { $u.SID.Value }")
+    sid = r.stdout.strip()
+    return sid or None
+
+
+def add_other_user() -> str:
+    """Creates OTHER_USER with a fresh random password (kept in this process
+    only, never logged), in Users and Performance Log Users, and lets it
+    write the job folder. Returns its SID."""
+    global _other_password
+    if other_user_sid() is not None:
+        remove_other_user()
+    password = _new_password()
+    r = subprocess.run(["net", "user", OTHER_USER, password, "/add", "/passwordchg:no", "/expires:never"],
+                       capture_output=True, text=True, errors="replace", creationflags=CREATE_NO_WINDOW)
+    if r.returncode != 0:
+        raise RuntimeError(f"net user {OTHER_USER} /add exited {r.returncode}")
+    _other_password = password
+    r = _powershell(f"Add-LocalGroupMember -SID '{PERFORMANCE_LOG_USERS}' -Member '{OTHER_USER}'")
+    if r.returncode != 0:
+        raise RuntimeError(f"Add-LocalGroupMember: {r.stderr}")
+    JOBS.mkdir(parents=True, exist_ok=True)
+    grant(JOBS, OTHER_USER)
+    return other_user_sid()
+
+
+def grant(folder, account: str) -> None:
+    """Modify on folder and below for account (Level 2's own folders only)."""
+    r = subprocess.run(["icacls", str(folder), "/grant", f"{account}:(OI)(CI)M"], capture_output=True,
+                       text=True, errors="replace", creationflags=CREATE_NO_WINDOW)
+    if r.returncode != 0:
+        raise RuntimeError(f"icacls {folder} /grant {account}: {r.stdout}")
+
+
+def kill_user_processes(account: str) -> None:
+    """Ends every process the account runs (the tests' own: it is a test
+    account that exists only for one module)."""
+    _powershell(f"Get-Process -IncludeUserName | Where-Object {{ $_.UserName -like '*\\{account}' }} | "
+                "Stop-Process -Force -ErrorAction SilentlyContinue")
+
+
+def remove_other_user() -> None:
+    """Deletes OTHER_USER, its profile and its access to the job folder."""
+    global _other_password
+    sid = other_user_sid()
+    if sid is not None:
+        kill_user_processes(OTHER_USER)
+        # The profile service unloads the hive a moment after the last logon ends.
+        for _ in range(30):
+            r = _powershell(f"Get-CimInstance Win32_UserProfile | Where-Object {{ $_.SID -eq '{sid}' }} | "
+                            "Remove-CimInstance -ErrorAction Stop")
+            if r.returncode == 0:
+                break
+            time.sleep(2)
+        subprocess.run(["net", "user", OTHER_USER, "/delete"], capture_output=True,
+                       creationflags=CREATE_NO_WINDOW)
+    if JOBS.exists():
+        subprocess.run(["icacls", str(JOBS), "/remove", OTHER_USER], capture_output=True,
+                       creationflags=CREATE_NO_WINDOW)
+    _other_password = None
+
+
+def other_profile_exists(sid: str) -> bool:
+    r = _powershell(f"@(Get-CimInstance Win32_UserProfile | Where-Object {{ $_.SID -eq '{sid}' }}).Count")
+    return r.stdout.strip() not in ("", "0")
+
+
+def run_as_other(argv: Sequence[str], env=None, *, cwd=None, wait=True, timeout=1800):
+    """run_as for OTHER_USER: a password task with the never-on-schedule
+    trigger, deleted when the job ends (or is closed)."""
+    return run_as("other", argv, env=env, cwd=cwd, wait=wait, timeout=timeout)
+
+
+def end_job(job: "Job") -> None:
+    """Ends a job's process tree (the task's own /End can leave its
+    children running) and deletes its task."""
+    if job.proc is None and job.alive():
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(job.pid)], capture_output=True,
+                       creationflags=CREATE_NO_WINDOW)
+        wait_for(lambda: not job.alive(), 30, 0.2)
+    job.close()
+
+
+def mutex_exists(name: str) -> bool:
+    """Whether a named mutex exists and this token may wait on it, as
+    Inno's CheckForMutexes asks (OpenMutexW with SYNCHRONIZE)."""
+    k32 = ctypes.windll.kernel32
+    k32.OpenMutexW.restype = wintypes.HANDLE
+    k32.OpenMutexW.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR]
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+    handle = k32.OpenMutexW(0x00100000, False, name)
+    if not handle:
+        return False
+    k32.CloseHandle(handle)
+    return True
+
+
 def _token_elevated() -> bool:
     if sys.platform != "win32":
         return False
@@ -272,10 +411,14 @@ class Install:
     elevated: Optional[bool] = None
 
 
-def install(installer, kind="user", *, dir=None, all_users=False, extra=(), env=None) -> Install:
+def install(installer, kind="user", *, dir=None, all_users=False, extra=(), env=None,
+            close_apps=True) -> Install:
+    """close_apps=False leaves out /CLOSEAPPLICATIONS, so a running app the
+    check missed is not closed for it."""
     LOGS.mkdir(parents=True, exist_ok=True)
     log = LOGS / f"{_name('setup')}.log"
-    argv = [str(installer), *SILENT, f"/LOG={log}"]
+    silent = SILENT if close_apps else tuple(s for s in SILENT if s != "/CLOSEAPPLICATIONS")
+    argv = [str(installer), *silent, f"/LOG={log}"]
     if all_users:
         argv.append("/ALLUSERS")
     if dir is not None:

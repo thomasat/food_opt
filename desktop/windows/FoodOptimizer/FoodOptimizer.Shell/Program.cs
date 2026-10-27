@@ -31,14 +31,15 @@ static class Program
         ShellLog.Rotate(paths.ShellLogPath);
         var log = new ShellLog(paths.ShellLogPath);
         log.Write("shell.start", AppIdentity.Version);
-        using var installerMutex = InstallerMutex.Hold(AppIdentity.InstallerMutex, log);
+        var layout = InstallLayout.FromExeDirectory(Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory));
+        // The name the installer and uninstaller of this copy's scope check.
+        using var installerMutex = InstallerMutex.Hold(layout.RunningMutex, log);
 
         if (!WebViewRuntimePresent(log))
         {
             ShellDialogs.Info(null, messages.Text("webview2.missing.title"), messages.Text("webview2.missing.body"));
             return 0;
         }
-        var layout = InstallLayout.FromExeDirectory(Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory));
         if (layout.MissingForPage() is { Count: > 0 } missing)
         {
             log.Write("page.missing", string.Join(";", missing));

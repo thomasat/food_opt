@@ -110,10 +110,10 @@ public class InstanceTests
         var app = ShellApp.Launch(ShellRun.Fresh());
         try
         {
-            Assert.True(Uia.WaitUntil(() => Mutex.TryOpenExisting(AppIdentity.InstallerMutex, out var m) && Dispose(m), TimeSpan.FromSeconds(5)));
+            Assert.True(Uia.WaitUntil(() => Mutex.TryOpenExisting(AppIdentity.RunningPerUser, out var m) && Dispose(m), TimeSpan.FromSeconds(5)));
             app.Close();
             Assert.True(await app.WaitForExitAsync(TimeSpan.FromSeconds(10)));
-            Assert.True(Uia.WaitUntil(() => !Mutex.TryOpenExisting(AppIdentity.InstallerMutex, out _), TimeSpan.FromSeconds(5)));
+            Assert.True(Uia.WaitUntil(() => !Mutex.TryOpenExisting(AppIdentity.RunningPerUser, out _), TimeSpan.FromSeconds(5)));
         }
         finally
         {

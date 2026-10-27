@@ -122,6 +122,8 @@ Uninstall:
   (all users; `HKCU\...` for a per-user copy), value `DisplayVersion`.
 - `/LOG=<file>` writes the installer's log; every refusal is logged as
   `refused: <reason>` and the pre-warm as `prewarm rc=<n> secs=<n>`.
+- A running per-user copy is seen only in its own user's session, while
+  an IT upgrade waits for every user's running all-users copy.
 - A per-user and an all-users copy never coexist. An all-users install
   never changes a per-user copy. When that user next opens Food Optimizer,
   it runs their copy's own uninstaller; projects are kept. A per-user

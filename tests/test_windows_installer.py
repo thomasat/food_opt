@@ -249,7 +249,7 @@ SETUP_PINS = {
 def _identity():
     text = APP_IDENTITY.read_text(encoding="utf-8")
     return {name: re.search(r'const string %s = @?"([^"]*)"' % name, text).group(1)
-            for name in ("AppUserModelId", "SingleInstanceMutex", "InstallerMutex")}
+            for name in ("AppUserModelId", "SingleInstanceMutex", "RunningPerUser", "RunningAllUsers")}
 
 
 def test_setup_directives_are_pinned():
@@ -258,10 +258,52 @@ def test_setup_directives_are_pinned():
 
 
 def test_mutexes_and_app_id_match_the_shell():
+    """No AppMutex: it is one list for both scopes, so the all-users shell
+    would block the per-user uninstaller it runs. Pascal checks the
+    running app's name per scope (test_running_checks_are_per_scope)."""
     ident = _identity()
-    assert setup_directives()["AppMutex"] == f"{ident['SingleInstanceMutex']},{ident['InstallerMutex']}"
+    assert "AppMutex" not in setup_directives()
+    assert re.search(r"^\s*AppMutex\s*=", ISS.read_text(encoding="ascii"), re.M | re.I) is None
     ids = [e["AppUserModelID"] for e in section_entries("Icons") if "AppUserModelID" in e]
     assert ids and set(ids) == {ident["AppUserModelId"]}
+
+
+def test_running_checks_are_per_scope():
+    """I2 (Review Focus 2): a per-user install or uninstall waits only for
+    the app in this session (the Local name, which no other user can make
+    here); an all-users one waits for the all-users app of every user (the
+    Global name). The all-users installer marks its folder so the shell
+    knows which name to hold. OK checks again; Cancel, and every silent run,
+    stops with exit code 1 before anything changes, as AppMutex did."""
+    ident = _identity()
+    per, every = ident["RunningPerUser"], ident["RunningAllUsers"]
+    assert per.startswith("Local\\") and every.startswith("Global\\")
+    name = _function("RunningName")
+    assert re.search(r"if IsAdminInstallMode then\s+Result := '%s'\s+else\s+Result := '%s';"
+                     % (re.escape(every), re.escape(per)), name), name
+    closed = _function("AppClosed")
+    assert "while CheckForMutexes(RunningName) do" in closed
+    assert ("if SuppressibleMsgBox(FmtMessage(Msg, ['Food Optimizer']), mbError, MB_OKCANCEL, IDCANCEL)"
+            " <> IDOK then begin") in closed
+    assert closed.index("Log('refused: app_running')") < closed.index("Result := False;")
+    # Setup checks where AppMutex was checked (Inno runs InitializeSetup
+    # just before it); the uninstaller after the user confirms, at the step
+    # Inno gives its own check (usAppMutexCheck), where Abort ends it.
+    assert re.search(r"Result := AppClosed\(SetupMessage\(msgSetupAppRunningError\)\);",
+                     _function("InitializeSetup"))
+    unins = _function("CurUninstallStepChanged")
+    assert re.search(r"if \(CurUninstallStep = usAppMutexCheck\) and\s+"
+                     r"not AppClosed\(SetupMessage\(msgUninstallAppRunningError\)\) then\s+Abort;", unins), unins
+    assert "InitializeUninstall" not in _code_section()
+    # The marker: written only by the all-users installer, deleted by its uninstaller.
+    code = _code_section()
+    assert code.count("SaveStringToFile(") == 1
+    assert re.search(r"if IsAdminInstallMode then begin\s+(\{[^}]*\}\s+)?"
+                     r"if not SaveStringToFile\(ExpandConstant\('\{app\}\\all-users'\), 'all-users' \+ #13#10, False\)",
+                     _function("CurStepChanged"))
+    assert {"Type": "files", "Name": "{app}\\all-users"} in section_entries("UninstallDelete")
+    layout = (WINDOWS / "FoodOptimizer" / "FoodOptimizer.Core" / "InstallLayout.cs").read_text(encoding="utf-8")
+    assert 'File.Exists(Path.Combine(Root, "all-users"))' in layout
 
 
 def test_languages_layer_our_messages():
@@ -282,7 +324,8 @@ def test_install_delete_clears_the_bundled_folders():
         {"Type": "filesandordirs", "Name": "{app}\\shared"},
         {"Type": "filesandordirs", "Name": "{app}\\runtimes"},
         {"Type": "files", "Name": "{app}\\*.dll"}]
-    assert section_entries("UninstallDelete") == [{"Type": "dirifempty", "Name": "{app}"}]
+    assert section_entries("UninstallDelete") == [{"Type": "files", "Name": "{app}\\all-users"},
+                                                  {"Type": "dirifempty", "Name": "{app}"}]
 
 
 def test_three_shortcuts():

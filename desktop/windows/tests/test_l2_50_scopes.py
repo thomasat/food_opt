@@ -292,18 +292,22 @@ def test_all_users_install_finds_a_redirected_start_menu(installer, l2_home, cle
 
 
 def test_it_install_waits_for_a_running_copy(installer, l2_home, cleanup):
-    assert l2.install(installer, "user", dir=l2_home.root, env=l2_home.env).rc == 0
-    before = l2.manifest(l2_home.root)
-    job = _loaded_shell(l2_home.root, l2_home)
+    """An IT upgrade waits while the all-users app runs (its Global name,
+    seen from SYSTEM's session). A per-user copy's app is seen only in its
+    own session (test_l2_55_two_users)."""
+    first = l2.install(installer, "system", all_users=True)
+    assert first.rc == 0, first.log[-3000:]
+    before = l2.manifest(PROGRAM_FILES)
+    job = _loaded_shell(PROGRAM_FILES, l2_home)
     try:
         result = l2.install(installer, "system", all_users=True)
         assert job.alive()
-        assert l2.manifest(l2_home.root) == before
-        assert l2.uninstall_entry("machine") is None
+        assert l2.manifest(PROGRAM_FILES) == before
         l2.report("app_running_rc_system", result.rc)
         assert result.rc == l2.EXIT_CODES["app_running"], (result.rc, result.log[-3000:])
+        assert "refused: app_running" in result.log
     finally:
-        _close(job, l2_home.root)
+        _close(job, PROGRAM_FILES)
 
 
 def test_silent_install_while_the_app_runs(installer, l2_home, cleanup):
@@ -316,6 +320,7 @@ def test_silent_install_while_the_app_runs(installer, l2_home, cleanup):
         assert l2.manifest(l2_home.root) == before
         l2.report("app_running_rc_user", result.rc)
         assert result.rc == l2.EXIT_CODES["app_running"], (result.rc, result.log[-3000:])
+        assert "refused: app_running" in result.log
     finally:
         _close(job, l2_home.root)
     again = l2.install(installer, "user", dir=l2_home.root, env=l2_home.env)
@@ -330,6 +335,7 @@ def test_silent_uninstall_while_the_app_runs(installer, l2_home, cleanup):
         rc = l2.uninstall(l2_home.root, "user", env=l2_home.env)
         l2.report("app_running_rc_uninstall", rc)
         assert rc != 0
+        assert "refused: app_running" in l2.last_uninstall_log(), l2.last_uninstall_log()[-3000:]
         assert job.alive()
         assert l2.manifest(l2_home.root) == before
         assert l2.uninstall_entry("user") is not None

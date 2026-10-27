@@ -1,4 +1,8 @@
+using System.ComponentModel;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using System.Security.Principal;
+using Microsoft.Win32.SafeHandles;
 
 namespace FoodOptimizer.Core.Windows;
 
@@ -67,20 +71,78 @@ public sealed class SingleInstance : IDisposable
     public void Dispose() => Release();
 }
 
-/// <summary>The Global mutex the installer checks to see the app running.</summary>
+/// <summary>The running-app name the installer checks (AppIdentity's
+/// RunningPerUser or RunningAllUsers). A Local name is made as any mutex.
+/// A Global name gets a DACL that lets every signed-in user wait on it
+/// (SYNCHRONIZE, which is all an installer's check or another shell
+/// needs) and nobody else do more than SYSTEM, Administrators and its
+/// maker; when another user's app made it first, it is opened for waiting
+/// only. Null, logged, when it can't be held.</summary>
 [SupportedOSPlatform("windows")]
 public static class InstallerMutex
 {
-    public static Mutex? Hold(string name, ShellLog log)
+    const uint Synchronize = 0x00100000;
+    const int ErrorAccessDenied = 5;
+
+    /// <summary>The Global name's security descriptor, in SDDL.</summary>
+    public static string GlobalSddl(string userSid) =>
+        "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;" + userSid + ")(A;;0x00100000;;;AU)";
+
+    public static WaitHandle? Hold(string name, ShellLog log)
     {
         try
         {
-            return new Mutex(initiallyOwned: false, name);
+            WaitHandle held = name.StartsWith(@"Global\", StringComparison.OrdinalIgnoreCase)
+                ? HoldGlobal(name)
+                : new Mutex(initiallyOwned: false, name);
+            log.Write("mutex.held", name);
+            return held;
         }
         catch (Exception e)
         {
-            log.Write("mutex.global_failed", e.GetType().Name);
+            log.Write("mutex.global_failed", e is Win32Exception w ? "win32_" + w.NativeErrorCode : e.GetType().Name);
             return null;
         }
+    }
+
+    static WaitHandle HoldGlobal(string name)
+    {
+        var user = WindowsIdentity.GetCurrent().User?.Value ?? throw new InvalidOperationException("token.no_user");
+        if (!NativeMethods.ConvertStringSecurityDescriptorToSecurityDescriptorW(GlobalSddl(user), 1, out var sd, IntPtr.Zero))
+            throw new Win32Exception(Marshal.GetLastPInvokeError());
+        try
+        {
+            var attributes = new NativeMethods.SECURITY_ATTRIBUTES
+            {
+                Length = (uint)Marshal.SizeOf<NativeMethods.SECURITY_ATTRIBUTES>(),
+                SecurityDescriptor = sd,
+            };
+            var handle = NativeMethods.CreateMutexW(attributes, false, name);
+            if (handle.IsInvalid)
+            {
+                var error = Marshal.GetLastPInvokeError();
+                handle.Dispose();
+                if (error != ErrorAccessDenied) throw new Win32Exception(error);
+                // Another user's all-users app made it: waiting is all we may, and need.
+                handle = NativeMethods.OpenMutexW(Synchronize, false, name);
+                if (handle.IsInvalid)
+                {
+                    error = Marshal.GetLastPInvokeError();
+                    handle.Dispose();
+                    throw new Win32Exception(error);
+                }
+            }
+            return new Held(handle);
+        }
+        finally
+        {
+            NativeMethods.LocalFree(sd);
+        }
+    }
+
+    /// <summary>A kernel handle kept open until disposed.</summary>
+    sealed class Held : WaitHandle
+    {
+        public Held(SafeWaitHandle handle) => SafeWaitHandle = handle;
     }
 }
