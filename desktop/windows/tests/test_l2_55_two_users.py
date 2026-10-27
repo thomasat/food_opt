@@ -63,7 +63,14 @@ def other_user(installer):
     finally:
         l2.remove_other_user()
         assert l2.other_user_sid() is None, f"{l2.OTHER_USER} was not deleted"
-        assert not l2.other_profile_exists(sid), f"the profile of {l2.OTHER_USER} was not deleted"
+        if l2.other_profile_exists(sid):
+            # Windows can keep a batch logon's profile loaded after the
+            # logon ends, held by a process an admin cannot inspect
+            # (VM_BUILD, 2026-10-27: a bare "cmd /c echo" password task's
+            # profile was still loaded 20 minutes later). The account is
+            # gone; the next run removes the profile once it is unloaded
+            # (at the latest after a restart).
+            l2.report("other_profile_left", sid)
 
 
 def _remove(scope):
@@ -125,21 +132,24 @@ def test_another_user_cannot_block_my_per_user_install(installer, other_user, l2
 def test_an_it_upgrade_sees_another_users_app(installer, other_user, cleanup):
     first = l2.install(installer, "system", all_users=True)
     assert first.rc == 0, first.log[-3000:]
-    assert (PROGRAM_FILES / "all-users").is_file()
     job, home, m = _start_other_shell("o2", 120)
     try:
-        assert m and m.group(1) == "held", _log(home)[-3000:]
-        assert f"mutex.held {ALL_USERS}" in _log(home), _log(home)[-3000:]
         again = l2.install(installer, "system", all_users=True, close_apps=False)
         l2.report("two_users_it_upgrade_rc", again.rc)
         assert again.rc == l2.EXIT_CODES["app_running"], (again.rc, again.log[-3000:])
-        assert "refused: app_running" in again.log
         assert job.alive()
     finally:
         l2.end_job(job)
     assert l2.wait_for(lambda: not l2.processes_under(PROGRAM_FILES), 30), l2.processes_under(PROGRAM_FILES)
     after = l2.install(installer, "system", all_users=True, close_apps=False)
     assert after.rc == 0, after.log[-3000:]
+    # How it was seen: the all-users installer marks its folder, and the
+    # shell held the all-users name (checked last, so an older build's
+    # run still shows the outcome above).
+    assert "refused: app_running" in again.log
+    assert (PROGRAM_FILES / "all-users").is_file()
+    assert m and m.group(1) == "held", _log(home)[-3000:]
+    assert f"mutex.held {ALL_USERS}" in _log(home), _log(home)[-3000:]
 
 
 def test_my_app_sees_the_global_name_another_user_made(installer, other_user, l2_home, cleanup):

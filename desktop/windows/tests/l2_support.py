@@ -309,6 +309,7 @@ def add_other_user() -> str:
     global _other_password
     if other_user_sid() is not None:
         remove_other_user()
+    remove_stale_other_profiles()
     password = _new_password()
     # /Y answers net's question about passwords over 14 characters (with no
     # console to ask, it exits -1).
@@ -346,8 +347,9 @@ def remove_other_user() -> None:
     sid = other_user_sid()
     if sid is not None:
         kill_user_processes(OTHER_USER)
-        # The profile service unloads the hive a moment after the last logon ends.
-        for _ in range(30):
+        # Windows may keep a batch logon's hive loaded after the logon ends
+        # (other_profile_exists then stays true; see the module fixture).
+        for _ in range(15):
             r = _powershell(f"Get-CimInstance Win32_UserProfile | Where-Object {{ $_.SID -eq '{sid}' }} | "
                             "Remove-CimInstance -ErrorAction Stop")
             if r.returncode == 0:
@@ -359,6 +361,14 @@ def remove_other_user() -> None:
         subprocess.run(["icacls", str(JOBS), "/remove", OTHER_USER], capture_output=True,
                        creationflags=CREATE_NO_WINDOW)
     _other_password = None
+
+
+def remove_stale_other_profiles() -> None:
+    """Profiles an earlier run's OTHER_USER left (their hive was still
+    loaded then), once Windows has unloaded them."""
+    _powershell(f"Get-CimInstance Win32_UserProfile | Where-Object {{ -not $_.Loaded -and "
+                f"(Split-Path -Leaf $_.LocalPath) -like '{OTHER_USER}*' }} | "
+                "Remove-CimInstance -ErrorAction SilentlyContinue")
 
 
 def other_profile_exists(sid: str) -> bool:
