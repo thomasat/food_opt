@@ -38,6 +38,9 @@ def main(argv=None) -> int:
     repo = REPO
     if "--repo" in argv:
         at = argv.index("--repo")
+        if at + 1 >= len(argv):
+            print("usage: bundle_listing.py [--write] [--repo <path>]")
+            return 2
         repo = pathlib.Path(argv[at + 1])
         del argv[at:at + 2]
     if argv not in ([], ["--write"]):

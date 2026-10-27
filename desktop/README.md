@@ -145,8 +145,9 @@ version X.Y.Z:
    `desktop/dist/`, beside the dmg and its record:
    `FoodOptimizer-X.Y.Z-Windows.exe`, `FoodOptimizer-X.Y.Z-Windows.build.txt`,
    `FoodOptimizer-X.Y.Z-Windows.files.txt`. Each file's hash must be its
-   record's (`dmg_sha256`, `installer_sha256`, `files_list_sha256`), and both records must say `tree_clean=yes`,
-   `signed=yes` and the tag's commit (the Mac's also `notarized=yes`):
+   record's (`dmg_sha256`, `installer_sha256`, `files_list_sha256`), and
+   both records must say `tree_clean=yes`, `signed=yes` and the tag's
+   commit (the Mac's also `notarized=yes`):
 
    ```bash
    shasum -a 256 desktop/dist/FoodOptimizer-X.Y.Z*

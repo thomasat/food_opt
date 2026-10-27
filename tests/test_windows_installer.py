@@ -429,6 +429,11 @@ def test_release_record_keys_follow_the_image_record():
     assert [a or b for a, b in found] == ["disk_free_gb", "size_gate", "files_list_sha256", "signed"]
     for path in [BUILD, REPO / "desktop" / "README.md", WINDOWS / "README.md"]:
         assert "sbom" not in path.read_text(encoding="utf-8").lower(), path
+    # The tests too, except this assertion and the release notes' banned words.
+    allowed = {pathlib.Path(__file__).resolve(), (REPO / "tests" / "test_release_texts.py").resolve()}
+    for path in sorted((REPO / "tests").rglob("*.py")):
+        if path.resolve() not in allowed:
+            assert "sbom" not in path.read_text(encoding="utf-8").lower(), path
 
 
 def test_a_rebuild_over_an_image_with_the_shell_is_allowed():

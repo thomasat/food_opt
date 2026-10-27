@@ -567,6 +567,9 @@ def _listing_cmd(args) -> int:
     repo = pathlib.Path(__file__).resolve().parent.parent.parent
     if "--repo" in args:
         at = args.index("--repo")
+        if at + 1 >= len(args):
+            print("usage: build_env.py listing [--write] [--repo <path>]")
+            return 2
         repo = pathlib.Path(args[at + 1])
         del args[at:at + 2]
     if args not in ([], ["--write"]):
@@ -637,7 +640,7 @@ def main(argv=None) -> int:
     print("usage: build_env.py assemble <repo> <image> | strip <image> | compile <image>"
           " | shell <publish> <image> | gate <repo> <image> [--shell <publish>]"
           " | files <image> <out.txt> | pe-files <image> <out.txt>"
-          " | listing [--write]")
+          " | listing [--write] [--repo <path>]")
     return 2
 
 
