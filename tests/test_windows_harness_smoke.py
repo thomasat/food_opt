@@ -121,3 +121,29 @@ def test_the_traffic_audit_counts_the_shells_whole_tree(l2):
     assert 'l2.report("wfp_outside_by_process"' in text
     for name in ("test_the_tree_includes_webview2", "test_webview2_runs_with_our_browser_arguments"):
         assert f"def {name}(" in text, name
+
+
+# One 5156 event as wevtutil prints it (VM_BUILD, 2026-10-27; WebView2 156).
+EVENT_5156 = (
+    "<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><EventID>5156</EventID>"
+    "<TimeCreated SystemTime='2026-10-27T22:12:55.0986292Z'/><Execution ProcessID='4' ThreadID='5460'/>"
+    "</System><EventData><Data Name='ProcessId'>3076</Data><Data Name='Application'>\\device\\harddiskvolume3"
+    "\\program files (x86)\\microsoft\\edgewebview\\application\\156.0.4314.50\\msedgewebview2.exe</Data>"
+    "<Data Name='Direction'>%%14593</Data><Data Name='SourceAddress'>127.0.0.1</Data>"
+    "<Data Name='SourcePort'>55219</Data><Data Name='DestAddress'>127.0.0.1</Data>"
+    "<Data Name='DestPort'>64415</Data><Data Name='Protocol'>6</Data></EventData></Event>")
+
+
+def test_wfp_events_read_the_connecting_process_id(l2, monkeypatch):
+    """The event's pid is EventData's ProcessId (not System/Execution's
+    ProcessID, the kernel's 4): the tree audit matches events by it."""
+    import datetime
+    out = ("\ufeff" + EVENT_5156).encode("utf-16-le")
+    monkeypatch.setattr(l2.subprocess, "run",
+                        lambda args, **kw: subprocess.CompletedProcess(args, 0, out, b""))
+    events = l2.wfp_events(datetime.datetime(2026, 10, 27, tzinfo=datetime.timezone.utc))
+    assert events == [{"id": 5156, "Application": "\\device\\harddiskvolume3\\program files (x86)\\microsoft"
+                       "\\edgewebview\\application\\156.0.4314.50\\msedgewebview2.exe", "Direction": "%%14593",
+                       "SourceAddress": "127.0.0.1", "DestAddress": "127.0.0.1", "DestPort": "64415",
+                       "ProcessID": "3076"}]
+    assert l2.ours(events[0], r"C:\FOL2\s\Food Optimizer", {3076})

@@ -945,7 +945,10 @@ def wfp_events(since: datetime.datetime) -> list:
         events.append({"id": int(event.find(f"{_EVENT_NS}System/{_EVENT_NS}EventID").text),
                        "Application": data.get("Application", ""), "Direction": data.get("Direction", ""),
                        "SourceAddress": data.get("SourceAddress", ""), "DestAddress": data.get("DestAddress", ""),
-                       "DestPort": data.get("DestPort", ""), "ProcessID": data.get("ProcessID", "")})
+                       "DestPort": data.get("DestPort", ""),
+                       # the event's own field is "ProcessId" (System/Execution's
+                       # ProcessID is the kernel's, 4)
+                       "ProcessID": data.get("ProcessId", "")})
     return events
 
 
