@@ -14,6 +14,9 @@
 #if VER < EncodeVer(6,3,0)
   #error Inno Setup 6.3 or later is required
 #endif
+#if VER >= EncodeVer(7,0,0)
+  #error Inno Setup 6 only: LockFolder passes handles and pointers as Longint (32-bit Setup)
+#endif
 
 #ifndef AppVersion
   #define VersionHandle FileOpen(AddBackslash(SourcePath) + "..\VERSION")
@@ -384,6 +387,7 @@ var
   Present, Defaulted, Rc: Integer;
 begin
   Result := False;
+  CloseAppDir;
   AppDirHandle := CreateFileW(App, AppDirAccess, AppDirShare, 0, AppDirOpenExisting, AppDirFlags, 0);
   if AppDirHandle = -1 then begin
     AppDirHandle := 0;

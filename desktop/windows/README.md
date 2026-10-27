@@ -128,8 +128,11 @@ Uninstall:
   <folder>` in the log). It refuses a folder that holds files (unless
   it is this copy's own), that a user owns, or that is or lies under a
   link (junction).
-- Put a `/DIR` under a folder only admins can change: `C:\` itself, or
-  a folder IT made.
+- Put a `/DIR` directly under `C:\` (for example `C:\Food Optimizer`),
+  or under a folder whose rules IT has set so users cannot rename or
+  delete it: `C:\`'s default rule lets them, so a folder IT makes there
+  is not enough. Folders the installer has to create on the way are not
+  locked.
 - A running per-user copy is seen only in its own user's session, while
   an IT upgrade waits for every user's running all-users copy.
 - An all-users install never changes a per-user copy. When that user
