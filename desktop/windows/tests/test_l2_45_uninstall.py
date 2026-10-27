@@ -22,7 +22,7 @@ def test_silent_uninstall_keeps_projects(per_user):
         home.state.mkdir(parents=True, exist_ok=True)
         (home.state / "settings.json").write_text('{\n  "version": 1,\n  "quickAccessPinned": true\n}\n',
                                                   encoding="utf-8")
-        l2.pin(home.projects)
+        assert l2.pin(home.projects), l2.quick_access()
     assert l2.in_quick_access(home.projects), l2.quick_access()
     planted = {home.projects / "My project.pkl": b"\x80\x04project bytes",
                home.projects / "Notes \u00e9.json": '{"note": "\u00e9t\u00e9"}'.encode("utf-8")}
@@ -50,8 +50,7 @@ def test_uninstall_keeps_a_pin_the_app_did_not_make(installer, clean_machine, l2
     result = l2.install(installer, "user", dir=l2_home.root, env=l2_home.env)
     assert result.rc == 0, result.log[-3000:]
     try:
-        l2.pin(l2_home.projects)
-        assert l2.in_quick_access(l2_home.projects), l2.quick_access()
+        assert l2.pin(l2_home.projects), l2.quick_access()
         assert '"quickAccessPinned": true' not in l2.settings_text(l2_home)
         assert l2.uninstall(l2_home.root, "user", env=l2_home.env) == 0
         log = l2.last_uninstall_log()

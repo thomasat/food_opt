@@ -580,24 +580,40 @@ def in_quick_access(path) -> bool:
     return any(os.path.normcase(p) == want for p in quick_access())
 
 
-def pin(path) -> None:
-    """Pins a folder to Quick access, as a user would by hand."""
+def _user_powershell(script: str) -> int:
+    """PowerShell as the limited user on the desktop: Explorer's pin verbs
+    act for the user who runs them, and an elevated runner's call (VM_BUILD,
+    2026-10-27) left Quick access unchanged."""
+    return run_as("user", ["powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
+                           "-ExecutionPolicy", "Bypass", "-Command", script], timeout=180)
+
+
+def pin(path) -> bool:
+    """Pins a folder to Quick access, as the user would by hand; True once
+    Quick access lists it."""
     p = str(path).replace("'", "''")
-    _powershell(f"$f = (New-Object -ComObject Shell.Application).Namespace('{p}'); "
-                "if ($f) { $f.Self.InvokeVerb('pintohome') }")
+    _user_powershell(f"$f = (New-Object -ComObject Shell.Application).Namespace('{p}'); "
+                     "if ($f) { $f.Self.InvokeVerb('pintohome') }")
+    return wait_for(lambda: in_quick_access(path), 15, 0.5)
 
 
 def unpin_under(folder) -> list:
     """Unpins every Quick access entry at or under folder, gone or not: the
     app pins each test's projects folder at its first launch (D2), and
-    Level 2's folders are its own. Returns the paths it unpinned."""
-    p = str(folder).rstrip("\\").replace("'", "''")
-    return _powershell_json(
-        "$qa = (New-Object -ComObject Shell.Application).Namespace("
-        "'shell:::{679f85cb-0220-4080-b29b-5540cc05aab6}'); $done = @(); "
-        "foreach ($i in @($qa.Items())) { $q = [string]$i.Path; "
-        f"if ($q -eq '{p}' -or $q.StartsWith('{p}\\', [StringComparison]::OrdinalIgnoreCase)) "
-        "{ $i.InvokeVerb('unpinfromhome'); $done += $q } }; ConvertTo-Json @($done)") or []
+    Level 2's folders are its own. Returns the paths it found."""
+    prefix = os.path.normcase(str(folder).rstrip("\\"))
+    found = [q for q in quick_access()
+             if os.path.normcase(q) == prefix or os.path.normcase(q).startswith(prefix + "\\")]
+    if found:
+        p = str(folder).rstrip("\\").replace("'", "''")
+        _user_powershell(
+            "$qa = (New-Object -ComObject Shell.Application).Namespace("
+            "'shell:::{679f85cb-0220-4080-b29b-5540cc05aab6}'); "
+            "foreach ($i in @($qa.Items())) { $q = [string]$i.Path; "
+            f"if ($q -eq '{p}' -or $q.StartsWith('{p}\\', [StringComparison]::OrdinalIgnoreCase)) "
+            "{ $i.InvokeVerb('unpinfromhome') } }")
+        wait_for(lambda: not any(in_quick_access(q) for q in found), 15, 0.5)
+    return found
 
 
 def settings_text(home) -> str:

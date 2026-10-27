@@ -231,10 +231,10 @@ FoodOptimizer.exe                        the window (.NET, WebView2)
 ### Files, registry and services
 
 - Shortcuts: two in Start (Food Optimizer, and Food Optimizer - Start
-  Here) and one on the desktop (unless `/NODESKTOPSHORTCUT`). Food
-  Optimizer pins the projects folder to Quick access the first time each
-  user opens it. Uninstalling a per-user copy unpins it only if the app
-  pinned it.
+  Here) and one on the desktop (unless `/NODESKTOPSHORTCUT`).
+- Food Optimizer pins the projects folder to Quick access the first time
+  each user opens it. Uninstalling a per-user copy unpins it only if the
+  app pinned it.
 - The only registry entry is the uninstall key, which Inno Setup writes
   (HKCU per user, HKLM for all users). The app only reads its own HKCU
   uninstall key (to find this user's per-user copy) and writes none.
