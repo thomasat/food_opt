@@ -955,13 +955,104 @@ def _dos_device(drive: str) -> str:
     return buf.value
 
 
-def ours(event: dict, root) -> bool:
-    """Whether the event's process image lies under the install root (the
-    event names it by its \\device\\harddiskvolumeN path)."""
+def ours(event: dict, root, pids=()) -> bool:
+    """Whether the event is Food Optimizer's: its process is in the shell's
+    tree (pids, from TreeWatch; WebView2's msedgewebview2.exe included) or
+    its image lies under the install root (the event names it by its
+    \\device\\harddiskvolumeN path)."""
+    try:
+        if int(event.get("ProcessID") or -1) in pids:
+            return True
+    except ValueError:
+        pass
     root = os.path.abspath(str(root))
     drive, rest = os.path.splitdrive(root)
     prefix = (_dos_device(drive) + rest).lower().rstrip("\\") + "\\"
     return event["Application"].lower().startswith(prefix)
+
+
+# ---------- the shell's process tree ----------
+
+_PROCESS_ROWS = (
+    "@(Get-CimInstance Win32_Process | ForEach-Object { [pscustomobject]@{ "
+    "pid = [int]$_.ProcessId; ppid = [int]$_.ParentProcessId; "
+    "created = $(if ($null -ne $_.CreationDate) { $_.CreationDate.ToFileTimeUtc() } else { 0 }); "
+    "image = [string]$_.ExecutablePath; cmd = [string]$_.CommandLine } }) | ConvertTo-Json -Compress")
+
+
+def process_rows() -> list:
+    """Every process: pid, parent pid, creation time (FILETIME, UTC), image
+    and command line (Win32_Process; admin sees every user's)."""
+    rows = _powershell_json(_PROCESS_ROWS) or []
+    return rows if isinstance(rows, list) else [rows]
+
+
+def process_tree(root_pid: int, rows=None, known=None) -> set:
+    """The pids of root_pid and its descendants, by ParentProcessId. A child
+    counts only if it started after its parent (a reused parent pid does
+    not adopt strangers). known: {pid: creation time} seen in the tree
+    before; those still running (same pid, same start) seed the walk too, so
+    a child whose parent has exited (WebView2 outlives the shell by a
+    moment) stays in."""
+    rows = process_rows() if rows is None else rows
+    created = {r["pid"]: r["created"] for r in rows}
+    children = {}
+    for r in rows:
+        if r["pid"] != r["ppid"]:
+            children.setdefault(r["ppid"], []).append(r["pid"])
+    known = known or {}
+    todo = [p for p in created if p == root_pid or known.get(p) == created[p]]
+    tree = set()
+    while todo:
+        pid = todo.pop()
+        if pid in tree:
+            continue
+        tree.add(pid)
+        todo.extend(c for c in children.get(pid, ()) if created[c] >= created[pid])
+    return tree
+
+
+class TreeWatch:
+    """The shell's process tree, polled every second between start() and
+    stop() and accumulated: {pid: {"image", "cmd", "created"}} of every
+    process that was in it at any poll."""
+
+    def __init__(self, root_pid: int):
+        self.root_pid, self.seen = root_pid, {}
+        self._stop, self._thread = threading.Event(), None
+
+    def poll(self) -> set:
+        rows = process_rows()
+        tree = process_tree(self.root_pid, rows, {p: e["created"] for p, e in self.seen.items()})
+        by_pid = {r["pid"]: r for r in rows}
+        for pid in tree:
+            entry = self.seen.setdefault(pid, {"image": "", "cmd": "", "created": by_pid[pid]["created"]})
+            entry["image"] = by_pid[pid]["image"] or entry["image"]
+            entry["cmd"] = by_pid[pid]["cmd"] or entry["cmd"]
+        return tree
+
+    def _run(self):
+        while not self._stop.is_set():
+            try:
+                self.poll()
+            except (RuntimeError, ValueError, subprocess.TimeoutExpired):
+                pass
+            self._stop.wait(1.0)
+
+    def start(self):
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+        return self
+
+    def alive(self) -> bool:
+        return any(pid_alive(pid) for pid in self.seen)
+
+    def stop(self) -> dict:
+        self._stop.set()
+        if self._thread:
+            self._thread.join(30)
+        self.poll()
+        return self.seen
 
 
 # ---------- the report ----------

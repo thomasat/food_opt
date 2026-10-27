@@ -131,6 +131,19 @@ def test_webview2_privacy_settings_are_pinned():
     assert "custom crash reporting" in net
 
 
+def test_network_section_names_the_measured_audit_and_flags():
+    """I4: the Network section states what Level 2 measures (the shell's
+    whole process tree, WebView2 included) and names each switch that turns
+    WebView2's background networking off (WebEnvironment.BrowserArguments)."""
+    env = (SHELL / "WebEnvironment.cs").read_text(encoding="utf-8")
+    flags = re.search(r'public const string BrowserArguments\s*=\s*"([^"]*)";', env).group(1).split()
+    net = _flat(_section("Network"))
+    for flag in flags:
+        assert f"`{flag}`" in net, flag
+    assert "test_our_processes_connect_only_to_loopback" in net
+    assert "WebView2" in net and "127.0.0.1" in net
+
+
 def test_a_saved_project_is_plain_json_and_never_unpickled(tmp_path, monkeypatch):
     """Data at rest: a project file is JSON, and a pickle placed where a
     project goes is reported damaged without being run."""

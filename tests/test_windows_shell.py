@@ -168,6 +168,12 @@ def test_powershell_scripts_are_ascii():
         p.read_bytes().decode("ascii")
 
 
+# I4: WebEnvironment.BrowserArguments, each flag measured on WebView2 156
+# (Task 13): on the browser process's command line, and Level 2's traffic
+# audit of the shell's whole tree with and without it.
+BROWSER_ARGUMENTS = ["--disable-background-networking", "--disable-component-update",
+                     "--disable-domain-reliability", "--no-pings"]
+
 WEBVIEW_SETTINGS = {
     "AreBrowserAcceleratorKeysEnabled": "false",
     "AreDevToolsEnabled": "false",
@@ -189,8 +195,16 @@ def test_webview_settings_are_the_spec_list():
     host = _strip_comments(read_lf(SHELL / "FoodOptimizer.Shell" / "WebViewHost.cs"))
     for name, value in WEBVIEW_SETTINGS.items():
         assert re.search(r"\.%s\s*=\s*%s;" % (name, value), host), name
-    env = read_lf(SHELL / "FoodOptimizer.Shell" / "WebEnvironment.cs")
+    env = _strip_comments(read_lf(SHELL / "FoodOptimizer.Shell" / "WebEnvironment.cs"))
     assert "IsCustomCrashReportingEnabled = true" in env
+    # I4: WebView2's background networking off.
+    assert "AdditionalBrowserArguments = BrowserArguments" in env
+    m = re.search(r'public const string BrowserArguments\s*=\s*"([^"]*)";', env)
+    assert m and m.group(1).split() == BROWSER_ARGUMENTS, m and m.group(1)
+    # Every environment the shell makes goes through WebEnvironment.
+    makers = [p.name for p, source in _shell_sources().items()
+              if "CoreWebView2Environment.CreateAsync" in _strip_comments(source)]
+    assert makers == ["WebEnvironment.cs"], makers
 
 
 ICON = REPO / "desktop" / "windows" / "icon.ico"
