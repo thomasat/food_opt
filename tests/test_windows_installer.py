@@ -433,6 +433,9 @@ def test_setup_refuses_an_old_inno():
     text = ISS.read_text(encoding="ascii")
     assert "EncodeVer(6,3,0)" in text
     assert "#error Inno Setup 6.3 or later is required" in text
+    # LockFolder's handles and pointers are Longint: Inno 6's Setup is
+    # 32-bit; Inno 7 can build a 64-bit one (fix round 3).
+    assert re.search(r"^#if VER >= EncodeVer\(7,0,0\)\n  #error [^\n]*Longint[^\n]*\n#endif$", text, re.M), text[:1500]
 
 
 # ---------- build_installer.ps1 builds the installer (Task 5) ----------
@@ -805,6 +808,8 @@ def test_an_it_install_outside_program_files_is_locked_down():
     assert "Up := ExtractFileDir(P);" in link and "P := Up;" in link
 
     lock = _function("LockFolder")
+    # PrepareToInstall can run twice: an earlier handle is closed first.
+    assert lock.index("CloseAppDir;") < lock.index("AppDirHandle := CreateFileW(")
     steps = ["AppDirHandle := CreateFileW(App, AppDirAccess, AppDirShare, 0, AppDirOpenExisting, AppDirFlags, 0);",
              "if OnALink(App) or not OwnedByAdmins then",
              "ConvertStringSecurityDescriptorToSecurityDescriptorW(AppDirRule, 1, Descriptor, 0)",
@@ -843,6 +848,10 @@ def test_an_it_install_outside_program_files_is_locked_down():
 
     header = text.split("\n#if ")[0]
     assert "Win32 security calls (LockFolder)" in header and "icacls" not in header
+    # A folder IT makes under C:\ keeps C:\'s rule (users may rename it):
+    # the README says where a /DIR is safe (fix round 3).
+    readme = (WINDOWS / "README.md").read_text(encoding="utf-8")
+    assert "directly under `C:\\`" in readme and "only admins can change" not in readme
 
 
 def test_a_failed_build_leaves_no_installer_or_record():
