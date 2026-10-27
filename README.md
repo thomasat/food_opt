@@ -15,13 +15,13 @@ Requires **Apple silicon (M1 or newer)** and **macOS 13 Ventura or newer**. Chec
 
 First-time setup downloads about **1 GB** and needs about **6 GB of free space**. Setup time depends on your connection and computer. You can use the app offline afterward; a future update may need another download.
 
-**Updating?** Quit Food Optimizer before replacing it in Applications. Your saved projects are kept.
+**Updating?** Quit Food Optimizer before replacing it in Applications. Your saved projects are kept. In Numbers, select the sheet tabs if workbook links do not open.
 
 ## Install on Windows
 
 [**Download FoodOptimizer-0.9.0-Windows.exe**](https://github.com/thomasat/food_opt/releases/download/v0.9.0/FoodOptimizer-0.9.0-Windows.exe)
 
-Needs Windows 10 or 11 (64-bit) and 2 GB free. Works offline.
+Needs 64-bit Windows 10 (22H2) or Windows 11 and 2 GB free. Works offline.
 
 ## Start with the example
 
@@ -35,11 +35,11 @@ To see real results, choose **Try the yogurt pilot**. It opens **Yogurt pilot - 
 4. Open **3 · Results** for Round 6's ratings against their targets, then **4 · Review** for the best so far.
 5. Under **What next?**, choose **Start Round 7** to have the app suggest Round 7, or **See the pilot's Rounds 7–10** to open **Yogurt pilot - all 10 Rounds**: what the pilot made next.
 
-To try it again, choose **Manage project → Start this sample over**. Your version is kept in **Saved copies**.
+To try it again, choose **Manage project → Start this example over**. Your version is kept in **Saved copies**.
 
 For your own project, generate formulations in **Make a round** and download the workbook. Use **Round overview** for the plan and **Results** for measurements; a Round with pre-mixes also has a **Preparation** sheet. Upload the completed workbook, review the imported values, and save the results. Editing the workbook alone does not update the app. You can also enter measurements directly in the app.
 
-The included **Start Here.txt** explains installation and the first-round workflow. In Numbers, select the sheet tabs if workbook links do not open.
+The included **Start Here.txt** explains installation and the first-round workflow.
 
 ## Review results
 

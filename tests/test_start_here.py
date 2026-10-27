@@ -65,11 +65,12 @@ def test_windows_start_here_says_what_the_spec_requires():
                    "Type Food Optimizer in Start.",
                    "Close the window to quit.",
                    "Run the new installer. Your projects are kept.",
-                   "First opening takes longer. Keep this window open.",
+                   "First opening takes longer. Keep the app's window open.",
                    "Quick access",
                    "Enable Editing",
-                   "Check the publisher is Food System Innovations, then click More info, "
-                   "then Run anyway.",
+                   "Windows may not recognize the app yet. Click More info. "
+                   "Check the publisher is Food System Innovations, then click Run anyway.",
+                   "If Edge warns about the download, choose Keep.",
                    wording.SUPPORT_EMAIL,
                    "AppData\\Local\\FoodOptimizer\\launcher.log"):
         assert needed in text, needed

@@ -61,7 +61,7 @@ def test_windows_checklist_covers_level_3():
 
 def test_requirements_block_names_the_disk_figure():
     n = json.loads(SIZE_GATE.read_text(encoding="utf-8"))["disk_free_gb"]
-    assert f"Needs Windows 10 or 11 (64-bit) and {n} GB free. Works offline." in _flat(WIN_README)
+    assert f"Needs 64-bit Windows 10 (22H2) or Windows 11 and {n} GB free. Works offline." in _flat(WIN_README)
 
 
 # ---------- the combined release ritual (phase 6, Task 7) ----------

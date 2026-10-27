@@ -10,7 +10,7 @@ Releasing: "Release (Windows half)" below, inside the combined ritual in
 
 ## System requirements (copy-paste for emails / download page)
 
-Needs Windows 10 or 11 (64-bit) and 2 GB free. Works offline.
+Needs 64-bit Windows 10 (22H2) or Windows 11 and 2 GB free. Works offline.
 
 ## Build
 

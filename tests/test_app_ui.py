@@ -3414,9 +3414,10 @@ def test_windows_first_opening_copy():
     from tests.shared_texts import texts
     root = pathlib.Path(APP_PATH).resolve().parent
     sentence = "First opening takes longer. Keep this window open."
+    start_here_sentence = "First opening takes longer. Keep the app's window open."
     start_here = _flowed((root / "desktop" / "windows" / "start_here.txt")
                          .read_text(encoding="utf-8"))
-    assert sentence in start_here
+    assert start_here_sentence in start_here
     assert texts("windows")["steps.note.first_opening"] == sentence
     assert _FIRST_RUN_SENTENCE not in start_here
     assert not any(_FIRST_RUN_SENTENCE in t for t in texts("windows").values())

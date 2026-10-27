@@ -105,7 +105,7 @@ URL_BASE = "https://github.com/thomasat/food_opt/releases/download"
 PENDING = re.compile(r"PENDING\(((?:[^()]|\([^()]*\))*)\)")
 # The texts sent at a release: none may hold a PENDING marker at the tag.
 SENT_TEXTS = ("README.md", "desktop/release_notes/{v}.md", "desktop/windows/download_email.md",
-              "desktop/windows/README.md")
+              "desktop/windows/README.md", "desktop/shared/start_here.src.md")
 
 
 def release_assets(v):
@@ -138,7 +138,7 @@ def test_both_readmes_carry_the_same_windows_requirements():
     win = (REPO / "desktop" / "windows" / "README.md").read_text(encoding="utf-8")
     block = win[win.index("## System requirements (copy-paste"):]
     line = next(l for l in block.splitlines()[1:] if l.strip())
-    assert line.startswith("Needs Windows 10 or 11 (64-bit)")
+    assert line.startswith("Needs 64-bit Windows 10 (22H2) or Windows 11")
     assert line in (REPO / "README.md").read_text(encoding="utf-8")
 
 

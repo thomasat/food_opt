@@ -67,4 +67,4 @@ On "3 · Results", click "Download all formulations (Excel)" and open
 it: the "Set up" sheet in THAT file is the one with the Rule column,
 and it spells Water out as "= rest (batch size − every other
 ingredient)" with "calculated" in its Status cell. (The round sheets
-in step 6a are a different download and carry no Set-up sheet.)
+in "A project of your own" are a different download and carry no Set-up sheet.)
