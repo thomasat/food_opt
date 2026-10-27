@@ -971,6 +971,14 @@ def test_read_uploaded_csv_reads_comma_thousands_in_a_semicolon_file():
     assert df["Lowest"].iloc[0] == 1234.5
 
 
+def test_read_uploaded_csv_comma_thousands_never_turn_a_decimal_comma_into_tens():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(_csv("Ingredient;Lowest;Highest\nWater;1,234.5;2,5\n"))
+    highest = df["Highest"].iloc[0]
+    assert highest != 25
+    assert not (isinstance(highest, (int,)) or _pd.api.types.is_integer_dtype(df["Highest"]))
+
+
 def test_read_uploaded_csv_removes_the_export_escape():
     from ui_helpers import read_uploaded_csv
     df = read_uploaded_csv(_csv("Formulation,Note\n1,'=SUM(A1)\n2,'-sweet\n"))

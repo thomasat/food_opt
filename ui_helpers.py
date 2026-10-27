@@ -935,10 +935,10 @@ _EXPORT_ESCAPE = re.compile(r"^'[=+\-@\t\r]")
 
 def _number_format(text, sep):
     """(decimal, thousands, text positions) for pd.read_csv, judged from the
-    numeric columns
-    only: a dot decimal anywhere wins (with comma thousands, 1,234.5, in a
-    ';' file); else a ';' file with a comma decimal or dot thousands (1.250)
-    reads European; else plain dots."""
+    numeric columns only: a dot decimal anywhere wins (with comma thousands,
+    1,234.5, in a ';' file holding no comma decimal or dot thousands); else a
+    ';' file with a comma decimal or dot thousands (1.250) reads European;
+    else plain dots."""
     rows = list(csv.reader(io.StringIO(text), delimiter=sep))[1:]
     columns = {}
     for row in rows:
@@ -968,7 +968,10 @@ def _number_format(text, sep):
     if sep != ";":
         return ".", None, text_positions
     if dot:
-        return ".", ("," if comma_thousands else None), text_positions
+        # Comma thousands only when no cell reads European; mixed, a 2,5
+        # would become 25, so leave 1,234.5 as text instead.
+        thousands = "," if comma_thousands and not european else None
+        return ".", thousands, text_positions
     if european:
         return ",", ".", text_positions
     return ".", None, text_positions
