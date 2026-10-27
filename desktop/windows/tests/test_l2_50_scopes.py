@@ -133,6 +133,14 @@ def _owner(path) -> str:
     return r.stdout.strip()
 
 
+def _sddl(path) -> str:
+    """path's whole security descriptor (owner and rule), as SDDL."""
+    p = str(path).replace("'", "''")
+    r = l2._powershell(f"(Get-Acl -LiteralPath '{p}').Sddl")
+    assert r.returncode == 0, r.stderr
+    return r.stdout.strip()
+
+
 def _user_makes(folder, files=()):
     """The limited user makes `folder` (and `files` in it): theirs, as
     anything a user makes outside their profile is."""
@@ -151,19 +159,16 @@ ALL_CHANGES = ("create", "create_in_app", "overwrite_exe", "replace_exe", "regra
 def test_an_it_dir_outside_program_files_is_read_only_for_users(installer, l2_home, cleanup):
     """M4: an IT install with /DIR outside Program Files gets Program Files'
     rule, not the drive's (C:\\ lets every signed-in user change a new
-    folder). Fix round 1: even when the user made that folder first (theirs,
-    so they could change its rule), it becomes Administrators', and the
-    limited user can neither add a file, replace the app's, grant themselves
-    access nor take it back; the app still opens for them."""
+    folder): the folder is Administrators', and the limited user can
+    neither add a file, replace the app's, grant themselves access nor
+    take it; the app still opens for them. An IT upgrade into the same
+    folder (its registered folder) keeps it so."""
     import shutil
     folder = l2_home.base / "IT FO"
     try:
-        _user_makes(folder)
-        assert _owner(folder) != ADMINISTRATORS
         result = l2.install(installer, "system", all_users=True, dir=folder)
         assert result.rc == 0, result.log[-3000:]
-        for line in (f"acl: owner {folder}", f"acl: reset {folder}", f"acl: locked {folder}"):
-            assert line in result.log, (line, result.log[-3000:])
+        assert f"acl: locked {folder}" in result.log, result.log[-3000:]
         assert result.log.index(f"acl: locked {folder}") < result.log.index("Installing the file.")
         assert _owner(folder) == ADMINISTRATORS
         before = l2.manifest(folder, skip=())
@@ -171,6 +176,12 @@ def test_an_it_dir_outside_program_files_is_read_only_for_users(installer, l2_ho
         assert l2.manifest(folder, skip=()) == before
         assert _owner(folder) == ADMINISTRATORS
         _close(_loaded_shell(folder, l2_home), folder)
+        again = l2.install(installer, "system", all_users=True, dir=folder)
+        assert again.rc == 0, again.log[-3000:]
+        assert f"acl: locked {folder}" in again.log, again.log[-3000:]
+        assert _owner(folder) == ADMINISTRATORS
+        assert _changes(folder, l2_home, ("create", "overwrite_exe")) == {
+            "create": "PermissionError", "overwrite_exe": "PermissionError"}
     finally:
         # The folder is not under C:\FOL2's user grant any more: uninstall
         # it here, then delete what is left as admin.
@@ -178,28 +189,64 @@ def test_an_it_dir_outside_program_files_is_read_only_for_users(installer, l2_ho
         shutil.rmtree(folder, ignore_errors=True)
 
 
-def test_a_folder_a_user_filled_first_is_refused(installer, l2_home, cleanup):
-    """Fix round 1 (M4): the user makes the /DIR folder first and puts our
-    exe's name in it (so it passes for an upgrade) and a pyvenv.cfg (the
-    pre-warm runs python\\python.exe as SYSTEM, and Python reads a
-    pyvenv.cfg one folder up). The IT install locks the folder, finds what
-    was there, and refuses: nothing is installed, and what the user put
-    there is now Administrators' and read-only for them."""
+@pytest.mark.parametrize("files", [(), ("FoodOptimizer.exe", "pyvenv.cfg")], ids=["empty", "filled"])
+def test_a_folder_a_user_made_is_refused(installer, l2_home, cleanup, files):
+    """Fix rounds 1-2 (M4): the user makes the /DIR folder first. Theirs,
+    they could keep a handle that changes its rule after ours; filled, it
+    could hold our exe's name (passing for an upgrade) and a pyvenv.cfg the
+    pre-warm (python\\python.exe, as SYSTEM) would read. The IT install
+    refuses before changing anything: no install, and the folder and its
+    files keep their owner and rule."""
     import shutil
     folder = l2_home.base / "IT FO"
     try:
-        _user_makes(folder, ("FoodOptimizer.exe", "pyvenv.cfg"))
+        _user_makes(folder, files)
+        before = {p.name: _sddl(p) for p in (folder, *(folder / f for f in files))}
         result = l2.install(installer, "system", all_users=True, dir=folder)
         assert result.rc == l2.EXIT_CODES["refused"], result.log[-3000:]
-        assert "refused: folder_not_ours" in result.log and f"acl: locked {folder}" in result.log, result.log[-3000:]
+        assert "refused: folder_not_ours" in result.log and "acl: locked" not in result.log, result.log[-3000:]
+        assert ("acl: not empty" if files else "acl: not owned by Administrators or SYSTEM") in result.log
         assert l2.uninstall_entry("machine") is None
-        assert sorted(p.name for p in folder.iterdir()) == ["FoodOptimizer.exe", "pyvenv.cfg"]
-        assert _owner(folder) == ADMINISTRATORS
-        which = ("create", "overwrite_exe", "replace_exe", "regrant", "reown")
-        assert _changes(folder, l2_home, which) == {name: "PermissionError" for name in which}
+        assert sorted(p.name for p in folder.iterdir()) == sorted(files)
+        assert {p.name: _sddl(p) for p in (folder, *(folder / f for f in files))} == before
+        assert _owner(folder) != ADMINISTRATORS
     finally:
         _remove("machine")
         shutil.rmtree(folder, ignore_errors=True)
+
+
+@pytest.mark.parametrize("where", ["folder", "above"])
+def test_a_dir_through_a_link_is_refused(installer, l2_home, cleanup, where):
+    """Fix round 2 (M4): a limited user can make a junction anywhere C:\\
+    lets them make a folder. A /DIR that is one, or lies under one, is
+    refused before anything is made or changed: the folder it points at
+    keeps its files, owner and rule. (Linked itself, the target holds our
+    exe's name, so the earlier not-ours check passes it for an upgrade.)"""
+    import shutil
+    import sys
+    target = l2_home.base / "Target"
+    mine = "FoodOptimizer.exe" if where == "folder" else "Mine.txt"
+    _user_makes(target, (mine,))
+    link = l2_home.base / "Link"
+    make = "import _winapi, sys; _winapi.CreateJunction(sys.argv[1], sys.argv[2])"
+    assert l2.run_as("user", [sys.executable, "-I", "-c", make, str(target), str(link)]) == 0
+    assert os.path.lexists(link)
+    folder = link if where == "folder" else link / "IT FO"
+    before = (_sddl(target), _sddl(target / mine), sorted(p.name for p in target.iterdir()))
+    try:
+        result = l2.install(installer, "system", all_users=True, dir=folder)
+        assert result.rc == l2.EXIT_CODES["refused"], result.log[-3000:]
+        assert "refused: folder_not_ours" in result.log and f"acl: a link: {link}" in result.log, result.log[-3000:]
+        assert "acl: locked" not in result.log
+        assert l2.uninstall_entry("machine") is None
+        assert (_sddl(target), _sddl(target / mine), sorted(p.name for p in target.iterdir())) == before
+        assert (target / mine).read_bytes() == b"MZ planted"
+    finally:
+        _remove("machine")
+        # rmdir without /s removes the junction only, never the folder it points at.
+        if os.path.lexists(link):
+            subprocess.run(["cmd", "/c", "rmdir", str(link)], check=False)
+        shutil.rmtree(target, ignore_errors=True)
 
 
 def test_system_without_allusers_is_refused(installer, cleanup):

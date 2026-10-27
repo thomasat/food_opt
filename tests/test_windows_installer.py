@@ -765,68 +765,84 @@ def test_unpin_only_what_the_app_pinned():
                      _function("CurStepChanged"))
 
 
-LOCK_ARGS = " /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX"
-
-
 def test_an_it_install_outside_program_files_is_locked_down():
     """M4: under Program Files an all-users copy inherits its rule (users
     read and run it, never change it). A /DIR elsewhere would inherit the
-    drive's, and C:\\ lets every signed-in user change a new folder: before
-    any file is copied (PrepareToInstall, after every other refusal), an
-    admin-mode install outside {commonpf64} makes the folder Administrators'
-    (owner, every entry), drops every rule set on it or in it, and then
-    gives it Program Files' own rule (SYSTEM and Administrators full, Users
-    read and run), all by icacls. Fix round 1: a folder a user made first is
-    covered too, and anything found in it after the lock (put there before
-    it) refuses the install, unless it is this all-users copy's registered
-    folder (an upgrade, locked when first installed). icacls failures are
-    logged and the install goes on."""
+    drive's (C:\\ lets every signed-in user change a new folder). Fix
+    round 2: before any file is copied (last in PrepareToInstall), an
+    admin-mode install outside {commonpf64} gives the folder Program Files'
+    rule in ONE call, on a handle to the folder itself (never what a link
+    points at), held open with no delete sharing until the copy ends, so
+    neither it nor a folder above it can be swapped. Refused, with nothing
+    changed, when it or a folder above it is a link, when it holds anything
+    (unless it is the registered all-users folder), or when a user owns it;
+    refused when the lock fails or something got in first. No icacls, no
+    recursion."""
     code = _code_section()
-    run = _function("RunIcacls")
-    assert run.startswith("function RunIcacls(const Args, Done, Failed: String): Boolean;")
-    assert ("Result := Exec(ExpandConstant('{sys}\\icacls.exe'), Args, '', SW_HIDE, ewWaitUntilTerminated, Code)"
-            " and (Code = 0);") in run, run
-    assert re.search(r"if Result then\s+Log\(Done\)\s+else\s+Log\(Failed \+ ' ' \+ IntToStr\(Code\)\);", run), run
-    # icacls is the one program the installer runs besides the pre-warm.
-    assert len(re.findall(r"\bExec\(", code)) == 1 and "Exec(" in run
+    text = ISS.read_text(encoding="ascii")
+    assert "icacls" not in code and "/T" not in code and not re.search(r"\bExec\(", code)
+    # The rule: owner Administrators, protected, SY and BA full, Users read and run.
+    assert "AppDirRule = 'O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)';" in code
+    generic_read = 0x00120089      # FILE_GENERIC_READ
+    generic_execute = 0x001200A0   # FILE_GENERIC_EXECUTE
+    assert generic_read | generic_execute == 0x1200A9
+    # CreateFileW: READ_CONTROL | WRITE_DAC | WRITE_OWNER | FILE_READ_ATTRIBUTES
+    # | FILE_LIST_DIRECTORY; share read+write only; OPEN_EXISTING;
+    # BACKUP_SEMANTICS | OPEN_REPARSE_POINT.
+    assert "AppDirAccess = $E0081;" in code and 0x20000 | 0x40000 | 0x80000 | 0x80 | 0x1 == 0xE0081
+    assert "AppDirShare = 3;" in code and "AppDirOpenExisting = 3;" in code
+    assert "AppDirFlags = $02200000;" in code and 0x02000000 | 0x00200000 == 0x02200000
+    assert "OwnerDaclProtected = -2147483643;" in code and (-2147483643) & 0xFFFFFFFF == 0x80000005
+    for name, dll in (("CreateFileW", "kernel32"), ("CloseHandle", "kernel32"), ("LocalFree", "kernel32"),
+                      ("ConvertStringSecurityDescriptorToSecurityDescriptorW", "advapi32"),
+                      ("GetSecurityDescriptorOwner", "advapi32"), ("GetSecurityDescriptorDacl", "advapi32"),
+                      ("GetSecurityInfo", "advapi32"), ("SetSecurityInfo", "advapi32"),
+                      ("IsWellKnownSid", "advapi32")):
+        assert f"external '{name}@{dll}.dll stdcall';" in code, name
 
-    registered = _function("RegisteredHere")
-    assert "RegQueryStringValue(HKLM64, UninstallKey, 'InstallLocation', Loc)" in registered
-    assert "SameOrInside(Loc, App) and SameOrInside(App, Loc)" in registered
+    link = _function("OnALink")
+    assert "FindRec.Attributes and FILE_ATTRIBUTE_REPARSE_POINT <> 0" in link
+    assert "Up := ExtractFileDir(P);" in link and "P := Up;" in link
 
-    lock = _function("LockDownAppDir")
-    assert lock.startswith("function LockDownAppDir(const App: String): Boolean;")
-    assert re.search(r"if SameOrInside\(App, ExpandConstant\('\{commonpf64\}'\)\) then\s+exit;", lock), lock
-    q = "Q := '\"' + RemoveBackslashUnlessRoot(App) + '\"';"
-    assert q in lock
-    steps = ["ForceDirectories(App)",
-             "RunIcacls(Q + ' /setowner *S-1-5-32-544 /T /C', 'acl: owner ' + App, 'acl: owner failed');",
-             "RunIcacls(Q + ' /reset /T /C', 'acl: reset ' + App, 'acl: reset failed');",
-             "RunIcacls(Q + '%s', 'acl: locked ' + App, 'acl: failed');" % LOCK_ARGS,
-             "if DirHasEntries(App) then begin"]
+    lock = _function("LockFolder")
+    steps = ["AppDirHandle := CreateFileW(App, AppDirAccess, AppDirShare, 0, AppDirOpenExisting, AppDirFlags, 0);",
+             "if OnALink(App) or not OwnedByAdmins then",
+             "ConvertStringSecurityDescriptorToSecurityDescriptorW(AppDirRule, 1, Descriptor, 0)",
+             "Rc := SetSecurityInfo(AppDirHandle, SeFileObject, OwnerDaclProtected, Owner, 0, Dacl, 0);",
+             "LocalFree(Descriptor);",
+             "Log('acl: locked ' + App);"]
     at = [lock.index(step) for step in steps]
     assert at == sorted(at), lock
-    # The registered upgrade only renews the lock; everything else gets
-    # owner, reset, lock and the check.
-    assert re.search(r"if RegisteredHere\(App\) then\s+RunIcacls\(Q \+ '%s', 'acl: locked ' \+ App, 'acl: failed'\)\s+"
-                     r"else begin" % re.escape(LOCK_ARGS), lock), lock
-    check = lock[lock.index("if DirHasEntries(App) then begin"):]
-    assert re.search(r"Log\('acl: entries found after the lock'\);\s+Result := False;", check), check
-    for word in ("Abort", "MsgBox", "RaiseException", "DelTree", "DeleteFile"):
-        assert word not in lock + run, word
+    assert lock.count("SetSecurityInfo(") == 1 and "SetNamedSecurityInfo" not in code
+    owned = _function("OwnedByAdmins")
+    assert "WinBuiltinAdministratorsSid" in owned and "WinLocalSystemSid" in owned and "LocalFree(Descriptor);" in owned
+    assert "WinLocalSystemSid = 22;" in code and "WinBuiltinAdministratorsSid = 26;" in code
 
-    # Admin mode only, last in PrepareToInstall (so a refusal there never
-    # leaves a changed folder), never after the copy.
+    down = _function("LockDownAppDir")
+    assert down.startswith("function LockDownAppDir(const App: String): Boolean;")
+    assert re.search(r"if SameOrInside\(App, ExpandConstant\('\{commonpf64\}'\)\) then\s+exit;", down), down
+    # Links and a filled folder are refused before anything changes: no
+    # folder is made and no rule is set until both checks pass.
+    order = ["if OnALink(App) then", "if not RegisteredHere(App) and DirHasEntries(App) then begin",
+             "if not ForceDirectories(App) then begin", "if LockFolder(App) then begin",
+             "if RegisteredHere(App) or not DirHasEntries(App) then", "CloseAppDir;"]
+    at = [down.index(step) for step in order]
+    assert at == sorted(at), down
+    for word in ("Abort", "MsgBox", "RaiseException", "DelTree", "DeleteFile"):
+        assert word not in down + lock + link, word
+
+    # Admin mode only, last in PrepareToInstall; the folder stays open
+    # until the pre-warm has run.
     prep = _function("PrepareToInstall")
     tail = prep[prep.index("refused: needs_space"):]
     assert re.search(r"if IsAdminInstallMode and not LockDownAppDir\(App\) then begin\s+"
                      r"Log\('refused: folder_not_ours'\);\s+Result := CustomMessage\('FolderNotOurs'\);\s+end;\s+end;$",
                      tail), tail
-    assert prep.count("LockDownAppDir") == 1 and "LockDownAppDir" not in _function("CurStepChanged")
-    assert code.count("LockDownAppDir(") == 2          # its definition and the one call
+    step = _function("CurStepChanged")
+    assert "LockDownAppDir" not in step and step.index("Prewarm;") < step.index("CloseAppDir;")
 
-    header = ISS.read_text(encoding="ascii").split("\n#if ")[0]
-    assert "icacls" in header and "Pascal and Shell COM only" not in header
+    header = text.split("\n#if ")[0]
+    assert "Win32 security calls (LockFolder)" in header and "icacls" not in header
 
 
 def test_a_failed_build_leaves_no_installer_or_record():
