@@ -1,6 +1,7 @@
 import json
 import os
 import pickle
+import sys
 import time
 
 import pytest
@@ -165,6 +166,24 @@ def test_last_opened_is_the_project_opened_not_the_newest_file(tmp_path, monkeyp
     s.archive("Opened", "deleted")
     assert LocalStorage().last_opened() is None
     assert "Opened" not in s.list_projects()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="M9: only Windows' Explorer lists dot files")
+def test_last_opened_is_hidden_on_windows(tmp_path, monkeypatch):
+    """M9: Explorer lists dot files, so on Windows the reopen note is a
+    hidden file beside the projects. Writing it again still works: Windows
+    refuses to overwrite a hidden file opened for writing."""
+    import ctypes
+    monkeypatch.chdir(tmp_path)
+    s = LocalStorage()
+    s.save("First", {"v": 1})
+    s.save("Second", {"v": 1})
+    s.remember_opened("First")
+    s.remember_opened("Second")
+    assert (tmp_path / ".last_opened").read_text(encoding="utf-8") == "Second"
+    attributes = ctypes.windll.kernel32.GetFileAttributesW(str(tmp_path / ".last_opened"))
+    assert attributes != 0xFFFFFFFF and attributes & 0x2  # FILE_ATTRIBUTE_HIDDEN
+    assert LocalStorage().last_opened() == "Second"
 
 
 def test_no_file_written_on_init(tmp_path, monkeypatch):

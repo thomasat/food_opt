@@ -765,6 +765,41 @@ def test_unpin_only_what_the_app_pinned():
                      _function("CurStepChanged"))
 
 
+ICACLS_ARGS = ("'\"' + App + '\" /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F "
+               "*S-1-5-32-544:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX'")
+
+
+def test_an_it_install_outside_program_files_is_locked_down():
+    """M4: under Program Files an all-users copy inherits its rule (users
+    read and run it, never change it). A /DIR elsewhere would inherit the
+    drive's, and C:\\ lets every signed-in user change a new folder: an
+    admin-mode install outside {commonpf64} replaces the inherited rule
+    with Program Files' own (SYSTEM and Administrators full, Users read
+    and run), by icacls. A failure is logged and the install goes on."""
+    body = _function("LockDownAppDir")
+    assert body.startswith("procedure LockDownAppDir;")
+    assert re.search(r"if SameOrInside\(App, ExpandConstant\('\{commonpf64\}'\)\) then\s+exit;", body), body
+    assert "App := RemoveBackslashUnlessRoot(ExpandConstant('{app}'));" in body
+    assert "Exec(ExpandConstant('{sys}\\icacls.exe'),\n      " + ICACLS_ARGS + "," in body, body
+    assert "'', SW_HIDE, ewWaitUntilTerminated, Code) and (Code = 0) then" in body
+    assert re.search(r"then\s+Log\('acl: locked ' \+ App\)\s+else\s+Log\('acl: failed ' \+ IntToStr\(Code\)\);",
+                     body), body
+    for word in ("Abort", "MsgBox", "Result", "RaiseException"):
+        assert word not in body, word
+    # Admin mode only, after the marker and before the pre-warm (which
+    # runs Python from the folder as SYSTEM).
+    step = _function("CurStepChanged")
+    admin = re.search(r"if IsAdminInstallMode then begin(.*?)\n    end;", step, re.S).group(1)
+    assert "LockDownAppDir;" in admin
+    assert admin.index("SaveStringToFile(") < admin.index("LockDownAppDir;")
+    assert step.count("LockDownAppDir") == 1 and step.index("LockDownAppDir;") < step.index("Prewarm;")
+    # icacls is the one program the installer runs besides the pre-warm,
+    # and the header says so.
+    assert len(re.findall(r"\bExec\(", _code_section())) == 1
+    header = ISS.read_text(encoding="ascii").split("\n#if ")[0]
+    assert "icacls" in header and "Pascal and Shell COM only" not in header
+
+
 def test_a_failed_build_leaves_no_installer_or_record():
     text = BUILD.read_text(encoding="ascii")
     catch = text[text.rindex("} catch {"):]

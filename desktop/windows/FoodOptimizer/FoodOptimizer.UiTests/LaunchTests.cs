@@ -28,7 +28,10 @@ public class LaunchTests
         var @base = ShellApp.ReadShared(Path.Combine(app.StateDir, "server.base"));
         Assert.Matches(new Regex(@"^[A-Za-z0-9_-]{32}\r?\n$"), @base);
         var port = ShellApp.ReadShared(Path.Combine(app.StateDir, "server.port")).Split(' ')[0].Trim();
-        Assert.Contains($"app.navigate http://127.0.0.1:{port}/{@base.Trim()}/", string.Join("\n", app.Log()));
+        // M3: shell.log never holds the base path, the address's secret.
+        var log = string.Join("\n", app.Log());
+        Assert.Contains($"app.navigate http://127.0.0.1:{port}/…/", log);
+        Assert.DoesNotContain(@base.Trim(), log);
         Assert.Equal(AppIdentity.Version, (string?)app.Settings()["lastOpenedVersion"]);
     }
 

@@ -17,7 +17,7 @@ import l2_support as l2
 
 pytestmark = pytest.mark.usefixtures("clean_machine")
 
-NAVIGATE = r"app\.navigate http://127\.0\.0\.1:\d+/[A-Za-z0-9_-]{32}/"
+NAVIGATE = l2.NAVIGATE
 LOCAL = pathlib.Path(os.environ.get("LOCALAPPDATA", ""))
 STATE = LOCAL / "FoodOptimizer"
 PROJECTS = pathlib.Path(os.environ.get("USERPROFILE", "")) / "FoodOptimizer"

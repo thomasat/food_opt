@@ -86,6 +86,11 @@ FIRST_OPEN_LIMIT_S = 180
 # dd149ad: 5.1, 6.4 and 6.3 s; ceil(2 x median 6.3) = 13.
 WARM_RELAUNCH_LIMIT_S = {"x64": 30, "arm64": 13}
 
+# The shell's line once the app loads. The address's base path, its
+# per-launch secret, is redacted (M3): shell.log never holds it; it is in
+# the state folder's server.base. Group 1 is the port.
+NAVIGATE = r"app\.navigate http://127\.0\.0\.1:(\d+)/\u2026/"
+
 L2 = pathlib.Path(os.environ.get("FOODOPT_L2_ROOT") or r"C:\work\l2")
 JOBS = L2 / "jobs"
 OTHER_JOBS = JOBS / "other"       # OTHER_USER's job specs and results, apart from SYSTEM's

@@ -244,6 +244,46 @@ public class KeysAndMenusTests
         CloseWindow(w!);
     }
 
+    /// M8: with Start Here.txt gone, Help › Start Here names that file. The
+    /// run's own stage holds the shell and its page, without the bundled
+    /// Python and app (the menu needs neither) and without Start Here.txt.
+    [Fact]
+    public void Start_here_missing_says_so()
+    {
+        var run = ShellRun.Fresh();
+        var stage = Path.Combine(run.TempRoot, "stage");
+        CopyShell(Uia.Stage, stage);
+        File.Delete(Path.Combine(stage, "Start Here.txt"));
+        using var app = ShellApp.Launch(run with { Stage = stage });
+        app.Menu("Help", "Start Here");
+        var d = app.WaitForDialog(Ten);
+        Uia.WaitFor(d, ControlType.Text, "Start Here is missing", Three);
+        Uia.WaitFor(d, ControlType.Text, "Reinstall Food Optimizer to get it back.", Three);
+        CloseDialogWithOk(d);
+        Assert.True(Uia.WaitUntil(() => app.Dialog("Food Optimizer") == null, Three));
+        Assert.False(Uia.WaitUntil(() => Uia.TopWindow("Start Here") != null, Three));
+        Assert.True(File.Exists(Path.Combine(Uia.Stage, "Start Here.txt")));
+    }
+
+    /// The stage without its python and app folders.
+    static void CopyShell(string from, string to)
+    {
+        Directory.CreateDirectory(to);
+        foreach (var file in Directory.GetFiles(from))
+            File.Copy(file, Path.Combine(to, Path.GetFileName(file)), true);
+        foreach (var dir in Directory.GetDirectories(from))
+        {
+            var name = Path.GetFileName(dir);
+            if (name is "python" or "app") continue;
+            foreach (var file in Directory.GetFiles(dir, "*", SearchOption.AllDirectories))
+            {
+                var dest = Path.Combine(to, Path.GetRelativePath(from, file));
+                Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+                File.Copy(file, dest, true);
+            }
+        }
+    }
+
     [Fact]
     public async Task Exit_quits()
     {

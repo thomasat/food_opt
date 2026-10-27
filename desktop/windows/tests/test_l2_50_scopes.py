@@ -15,7 +15,7 @@ import l2_support as l2
 
 pytestmark = pytest.mark.usefixtures("clean_machine")
 
-NAVIGATE = r"app\.navigate http://127\.0\.0\.1:\d+/[A-Za-z0-9_-]{32}/"
+NAVIGATE = l2.NAVIGATE
 PROGRAM_FILES = pathlib.Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Food Optimizer"
 DEFAULT_USER_ROOT = pathlib.Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Food Optimizer"
 
@@ -73,6 +73,65 @@ def test_all_users_install_as_admin(installer, l2_home, cleanup):
     assert not (common["desktop"] / "Food Optimizer.lnk").exists()
     assert sorted(l2.quick_access()) == before
     assert not l2_home.projects.exists()
+
+
+# Run as the limited user: each way of changing the IT folder, and what it raised.
+_CHANGE_PROBE = r"""
+import json, os, sys
+folder, out = sys.argv[1], sys.argv[2]
+def create():
+    with open(os.path.join(folder, "x.txt"), "x") as f:
+        f.write("x")
+def create_in_app():
+    with open(os.path.join(folder, "app", "x.py"), "x") as f:
+        f.write("x")
+def overwrite_exe():
+    with open(os.path.join(folder, "FoodOptimizer.exe"), "r+b") as f:
+        f.write(f.read(2))
+def replace_exe():
+    planted = os.path.join(os.path.dirname(out), "planted.exe")
+    with open(planted, "wb") as f:
+        f.write(b"MZ")
+    os.replace(planted, os.path.join(folder, "FoodOptimizer.exe"))
+found = {}
+for name, change in (("create", create), ("create_in_app", create_in_app),
+                     ("overwrite_exe", overwrite_exe), ("replace_exe", replace_exe)):
+    try:
+        change()
+        found[name] = "changed"
+    except OSError as e:
+        found[name] = type(e).__name__
+with open(out, "w", encoding="utf-8") as f:
+    json.dump(found, f)
+"""
+
+
+def test_an_it_dir_outside_program_files_is_read_only_for_users(installer, l2_home, cleanup):
+    """M4: an IT install with /DIR outside Program Files gets Program Files'
+    rule, not the drive's (C:\\ lets every signed-in user change a new
+    folder): the limited user can neither add a file nor replace the app's,
+    and the app still opens for them."""
+    import json
+    import shutil
+    import sys
+    folder = l2_home.base / "IT FO"
+    try:
+        result = l2.install(installer, "system", all_users=True, dir=folder)
+        assert result.rc == 0, result.log[-3000:]
+        assert f"acl: locked {folder}" in result.log, result.log[-3000:]
+        before = l2.manifest(folder, skip=())
+        out = l2_home.home / "probe.json"
+        assert l2.run_as("user", [sys.executable, "-I", "-c", _CHANGE_PROBE, str(folder), str(out)]) == 0
+        assert json.loads(out.read_text(encoding="utf-8")) == {
+            "create": "PermissionError", "create_in_app": "PermissionError",
+            "overwrite_exe": "PermissionError", "replace_exe": "PermissionError"}
+        assert l2.manifest(folder, skip=()) == before
+        _close(_loaded_shell(folder, l2_home), folder)
+    finally:
+        # The folder is not under C:\FOL2's user grant any more: uninstall
+        # it here, then delete what is left as admin.
+        _remove("machine")
+        shutil.rmtree(folder, ignore_errors=True)
 
 
 def test_system_without_allusers_is_refused(installer, cleanup):

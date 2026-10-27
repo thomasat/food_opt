@@ -117,6 +117,8 @@ NEW_SHELL_MESSAGES = {
     "dialog.ok": ("button", "OK"),
     "dialog.cancel": ("button", "Cancel"),
     "error.shell_crashed.body": ("body", "Your projects are saved. Open Food Optimizer again."),
+    "error.start_here_missing.title": ("title", "Start Here is missing"),
+    "error.start_here_missing.body": ("body", "Reinstall Food Optimizer to get it back."),
 }
 
 
@@ -127,6 +129,36 @@ def test_new_shell_messages():
         assert e["kind"] == kind, i
         assert e["text"] == {"mac": None, "windows": text}, i
         assert e["mac"] is None and e["shared"] == "shell", i
+
+
+def test_a_missing_start_here_says_so():
+    """M8: Help > Start Here with the file gone names that file, not "part
+    of the app" (the launch error's words)."""
+    main = _strip_comments(read_lf(SHELL / "FoodOptimizer.Shell" / "MainForm.cs"))
+    case = main[main.index("case MenuIds.StartHere:"):]
+    case = case[:case.index("case MenuIds.GetHelp:")]
+    assert 'Text("error.start_here_missing.title"), _messages.Text("error.start_here_missing.body")' in case, case
+    assert "missing_part" not in case
+
+
+# Every shell.log event whose detail is an address the web view saw.
+ADDRESS_EVENTS = {"app.navigate", "open.external", "nav.blocked", "frame.blocked", "window.blocked",
+                  "request.blocked", "message.ignored"}
+
+
+def test_logged_addresses_never_hold_the_base_path():
+    """M3: the base path is the per-launch secret in the app's address, and
+    shell.log never holds it: every event that logs an address passes it
+    through LogRedaction.Redact with the current base."""
+    found = {}
+    for source in _shell_sources().values():
+        for m in re.finditer(r'\.Write\("([a-z0-9_.]+)",\s*([^;]*)\);', _strip_comments(source)):
+            if m.group(1) in ADDRESS_EVENTS:
+                found.setdefault(m.group(1), []).append(m.group(2))
+    assert set(found) == ADDRESS_EVENTS, ADDRESS_EVENTS - set(found)
+    for event, details in found.items():
+        for detail in details:
+            assert re.fullmatch(r"LogRedaction\.Redact\([^,]+, [\w.?]+\)", detail), (event, detail)
 
 
 def test_powershell_scripts_are_ascii():

@@ -11,7 +11,7 @@ import time
 
 import l2_support as l2
 
-NAVIGATE = r"app\.navigate http://127\.0\.0\.1:(\d+)/([A-Za-z0-9_-]{32})/"
+NAVIGATE = l2.NAVIGATE
 
 
 def _close(job, timeout=5) -> bool:
@@ -37,6 +37,11 @@ def _raw_get(port, path):
     return int(data.split(b" ", 2)[1])
 
 
+def _base(home) -> str:
+    """The base path the shell navigated to (shell.log redacts it)."""
+    return (home.state / "server.base").read_text(encoding="ascii").strip()
+
+
 def _open(per_user, home, after=0, timeout=l2.FIRST_OPEN_LIMIT_S):
     started = time.monotonic()
     job = l2.start_shell(per_user.root, home)
@@ -49,9 +54,11 @@ def test_shell_smoke_no_console_health_close_no_python(per_user, l2_home):
     job, m, seconds = _open(per_user, l2_home)
     try:
         assert m, (l2_home.state / "shell.log").read_text(encoding="utf-8", errors="replace")[-3000:]
-        port, base = int(m.group(1)), m.group(2)
+        port, base = int(m.group(1)), _base(l2_home)
         assert port != 8501
         assert (l2_home.state / "server.port").read_text(encoding="ascii").split()[0] == str(port)
+        assert re.fullmatch(r"[A-Za-z0-9_-]{32}", base), base
+        assert base not in l2._text(l2_home.state / "shell.log")      # M3: never in shell.log
         assert _raw_get(port, f"/{base}/_stcore/health") == 200
         l2.report("first_open_s", round(seconds, 1))
         assert l2.wait_for(lambda: l2.top_windows(job.pid), 10)
@@ -109,7 +116,7 @@ def test_stale_server_files_are_not_loaded(per_user, l2_home):
         job, m, _seconds = _open(per_user, l2_home)
         try:
             assert m, (l2_home.state / "shell.log").read_text(encoding="utf-8", errors="replace")[-3000:]
-            assert int(m.group(1)) != dummy and m.group(2) != stale
+            assert int(m.group(1)) != dummy and _base(l2_home) != stale
         finally:
             _close(job)
             _no_python(per_user.root)
