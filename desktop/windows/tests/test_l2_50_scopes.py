@@ -75,10 +75,12 @@ def test_all_users_install_as_admin(installer, l2_home, cleanup):
     assert not l2_home.projects.exists()
 
 
-# Run as the limited user: each way of changing the IT folder, and what it raised.
+# Run as the limited user: each way of changing the IT folder, and what it
+# raised; "regrant" and "reown" are icacls run by that user ("refused" when
+# it exits non-zero).
 _CHANGE_PROBE = r"""
-import json, os, sys
-folder, out = sys.argv[1], sys.argv[2]
+import json, os, subprocess, sys
+folder, out, which = sys.argv[1], sys.argv[2], sys.argv[3].split(",")
 def create():
     with open(os.path.join(folder, "x.txt"), "x") as f:
         f.write("x")
@@ -93,11 +95,18 @@ def replace_exe():
     with open(planted, "wb") as f:
         f.write(b"MZ")
     os.replace(planted, os.path.join(folder, "FoodOptimizer.exe"))
+def icacls(*args):
+    r = subprocess.run(["icacls", folder, *args], capture_output=True, creationflags=0x08000000)
+    if r.returncode:
+        raise PermissionError(r.returncode)
+def regrant():
+    icacls("/grant", os.environ["USERNAME"] + ":(OI)(CI)F")
+def reown():
+    icacls("/setowner", os.environ["USERNAME"])
 found = {}
-for name, change in (("create", create), ("create_in_app", create_in_app),
-                     ("overwrite_exe", overwrite_exe), ("replace_exe", replace_exe)):
+for name in which:
     try:
-        change()
+        globals()[name]()
         found[name] = "changed"
     except OSError as e:
         found[name] = type(e).__name__
@@ -106,30 +115,89 @@ with open(out, "w", encoding="utf-8") as f:
 """
 
 
+def _changes(folder, home, which) -> dict:
+    """What each change in `which` raised when the limited user tried it."""
+    import json
+    import sys
+    out = home.home / "probe.json"
+    out.unlink(missing_ok=True)
+    assert l2.run_as("user", [sys.executable, "-I", "-c", _CHANGE_PROBE, str(folder), str(out), ",".join(which)]) == 0
+    return json.loads(out.read_text(encoding="utf-8"))
+
+
+def _owner(path) -> str:
+    """The SID that owns path."""
+    p = str(path).replace("'", "''")
+    r = l2._powershell(f"(Get-Acl -LiteralPath '{p}').GetOwner([Security.Principal.SecurityIdentifier]).Value")
+    assert r.returncode == 0, r.stderr
+    return r.stdout.strip()
+
+
+def _user_makes(folder, files=()):
+    """The limited user makes `folder` (and `files` in it): theirs, as
+    anything a user makes outside their profile is."""
+    import sys
+    make = ("import os, sys; d = sys.argv[1]; os.makedirs(d)\n"
+            "for name in sys.argv[2:]:\n"
+            "    open(os.path.join(d, name), 'wb').write(b'MZ planted')")
+    assert l2.run_as("user", [sys.executable, "-I", "-c", make, str(folder), *files]) == 0
+    assert folder.is_dir()
+
+
+ADMINISTRATORS = "S-1-5-32-544"
+ALL_CHANGES = ("create", "create_in_app", "overwrite_exe", "replace_exe", "regrant", "reown")
+
+
 def test_an_it_dir_outside_program_files_is_read_only_for_users(installer, l2_home, cleanup):
     """M4: an IT install with /DIR outside Program Files gets Program Files'
     rule, not the drive's (C:\\ lets every signed-in user change a new
-    folder): the limited user can neither add a file nor replace the app's,
-    and the app still opens for them."""
-    import json
+    folder). Fix round 1: even when the user made that folder first (theirs,
+    so they could change its rule), it becomes Administrators', and the
+    limited user can neither add a file, replace the app's, grant themselves
+    access nor take it back; the app still opens for them."""
     import shutil
-    import sys
     folder = l2_home.base / "IT FO"
     try:
+        _user_makes(folder)
+        assert _owner(folder) != ADMINISTRATORS
         result = l2.install(installer, "system", all_users=True, dir=folder)
         assert result.rc == 0, result.log[-3000:]
-        assert f"acl: locked {folder}" in result.log, result.log[-3000:]
+        for line in (f"acl: owner {folder}", f"acl: reset {folder}", f"acl: locked {folder}"):
+            assert line in result.log, (line, result.log[-3000:])
+        assert result.log.index(f"acl: locked {folder}") < result.log.index("Installing the file.")
+        assert _owner(folder) == ADMINISTRATORS
         before = l2.manifest(folder, skip=())
-        out = l2_home.home / "probe.json"
-        assert l2.run_as("user", [sys.executable, "-I", "-c", _CHANGE_PROBE, str(folder), str(out)]) == 0
-        assert json.loads(out.read_text(encoding="utf-8")) == {
-            "create": "PermissionError", "create_in_app": "PermissionError",
-            "overwrite_exe": "PermissionError", "replace_exe": "PermissionError"}
+        assert _changes(folder, l2_home, ALL_CHANGES) == {name: "PermissionError" for name in ALL_CHANGES}
         assert l2.manifest(folder, skip=()) == before
+        assert _owner(folder) == ADMINISTRATORS
         _close(_loaded_shell(folder, l2_home), folder)
     finally:
         # The folder is not under C:\FOL2's user grant any more: uninstall
         # it here, then delete what is left as admin.
+        _remove("machine")
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+def test_a_folder_a_user_filled_first_is_refused(installer, l2_home, cleanup):
+    """Fix round 1 (M4): the user makes the /DIR folder first and puts our
+    exe's name in it (so it passes for an upgrade) and a pyvenv.cfg (the
+    pre-warm runs python\\python.exe as SYSTEM, and Python reads a
+    pyvenv.cfg one folder up). The IT install locks the folder, finds what
+    was there, and refuses: nothing is installed, and what the user put
+    there is now Administrators' and read-only for them."""
+    import shutil
+    folder = l2_home.base / "IT FO"
+    try:
+        _user_makes(folder, ("FoodOptimizer.exe", "pyvenv.cfg"))
+        result = l2.install(installer, "system", all_users=True, dir=folder)
+        assert result.rc == l2.EXIT_CODES["refused"], result.log[-3000:]
+        assert "refused: folder_not_ours" in result.log and f"acl: locked {folder}" in result.log, result.log[-3000:]
+        assert l2.uninstall_entry("machine") is None
+        assert sorted(p.name for p in folder.iterdir()) == ["FoodOptimizer.exe", "pyvenv.cfg"]
+        assert _owner(folder) == ADMINISTRATORS
+        which = ("create", "overwrite_exe", "replace_exe", "regrant", "reown")
+        assert _changes(folder, l2_home, which) == {name: "PermissionError" for name in which}
+    finally:
         _remove("machine")
         shutil.rmtree(folder, ignore_errors=True)
 

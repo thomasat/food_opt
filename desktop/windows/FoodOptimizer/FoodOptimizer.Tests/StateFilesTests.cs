@@ -41,6 +41,22 @@ public sealed class StateFilesTests : IDisposable
         Assert.Equal(new string('a', 64), StateFiles.ParseBase(new string('a', 64)));
     }
 
+    /// A base shorter than shell.log's redaction threshold would be logged
+    /// in the clear (M3): it is no base at all.
+    [Theory]
+    [InlineData("a")]
+    [InlineData("abc")]
+    [InlineData("abcdefg")]
+    public void ParseBase_refuses_a_short_token(string text) => Assert.Null(StateFiles.ParseBase(text));
+
+    [Fact]
+    public void ParseBase_takes_a_token_redaction_hides()
+    {
+        var b = new string('a', LogRedaction.MinBaseLength);
+        Assert.Equal(b, StateFiles.ParseBase(b));
+        Assert.Equal(LogRedaction.Mark, LogRedaction.Redact(b, StateFiles.ParseBase(b)));
+    }
+
     [Fact]
     public void IsFresh_allows_two_seconds_of_clock_skew()
     {

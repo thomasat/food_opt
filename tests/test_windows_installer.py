@@ -765,37 +765,66 @@ def test_unpin_only_what_the_app_pinned():
                      _function("CurStepChanged"))
 
 
-ICACLS_ARGS = ("'\"' + App + '\" /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F "
-               "*S-1-5-32-544:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX'")
+LOCK_ARGS = " /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX"
 
 
 def test_an_it_install_outside_program_files_is_locked_down():
     """M4: under Program Files an all-users copy inherits its rule (users
     read and run it, never change it). A /DIR elsewhere would inherit the
-    drive's, and C:\\ lets every signed-in user change a new folder: an
-    admin-mode install outside {commonpf64} replaces the inherited rule
-    with Program Files' own (SYSTEM and Administrators full, Users read
-    and run), by icacls. A failure is logged and the install goes on."""
-    body = _function("LockDownAppDir")
-    assert body.startswith("procedure LockDownAppDir;")
-    assert re.search(r"if SameOrInside\(App, ExpandConstant\('\{commonpf64\}'\)\) then\s+exit;", body), body
-    assert "App := RemoveBackslashUnlessRoot(ExpandConstant('{app}'));" in body
-    assert "Exec(ExpandConstant('{sys}\\icacls.exe'),\n      " + ICACLS_ARGS + "," in body, body
-    assert "'', SW_HIDE, ewWaitUntilTerminated, Code) and (Code = 0) then" in body
-    assert re.search(r"then\s+Log\('acl: locked ' \+ App\)\s+else\s+Log\('acl: failed ' \+ IntToStr\(Code\)\);",
-                     body), body
-    for word in ("Abort", "MsgBox", "Result", "RaiseException"):
-        assert word not in body, word
-    # Admin mode only, after the marker and before the pre-warm (which
-    # runs Python from the folder as SYSTEM).
-    step = _function("CurStepChanged")
-    admin = re.search(r"if IsAdminInstallMode then begin(.*?)\n    end;", step, re.S).group(1)
-    assert "LockDownAppDir;" in admin
-    assert admin.index("SaveStringToFile(") < admin.index("LockDownAppDir;")
-    assert step.count("LockDownAppDir") == 1 and step.index("LockDownAppDir;") < step.index("Prewarm;")
-    # icacls is the one program the installer runs besides the pre-warm,
-    # and the header says so.
-    assert len(re.findall(r"\bExec\(", _code_section())) == 1
+    drive's, and C:\\ lets every signed-in user change a new folder: before
+    any file is copied (PrepareToInstall, after every other refusal), an
+    admin-mode install outside {commonpf64} makes the folder Administrators'
+    (owner, every entry), drops every rule set on it or in it, and then
+    gives it Program Files' own rule (SYSTEM and Administrators full, Users
+    read and run), all by icacls. Fix round 1: a folder a user made first is
+    covered too, and anything found in it after the lock (put there before
+    it) refuses the install, unless it is this all-users copy's registered
+    folder (an upgrade, locked when first installed). icacls failures are
+    logged and the install goes on."""
+    code = _code_section()
+    run = _function("RunIcacls")
+    assert run.startswith("function RunIcacls(const Args, Done, Failed: String): Boolean;")
+    assert ("Result := Exec(ExpandConstant('{sys}\\icacls.exe'), Args, '', SW_HIDE, ewWaitUntilTerminated, Code)"
+            " and (Code = 0);") in run, run
+    assert re.search(r"if Result then\s+Log\(Done\)\s+else\s+Log\(Failed \+ ' ' \+ IntToStr\(Code\)\);", run), run
+    # icacls is the one program the installer runs besides the pre-warm.
+    assert len(re.findall(r"\bExec\(", code)) == 1 and "Exec(" in run
+
+    registered = _function("RegisteredHere")
+    assert "RegQueryStringValue(HKLM64, UninstallKey, 'InstallLocation', Loc)" in registered
+    assert "SameOrInside(Loc, App) and SameOrInside(App, Loc)" in registered
+
+    lock = _function("LockDownAppDir")
+    assert lock.startswith("function LockDownAppDir(const App: String): Boolean;")
+    assert re.search(r"if SameOrInside\(App, ExpandConstant\('\{commonpf64\}'\)\) then\s+exit;", lock), lock
+    q = "Q := '\"' + RemoveBackslashUnlessRoot(App) + '\"';"
+    assert q in lock
+    steps = ["ForceDirectories(App)",
+             "RunIcacls(Q + ' /setowner *S-1-5-32-544 /T /C', 'acl: owner ' + App, 'acl: owner failed');",
+             "RunIcacls(Q + ' /reset /T /C', 'acl: reset ' + App, 'acl: reset failed');",
+             "RunIcacls(Q + '%s', 'acl: locked ' + App, 'acl: failed');" % LOCK_ARGS,
+             "if DirHasEntries(App) then begin"]
+    at = [lock.index(step) for step in steps]
+    assert at == sorted(at), lock
+    # The registered upgrade only renews the lock; everything else gets
+    # owner, reset, lock and the check.
+    assert re.search(r"if RegisteredHere\(App\) then\s+RunIcacls\(Q \+ '%s', 'acl: locked ' \+ App, 'acl: failed'\)\s+"
+                     r"else begin" % re.escape(LOCK_ARGS), lock), lock
+    check = lock[lock.index("if DirHasEntries(App) then begin"):]
+    assert re.search(r"Log\('acl: entries found after the lock'\);\s+Result := False;", check), check
+    for word in ("Abort", "MsgBox", "RaiseException", "DelTree", "DeleteFile"):
+        assert word not in lock + run, word
+
+    # Admin mode only, last in PrepareToInstall (so a refusal there never
+    # leaves a changed folder), never after the copy.
+    prep = _function("PrepareToInstall")
+    tail = prep[prep.index("refused: needs_space"):]
+    assert re.search(r"if IsAdminInstallMode and not LockDownAppDir\(App\) then begin\s+"
+                     r"Log\('refused: folder_not_ours'\);\s+Result := CustomMessage\('FolderNotOurs'\);\s+end;\s+end;$",
+                     tail), tail
+    assert prep.count("LockDownAppDir") == 1 and "LockDownAppDir" not in _function("CurStepChanged")
+    assert code.count("LockDownAppDir(") == 2          # its definition and the one call
+
     header = ISS.read_text(encoding="ascii").split("\n#if ")[0]
     assert "icacls" in header and "Pascal and Shell COM only" not in header
 

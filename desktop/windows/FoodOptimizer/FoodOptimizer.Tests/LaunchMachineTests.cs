@@ -6,14 +6,14 @@ public class LaunchMachineTests
 {
     static readonly DateTime T0 = new(2026, 10, 24, 12, 0, 0, DateTimeKind.Utc);
     static readonly PageView View = new(false);
-    static readonly Uri Health = new("http://127.0.0.1:18501/abc/_stcore/health");
-    static readonly Uri App = new("http://127.0.0.1:18501/abc/");
+    static readonly Uri Health = new("http://127.0.0.1:18501/abcdefgh/_stcore/health");
+    static readonly Uri App = new("http://127.0.0.1:18501/abcdefgh/");
 
     static FileRead Fresh(string text) => new(text, T0);
     static FileRead Stale(string text) => new(text, T0.AddSeconds(-5));
 
     static readonly PollSnapshot Nothing = new(null, null, null);
-    static readonly PollSnapshot Server = new(null, Fresh("18501 4242\n"), Fresh("abc\n"));
+    static readonly PollSnapshot Server = new(null, Fresh("18501 4242\n"), Fresh("abcdefgh\n"));
 
     static LaunchMachine New() => new(T0, View);
 
@@ -61,17 +61,17 @@ public class LaunchMachineTests
     public void Port_and_base_arm_the_open_step_and_check_health()
     {
         var m = New();
-        Assert.Equal([new PageServerStarted(), new CheckHealth(Health, 18501, "abc")], m.OnTick(Server));
+        Assert.Equal([new PageServerStarted(), new CheckHealth(Health, 18501, "abcdefgh")], m.OnTick(Server));
         Assert.Equal(18501, m.Port);
-        Assert.Equal("abc", m.Base);
+        Assert.Equal("abcdefgh", m.Base);
     }
 
     [Fact]
     public void A_stale_port_file_is_not_this_launch()
     {
         var m = New();
-        Assert.Empty(m.OnTick(new PollSnapshot(null, Stale("18501 4242\n"), Fresh("abc"))));
-        Assert.Empty(m.OnTick(new PollSnapshot(null, Fresh("18501 4242\n"), Stale("abc"))));
+        Assert.Empty(m.OnTick(new PollSnapshot(null, Stale("18501 4242\n"), Fresh("abcdefgh"))));
+        Assert.Empty(m.OnTick(new PollSnapshot(null, Fresh("18501 4242\n"), Stale("abcdefgh"))));
         Assert.Null(m.Port);
     }
 
@@ -81,8 +81,8 @@ public class LaunchMachineTests
         var m = New();
         m.OnTick(Server);
         Assert.Empty(m.OnTick(Server));
-        Assert.Empty(m.OnHealth(false, 18501, "abc"));
-        Assert.Equal([new CheckHealth(Health, 18501, "abc")], m.OnTick(Server));
+        Assert.Empty(m.OnHealth(false, 18501, "abcdefgh"));
+        Assert.Equal([new CheckHealth(Health, 18501, "abcdefgh")], m.OnTick(Server));
     }
 
     [Fact]
@@ -100,9 +100,9 @@ public class LaunchMachineTests
         m.OnTick(Server);
         Assert.Equal(
             [new StopPolling(), new Navigate(App), new StartHealthWatch(Health), new RecordSuccessfulOpen()],
-            m.OnHealth(true, 18501, "abc"));
+            m.OnHealth(true, 18501, "abcdefgh"));
         Assert.Equal(LaunchPhase.Loaded, m.Phase);
-        Assert.Empty(m.OnHealth(true, 18501, "abc"));
+        Assert.Empty(m.OnHealth(true, 18501, "abcdefgh"));
     }
 
     [Fact]
@@ -110,7 +110,7 @@ public class LaunchMachineTests
     {
         var m = New();
         m.OnTick(Server);
-        Assert.Empty(m.OnHealth(true, 18502, "abc"));
+        Assert.Empty(m.OnHealth(true, 18502, "abcdefgh"));
         Assert.Empty(m.OnHealth(true, 18501, "xyz"));
         Assert.Equal(LaunchPhase.Waiting, m.Phase);
     }
@@ -123,16 +123,16 @@ public class LaunchMachineTests
         for (var t = 1; t <= 360; t++)
         {
             var a = m.OnTick(Server);
-            if (t > 1) m.OnHealth(false, 18501, "abc");
+            if (t > 1) m.OnHealth(false, 18501, "abcdefgh");
             errors += a.Count(x => x is PageShowError);
         }
         Assert.Equal(0, errors);
         var at361 = m.OnTick(Server);
         Assert.Single(at361.OfType<PageShowError>());
         Assert.Contains(new PageShowError(PageError.CouldNotStart, null), at361);
-        m.OnHealth(false, 18501, "abc");
+        m.OnHealth(false, 18501, "abcdefgh");
         Assert.Empty(m.OnTick(Server).OfType<PageShowError>());
-        Assert.Contains(new Navigate(App), m.OnHealth(true, 18501, "abc"));
+        Assert.Contains(new Navigate(App), m.OnHealth(true, 18501, "abcdefgh"));
     }
 
     [Fact]
@@ -140,7 +140,7 @@ public class LaunchMachineTests
     {
         var m = New();
         TickTo(m, 200, Server);
-        m.OnHealth(false, 18501, "abc");
+        m.OnHealth(false, 18501, "abcdefgh");
         Assert.Empty(m.OnTick(Nothing));   // tick 201: disarmed
         Assert.Null(m.Port);
         Assert.Contains(new PageServerStarted(), m.OnTick(Server));   // re-armed at 202
@@ -148,7 +148,7 @@ public class LaunchMachineTests
         while (m.Ticks < 561)
         {
             errors += m.OnTick(Server).Count(x => x is PageShowError);
-            m.OnHealth(false, 18501, "abc");
+            m.OnHealth(false, 18501, "abcdefgh");
         }
         Assert.Equal(0, errors);
         Assert.Contains(new PageShowError(PageError.CouldNotStart, null), m.OnTick(Server));
@@ -173,7 +173,7 @@ public class LaunchMachineTests
         TickTo(m, 720, Nothing);
         Assert.Equal([new PageStatusLine("Loading the app's components|")],
             m.OnTick(new PollSnapshot(Fresh("Loading the app's components|"), null, null)));
-        Assert.Equal([new CheckHealth(Health, 18501, "abc")], m.OnTick(Server));
+        Assert.Equal([new CheckHealth(Health, 18501, "abcdefgh")], m.OnTick(Server));
     }
 
     [Fact]
@@ -235,7 +235,7 @@ public class LaunchMachineTests
         for (var t = 0; t < 2 * LaunchMachine.RelaunchTicks; t++)
         {
             Assert.DoesNotContain(new StartLauncher(), m.OnTick(Server));
-            m.OnHealth(false, 18501, "abc");
+            m.OnHealth(false, 18501, "abcdefgh");
         }
     }
 
@@ -245,7 +245,7 @@ public class LaunchMachineTests
         var m = New();
         m.OnLauncherExited(0);
         m.OnTick(Server);
-        Assert.Contains(new Navigate(App), m.OnHealth(true, 18501, "abc"));
+        Assert.Contains(new Navigate(App), m.OnHealth(true, 18501, "abcdefgh"));
     }
 
     [Theory]
@@ -268,7 +268,7 @@ public class LaunchMachineTests
     {
         var m = New();
         m.OnTick(Server);
-        m.OnHealth(true, 18501, "abc");
+        m.OnHealth(true, 18501, "abcdefgh");
         Assert.Empty(m.OnLauncherExited(1));
         Assert.Equal(LaunchPhase.Loaded, m.Phase);
     }
@@ -285,7 +285,7 @@ public class LaunchMachineTests
     {
         var m = New();
         m.OnTick(Server);
-        m.OnHealth(true, 18501, "abc");
+        m.OnHealth(true, 18501, "abcdefgh");
         return m;
     }
 
@@ -331,7 +331,7 @@ public class LaunchMachineTests
         m.BeginShutdown();
         Assert.Equal(LaunchPhase.ShuttingDown, m.Phase);
         Assert.Empty(m.OnTick(Server));
-        Assert.Empty(m.OnHealth(true, 18501, "abc"));
+        Assert.Empty(m.OnHealth(true, 18501, "abcdefgh"));
         Assert.Empty(m.OnLauncherExited(1));
         Assert.Empty(m.OnLauncherStartFailed());
         Assert.Empty(m.OnWatch(false));
@@ -402,7 +402,7 @@ public class LaunchMachineTests
         var m = New();
         Assert.Contains(m.OnTick(Server), a => a is CheckHealth);
         m.BeginShutdown();
-        Assert.Empty(m.OnHealth(true, 18501, "abc"));
+        Assert.Empty(m.OnHealth(true, 18501, "abcdefgh"));
         m.CancelShutdown();
         Assert.Equal(LaunchPhase.Waiting, m.Phase);
         Assert.Contains(m.OnTick(Server), a => a is CheckHealth);

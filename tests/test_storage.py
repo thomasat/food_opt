@@ -174,6 +174,10 @@ def test_last_opened_is_hidden_on_windows(tmp_path, monkeypatch):
     hidden file beside the projects. Writing it again still works: Windows
     refuses to overwrite a hidden file opened for writing."""
     import ctypes
+    from ctypes import wintypes
+    get_attributes = ctypes.WinDLL("kernel32").GetFileAttributesW
+    get_attributes.argtypes = [wintypes.LPCWSTR]
+    get_attributes.restype = wintypes.DWORD          # INVALID_FILE_ATTRIBUTES reads as 0xFFFFFFFF
     monkeypatch.chdir(tmp_path)
     s = LocalStorage()
     s.save("First", {"v": 1})
@@ -181,7 +185,7 @@ def test_last_opened_is_hidden_on_windows(tmp_path, monkeypatch):
     s.remember_opened("First")
     s.remember_opened("Second")
     assert (tmp_path / ".last_opened").read_text(encoding="utf-8") == "Second"
-    attributes = ctypes.windll.kernel32.GetFileAttributesW(str(tmp_path / ".last_opened"))
+    attributes = get_attributes(str(tmp_path / ".last_opened"))
     assert attributes != 0xFFFFFFFF and attributes & 0x2  # FILE_ATTRIBUTE_HIDDEN
     assert LocalStorage().last_opened() == "Second"
 
