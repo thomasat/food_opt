@@ -927,30 +927,35 @@ def reset_grids():
     st.session_state.pop(ING_PENDING_KEY, None)
 
 
-_NUMBER_CELL = re.compile(r"^[+-]?\d[\d.,]*$")
-_DOT_THOUSANDS = re.compile(r"^[+-]?\d{1,3}(\.\d{3})+$")
+_NUMBER_CELL = re.compile(
+    r"^[+-]?(\d+|\d{1,3}(\.\d{3})+|\d{1,3}(,\d{3})+)([.,]\d+)?([eE][+-]?\d+)?$")
+_DOT_THOUSANDS = re.compile(r"^[+-]?[1-9]\d{0,2}(\.\d{3})+$")
 _EXPORT_ESCAPE = re.compile(r"^'[=+\-@\t\r]")
 
 
 def _number_format(text, sep):
-    """(decimal, thousands) for pd.read_csv, judged from the numeric columns
-    only: a dot decimal anywhere wins; else a ';' file with a comma decimal
-    or dot thousands (1.250) reads European; else plain dots."""
+    """(decimal, thousands, text positions) for pd.read_csv, judged from the
+    numeric columns
+    only: a dot decimal anywhere wins (with comma thousands, 1,234.5, in a
+    ';' file); else a ';' file with a comma decimal or dot thousands (1.250)
+    reads European; else plain dots."""
     rows = list(csv.reader(io.StringIO(text), delimiter=sep))[1:]
     columns = {}
     for row in rows:
         for position, cell in enumerate(row):
             columns.setdefault(position, []).append(cell.strip())
-    dot = european = False
-    for cells in columns.values():
+    dot = european = comma_thousands = False
+    text_positions = set()
+    for position, cells in columns.items():
         cells = [cell for cell in cells if cell]
         if not all(_NUMBER_CELL.match(cell) for cell in cells):
+            text_positions.add(position)
             continue
         for cell in cells:
             has_dot, has_comma = "." in cell, "," in cell
             if has_dot and has_comma:
                 if cell.rfind(".") > cell.rfind(","):
-                    dot = True
+                    dot = comma_thousands = True
                 else:
                     european = True
             elif has_dot:
@@ -960,9 +965,13 @@ def _number_format(text, sep):
                     dot = True
             elif has_comma:
                 european = True
-    if not dot and european and sep == ";":
-        return ",", "."
-    return ".", None
+    if sep != ";":
+        return ".", None, text_positions
+    if dot:
+        return ".", ("," if comma_thousands else None), text_positions
+    if european:
+        return ",", ".", text_positions
+    return ".", None, text_positions
 
 
 def _unescape_export(cell):
@@ -988,8 +997,16 @@ def read_uploaded_csv(uploaded):
         sep = csv.Sniffer().sniff("\n".join(lines[:5]), delimiters=",;\t").delimiter
     except csv.Error:
         sep = ","
-    decimal, thousands = _number_format(text, sep)
+    decimal, thousands, text_positions = _number_format(text, sep)
     df = pd.read_csv(io.StringIO(text), sep=sep, decimal=decimal, thousands=thousands)
+    if thousands and text_positions:
+        # pandas applies thousands= to every column, so a text column such as
+        # 26.10.2026 would read as 26102026: take those from a plain read.
+        plain = pd.read_csv(io.StringIO(text), sep=sep, decimal=decimal)
+        offset = 0 if isinstance(df.index, pd.RangeIndex) else df.index.nlevels
+        for position in sorted(text_positions):
+            if offset <= position < offset + df.shape[1]:
+                df.isetitem(position - offset, plain.iloc[:, position - offset])
     for column in df.columns:
         if pd.api.types.is_string_dtype(df[column].dtype):
             df[column] = df[column].map(_unescape_export)

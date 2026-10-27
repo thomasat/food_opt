@@ -951,6 +951,26 @@ def test_read_uploaded_csv_keeps_quoted_comma_text_in_a_comma_file():
     assert df["Note"].iloc[0] == "1,5 cups"
 
 
+def test_read_uploaded_csv_reads_a_leading_zero_dot_as_a_decimal():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(_csv("Ingredient;Lowest\nOats;0.500\n"))
+    assert df["Lowest"].iloc[0] == 0.5
+
+
+def test_read_uploaded_csv_dates_do_not_stop_decimal_commas():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(
+        _csv("Formulation;Date;Score\n1;26.10.2026;7,4\n2;27.10.2026;6,1\n"))
+    assert list(df["Score"]) == [7.4, 6.1]
+    assert list(df["Date"]) == ["26.10.2026", "27.10.2026"]
+
+
+def test_read_uploaded_csv_reads_comma_thousands_in_a_semicolon_file():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(_csv("Ingredient;Lowest\nWater;1,234.5\n"))
+    assert df["Lowest"].iloc[0] == 1234.5
+
+
 def test_read_uploaded_csv_removes_the_export_escape():
     from ui_helpers import read_uploaded_csv
     df = read_uploaded_csv(_csv("Formulation,Note\n1,'=SUM(A1)\n2,'-sweet\n"))
