@@ -221,7 +221,9 @@ class _Run:
     def lock_owner_alive(self, pid: int) -> bool:
         """The lock's pid names a live process that started before it wrote
         the pid file. Windows reuses pids quickly: a younger process with
-        that pid is not the owner, and its lock is stale."""
+        that pid is not the owner, and its lock is stale. A process we cannot
+        inspect (another account's: ACCESS_DENIED still counts as alive) or
+        one that is not python is no owner either."""
         if not procinfo.pid_alive(pid):
             return False
         try:
@@ -229,7 +231,13 @@ class _Run:
         except OSError:
             return True
         start = procinfo.process_start_time(pid)
-        return start is None or start <= written + 2
+        if start is None or start > written + 2:
+            return False
+        image = procinfo.process_image(pid)
+        if not image:
+            return False
+        name = image.replace("\\", "/").rsplit("/", 1)[-1]
+        return name.lower().startswith("python")
 
     def replace_orphan(self) -> None:
         state = self.opts.state_dir
@@ -321,15 +329,18 @@ class _Run:
 
     # ---------- the run ----------
 
+    @staticmethod
+    def make_dir(d: Path) -> None:
+        d.mkdir(parents=True, exist_ok=True)
+        if sys.platform != "win32":
+            try:
+                os.chmod(d, 0o700)
+            except OSError:
+                pass
+
     def run(self) -> int:
         opts = self.opts
-        for d in (opts.state_dir, opts.projects_dir):
-            d.mkdir(parents=True, exist_ok=True)
-            if sys.platform != "win32":
-                try:
-                    os.chmod(d, 0o700)
-                except OSError:
-                    pass
+        self.make_dir(opts.state_dir)
         rotated_error = None
         if not opts.lock_held:
             _, rotated_error = files.rotate_log(opts.state_dir / files.LOG_FILE, self.lock)
@@ -337,6 +348,11 @@ class _Run:
         self.log.say(f"launcher started (app={opts.app})")
         if rotated_error:
             self.log.say(f"could not rotate launcher.log: {rotated_error}")
+        try:
+            self.make_dir(opts.projects_dir)
+        except OSError as e:
+            self.log.say(f"FATAL: could not create the projects folder {opts.projects_dir}: {e}")
+            return 1
         if opts.stdin_lifeline:
             self.start_lifeline()
 

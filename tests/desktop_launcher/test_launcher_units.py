@@ -187,3 +187,26 @@ def test_a_lock_that_survives_release_is_logged(tmp_path, monkeypatch):
     monkeypatch.setattr(files.shutil, "rmtree", lambda *a, **k: None)
     run.release()
     assert "could not remove launch.lock" in stream.getvalue()
+
+
+def test_a_lock_owner_we_cannot_inspect_is_stale(tmp_path, monkeypatch):
+    import io
+    from launcher import files, procinfo
+    opts = cli.Options(state_dir=tmp_path / "s", projects_dir=tmp_path / "p",
+                       app=tmp_path / "a.py")
+    run = cli._Run(opts, {}, files.Log(io.StringIO()))
+    run.lock.mkdir(parents=True)
+    (run.lock / "pid").write_bytes(b"4242\n")
+    monkeypatch.setattr(procinfo, "pid_alive", lambda pid: True)
+
+    def owner(start, image):
+        monkeypatch.setattr(procinfo, "process_start_time", lambda pid: start)
+        monkeypatch.setattr(procinfo, "process_image", lambda pid: image)
+        return run.lock_owner_alive(4242)
+
+    old = (run.lock / "pid").stat().st_mtime - 60
+    assert owner(None, r"C:\Python312\python.exe") is False
+    assert owner(old, None) is False
+    assert owner(old, r"C:\Windows\System32\svchost.exe") is False
+    assert owner(old, r"C:\Python312\python.exe") is True
+    assert owner(old, "/usr/bin/Python3") is True

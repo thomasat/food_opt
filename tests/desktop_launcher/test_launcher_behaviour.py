@@ -578,3 +578,15 @@ def test_world_teardown_ends_a_server_nothing_recorded(py, tmp_path):
     _, _, pid = healthy_launch(py, w, env={"FOODOPT_FAKE_RECORD": None})
     end_world(w)
     assert wait_for(lambda: not procinfo.pid_alive(pid), 10)
+
+
+def test_a_projects_folder_that_cannot_be_made_is_logged(py, world, tmp_path):
+    blocker = tmp_path / "a-regular-file"
+    blocker.write_bytes(b"x")
+    projects = blocker / "FoodOptimizer"
+    world.projects_dir = projects
+    launch = py.start(world)
+    assert launch.wait(15) == 1
+    log = world.log_text()
+    assert "FATAL" in log and str(projects) in log, log
+    assert not world.lock_dir.exists()
