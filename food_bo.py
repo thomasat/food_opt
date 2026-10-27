@@ -1650,10 +1650,17 @@ def _pick_restart(candidates, values):
     """The restart a suggestion is taken from: of those within ACQ_TIE_RTOL
     of the best value (a floor of 1 in absolute terms, for log values near
     zero), the lexicographically smallest candidate."""
-    values = values.detach().reshape(-1)
+    # A NaN value is the worst a restart can be (never the best, never tied);
+    # a +inf is the best, and among several the candidates decide.
+    values = torch.nan_to_num(values.detach().reshape(-1), nan=-math.inf)
     best = float(values.max())
-    floor = best - ACQ_TIE_RTOL * max(1.0, abs(best))
-    tied = [j for j in range(len(values)) if float(values[j]) >= floor]
+    if math.isinf(best):
+        tied = [j for j in range(len(values)) if float(values[j]) == best]
+        if not tied:
+            tied = [int(values.argmax())]
+    else:
+        floor = best - ACQ_TIE_RTOL * max(1.0, abs(best))
+        tied = [j for j in range(len(values)) if float(values[j]) >= floor]
     return min(tied, key=lambda j: tuple(
         round(float(x), ACQ_TIE_DECIMALS) for x in candidates[j].reshape(-1)))
 

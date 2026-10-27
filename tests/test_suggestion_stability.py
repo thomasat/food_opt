@@ -90,6 +90,24 @@ def _restarts(*candidates):
     return torch.tensor([[list(c)] for c in candidates], dtype=torch.double)
 
 
+def test_pick_restart_survives_nan():
+    cands = _restarts((0.5,), (0.2,), (0.1,))
+    values = torch.tensor([float("nan"), 0.3, 0.3], dtype=torch.double)
+    assert food_bo._pick_restart(cands, values) == 2
+
+
+def test_pick_restart_survives_plus_inf():
+    cands = _restarts((0.5,), (0.2,), (0.1,))
+    values = torch.tensor([0.1, float("inf"), 0.2], dtype=torch.double)
+    assert food_bo._pick_restart(cands, values) == 1
+
+
+def test_pick_restart_survives_all_nan():
+    cands = _restarts((0.5,), (0.2,))
+    values = torch.tensor([float("nan")] * 2, dtype=torch.double)
+    assert food_bo._pick_restart(cands, values) in {0, 1}
+
+
 @pytest.mark.parametrize("best", [-0.1389, 77.37])
 def test_restarts_within_the_tolerance_go_to_the_smallest_candidate(best):
     """qLogNEI's values are small and negative, qUCB's are on the score
