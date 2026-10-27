@@ -38,8 +38,16 @@ def entries() -> list:
     return list(doc["messages"]) + list(doc["menus"])
 
 
+def text_for(entry: dict, os_name: str):
+    """An entry's text on one OS. Windows text is written only where it
+    differs from the Mac text, so an absent "windows" is the Mac text; null
+    means the entry is not shown on that OS."""
+    text = entry["text"]
+    return text[os_name] if os_name in text else text["mac"]
+
+
 def texts(os_name: str) -> dict:
     """id -> the text for one OS ("mac" or "windows"), entries without one
     left out."""
-    return {e["id"]: e["text"][os_name] for e in entries()
-            if e["text"].get(os_name) is not None}
+    return {e["id"]: t for e in entries()
+            if (t := text_for(e, os_name)) is not None}

@@ -4218,7 +4218,8 @@ def _shared_screen_texts(root):
     doc = json.loads((root / "desktop" / "shared" / "messages.json").read_text(encoding="utf-8"))
     out = []
     for entry in doc["messages"] + doc["menus"]:
-        for os_name, text in entry["text"].items():
+        for os_name in ("mac", "windows"):
+            text = entry["text"][os_name] if os_name in entry["text"] else entry["text"]["mac"]
             if text is not None:
                 out.append((f"messages.json:{entry['id']}/{os_name}", text))
     html = (root / "desktop" / "shared" / "pages" / "status.html").read_text(encoding="utf-8")

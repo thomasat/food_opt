@@ -1,12 +1,11 @@
 {
-  "_comment": "Every string the desktop shells and the launcher show, per OS. text.<os> is the text (null: not shown on that OS); mac names the Swift or launcher.sh literal the Mac text mirrors (tests/test_messages.py checks it); shared says who shows it: pages (desktop/shared/pages), shell (the native window), launcher:<NAME> (desktop/shared/launcher/status_lines.py) or mac-only. Placeholders are {name}. keys lists each menu item's shortcuts per OS; menu_layout is the order the Windows shell builds its menus in.",
+  "_comment": "Every string the desktop shells and the launcher show, per OS. text.mac is the Mac text and text.windows is written only where it differs (absent: the Mac text; null: not shown on Windows); mac names the Swift or launcher.sh literal the Mac text mirrors (tests/test_messages.py checks it); shared says who shows it: pages (desktop/shared/pages), shell (the native window), launcher:<NAME> (desktop/shared/launcher/status_lines.py) or mac-only. Placeholders are {name}. keys lists each menu item's shortcuts per OS; menu_layout is the order the Windows shell builds its menus in.",
   "messages": [
     {
       "id": "steps.title.starting",
       "kind": "title",
       "text": {
-        "mac": "Starting Food Optimizer",
-        "windows": "Starting Food Optimizer"
+        "mac": "Starting Food Optimizer"
       },
       "mac": "FoodOptimizerApp.swift:stepsPageTitle",
       "shared": "pages"
@@ -25,8 +24,7 @@
       "id": "steps.title.setting_up",
       "kind": "title",
       "text": {
-        "mac": "Setting up Food Optimizer",
-        "windows": "Setting up Food Optimizer"
+        "mac": "Setting up Food Optimizer"
       },
       "mac": "FoodOptimizerApp.swift:stepsPageTitle",
       "shared": "pages"
@@ -45,8 +43,7 @@
       "id": "steps.load",
       "kind": "label",
       "text": {
-        "mac": "Loading the app's components",
-        "windows": "Loading the app's components"
+        "mac": "Loading the app's components"
       },
       "mac": "FoodOptimizerApp.swift:let loadStepLabel",
       "shared": "pages"
@@ -55,8 +52,7 @@
       "id": "steps.open",
       "kind": "label",
       "text": {
-        "mac": "Opening your projects",
-        "windows": "Opening your projects"
+        "mac": "Opening your projects"
       },
       "mac": "FoodOptimizerApp.swift:openStepLabel",
       "shared": "pages"
@@ -65,8 +61,7 @@
       "id": "steps.note.usual",
       "kind": "line",
       "text": {
-        "mac": "Preparing the app. Please keep this window open.",
-        "windows": "Preparing the app. Please keep this window open."
+        "mac": "Preparing the app. Please keep this window open."
       },
       "mac": "FoodOptimizerApp.swift:usualWaitLine",
       "shared": "pages"
@@ -75,8 +70,7 @@
       "id": "steps.note.still_loading",
       "kind": "line",
       "text": {
-        "mac": "Still loading. Please keep this window open.",
-        "windows": "Still loading. Please keep this window open."
+        "mac": "Still loading. Please keep this window open."
       },
       "mac": "FoodOptimizerApp.swift:stillLoadingLine",
       "shared": "pages"
@@ -115,8 +109,7 @@
       "id": "steps.next_up",
       "kind": "line",
       "text": {
-        "mac": "Define your ingredients, process settings, and measurements. Then generate your first set of formulations.",
-        "windows": "Define your ingredients, process settings, and measurements. Then generate your first set of formulations."
+        "mac": "Define your ingredients, process settings, and measurements. Then generate your first set of formulations."
       },
       "mac": "FoodOptimizerApp.swift:nextUpLine",
       "shared": "pages"
@@ -125,8 +118,7 @@
       "id": "steps.elapsed",
       "kind": "line",
       "text": {
-        "mac": "{seconds} s",
-        "windows": "{seconds} s"
+        "mac": "{seconds} s"
       },
       "mac": "FoodOptimizerApp.swift:func showStepsPage",
       "shared": "pages"
@@ -135,8 +127,7 @@
       "id": "footer.name",
       "kind": "label",
       "text": {
-        "mac": "Food Optimizer",
-        "windows": "Food Optimizer"
+        "mac": "Food Optimizer"
       },
       "mac": "FoodOptimizerApp.swift:func showStepsPage",
       "shared": "pages"
@@ -145,8 +136,7 @@
       "id": "error.could_not_start.title",
       "kind": "title",
       "text": {
-        "mac": "The app could not start",
-        "windows": "The app could not start"
+        "mac": "The app could not start"
       },
       "mac": "FoodOptimizerApp.swift:showCouldNotStartStatus",
       "shared": "pages"
@@ -155,8 +145,7 @@
       "id": "error.could_not_start.body",
       "kind": "body",
       "text": {
-        "mac": "Click Try again. If the problem persists, email sohum.patnaik@fsi.org and attach the file from Help › Show Log File.",
-        "windows": "Click Try again. If the problem persists, email sohum.patnaik@fsi.org and attach the file from Help › Show Log File."
+        "mac": "Click Try again. If the problem persists, email sohum.patnaik@fsi.org and attach the file from Help › Show Log File."
       },
       "mac": "FoodOptimizerApp.swift:showCouldNotStartStatus",
       "shared": "pages"
@@ -165,8 +154,7 @@
       "id": "error.could_not_start.another_copy",
       "kind": "body",
       "text": {
-        "mac": "Another copy of the app seemed to be starting, but it never finished.",
-        "windows": "Another copy of the app seemed to be starting, but it never finished."
+        "mac": "Another copy of the app seemed to be starting, but it never finished."
       },
       "mac": "FoodOptimizerApp.swift:func poll",
       "shared": "pages"
@@ -175,8 +163,7 @@
       "id": "error.missing_part.title",
       "kind": "title",
       "text": {
-        "mac": "The app could not start",
-        "windows": "The app could not start"
+        "mac": "The app could not start"
       },
       "mac": "FoodOptimizerApp.swift:func startLauncher",
       "shared": "pages"
@@ -255,8 +242,7 @@
       "id": "error.stopped.title",
       "kind": "title",
       "text": {
-        "mac": "Food Optimizer stopped unexpectedly",
-        "windows": "Food Optimizer stopped unexpectedly"
+        "mac": "Food Optimizer stopped unexpectedly"
       },
       "mac": "FoodOptimizerApp.swift:func startHealthWatch",
       "shared": "pages"
@@ -265,8 +251,7 @@
       "id": "error.stopped.body",
       "kind": "body",
       "text": {
-        "mac": "Your projects are saved. Click Try again.",
-        "windows": "Your projects are saved. Click Try again."
+        "mac": "Your projects are saved. Click Try again."
       },
       "mac": "FoodOptimizerApp.swift:func startHealthWatch",
       "shared": "pages"
@@ -275,8 +260,7 @@
       "id": "stalled.title",
       "kind": "title",
       "text": {
-        "mac": "Still setting up",
-        "windows": "Still setting up"
+        "mac": "Still setting up"
       },
       "mac": "FoodOptimizerApp.swift:func poll",
       "shared": "pages"
@@ -295,8 +279,7 @@
       "id": "stalled.step_fallback",
       "kind": "line",
       "text": {
-        "mac": "Still working",
-        "windows": "Still working"
+        "mac": "Still working"
       },
       "mac": "FoodOptimizerApp.swift:func poll",
       "shared": "pages"
@@ -305,8 +288,7 @@
       "id": "button.try_again",
       "kind": "button",
       "text": {
-        "mac": "Try again",
-        "windows": "Try again"
+        "mac": "Try again"
       },
       "mac": "FoodOptimizerApp.swift:func showStatus",
       "shared": "pages"
@@ -315,8 +297,7 @@
       "id": "launcher.status.load",
       "kind": "line",
       "text": {
-        "mac": "Loading the app's components",
-        "windows": "Loading the app's components"
+        "mac": "Loading the app's components"
       },
       "mac": "launcher.sh:WARM_MSG",
       "shared": "launcher:LOAD_LINE"
@@ -325,8 +306,7 @@
       "id": "launcher.status.starting",
       "kind": "line",
       "text": {
-        "mac": "Starting the app",
-        "windows": "Starting the app"
+        "mac": "Starting the app"
       },
       "mac": "launcher.sh:status",
       "shared": "launcher:STARTING_LINE"
@@ -385,8 +365,7 @@
       "id": "window.title",
       "kind": "title",
       "text": {
-        "mac": "Food Optimizer",
-        "windows": "Food Optimizer"
+        "mac": "Food Optimizer"
       },
       "mac": "FoodOptimizerApp.swift:applicationDidFinishLaunching",
       "shared": "shell"
@@ -395,8 +374,7 @@
       "id": "dialog.title",
       "kind": "title",
       "text": {
-        "mac": "Food Optimizer",
-        "windows": "Food Optimizer"
+        "mac": "Food Optimizer"
       },
       "mac": "FoodOptimizerApp.swift:runJavaScriptAlertPanelWithMessage",
       "shared": "shell"
@@ -415,8 +393,7 @@
       "id": "help.get_help.title",
       "kind": "title",
       "text": {
-        "mac": "Food Optimizer support",
-        "windows": "Food Optimizer support"
+        "mac": "Food Optimizer support"
       },
       "mac": "FoodOptimizerApp.swift:func getHelp",
       "shared": "shell"
@@ -425,8 +402,7 @@
       "id": "help.get_help.body",
       "kind": "body",
       "text": {
-        "mac": "Email sohum.patnaik@fsi.org. Describe the problem and what you expected. Attaching the app's log file helps — Help › Show Log File finds it for you.",
-        "windows": "Email sohum.patnaik@fsi.org. Describe the problem and what you expected. Attaching the app's log file helps — Help › Show Log File finds it for you."
+        "mac": "Email sohum.patnaik@fsi.org. Describe the problem and what you expected. Attaching the app's log file helps — Help › Show Log File finds it for you."
       },
       "mac": "FoodOptimizerApp.swift:func getHelp",
       "shared": "shell"
@@ -435,8 +411,7 @@
       "id": "help.no_log.title",
       "kind": "title",
       "text": {
-        "mac": "There is no log file yet",
-        "windows": "There is no log file yet"
+        "mac": "There is no log file yet"
       },
       "mac": "FoodOptimizerApp.swift:func showLogFile",
       "shared": "shell"
@@ -455,8 +430,7 @@
       "id": "download.failed.title",
       "kind": "title",
       "text": {
-        "mac": "The file could not be saved",
-        "windows": "The file could not be saved"
+        "mac": "The file could not be saved"
       },
       "mac": "FoodOptimizerApp.swift:didFailWithError",
       "shared": "shell"
@@ -465,8 +439,7 @@
       "id": "download.failed.body",
       "kind": "body",
       "text": {
-        "mac": "Try again and pick another folder, such as your FoodOptimizer folder.",
-        "windows": "Try again and pick another folder, such as your FoodOptimizer folder."
+        "mac": "Try again and pick another folder, such as your FoodOptimizer folder."
       },
       "mac": "FoodOptimizerApp.swift:didFailWithError",
       "shared": "shell"
@@ -547,8 +520,7 @@
       "id": "menu.app.about",
       "kind": "menu",
       "text": {
-        "mac": "About Food Optimizer",
-        "windows": "About Food Optimizer"
+        "mac": "About Food Optimizer"
       },
       "keys": {
         "mac": [],
@@ -577,8 +549,7 @@
       "id": "menu.file",
       "kind": "menu",
       "text": {
-        "mac": "File",
-        "windows": "File"
+        "mac": "File"
       },
       "keys": {
         "mac": [],
@@ -591,8 +562,7 @@
       "id": "menu.file.open_projects",
       "kind": "menu",
       "text": {
-        "mac": "Open Projects Folder",
-        "windows": "Open Projects Folder"
+        "mac": "Open Projects Folder"
       },
       "keys": {
         "mac": [
@@ -735,8 +705,7 @@
       "id": "menu.view",
       "kind": "menu",
       "text": {
-        "mac": "View",
-        "windows": "View"
+        "mac": "View"
       },
       "keys": {
         "mac": [],
@@ -749,8 +718,7 @@
       "id": "menu.view.bigger",
       "kind": "menu",
       "text": {
-        "mac": "Bigger Text",
-        "windows": "Bigger Text"
+        "mac": "Bigger Text"
       },
       "keys": {
         "mac": [
@@ -770,8 +738,7 @@
       "id": "menu.view.smaller",
       "kind": "menu",
       "text": {
-        "mac": "Smaller Text",
-        "windows": "Smaller Text"
+        "mac": "Smaller Text"
       },
       "keys": {
         "mac": [
@@ -789,8 +756,7 @@
       "id": "menu.view.actual",
       "kind": "menu",
       "text": {
-        "mac": "Actual Size",
-        "windows": "Actual Size"
+        "mac": "Actual Size"
       },
       "keys": {
         "mac": [
@@ -837,8 +803,7 @@
       "id": "menu.help",
       "kind": "menu",
       "text": {
-        "mac": "Help",
-        "windows": "Help"
+        "mac": "Help"
       },
       "keys": {
         "mac": [],
@@ -865,8 +830,7 @@
       "id": "menu.help.get_help",
       "kind": "menu",
       "text": {
-        "mac": "Get Help",
-        "windows": "Get Help"
+        "mac": "Get Help"
       },
       "keys": {
         "mac": [],
@@ -879,8 +843,7 @@
       "id": "menu.help.show_log",
       "kind": "menu",
       "text": {
-        "mac": "Show Log File",
-        "windows": "Show Log File"
+        "mac": "Show Log File"
       },
       "keys": {
         "mac": [],

@@ -65,7 +65,10 @@ public sealed partial class Messages
             {
                 var id = e.GetProperty("id").GetString()!;
                 string? text = null;
-                if (e.TryGetProperty("text", out var t) && t.TryGetProperty(os, out var v)
+                // A text is written for an OS only where it differs from the Mac
+                // text: absent means the Mac text, null means not shown.
+                if (e.TryGetProperty("text", out var t)
+                    && (t.TryGetProperty(os, out var v) || t.TryGetProperty("mac", out v))
                     && v.ValueKind == JsonValueKind.String)
                     text = v.GetString();
                 texts[id] = text;

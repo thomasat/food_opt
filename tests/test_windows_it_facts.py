@@ -104,7 +104,7 @@ def test_requirements_match_the_installer():
     build = _iss_directive("MinVersion").split(".")[-1]
     assert build == "19045" and f"build {build}" in req
     doc = json.loads((REPO / "desktop" / "shared" / "messages.json").read_text(encoding="utf-8"))
-    by_id = {e["id"]: e["text"]["windows"] for e in doc["messages"]}
+    by_id = {e["id"]: e["text"].get("windows", e["text"]["mac"]) for e in doc["messages"]}
     for key in ("webview2.missing.title", "webview2.missing.body"):
         assert by_id[key] in req, key
     assert "x64compatible" == _iss_directive("ArchitecturesAllowed") and "x64 emulation" in req

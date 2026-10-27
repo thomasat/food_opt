@@ -6,11 +6,10 @@ import re
 
 import pytest
 
-import wording
 from tests.mac_sources import (
     is_machinery, launcher_sh_literals, normalize, strip_placeholders,
     swift_literals, swift_scope, swift_screen_literals)
-from tests.shared_texts import REPO, entries, messages_doc, texts
+from tests.shared_texts import REPO, entries, messages_doc, text_for, texts
 from tests.test_food_bo import _launcher_lines
 
 KINDS = {"title", "body", "line", "label", "button", "menu"}
@@ -58,7 +57,7 @@ def test_every_entry_is_well_formed():
     for e in entries():
         assert _ID.match(e["id"]), e["id"]
         assert e["kind"] in KINDS, e
-        assert "mac" in e["text"], e
+        assert "mac" in e["text"] and set(e["text"]) <= {"mac", "windows"}, e
         assert (e["mac"] is None) == (e["text"]["mac"] is None), e
         assert _SHARED.match(e["shared"]), e
 
@@ -109,7 +108,20 @@ def test_machinery_rules():
 
 def test_every_entry_names_its_windows_text():
     for e in entries():
-        assert "windows" in e["text"], e["id"]
+        assert text_for(e, "windows") is None or isinstance(text_for(e, "windows"), str), e["id"]
+
+
+def test_windows_text_is_written_only_when_it_differs():
+    for e in entries():
+        if "windows" in e["text"]:
+            assert e["text"]["windows"] != e["text"]["mac"], e["id"]
+
+
+def test_an_absent_windows_text_is_the_mac_text():
+    assert text_for({"text": {"mac": "A"}}, "windows") == "A"
+    assert text_for({"text": {"mac": "A", "windows": None}}, "windows") is None
+    assert text_for({"text": {"mac": "A", "windows": "B"}}, "windows") == "B"
+    assert text_for({"text": {"mac": "A", "windows": "B"}}, "mac") == "A"
 
 
 def test_mac_only_entries_have_no_windows_text():
@@ -122,7 +134,7 @@ def test_mac_only_entries_have_no_windows_text():
                  and i not in ("launcher.status.load", "launcher.status.starting")]
     assert len(mac_only) > 20
     for i in mac_only:
-        assert by_id[i]["text"]["windows"] is None, i
+        assert text_for(by_id[i], "windows") is None, i
 
 
 _SENTENCE = re.compile(r"(?<=[.!?])\s+")
@@ -130,7 +142,7 @@ _SENTENCE = re.compile(r"(?<=[.!?])\s+")
 
 def test_new_windows_strings_follow_the_copy_rules():
     for e in entries():
-        win, mac = e["text"]["windows"], e["text"]["mac"]
+        win, mac = text_for(e, "windows"), e["text"]["mac"]
         if not isinstance(win, str) or win == mac:
             continue
         words = len(win.split())

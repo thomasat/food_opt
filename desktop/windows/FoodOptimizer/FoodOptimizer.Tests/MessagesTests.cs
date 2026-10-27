@@ -65,6 +65,25 @@ public class MessagesTests
         Assert.Empty(M.Keys("menu.app.quit"));
     }
 
+    static Messages FromJson(string json) =>
+        Messages.Load(new MemoryStream(Encoding.UTF8.GetBytes(json)));
+
+    [Fact]
+    public void Absent_windows_text_is_the_mac_text()
+    {
+        var m = FromJson("""{"messages":[{"id":"a.b","text":{"mac":"Same"}}],"menus":[]}""");
+        Assert.Equal("Same", m.Text("a.b"));
+        Assert.Equal("Same", m.All["a.b"]);
+    }
+
+    [Fact]
+    public void Null_windows_text_is_not_shown()
+    {
+        var m = FromJson("""{"messages":[{"id":"a.b","text":{"mac":"Same","windows":null}}],"menus":[]}""");
+        Assert.Throws<KeyNotFoundException>(() => m.Text("a.b"));
+        Assert.False(m.All.ContainsKey("a.b"));
+    }
+
     [Fact]
     public void Load_reads_another_os()
     {
