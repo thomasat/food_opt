@@ -298,6 +298,24 @@ public sealed class ShellApp : IDisposable
         return found;
     }
 
+    /// <summary>The WebView2 browser processes whose command line names
+    /// <paramref name="folder"/> (their --user-data-dir).</summary>
+    public static IReadOnlyList<int> WebViewBrowsersUsing(string folder)
+    {
+        var found = new List<int>();
+        using var searcher = new ManagementObjectSearcher(
+            "SELECT ProcessId, CommandLine FROM Win32_Process WHERE Name = 'msedgewebview2.exe'");
+        foreach (ManagementObject o in searcher.Get())
+        {
+            using (o)
+            {
+                if ((o["CommandLine"] as string ?? "").Contains(folder, StringComparison.OrdinalIgnoreCase))
+                    found.Add(Convert.ToInt32(o["ProcessId"]));
+            }
+        }
+        return found;
+    }
+
     public void Close()
     {
         var w = MainWindow() ?? Window;

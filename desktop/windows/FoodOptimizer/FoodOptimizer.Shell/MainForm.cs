@@ -130,7 +130,10 @@ sealed class MainForm : Form
 
     /// <summary>Creates the web view, trying again for a few seconds (a
     /// window that just closed may still hold the WebView2 folder). If it
-    /// never starts, says so and closes rather than leave a blank window.</summary>
+    /// never starts, says so and closes rather than leave a blank window.
+    /// A WebView2 folder that cannot be made fails here, before WebView2
+    /// starts: WebView2's own box for it waits for a click, and the shell
+    /// with it.</summary>
     async Task CreateWebViewAsync()
     {
         const int attempts = 3;
@@ -138,6 +141,7 @@ sealed class MainForm : Form
         {
             try
             {
+                Directory.CreateDirectory(_paths.WebViewData);
                 var env = await WebEnvironment.CreateAsync(_paths);
                 _log.Write("webview.runtime", env.BrowserVersionString);
                 await _web.InitializeAsync(env, _settings.Zoom);

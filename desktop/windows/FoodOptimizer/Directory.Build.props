@@ -15,4 +15,10 @@
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <Deterministic>true</Deterministic>
   </PropertyGroup>
+  <!-- What ships is the same from any checkout: source paths (and the .pdb
+       path in each .dll) are mapped to /_/ from the git root. Not the test
+       projects: the UI tests find the repo through [CallerFilePath]. -->
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'FoodOptimizer.Shell' Or '$(MSBuildProjectName)' == 'FoodOptimizer.Core'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+  </PropertyGroup>
 </Project>

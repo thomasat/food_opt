@@ -1,6 +1,7 @@
 """A build that fails part-way stops with exit 1, says `build failed:`, and
 leaves no build record (Review Focus 4: uv failing mid-build). A long clone
 path still builds, and the image is the same from any build folder."""
+import hashlib
 import os
 import shutil
 import subprocess
@@ -71,25 +72,72 @@ def test_a_long_clone_path_gets_past_the_python_step(short_tmp):
         shutil.rmtree(out, ignore_errors=True)
 
 
+def _rmtree(path):
+    """shutil.rmtree that also deletes git's read-only object files."""
+    import stat
+
+    def writable(func, p, _exc):
+        os.chmod(p, stat.S_IWRITE)
+        func(p)
+    if os.path.lexists(path):
+        shutil.rmtree(path, onexc=writable)
+
+
+def _clean_head():
+    """The clone's commit, refusing a dirty tree (a second clone would not
+    have its changes)."""
+    status = subprocess.run(["git", "-C", str(REPO), "status", "--porcelain"], env=own_git_env(),
+                            capture_output=True, text=True, check=True).stdout
+    assert status == "", "commit first: the second clone builds HEAD\n" + status
+    return subprocess.run(["git", "-C", str(REPO), "rev-parse", "HEAD"], env=own_git_env(),
+                          capture_output=True, text=True, check=True).stdout.strip()
+
+
+def _second_clone(path, commit):
+    """The same commit checked out in another folder, with LF files and the
+    pinned downloads copied (fetch_pinned.ps1 checks their hashes)."""
+    subprocess.run(["git", "-c", "core.autocrlf=false", "clone", "-q", "--no-checkout", str(REPO),
+                    str(path)], env=own_git_env(), check=True)
+    subprocess.run(["git", "-C", str(path), "config", "core.autocrlf", "false"], env=own_git_env(),
+                   check=True)
+    subprocess.run(["git", "-C", str(path), "checkout", "-q", commit], env=own_git_env(), check=True)
+    cache = WINDOWS / ".cache"
+    (path / "desktop" / "windows" / ".cache").mkdir(parents=True)
+    for f in cache.iterdir() if cache.is_dir() else []:
+        if f.is_file():
+            shutil.copy2(f, path / "desktop" / "windows" / ".cache" / f.name)
+
+
 @slow
 def test_the_image_does_not_depend_on_the_build_folder():
-    """Two full test builds from one clone, into folders that differ (one with
-    a space and an accent): the same per-file manifest (Review Focus 4)."""
+    """The same commit built from two checkouts in different folders (one
+    with a space), into image folders that differ (one with a space and an
+    accent): the same per-file manifest and image hash (Review Focus 4), and
+    the same installer bytes."""
+    clones = [REPO, WORK / "hd-c 2"]
     outs = [WORK / "hd-o1", WORK / "hd-o 2\u00e9"]
     dist = WORK / "dist"          # where both builds put their installer
-    assert not dist.exists() and not any(o.exists() for o in outs), "in the way: remove them"
+    assert not dist.exists() and not any(p.exists() for p in (*outs, clones[1])), "in the way: remove them"
     try:
-        manifests = []
-        for out in outs:
-            r = powershell("-File", WINDOWS / "build_installer.ps1", "-TestBuild", "-OutDir", out,
-                           env=own_git_env(), timeout=3600)
+        _second_clone(clones[1], _clean_head())
+        manifests, records, installers = [], [], []
+        for clone, out in zip(clones, outs):
+            r = powershell("-File", clone / "desktop" / "windows" / "build_installer.ps1", "-TestBuild",
+                           "-OutDir", out, env=own_git_env(), timeout=3600)
             assert r.returncode == 0, r.stdout[-4000:] + r.stderr
             manifests.append((out / "FoodOptimizer.files.txt").read_bytes())
+            records.append((out / "FoodOptimizer.build.txt").read_text(encoding="utf-8"))
+            [exe] = dist.glob("*-Windows-test.exe")
+            installers.append(hashlib.sha256(exe.read_bytes()).hexdigest())
         if manifests[0] != manifests[1]:
             one, two = (set(m.decode("utf-8").splitlines()) for m in manifests)
             assert sorted(one ^ two) == []
         # Same lines in another order (or line ends) still differ: bytes count.
         assert manifests[0] == manifests[1]
+        hashes = [next(line for line in rec.split("\n") if line.startswith("image_sha256="))
+                  for rec in records]
+        assert hashes[0] == hashes[1]
+        assert installers[0] == installers[1]
     finally:
-        for folder in (*outs, dist):
-            shutil.rmtree(folder, ignore_errors=True)
+        for folder in (*outs, dist, clones[1]):
+            _rmtree(folder)

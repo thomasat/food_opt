@@ -321,6 +321,7 @@ try {
     # Recorded before anything is written, so the record says what was built.
     $step = 'git'
     $commit = (Invoke-Native 'git rev-parse' 'git' @('-C', $RepoDir, 'rev-parse', 'HEAD') | Out-String).Trim()
+    $commitSeconds = [int64]((Invoke-Native 'git log' 'git' @('-C', $RepoDir, 'log', '-1', '--format=%ct', 'HEAD') | Out-String).Trim())
     $porcelain = Invoke-Native 'git status' 'git' @('-C', $RepoDir, 'status', '--porcelain', '--untracked-files=normal')
     $treeClean = 'yes'
     if (@($porcelain | Where-Object { $_ -ne '' }).Count -gt 0) { $treeClean = 'no' }
@@ -536,6 +537,11 @@ try {
          [math]::Round([double]$files['image_bytes'] / 1MB) + ' MB)')
 
     # 12. The installer. Until size_gate.json is filled, ISCC gets 2 GB.
+    #     Inno keeps each file's last-write time, so every image file gets
+    #     the commit's: one commit gives one installer from any folder.
+    $step = 'file times'
+    $commitTime = [DateTimeOffset]::FromUnixTimeSeconds($commitSeconds).UtcDateTime
+    Get-ChildItem -LiteralPath $Image -Recurse -File -Force | ForEach-Object { $_.LastWriteTimeUtc = $commitTime }
     $step = 'installer'
     $diskFreeGb = 2
     if ($null -ne $gate.disk_free_gb) { $diskFreeGb = [int]$gate.disk_free_gb }
