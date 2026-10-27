@@ -141,25 +141,26 @@ var
   PrewarmFailed: Boolean;
   Upgrading: Boolean;
   { The locked install folder, open until the copy ends. }
-  AppDirHandle: NativeInt;
+  AppDirHandle: Longint;
 
 function GetTickCount: DWORD; external 'GetTickCount@kernel32.dll stdcall';
-function CreateFileW(const Name: String; Access, Share: Integer; Security: NativeInt; Disposition, Flags: Integer;
-  Template: NativeInt): NativeInt; external 'CreateFileW@kernel32.dll stdcall';
-function CloseHandle(Handle: NativeInt): Integer; external 'CloseHandle@kernel32.dll stdcall';
-function LocalFree(Mem: NativeInt): NativeInt; external 'LocalFree@kernel32.dll stdcall';
+{ Inno 6's Setup is 32-bit: handles and pointers are Longint. }
+function CreateFileW(const Name: String; Access, Share: Integer; Security: Longint; Disposition, Flags: Integer;
+  Template: Longint): Longint; external 'CreateFileW@kernel32.dll stdcall';
+function CloseHandle(Handle: Longint): Integer; external 'CloseHandle@kernel32.dll stdcall';
+function LocalFree(Mem: Longint): Longint; external 'LocalFree@kernel32.dll stdcall';
 function ConvertStringSecurityDescriptorToSecurityDescriptorW(const Sddl: String; Revision: Integer;
-  var Descriptor: NativeInt; Size: NativeInt): Integer;
+  var Descriptor: Longint; Size: Longint): Integer;
   external 'ConvertStringSecurityDescriptorToSecurityDescriptorW@advapi32.dll stdcall';
-function GetSecurityDescriptorOwner(Descriptor: NativeInt; var Owner: NativeInt; var Defaulted: Integer): Integer;
+function GetSecurityDescriptorOwner(Descriptor: Longint; var Owner: Longint; var Defaulted: Integer): Integer;
   external 'GetSecurityDescriptorOwner@advapi32.dll stdcall';
-function GetSecurityDescriptorDacl(Descriptor: NativeInt; var Present: Integer; var Dacl: NativeInt;
+function GetSecurityDescriptorDacl(Descriptor: Longint; var Present: Integer; var Dacl: Longint;
   var Defaulted: Integer): Integer; external 'GetSecurityDescriptorDacl@advapi32.dll stdcall';
-function GetSecurityInfo(Handle: NativeInt; ObjectType, Info: Integer; var Owner: NativeInt;
-  Group, Dacl, Sacl: NativeInt; var Descriptor: NativeInt): Integer; external 'GetSecurityInfo@advapi32.dll stdcall';
-function SetSecurityInfo(Handle: NativeInt; ObjectType, Info: Integer; Owner, Group, Dacl, Sacl: NativeInt): Integer;
+function GetSecurityInfo(Handle: Longint; ObjectType, Info: Integer; var Owner: Longint;
+  Group, Dacl, Sacl: Longint; var Descriptor: Longint): Integer; external 'GetSecurityInfo@advapi32.dll stdcall';
+function SetSecurityInfo(Handle: Longint; ObjectType, Info: Integer; Owner, Group, Dacl, Sacl: Longint): Integer;
   external 'SetSecurityInfo@advapi32.dll stdcall';
-function IsWellKnownSid(Sid: NativeInt; SidType: Integer): Integer; external 'IsWellKnownSid@advapi32.dll stdcall';
+function IsWellKnownSid(Sid: Longint; SidType: Integer): Integer; external 'IsWellKnownSid@advapi32.dll stdcall';
 
 function EndsText(const Tail, S: String): Boolean;
 begin
@@ -354,7 +355,7 @@ end;
   user made, who could keep a handle that changes its rule after ours. }
 function OwnedByAdmins: Boolean;
 var
-  Owner, Descriptor: NativeInt;
+  Owner, Descriptor: Longint;
   Rc: Integer;
 begin
   Result := False;
@@ -379,7 +380,7 @@ end;
   open until the copy ends. False, logged, at any failure. }
 function LockFolder(const App: String): Boolean;
 var
-  Descriptor, Owner, Dacl: NativeInt;
+  Descriptor, Owner, Dacl: Longint;
   Present, Defaulted, Rc: Integer;
 begin
   Result := False;
