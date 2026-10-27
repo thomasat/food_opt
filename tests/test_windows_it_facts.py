@@ -135,8 +135,9 @@ def test_network_section_names_the_measured_audit_and_flags():
     """I4: the Network section states what Level 2 measures (the shell's
     whole process tree, WebView2 included) and names each switch that turns
     WebView2's background networking off (WebEnvironment.BrowserArguments)."""
-    env = (SHELL / "WebEnvironment.cs").read_text(encoding="utf-8")
-    flags = re.search(r'public const string BrowserArguments\s*=\s*"([^"]*)";', env).group(1).split()
+    from tests.test_windows_shell import browser_arguments
+    flags = browser_arguments((SHELL / "WebEnvironment.cs").read_text(encoding="utf-8"))
+    assert flags
     net = _flat(_section("Network"))
     for flag in flags:
         assert f"`{flag}`" in net, flag

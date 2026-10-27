@@ -94,9 +94,12 @@ def _image(path: str) -> str:
 
 
 def _browser_arguments() -> list:
+    """WebEnvironment.BrowserArguments' switches (its literals joined)."""
     source = (l2.REPO / "desktop" / "windows" / "FoodOptimizer" / "FoodOptimizer.Shell"
               / "WebEnvironment.cs").read_text(encoding="utf-8")
-    return re.search(r'BrowserArguments\s*=\s*"([^"]*)"', source).group(1).split()
+    expr = re.search(r"public const string BrowserArguments\s*=([^;]*);", source).group(1)
+    text = "".join(m.replace('\\"', '"') for m in re.findall(r'"((?:[^"\\]|\\.)*)"', expr))
+    return re.findall(r'--[a-z-]+(?:="[^"]*"|=\S+)?', text)
 
 
 def test_the_tree_includes_webview2(session):
@@ -110,13 +113,20 @@ def test_the_tree_includes_webview2(session):
 
 def test_webview2_runs_with_our_browser_arguments(session):
     """WebEnvironment.BrowserArguments reach WebView2's browser process (the
-    msedgewebview2.exe without --type=) on its command line."""
+    msedgewebview2.exe without --type=) on its command line, and the host
+    rule reaches its network service."""
     _events, tree = session
-    browsers = [p["cmd"] for p in tree.values() if _image(p["image"]) == WEBVIEW2 and "--type=" not in p["cmd"]]
-    assert browsers, tree
+    flags = _browser_arguments()
+    assert flags
+    webview = [p["cmd"] for p in tree.values() if _image(p["image"]) == WEBVIEW2]
+    browsers = [cmd for cmd in webview if "--type=" not in cmd]
+    network = [cmd for cmd in webview if "network.mojom.NetworkService" in cmd]
+    assert browsers and network, tree
     l2.report("webview2_browser_command_line", browsers[0])
-    for flag in _browser_arguments():
-        assert all(flag in cmd.split() for cmd in browsers), (flag, browsers)
+    for flag in flags:
+        assert all(f" {flag} " in f" {cmd} " for cmd in browsers), (flag, browsers)
+    rule = next(f for f in flags if f.startswith("--host-resolver-rules="))
+    assert all(f" {rule} " in f" {cmd} " for cmd in network), network
 
 
 def test_our_processes_connect_only_to_loopback(session):

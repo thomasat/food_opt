@@ -168,11 +168,22 @@ def test_powershell_scripts_are_ascii():
         p.read_bytes().decode("ascii")
 
 
-# I4: WebEnvironment.BrowserArguments, each flag measured on WebView2 156
-# (Task 13): on the browser process's command line, and Level 2's traffic
-# audit of the shell's whole tree with and without it.
+# I4: WebEnvironment.BrowserArguments, measured on WebView2 156 (Task 13):
+# each on the browser process's command line; Level 2's audit of the shell's
+# whole tree saw Microsoft, CDN and DNS traffic without them and none with.
 BROWSER_ARGUMENTS = ["--disable-background-networking", "--disable-component-update",
-                     "--disable-domain-reliability", "--no-pings"]
+                     "--disable-domain-reliability", "--no-pings", "--no-proxy-server",
+                     '--host-resolver-rules="MAP * ~NOTFOUND, EXCLUDE 127.0.0.1"']
+_SWITCH = re.compile(r'--[a-z-]+(?:="[^"]*"|=\S+)?')
+
+
+def browser_arguments(source: str) -> list:
+    """The switches in WebEnvironment.BrowserArguments (string literals
+    joined with +, \\" unescaped)."""
+    expr = re.search(r"public const string BrowserArguments\s*=([^;]*);", source).group(1)
+    text = "".join(m.replace('\\"', '"') for m in re.findall(r'"((?:[^"\\]|\\.)*)"', expr))
+    return _SWITCH.findall(text)
+
 
 WEBVIEW_SETTINGS = {
     "AreBrowserAcceleratorKeysEnabled": "false",
@@ -199,8 +210,7 @@ def test_webview_settings_are_the_spec_list():
     assert "IsCustomCrashReportingEnabled = true" in env
     # I4: WebView2's background networking off.
     assert "AdditionalBrowserArguments = BrowserArguments" in env
-    m = re.search(r'public const string BrowserArguments\s*=\s*"([^"]*)";', env)
-    assert m and m.group(1).split() == BROWSER_ARGUMENTS, m and m.group(1)
+    assert browser_arguments(env) == BROWSER_ARGUMENTS
     # Every environment the shell makes goes through WebEnvironment.
     makers = [p.name for p, source in _shell_sources().items()
               if "CoreWebView2Environment.CreateAsync" in _strip_comments(source)]
