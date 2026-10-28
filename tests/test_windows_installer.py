@@ -109,6 +109,18 @@ COPY = [
     ("Messages", ["AbortRetryIgnoreRetry"], "L", "&Try again"),
     ("Messages", ["AbortRetryIgnoreIgnore"], "L", "&Continue anyway"),
     ("Messages", ["AbortRetryIgnoreCancel"], "L", "Stop installing"),
+    # The rare ones; approved by the owner 2026-10-28.
+    ("Messages", ["FileAbortRetryIgnoreSkipNotRecommended"], "L", "&Skip (app may not work)"),
+    ("Messages", ["RetryCancelSelectAction"], "T", "Choose what to do"),
+    ("Messages", ["RetryCancelRetry"], "L", "&Try again"),
+    ("Messages", ["RetryCancelCancel"], "L", "&Cancel"),
+    ("Messages", ["StatusRestartingApplications"], "B", "Reopening closed apps"),
+    ("Messages", ["ShutdownBlockReasonInstallingApp"], "B", "Installing Food Optimizer."),
+    ("Messages", ["ShutdownBlockReasonUninstallingApp"], "B", "Uninstalling Food Optimizer."),
+    ("Messages", ["UninstallOpenError"], "B",
+     "Food Optimizer could not be uninstalled.%nEmail sohum.patnaik@fsi.org."),
+    ("Messages", ["UninstallDisplayNameMark"], "L", "%1 (%2)"),
+    ("Messages", ["UninstallDisplayNameMarkAllUsers"], "L", "all users"),
 ]
 REWRITTEN = {(section, key): text for section, keys, _kind, text in COPY for key in keys}
 
@@ -161,6 +173,24 @@ def test_installer_messages_follow_the_copy_rules():
             assert not mac.search(plain), (key, plain)
             for pattern in [*_BANNED, _BACKUP]:
                 assert not pattern.search(plain), (key, pattern.pattern, plain)
+
+
+def test_an_all_users_copy_beside_a_per_user_one_is_named_for_all_users():
+    """Inno marks the Settings > Apps name when the same account already
+    has the other kind of install: UninstallDisplayNameMark with %1 the
+    name and %2 the mark (Setup.Install.pas, HandleDuplicateDisplayNames)."""
+    messages = parse_isl(ISL)["Messages"]
+    name = setup_directives()["UninstallDisplayName"]
+    marked = (messages["UninstallDisplayNameMark"].replace("%1", name)
+              .replace("%2", messages["UninstallDisplayNameMarkAllUsers"]))
+    assert marked == "Food Optimizer (all users)"
+
+
+def test_the_uninstall_open_error_names_no_file():
+    """Inno passes the uninstall log's path as %1; the message leaves it out
+    and names the address instead."""
+    text = parse_isl(ISL)["Messages"]["UninstallOpenError"]
+    assert "%1" not in text and "sohum.patnaik@fsi.org" in text
 
 
 def test_prewarm_failure_names_it_and_the_address():

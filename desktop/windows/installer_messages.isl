@@ -62,6 +62,18 @@ AbortRetryIgnoreSelectAction=Choose what to do
 AbortRetryIgnoreRetry=&Try again
 AbortRetryIgnoreIgnore=&Continue anyway
 AbortRetryIgnoreCancel=Stop installing
+FileAbortRetryIgnoreSkipNotRecommended=&Skip (app may not work)
+RetryCancelSelectAction=Choose what to do
+RetryCancelRetry=&Try again
+RetryCancelCancel=&Cancel
+StatusRestartingApplications=Reopening closed apps
+ShutdownBlockReasonInstallingApp=Installing Food Optimizer.
+ShutdownBlockReasonUninstallingApp=Uninstalling Food Optimizer.
+UninstallOpenError=Food Optimizer could not be uninstalled.%nEmail sohum.patnaik@fsi.org.
+; Settings > Apps: an all-users install beside the same account's per-user
+; copy is named "Food Optimizer (all users)" (Inno's own format, kept here).
+UninstallDisplayNameMark=%1 (%2)
+UninstallDisplayNameMarkAllUsers=all users
 
 [CustomMessages]
 DesktopShortcut=Add a desktop shortcut

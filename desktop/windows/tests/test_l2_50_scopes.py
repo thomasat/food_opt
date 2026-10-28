@@ -324,6 +324,18 @@ def test_all_users_install_leaves_a_per_user_copy_untouched(installer, l2_home, 
     assert "per-user copy" not in result.log
 
 
+def test_an_all_users_copy_beside_my_per_user_copy_is_named_for_all_users(installer, l2_home, cleanup):
+    """Settings > Apps tells the two apart (owner, 2026-10-28): when an
+    admin who has a per-user copy installs for all users, Inno marks the
+    new entry's name; the per-user entry keeps its own."""
+    result = l2.install(installer, "user", env=l2_home.env)
+    assert result.rc == 0, result.log[-3000:]
+    result = l2.install(installer, "admin", all_users=True, extra=["/NODESKTOPSHORTCUT"], env=l2_home.env)
+    assert result.rc == 0, result.log[-3000:]
+    assert l2.uninstall_entry("machine")["DisplayName"] == "Food Optimizer (all users)", result.log[-3000:]
+    assert l2.uninstall_entry("user")["DisplayName"] == "Food Optimizer"
+
+
 def test_that_users_next_launch_removes_it(installer, l2_home, cleanup):
     """D1: when that user next opens the IT copy, it runs their per-user
     copy's own uninstaller, silently and as them. The copy, its Apps entry
