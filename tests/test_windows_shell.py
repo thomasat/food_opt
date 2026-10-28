@@ -141,6 +141,45 @@ def test_a_missing_start_here_says_so():
     assert "missing_part" not in case
 
 
+def _method(source: str, signature: str) -> str:
+    """One C# method's body, from its signature to its closing brace at the
+    signature's own indentation."""
+    start = source.index(signature)
+    indent = source[source.rindex("\n", 0, start) + 1:start]
+    return source[start:source.index("\n" + indent + "}", start)]
+
+
+def test_the_quick_access_pin_runs_off_the_ui_thread():
+    """Gate (6361cfe): the pin's Shell COM calls ran on the UI thread, and a
+    Close sent while they ran was never handled (InstanceTests.
+    Reopening_during_loading_opens_a_new_window, 3 of 4 runs). The calls run
+    on a short-lived background STA thread of their own (StaThread.RunAsync,
+    StaThreadTests); the window awaits it, then records the outcome on its
+    own thread, and only while it is not closing."""
+    quick = _strip_comments(read_lf(SHELL / "FoodOptimizer.Core" / "Windows" / "QuickAccess.cs"))
+    pin_async = _method(quick, "public static Task<PinOutcome> PinAsync(string dir, ShellLog log)")
+    assert "StaThread.RunAsync(() => Pin(dir, log))" in pin_async, pin_async
+    pin = _method(quick, "static PinOutcome Pin(string dir, ShellLog log)")
+    assert "await" not in pin and "Task.Delay" not in pin, pin
+    sta = _strip_comments(read_lf(SHELL / "FoodOptimizer.Core" / "Windows" / "StaThread.cs"))
+    run_async = _method(sta, "public static Task<T> RunAsync<T>(Func<T> f)")
+    for needle in ("TaskCreationOptions.RunContinuationsAsynchronously", "IsBackground = true",
+                   "SetApartmentState(ApartmentState.STA)"):
+        assert needle in run_async, needle
+    main = _strip_comments(read_lf(SHELL / "FoodOptimizer.Shell" / "MainForm.cs"))
+    shown = _method(main, "protected override async void OnShown(EventArgs e)")
+    assert "await PinProjectsFolderAsync()" in shown
+    body = _method(main, "async Task PinProjectsFolderAsync()")
+    awaited = body.index("await QuickAccess.PinAsync(_paths.ProjectsDir, _log);")
+    closing = body.index("if (_closing || IsDisposed)", awaited)
+    assert closing < body.index("QuickAccessRule.Record(_settings, outcome)"), body
+    assert "ConfigureAwait(false)" not in body
+    # Nothing else in the shell reaches the Shell's COM verbs.
+    for path, source in _shell_sources().items():
+        if path.name != "QuickAccess.cs":
+            assert "InvokeVerb" not in source and "Shell.Application" not in source, path
+
+
 # Every shell.log event whose detail is an address the web view saw.
 ADDRESS_EVENTS = {"app.navigate", "open.external", "nav.blocked", "frame.blocked", "window.blocked",
                   "request.blocked", "message.ignored"}

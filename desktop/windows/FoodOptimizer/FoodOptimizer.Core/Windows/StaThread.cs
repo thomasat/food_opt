@@ -29,4 +29,22 @@ public static class StaThread
         thread.Join();
         failure?.Throw();
     }
+
+    /// <summary>Runs <paramref name="f"/> on a new STA thread of its own,
+    /// always (never the caller's), and returns at once: the task ends with
+    /// its result or its exception. A background thread, so a window that
+    /// closes meanwhile never waits for it; its continuation never runs on
+    /// that thread.</summary>
+    public static Task<T> RunAsync<T>(Func<T> f)
+    {
+        var done = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var thread = new Thread(() =>
+        {
+            try { done.SetResult(f()); }
+            catch (Exception e) { done.SetException(e); }
+        }) { IsBackground = true };
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        return done.Task;
+    }
 }

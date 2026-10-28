@@ -130,12 +130,15 @@ sealed class MainForm : Form
     }
 
     /// <summary>D2: makes the projects folder and, the first time for this
-    /// user (both install types, no admin), pins it to Quick access, here
-    /// on the UI thread (Shell COM needs an STA thread; the wait for the
-    /// pin to show is an await, not a block). Recorded in settings.json:
-    /// the app looks once, so a user who unpins it later keeps it
-    /// unpinned, and it is "ours" only when this launch pinned it, so the
-    /// uninstaller unpins only what the app pinned.</summary>
+    /// user (both install types, no admin), pins it to Quick access. The
+    /// Shell COM calls run on an STA thread of their own (QuickAccess.PinAsync),
+    /// never on this one: a Close sent while they ran was once never
+    /// handled. Recorded in settings.json, back on this thread and only
+    /// while the window is not closing (a closing window has saved its
+    /// settings and let a new window open; the outcome is dropped, and the
+    /// next launch looks again): the app looks once, so a user who unpins
+    /// it later keeps it unpinned, and it is "ours" only when this launch
+    /// pinned it, so the uninstaller unpins only what the app pinned.</summary>
     async Task PinProjectsFolderAsync()
     {
         try
@@ -149,6 +152,11 @@ sealed class MainForm : Form
         }
         if (!QuickAccessRule.ShouldPin(_settings)) return;
         var outcome = await QuickAccess.PinAsync(_paths.ProjectsDir, _log);
+        if (_closing || IsDisposed)
+        {
+            _log.Write("quickaccess.dropped", outcome.ToString());
+            return;
+        }
         if (QuickAccessRule.Record(_settings, outcome) && !_settings.Save(_paths.SettingsPath))
             _log.Write("settings.save_failed");
     }

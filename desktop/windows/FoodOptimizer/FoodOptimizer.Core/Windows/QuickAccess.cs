@@ -4,7 +4,7 @@ using System.Runtime.Versioning;
 namespace FoodOptimizer.Core.Windows;
 
 /// <summary>D2: pins a folder to File Explorer's Quick access through the
-/// Shell's own verb (no admin). Call it on an STA thread.</summary>
+/// Shell's own verb (no admin), on an STA thread of its own.</summary>
 [SupportedOSPlatform("windows")]
 public static class QuickAccess
 {
@@ -13,13 +13,22 @@ public static class QuickAccess
     /// <summary>How long a pin may take to show in Quick access.</summary>
     static readonly TimeSpan ListWait = TimeSpan.FromSeconds(2);
     static readonly TimeSpan ListPoll = TimeSpan.FromMilliseconds(100);
+    /// <summary>Never set: only waited on, for ListPoll.</summary>
+    static readonly ManualResetEvent Pause = new(false);
+
+    /// <summary>Pin on a short-lived background STA thread
+    /// (StaThread.RunAsync): the caller's thread, the window's, never waits
+    /// on Explorer, so a Close sent meanwhile is handled. Never throws; a
+    /// window that closes first may simply abandon it.</summary>
+    public static Task<PinOutcome> PinAsync(string dir, ShellLog log) =>
+        StaThread.RunAsync(() => Pin(dir, log));
 
     /// <summary>Pins the folder unless Quick access lists it already, then
     /// looks again: Pinned only when this call pinned it and it is listed
     /// now. Logs quickaccess.pinned, listed, not_listed or failed. Each
-    /// look uses a Shell object of its own, so none outlives an await.
-    /// Never throws.</summary>
-    public static async Task<PinOutcome> PinAsync(string dir, ShellLog log)
+    /// look uses a Shell object of its own. Runs on the calling (STA)
+    /// thread and blocks it. Never throws.</summary>
+    static PinOutcome Pin(string dir, ShellLog log)
     {
         try
         {
@@ -52,7 +61,9 @@ public static class QuickAccess
                     return PinOutcome.Pinned;
                 }
                 if (waited >= ListWait) break;
-                await Task.Delay(ListPoll);
+                // A pumping wait (an STA thread's WaitOne): COM calls to
+                // this thread's objects are still served meanwhile.
+                Pause.WaitOne(ListPoll);
             }
             log.Write("quickaccess.not_listed", dir);
             return PinOutcome.NotListed;
