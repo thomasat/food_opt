@@ -1517,6 +1517,23 @@ def _write_frame(sheet, frame, two_decimals=(), freeze=True, title=None,
     return sheet
 
 
+def _keep_text_cells(book):
+    """Every cell of a download stays the text the app wrote. openpyxl
+    makes any text that starts with = a formula, so a name, note or record
+    typed as "=1+1" or '=HYPERLINK("x")' would run in Excel (or show
+    #NAME?); and a Calculation such as "= rest" is the app's own notation,
+    never Excel's. The app writes no spreadsheet formulas of its own, so
+    every formula cell here is such a text: it is written as a string, its
+    visible text unchanged. Cells that are text already are left alone, so
+    a workbook with no such text is byte for byte what it was."""
+    for sheet in book.worksheets:
+        # The cells written, only: iter_rows() would add an empty cell (and
+        # an empty <row>) at every gap, changing the file.
+        for cell in list(sheet._cells.values()):
+            if cell.data_type == "f" and isinstance(cell.value, str):
+                cell.data_type = "s"
+
+
 def frame_workbook(sheets):
     """One workbook from {sheet name: DataFrame}. The ingredients template
     goes out this way, so the file a project starts from is the same kind of
@@ -1528,6 +1545,7 @@ def frame_workbook(sheets):
         sheet.title = name
         _write_frame(sheet, frame)
         first = False
+    _keep_text_cells(book)
     buffer = io.BytesIO()
     book.save(buffer)
     return buffer.getvalue()
@@ -4370,6 +4388,8 @@ class FoodOptimizer:
         frame = self.history_export_frame().copy()
         for column in frame.columns:
             frame[column] = frame[column].map(_escape_csv_text)
+        # A header is a cell too: an ingredient named "=1+1" heads "=1+1 (g)".
+        frame.columns = [_escape_csv_text(c) for c in frame.columns]
         return frame.to_csv(index=False)
 
     # ------------------------------------------------------------------ #
@@ -4481,6 +4501,7 @@ class FoodOptimizer:
         custom_records.append_workbook(book, self, rows, print_pack)
         workbook_flow.hide_metadata(book)
         book.active = 0
+        _keep_text_cells(book)
         buffer = io.BytesIO()
         book.save(buffer)
         return buffer.getvalue()
@@ -5823,6 +5844,7 @@ class FoodOptimizer:
                     if isinstance(cell.value, str):
                         cell.data_type = 's'
         self._write_setup_sheet(book.create_sheet(wording.SET_UP_SHEET))
+        _keep_text_cells(book)
         buffer = io.BytesIO()
         book.save(buffer)
         return buffer.getvalue()

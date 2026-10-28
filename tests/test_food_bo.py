@@ -1,5 +1,6 @@
 """Tests for the FoodOptimizer core engine."""
 
+import csv
 import io
 import json
 import os
@@ -15,7 +16,7 @@ import openpyxl
 
 import wording
 from food_bo import (
-    FoodOptimizer, ingredients_template_workbook,
+    FoodOptimizer, frame_workbook, ingredients_template_workbook,
     _name_taken_message, FormulaError, LinearForm, parse_formula,
 )
 
@@ -349,6 +350,108 @@ def test_history_csv_escapes_formula_text(tmp_path, monkeypatch):
     assert list(df["Note"]) == ["'" + n for n in notes]
     assert list(df["Taste"]) == ["-1.5"] * len(notes)
     assert list(df["Water (g)"]) == ["10.0", "20.0", "30.0", "40.0", "50.0"]
+
+
+def test_history_csv_escapes_formula_headers(tmp_path, monkeypatch):
+    """A column header is a cell too: an ingredient or target named = + - @
+    gets the same leading ' as a text cell, and the reader takes it off."""
+    from ui_helpers import read_uploaded_csv
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("csvhead")
+    opt.add_ingredient("=1+1", 0, 100)
+    opt.add_ingredient("+salt", 0, 10)
+    opt.add_objective("-sweet", 1.0, goal="max", min_val=0, max_val=10)
+    opt.add_objective("@cmd", 1.0, goal="max", min_val=0, max_val=10)
+    opt.tell({"=1+1": 10.0, "+salt": 1.0}, {"-sweet": 5.0, "@cmd": 4.0},
+             formulation_no=1, batch_no=1)
+    text = opt.history_csv()
+    header = next(csv.reader(io.StringIO(text)))
+    for name in ("'=1+1 (g)", "'+salt (g)", "'-sweet", "'@cmd"):
+        assert name in header, header
+    df = read_uploaded_csv(io.BytesIO(text.encode("utf-8")))
+    assert list(df.columns) == list(opt.history_export_frame().columns)
+    assert df["=1+1 (g)"].tolist() == [10.0]
+    assert df["-sweet"].tolist() == [5.0]
+
+
+def _formula_project(tmp_path, monkeypatch):
+    """A project whose names, note and record all start with =, and a
+    Calculation (the app's own notation, never Excel's)."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("=p", robust=False)
+    opt.add_ingredient("=1+1", 5, 20)
+    opt.add_ingredient("Water", 0, 100)
+    opt.set_formulation_total(100)
+    opt.set_formula("Water", "= rest")
+    opt.add_ingredient("Salt", 0, 5)
+    opt.set_formula("Salt", "= 0.5")
+    opt.add_objective('=HYPERLINK("x")', 1, goal="max", min_val=0, max_val=10)
+    import custom_records
+    field = custom_records.add_field(opt, "=op", "formulation")
+    opt.tell({"=1+1": 12, "Water": 87.5, "Salt": 0.5}, {'=HYPERLINK("x")': 5},
+             formulation_no=1, batch_no=1, note="=note")
+    opt.set_pending_batch([{"=1+1": 10, "Water": 89.5, "Salt": 0.5},
+                           {"=1+1": 15, "Water": 84.5, "Salt": 0.5}], batch_no=2)
+    custom_records.save_values(opt, 2, [("formulation", "3", field, "=v")])
+    return opt
+
+
+def _cells(data):
+    book = openpyxl.load_workbook(io.BytesIO(data))
+    return [(sheet.title, cell) for sheet in book.worksheets
+            for row in sheet.iter_rows() for cell in row]
+
+
+def test_workbooks_keep_text_that_starts_with_equals_as_text(tmp_path, monkeypatch):
+    """openpyxl makes any text starting with = a formula, which Excel would
+    run (=HYPERLINK) or show as #NAME?. Every download writes such a name,
+    note or record as text, exactly as typed, and holds no formula at all."""
+    opt = _formula_project(tmp_path, monkeypatch)
+    downloads = {
+        "print pack": opt.workbook_bytes(opt.pending_batch, None),
+        "compact": opt.workbook_bytes(opt.pending_batch, None, print_pack=False),
+        "all formulations": opt.all_formulations_workbook(),
+        "frame": frame_workbook({"Ingredients": pd.DataFrame({"Name": ["=1+1"]})}),
+    }
+    expected = {
+        "print pack": {"=1+1", "=1+1 (g)", '=HYPERLINK("x")', "=v"},
+        "compact": {"=1+1", "=1+1 (g)", "=v"},
+        "all formulations": {"=1+1", "=1+1 (g)", '=HYPERLINK("x")', "=note", "=v",
+                             "= 0.5"},
+        "frame": {"=1+1"},
+    }
+    for name, data in downloads.items():
+        cells = _cells(data)
+        assert [(t, c.coordinate) for t, c in cells if c.data_type == "f"] == [], name
+        texts = {c.value for _t, c in cells
+                 if c.data_type == "s" and isinstance(c.value, str)}
+        assert expected[name] <= texts, (name, expected[name] - texts)
+
+
+def test_the_text_pass_changes_no_byte_of_a_plain_workbook(tmp_path, monkeypatch):
+    """A workbook with no text starting with = is byte for byte what it was
+    before the pass existed (save times aside)."""
+    import food_bo
+    from tests.test_near_copy import _zip_parts
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("plain", robust=False)
+    opt.add_ingredient("Protein", 5, 20)
+    opt.add_ingredient("Water", 0, 100)
+    opt.set_formulation_total(100)
+    opt.set_formula("Water", "= rest")
+    opt.add_objective("Taste", 1, goal="max", min_val=0, max_val=10)
+    opt.tell({"Protein": 12, "Water": 88}, {"Taste": 5}, formulation_no=1,
+             batch_no=1, note="-sweet, +salt")
+    opt.set_pending_batch([{"Protein": 10, "Water": 90}], batch_no=2)
+
+    def downloads():
+        return [_zip_parts(opt.workbook_bytes(opt.pending_batch, None)),
+                _zip_parts(opt.workbook_bytes(opt.pending_batch, None, print_pack=False)),
+                _zip_parts(opt.all_formulations_workbook())]
+
+    with_pass = downloads()
+    monkeypatch.setattr(food_bo, "_keep_text_cells", lambda book: None)
+    assert downloads() == with_pass
 
 
 def test_history_csv_backfills_variable_added_mid_run(tmp_path, monkeypatch):

@@ -989,7 +989,7 @@ def read_uploaded_csv(uploaded):
     UTF-8 (with or without the BOM Excel adds) or Windows' cp1252; commas,
     semicolons or tabs between columns; numbers judged from numeric columns
     only (decimal commas and dot thousands in ';' files); and the export's
-    escape apostrophe before = + - @ taken off text cells."""
+    escape apostrophe before = + - @ taken off text cells and headers."""
     raw = uploaded.getvalue()
     try:
         text = raw.decode("utf-8-sig")
@@ -1013,4 +1013,6 @@ def read_uploaded_csv(uploaded):
     for column in df.columns:
         if pd.api.types.is_string_dtype(df[column].dtype):
             df[column] = df[column].map(_unescape_export)
+    # The export escapes its header cells the same way.
+    df.columns = [_unescape_export(c) for c in df.columns]
     return df

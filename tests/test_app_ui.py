@@ -9042,6 +9042,37 @@ def test_a_formula_note_survives_a_csv_round_trip(burger):
     assert list(df["Note"]) == ["=1+1"]
 
 
+def test_formula_like_headers_survive_a_csv_round_trip(tmp_path, monkeypatch):
+    """An ingredient named =Pea and a measurement named +Juicy head their
+    columns with a leading ' in the export; the upload takes it off, so the
+    rows import under the right names."""
+    from ui_helpers import read_uploaded_csv
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("eqhead")
+    opt.add_ingredient("=Pea", 0, 25)
+    opt.add_ingredient("@Salt", 0, 3)
+    opt.add_objective("+Juicy", 1.0, goal="max", min_val=0, max_val=10)
+    opt.tell({"=Pea": 12.0, "@Salt": 1.2}, {"+Juicy": 6.0}, formulation_no=1,
+             batch_no=1)
+    text = FoodOptimizer("eqhead").history_csv()
+    assert "'=Pea" in text and "'@Salt" in text and "'+Juicy" in text
+    downloaded = read_uploaded_csv(io.BytesIO(text.encode("utf-8")))
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "eqhead"
+    at.session_state["add_past_mode"] = wording.UPLOAD_A_FILE
+    at.session_state["_import_rows"] = downloaded
+    at.run()
+    _submit_button(at, wording.IMPORT_ALL_ROWS_BUTTON).click()
+    at.run()
+    assert not at.exception
+    assert not at.error, [e.value for e in at.error]
+    reloaded = FoodOptimizer("eqhead")
+    assert len(reloaded.recipe_history) == 2
+    assert reloaded.recipe_history[1]["=Pea"] == pytest.approx(12.0)
+    assert reloaded.recipe_history[1]["@Salt"] == pytest.approx(1.2)
+    assert reloaded.Y_history[1] == reloaded.Y_history[0] == pytest.approx(60.0)
+
+
 # ------------------------------------------------------------------ #
 #  Copy wave (2026-09-13): the behaviour behind the words. A button
 #  that names what it deletes, a counter that says "complete", the
