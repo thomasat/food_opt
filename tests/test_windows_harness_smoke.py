@@ -118,6 +118,8 @@ def test_the_traffic_audit_counts_the_shells_whole_tree(l2):
     text = TRAFFIC.read_text(encoding="utf-8")
     assert "l2.ours(e, per_user.root, tree)" in text
     assert "l2.TreeWatch(job.pid)" in text
+    body = text[text.index("def session("):]
+    assert body.index("try:") < body.index("l2.TreeWatch(job.pid).start()") < body.index("finally:")
     assert 'l2.report("wfp_outside_by_process"' in text
     for name in ("test_the_tree_includes_webview2", "test_webview2_runs_with_our_browser_arguments"):
         assert f"def {name}(" in text, name
@@ -178,9 +180,10 @@ def test_the_tree_watch_counts_good_and_failed_samples(l2, monkeypatch):
     the largest gap between good samples (start and stop included) is kept;
     the shell's start time is read once at start()."""
     shell = _row(10, 1, 100, "FoodOptimizer.exe")
-    lines = [json.dumps([shell, _row(12, 10, 102, "msedgewebview2.exe")]), "not json {",
-             json.dumps([shell, _row(12, 10, 102, "msedgewebview2.exe"), _row(13, 12, 103, "msedgewebview2.exe")]),
-             ""]
+    lines = [json.dumps([shell, _row(12, 10, 102, "msedgewebview2.exe")]) + "\n", "not json {\n",
+             json.dumps([shell, _row(12, 10, 102, "msedgewebview2.exe"),
+                         _row(13, 12, 103, "msedgewebview2.exe")]) + "\n",
+             "\n"]
     monkeypatch.setattr(l2, "process_rows", lambda where="": [shell] if where == "ProcessId=10" else [])
     loop = _FakeLoop(lines)
     started = []
@@ -193,6 +196,47 @@ def test_the_tree_watch_counts_good_and_failed_samples(l2, monkeypatch):
     assert (polls["ok"], polls["failed"], polls["interval_s"]) == (2, 1, 0.25)
     assert 0 <= polls["max_gap_s"] < 5 and loop.killed
     assert "Win32_Process" in started[0][-1] and "Start-Sleep -Milliseconds 250" in started[0][-1]
+
+
+def test_the_sampler_ends_with_pytest_and_its_cut_last_line_is_not_a_failure(l2, monkeypatch):
+    """Fix round 2: the sampling loop checks for this process (pytest) each
+    turn and ends once it is gone, so a run killed before stop() leaves no
+    powershell.exe; a last line stop()'s kill cut short is not a failed
+    sample; the first gap counts from start(), seeding call included."""
+    import os
+    import threading
+    import time
+    shell = _row(10, 1, 100, "FoodOptimizer.exe")
+    killed = threading.Event()
+
+    def lines():
+        yield json.dumps([shell]) + "\n"
+        killed.wait(5)
+        yield '[{"pid": 10, "pp'                       # no newline: cut by the kill
+
+    class Loop(_FakeLoop):
+        def kill(self):
+            killed.set()
+            super().kill()
+
+    loop = Loop(lines())
+    started = []
+
+    def slow_rows(where=""):
+        time.sleep(0.3)
+        return [shell]
+    monkeypatch.setattr(l2, "process_rows", slow_rows)
+    monkeypatch.setattr(l2.subprocess, "Popen", lambda args, **kw: started.append(args) or loop)
+    watch = l2.TreeWatch(10).start()
+    time.sleep(0.2)
+    watch.stop()
+    polls = watch.polls()
+    assert (polls["ok"], polls["failed"]) == (1, 0), polls
+    assert polls["max_gap_s"] >= 0.3, polls
+    script = started[0][-1]
+    assert f"$p = {os.getpid()};" in script
+    exit_check = "if (-not (Get-Process -Id $p -ErrorAction SilentlyContinue)) { break };"
+    assert script.index("while ($true) {") < script.index(exit_check) < script.index("WriteLine")
 
 
 def test_browser_arguments_is_one_parser(l2):

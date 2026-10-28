@@ -70,8 +70,9 @@ def session(per_user, capture, tmp_path_factory):
     for keep_open in (60, 0):
         after = l2.log_size(home.state / "shell.log")
         job = l2.start_shell(per_user.root, home)
-        watch = l2.TreeWatch(job.pid).start()
+        watch = None
         try:
+            watch = l2.TreeWatch(job.pid).start()
             assert l2.wait_log(home.state / "shell.log", NAVIGATE, l2.FIRST_OPEN_LIMIT_S, after=after)
             time.sleep(keep_open)
         finally:
@@ -80,9 +81,10 @@ def session(per_user, capture, tmp_path_factory):
             if not l2.wait_for(lambda: not job.alive(), 10):
                 l2.kill_under(per_user.root)
             l2.wait_for(lambda: not l2.processes_under(per_user.root / "python"), 10)
-            l2.wait_for(lambda: not watch.alive(), 20, 0.5)
-            tree.update(watch.stop())
-            polls.append(watch.polls())
+            if watch is not None:
+                l2.wait_for(lambda: not watch.alive(), 20, 0.5)
+                tree.update(watch.stop())
+                polls.append(watch.polls())
         if keep_open:
             env = dict(os.environ)
             env["HOME"] = env["USERPROFILE"] = str(tmp_path)

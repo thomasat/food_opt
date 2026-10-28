@@ -1038,6 +1038,7 @@ class TreeWatch:
         self.max_gap_s = 0.0
         self._proc = self._thread = None
         self._last = None
+        self._stopping = False
         self._lock = threading.Lock()
 
     def take(self, rows) -> set:
@@ -1062,8 +1063,10 @@ class TreeWatch:
                 self.failed += 1
 
     def _read(self):
-        for line in self._proc.stdout:
-            line = line.strip().lstrip("\ufeff")
+        for raw in self._proc.stdout:
+            if self._stopping and not raw.endswith("\n"):
+                break                   # the sample stop()'s kill cut short
+            line = raw.strip().lstrip("\ufeff")
             if not line:
                 continue
             try:
@@ -1075,15 +1078,19 @@ class TreeWatch:
             self._mark(True)
 
     def start(self):
+        self._last = time.monotonic()       # the first gap counts from here
         # The root's start time first, while the shell is known to be up:
         # a later sample never takes a reused pid for it.
         root = [r for r in process_rows(f"ProcessId={int(self.root_pid)}") if r["pid"] == self.root_pid]
         if root:
             self.take(root)
-        loop = ("[Console]::OutputEncoding = [Text.Encoding]::UTF8; while ($true) { "
+        # The loop ends by itself once this process (pytest) is gone, so a
+        # run that never reaches stop() (a deadline kill, Ctrl+C, a failed
+        # teardown) leaves no sampler behind.
+        loop = (f"[Console]::OutputEncoding = [Text.Encoding]::UTF8; $p = {os.getpid()}; while ($true) {{ "
+                "if (-not (Get-Process -Id $p -ErrorAction SilentlyContinue)) { break }; "
                 "[Console]::Out.WriteLine((" + _process_rows_script() + ")); [Console]::Out.Flush(); "
                 f"Start-Sleep -Milliseconds {int(self.INTERVAL_S * 1000)} }}")
-        self._last = time.monotonic()
         self._proc = subprocess.Popen(
             ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", loop],
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, encoding="utf-8", errors="replace",
@@ -1101,6 +1108,7 @@ class TreeWatch:
                     "interval_s": self.INTERVAL_S}
 
     def stop(self) -> dict:
+        self._stopping = True
         if self._proc is not None:
             ended_early = self._proc.poll() is not None
             self._proc.kill()
