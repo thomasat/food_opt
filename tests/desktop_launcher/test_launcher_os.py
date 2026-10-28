@@ -168,6 +168,22 @@ def test_a_connect_probe_that_times_out_still_counts_as_free(monkeypatch):
     assert ports.port_is_free(port)
 
 
+# Processes Windows always runs as SYSTEM. Found by image name: from a
+# non-elevated prompt tasklist cannot read SYSTEM's user name, so a
+# USERNAME filter matches nothing there.
+SYSTEM_IMAGES = ("services.exe", "wininit.exe", "lsass.exe", "smss.exe")
+
+
+def _tasklist_pids(out: str) -> list:
+    """The pids of tasklist /FO CSV /NH rows (its INFO line aside)."""
+    pids = []
+    for line in out.splitlines():
+        parts = line.strip().strip('"').split('","')
+        if len(parts) > 1 and parts[1].isdigit() and int(parts[1]) > 4:
+            pids.append(int(parts[1]))
+    return pids
+
+
 def _pid_of_another_user():
     """A live pid another account owns that is not python (so not a lock
     owner). Windows: SYSTEM processes, preferring one whose start time we
@@ -175,18 +191,30 @@ def _pid_of_another_user():
     pid 1 (launchd / init)."""
     if sys.platform != "win32":
         return 1 if procinfo.pid_alive(1) else None
-    out = subprocess.run(["tasklist", "/FI", "USERNAME eq SYSTEM", "/FO", "CSV", "/NH"],
-                         capture_output=True, text=True).stdout
     found = []
-    for line in out.splitlines():
-        parts = line.strip().strip('"').split('","')
-        if len(parts) > 1 and parts[1].isdigit() and int(parts[1]) > 4:
-            pid = int(parts[1])
-            image = procinfo.process_image(pid) or ""
-            if procinfo.pid_alive(pid) and not image.replace("\\", "/").rsplit("/", 1)[-1].lower().startswith("python"):
+    for image in SYSTEM_IMAGES:
+        out = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {image}", "/FO", "CSV", "/NH"],
+                             capture_output=True, text=True).stdout
+        for pid in _tasklist_pids(out):
+            name = procinfo.process_image(pid) or ""
+            if procinfo.pid_alive(pid) and not name.replace("\\", "/").rsplit("/", 1)[-1].lower().startswith("python"):
                 found.append(pid)
     unreadable = [p for p in found if procinfo.process_start_time(p) is None]
     return (unreadable or found or [None])[0]
+
+
+def test_tasklist_rows_give_their_pids():
+    """_pid_of_another_user finds SYSTEM processes by image name, not by a
+    USERNAME filter: from a non-elevated prompt tasklist cannot read
+    SYSTEM's user name and the filter matches nothing (final review)."""
+    out = ('"services.exe","812","Services","0","9,876 K"\r\n'
+           'INFO: No tasks are running which match the specified criteria.\r\n'
+           '"lsass.exe","4","Services","0","1 K"\r\n'
+           '"wininit.exe","x","Services","0","1 K"\r\n')
+    assert _tasklist_pids(out) == [812]
+    assert SYSTEM_IMAGES == ("services.exe", "wininit.exe", "lsass.exe", "smss.exe")
+    import inspect
+    assert "USERNAME" not in inspect.getsource(_pid_of_another_user)
 
 
 def test_a_pid_owned_by_another_user_is_not_a_lock_owner(py, world):
@@ -194,7 +222,7 @@ def test_a_pid_owned_by_another_user_is_not_a_lock_owner(py, world):
     pid = _pid_of_another_user()
     if pid is None:
         if sys.platform == "win32":
-            pytest.fail("tasklist found no SYSTEM-owned process")
+            pytest.fail("tasklist found none of " + ", ".join(SYSTEM_IMAGES))
         pytest.skip("pid 1 is not visible here")
     world.lock_dir.mkdir(parents=True)
     (world.lock_dir / "pid").write_bytes(f"{pid}\n".encode())
