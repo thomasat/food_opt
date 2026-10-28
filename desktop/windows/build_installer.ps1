@@ -36,6 +36,7 @@ $ProgressPreference = 'SilentlyContinue'
 $USAGE = 'usage: build_installer.ps1 [-Version X.Y.Z] [-Check] [-TestBuild] [-OutDir DIR]'
 $ROOT_BUDGET = 80
 $WindowsDir = $PSScriptRoot
+$SetupIss = Join-Path $WindowsDir 'setup.iss'
 $DesktopDir = Split-Path -Parent $WindowsDir
 $RepoDir = Split-Path -Parent $DesktopDir
 
@@ -539,17 +540,29 @@ try {
          [math]::Round([double]$files['image_bytes'] / 1MB) + ' MB)')
 
     # 12. The installer. Until size_gate.json is filled, ISCC gets 2 GB.
-    #     Inno keeps each file's last-write time, so every image file gets
-    #     the commit's: one commit gives one installer from any folder.
+    #     Inno keeps each source file's last-write time, so every [Files]
+    #     source gets the commit's: the image's files and each repo file an
+    #     entry names (build_env.py iss-sources lists them, and fails on one
+    #     it cannot name as a file). One commit gives one installer from any
+    #     folder, whenever it was checked out.
     $step = 'file times'
     $commitTime = [DateTimeOffset]::FromUnixTimeSeconds($commitSeconds).UtcDateTime
-    Get-ChildItem -LiteralPath $Image -Recurse -File -Force | ForEach-Object { $_.LastWriteTimeUtc = $commitTime }
+    $issSources = @(Invoke-BuildEnv @('iss-sources', $SetupIss) | Where-Object { $_ -match '^iss_source=' } |
+        ForEach-Object { $_.Substring('iss_source='.Length) })
+    foreach ($source in $issSources) {
+        if ($source -eq '{#ImageDir}\*') {
+            $timed = Get-ChildItem -LiteralPath $Image -Recurse -File -Force
+        } else {
+            $timed = Get-Item -LiteralPath (Join-Path $WindowsDir $source) -Force
+        }
+        foreach ($file in @($timed)) { $file.LastWriteTimeUtc = $commitTime }
+    }
     $step = 'installer'
     $diskFreeGb = 2
     if ($null -ne $gate.disk_free_gb) { $diskFreeGb = [int]$gate.disk_free_gb }
     New-Item -ItemType Directory -Path $Dist -Force | Out-Null
     $isccStarted = Get-Date
-    & $Iscc '/Qp' "/DAppVersion=$ver" "/DImageDir=$Image" "/DDiskFreeGB=$diskFreeGb" "/O$Dist" "/F$InstallerName" (Join-Path $WindowsDir 'setup.iss') | ForEach-Object { Say $_ }
+    & $Iscc '/Qp' "/DAppVersion=$ver" "/DImageDir=$Image" "/DDiskFreeGB=$diskFreeGb" "/O$Dist" "/F$InstallerName" $SetupIss | ForEach-Object { Say $_ }
     $iscc = $LASTEXITCODE
     if ($iscc -ne 0) { throw ('ISCC exit ' + $iscc) }
     Say ('ISCC time: ' + [math]::Round(((Get-Date) - $isccStarted).TotalSeconds) + ' s')

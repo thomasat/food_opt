@@ -474,3 +474,43 @@ def test_cli_pe_files_writes_the_list(fake_image, tmp_path):
     assert r.returncode == 0, r.stdout + r.stderr
     assert "pe_files=1" in r.stdout.splitlines()
     assert out.read_bytes() == b"python/a.dll\n"
+
+
+# ---------- the installer's [Files] sources (gate at 6361cfe) ----------
+
+ISS = REPO / "desktop" / "windows" / "setup.iss"
+
+
+def test_iss_sources_are_every_files_source_of_setup_iss():
+    """build_installer.ps1 gives each of these the commit's time before ISCC
+    (Inno stores each source file's time): the image, and every file of the
+    repo a [Files] entry names, so a checkout's own times never reach the
+    installer's bytes. The all-users marker once kept its checkout time."""
+    assert be.iss_file_sources(ISS) == ["{#ImageDir}\\*", "all-users"]
+    assert be.iss_source_problems(ISS) == []
+
+
+def test_iss_sources_cli_prints_each_source(capsys):
+    assert be.main(["iss-sources", str(ISS)]) == 0
+    assert capsys.readouterr().out.splitlines() == ["iss_source={#ImageDir}\\*", "iss_source=all-users"]
+
+
+@pytest.mark.parametrize("entry, problem", [
+    ('Source: "extra.txt"; DestDir: "{app}"', "iss source: missing extra.txt"),
+    ('Source: "art\\*.bmp"; DestDir: "{app}"', "iss source: a pattern, name each file: art\\*.bmp"),
+    ('Source: "{#Other}\\x"; DestDir: "{app}"', "iss source: not a file beside setup.iss: {#Other}\\x"),
+    ('Source: "C:\\x\\y.txt"; DestDir: "{app}"', "iss source: not a file beside setup.iss: C:\\x\\y.txt"),
+    ('Source: "..\\VERSION"; DestDir: "{app}"', "iss source: not a file beside setup.iss: ..\\VERSION"),
+    ('DestDir: "{app}"', "iss source: an entry without a Source: DestDir: \"{app}\""),
+])
+def test_a_source_the_build_cannot_time_fails(tmp_path, capsys, entry, problem):
+    """A [Files] source the build would not give the commit's time to fails
+    the build (exit 1) rather than make the installer depend on the checkout."""
+    iss = tmp_path / "setup.iss"
+    iss.write_text("[Setup]\nAppName=x\n\n[Files]\n; a comment\n"
+                   'Source: "{#ImageDir}\\*"; DestDir: "{app}"; Flags: recursesubdirs\n'
+                   + entry + "\n\n[Code]\nfunction F: Boolean; begin end;\n", encoding="ascii")
+    (tmp_path / "art").mkdir()
+    assert be.iss_source_problems(iss) == [problem]
+    assert be.main(["iss-sources", str(iss)]) == 1
+    assert problem in capsys.readouterr().out.splitlines()

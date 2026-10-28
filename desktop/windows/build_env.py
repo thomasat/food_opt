@@ -11,6 +11,7 @@ Stdlib only. Paths in results are image-relative with "/".
     python build_env.py shell <publish> <image>
     python build_env.py gate <repo> <image> [--shell <publish>]
     python build_env.py files <image> <out.txt>
+    python build_env.py iss-sources <setup.iss>
 
 Each command returns 0, or 1 with each problem on its own stdout line.
 """
@@ -540,6 +541,62 @@ def file_manifest(image) -> tuple[str, int, int]:
     return text, len(rows), total
 
 
+# ---------- the installer's sources ----------
+
+# setup.iss's image entry: build_installer.ps1 passes /DImageDir=<image>.
+ISS_IMAGE_SOURCE = "{#ImageDir}\\*"
+
+
+def _iss_files_lines(iss) -> list[str]:
+    """setup.iss's [Files] lines, without blank, ';' comment and ISPP '#'
+    lines."""
+    section, out = None, []
+    for raw in pathlib.Path(iss).read_text(encoding="ascii").split("\n"):
+        line = raw.strip()
+        if not line or line.startswith((";", "#", "//")):
+            continue
+        m = re.fullmatch(r"\[(\w+)\]", line)
+        if m:
+            section = m.group(1)
+        elif section == "Files":
+            out.append(line)
+    return out
+
+
+def _iss_source(line) -> str | None:
+    m = re.match(r'(?:.*;\s*)?Source:\s*"((?:[^"]|"")*)"', line)
+    return m.group(1).replace('""', '"') if m else None
+
+
+def iss_file_sources(iss) -> list[str]:
+    """The Source of every [Files] entry of setup.iss, in order. Inno stores
+    each source file's last-write time in the installer, so
+    build_installer.ps1 gives every one of them the commit's time."""
+    return [s for s in map(_iss_source, _iss_files_lines(iss)) if s is not None]
+
+
+def iss_source_problems(iss) -> list[str]:
+    """A [Files] source the build cannot give the commit's time to: one
+    without a Source, a pattern, or anything but a file beside setup.iss
+    (the image entry aside)."""
+    folder = pathlib.Path(iss).parent
+    problems = []
+    for line in _iss_files_lines(iss):
+        source = _iss_source(line)
+        if source is None:
+            problems.append(f"iss source: an entry without a Source: {line}")
+        elif source == ISS_IMAGE_SOURCE:
+            continue
+        elif "*" in source or "?" in source:
+            problems.append(f"iss source: a pattern, name each file: {source}")
+        elif ("{" in source or re.match(r"[A-Za-z]:|[\\/]", source)
+              or ".." in re.split(r"[\\/]", source)):
+            problems.append(f"iss source: not a file beside setup.iss: {source}")
+        elif not (folder / source.replace("\\", "/")).is_file():
+            problems.append(f"iss source: missing {source}")
+    return problems
+
+
 # ---------- CLI ----------
 
 def _gate(repo, image, publish=None) -> list[str]:
@@ -637,10 +694,17 @@ def main(argv=None) -> int:
         pathlib.Path(args[1]).write_bytes("".join(f"{rel}\n" for rel in files).encode("utf-8"))
         print(f"pe_files={len(files)}")
         return 0
+    if cmd == "iss-sources" and len(args) == 1:
+        problems = iss_source_problems(args[0])
+        for line in problems:
+            print(line)
+        for source in iss_file_sources(args[0]):
+            print(f"iss_source={source}")
+        return 1 if problems else 0
     print("usage: build_env.py assemble <repo> <image> | strip <image> | compile <image>"
           " | shell <publish> <image> | gate <repo> <image> [--shell <publish>]"
           " | files <image> <out.txt> | pe-files <image> <out.txt>"
-          " | listing [--write] [--repo <path>]")
+          " | iss-sources <setup.iss> | listing [--write] [--repo <path>]")
     return 2
 
 

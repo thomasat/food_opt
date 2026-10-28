@@ -521,6 +521,32 @@ def test_release_record_keys_follow_the_image_record():
             assert "sbom" not in path.read_text(encoding="utf-8").lower(), path
 
 
+def test_every_files_source_gets_the_commit_time_before_iscc():
+    """Inno stores each [Files] source's last-write time, so one commit gives
+    one installer from any checkout only if every source has the commit's
+    time: the image's files, and every file of the repo a [Files] entry
+    names (the all-users marker kept its checkout time, gate at 6361cfe).
+    The script asks build_env.py for the sources (iss-sources), so a new
+    [Files] entry is covered, or fails the build (test_windows_build_env)."""
+    text = BUILD.read_text(encoding="ascii")
+    times = text[text.index("$step = 'file times'"):text.index("$step = 'installer'")]
+    assert "$commitTime = [DateTimeOffset]::FromUnixTimeSeconds($commitSeconds).UtcDateTime" in times
+    assert "Invoke-BuildEnv @('iss-sources', $SetupIss)" in times
+    assert "if ($source -eq '{#ImageDir}\\*')" in times
+    assert "Get-ChildItem -LiteralPath $Image -Recurse -File -Force" in times
+    assert "Get-Item -LiteralPath (Join-Path $WindowsDir $source) -Force" in times
+    assert times.count(".LastWriteTimeUtc = $commitTime") == 1, times
+    # ISCC compiles the same setup.iss, after the times are set.
+    assert "& $Iscc '/Qp'" in text[text.index("$step = 'installer'"):]
+    assert "$SetupIss = Join-Path $WindowsDir 'setup.iss'" in text
+    assert text.count("$SetupIss") == 3 and "(Join-Path $WindowsDir 'setup.iss')" not in text
+    # Every [Files] entry's Source is one the script covers.
+    sources = [e["Source"] for e in section_entries("Files")]
+    assert sources[0] == "{#ImageDir}\\*"
+    for source in sources[1:]:
+        assert re.fullmatch(r"[\w.\- ]+", source) and (WINDOWS / source).is_file(), source
+
+
 def test_a_rebuild_over_an_image_with_the_shell_is_allowed():
     """The 3b guard that keeps -OutDir off a home folder accepts the shell's
     published files at the image root, and still refuses a project file."""
