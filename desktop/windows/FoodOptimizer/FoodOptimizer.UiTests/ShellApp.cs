@@ -39,6 +39,7 @@ public sealed class ShellApp : IDisposable
     public static TimeSpan Load => TimeSpan.FromSeconds(LoadSeconds);
 
     [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
     [DllImport("user32.dll")] static extern void mouse_event(uint flags, int dx, int dy, int data, UIntPtr extra);
@@ -119,6 +120,19 @@ public sealed class ShellApp : IDisposable
         try { Window.SetFocus(); } catch (Exception) { }
         SetForegroundWindow(Hwnd);
         Thread.Sleep(300);
+    }
+
+    public bool IsForeground => GetForegroundWindow() == Hwnd;
+
+    /// <summary>Brings the window back to the foreground when another one
+    /// has it (a browser window an external link opened can come up late,
+    /// during the next test): keys sent meanwhile would go to that window.
+    /// True when the window has the foreground.</summary>
+    public bool EnsureForeground()
+    {
+        if (IsForeground) return true;
+        Activate();
+        return Uia.WaitUntil(() => IsForeground, TimeSpan.FromSeconds(3), 50);
     }
 
     public void Keys(string sendKeys)

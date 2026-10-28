@@ -83,17 +83,30 @@ public class KeysAndMenusTests
         AssertZoom(app, 1.0);
     }
 
+    static int Logged(ShellApp app, string line) => app.Log().Count(l => l.TrimEnd().EndsWith(line, StringComparison.Ordinal));
+
+    /// 25 Ctrl+= that reach the app: 15 take it from 1 to 2.5, the other
+    /// 10 must not pass it. Each press is counted in shell.log; a press is
+    /// sent only while the app has the foreground, since one sent while a
+    /// browser window (opened by an earlier test's link) has it zooms the
+    /// browser instead.
     [Fact]
     public void Zoom_stops_at_two_and_a_half()
     {
+        const int presses = 25;
+        const string bigger = " command.run " + MenuIds.Bigger;
         var (app, edit) = Loaded(ShellRun.Fresh());
         using var _ = app;
         TypeInto(app, edit, "");
-        for (var i = 0; i < 25; i++)
+        var deadline = DateTime.UtcNow.AddSeconds(60);
+        while (Logged(app, bigger) < presses && DateTime.UtcNow < deadline)
         {
+            if (!app.EnsureForeground()) continue;
             WinForms.SendKeys.SendWait("^=");
             Thread.Sleep(100);
         }
+        Assert.True(Uia.WaitUntil(() => Logged(app, bigger) >= presses, TimeSpan.FromSeconds(5)),
+            string.Join("\n", app.Log()));
         AssertZoom(app, 2.5);
     }
 

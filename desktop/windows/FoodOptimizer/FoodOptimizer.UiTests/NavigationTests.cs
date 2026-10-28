@@ -20,63 +20,97 @@ public class NavigationTests
     static bool Logged(ShellApp app, string line, TimeSpan timeout) =>
         Uia.WaitUntil(() => app.Log().Any(l => l.Contains(line)), timeout);
 
-    /// <summary>Closes browser windows the external links opened.</summary>
-    static void CloseBrowserWindows()
+    /// <summary>The handles of every top-level window now.</summary>
+    static HashSet<int> TopHandles() =>
+        AutomationElement.RootElement.FindAll(TreeScope.Children, Condition.TrueCondition)
+            .Cast<AutomationElement>().Select(Handle).ToHashSet();
+
+    static int Handle(AutomationElement w)
     {
-        Thread.Sleep(1000);
-        foreach (var w in AutomationElement.RootElement.FindAll(TreeScope.Children, Condition.TrueCondition).Cast<AutomationElement>())
-        {
-            var name = Uia.NameOf(w);
-            if (name.Contains("Example Domain") || name.Contains("foodopt-") || name.Contains("example.com"))
-            {
-                try { ((WindowPattern)w.GetCurrentPattern(WindowPattern.Pattern)).Close(); } catch (Exception) { }
-            }
-        }
+        try { return w.Current.NativeWindowHandle; }
+        catch (Exception) { return 0; }
     }
 
+    static bool IsProbePage(AutomationElement w)
+    {
+        var name = Uia.NameOf(w);
+        return name.Contains("Example Domain") || name.Contains("foodopt-") || name.Contains("example.com");
+    }
+
+    /// <summary>Closes the browser windows the link opened (new since
+    /// <paramref name="before"/>), never one that was open already. A
+    /// browser that starts cold can show its window seconds after the
+    /// test is done; left open, it takes the foreground (and the keys) from
+    /// the next test, so it is waited for first.</summary>
+    static void CloseBrowserWindows(HashSet<int> before)
+    {
+        AutomationElement[] Opened() =>
+            AutomationElement.RootElement.FindAll(TreeScope.Children, Condition.TrueCondition)
+                .Cast<AutomationElement>().Where(w => !before.Contains(Handle(w)) && IsProbePage(w)).ToArray();
+        Uia.WaitUntil(() => Opened().Length > 0, TimeSpan.FromSeconds(20));
+        Thread.Sleep(500);
+        foreach (var w in Opened())
+        {
+            try { ((WindowPattern)w.GetCurrentPattern(WindowPattern.Pattern)).Close(); } catch (Exception) { }
+        }
+        Uia.WaitUntil(() => Opened().Length == 0, Five);
+    }
+
+    static string Describe(IEnumerable<AutomationElement> windows) =>
+        string.Join("; ", windows.Select(w => $"{Uia.SafeClass(w)} '{Uia.NameOf(w)}'"));
+
+    /// <summary>The app still shows its page, in its one window: the link
+    /// opened no window of the app's own. Waited for, so a window that
+    /// shows only for a moment while the browser takes the foreground is
+    /// not counted; one that stays fails, naming what it is.</summary>
     static void AssertStillOnTheApp(ShellApp app)
     {
         Assert.True(Uia.WaitUntil(() => app.Exists(ControlType.Edit, "Type here"), Three));
-        Assert.Single(Uia.TopWindows(app.Process.Id));
+        IReadOnlyList<AutomationElement> windows = [];
+        Assert.True(Uia.WaitUntil(() => (windows = Uia.TopWindows(app.Process.Id)).Count == 1, Three),
+            "the app's top-level windows: " + Describe(windows));
     }
 
     [Fact]
     public void A_blank_target_link_opens_in_the_browser()
     {
         using var app = Loaded();
+        var before = TopHandles();
         try
         {
             Uia.Invoke(app.WaitFor(ControlType.Hyperlink, "Blank link", Ten));
             Assert.True(Logged(app, "open.external https://example.com/foodopt-blank", Five), string.Join("\n", app.Log()));
             AssertStillOnTheApp(app);
         }
-        finally { CloseBrowserWindows(); }
+        finally { CloseBrowserWindows(before); }
     }
 
     [Fact]
     public void A_same_window_external_link_opens_in_the_browser()
     {
         using var app = Loaded();
+        var before = TopHandles();
         try
         {
             Uia.Invoke(app.WaitFor(ControlType.Hyperlink, "Same link", Ten));
             Assert.True(Logged(app, "open.external https://example.com/foodopt-same", Five), string.Join("\n", app.Log()));
             AssertStillOnTheApp(app);
         }
-        finally { CloseBrowserWindows(); }
+        finally { CloseBrowserWindows(before); }
     }
 
     [Fact]
     public void Window_open_goes_to_the_browser()
     {
         using var app = Loaded();
+        var before = TopHandles();
         try
         {
             Uia.Invoke(app.WaitFor(ControlType.Button, "Open window", Ten));
             Assert.True(Logged(app, "open.external https://example.com/foodopt-open", Five), string.Join("\n", app.Log()));
             AssertStillOnTheApp(app);
         }
-        finally { CloseBrowserWindows(); }
+        finally { CloseBrowserWindows(before); }
     }
 
     [Fact]
