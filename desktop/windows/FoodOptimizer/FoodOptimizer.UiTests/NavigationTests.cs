@@ -47,13 +47,18 @@ public class NavigationTests
         AutomationElement[] Opened() =>
             AutomationElement.RootElement.FindAll(TreeScope.Children, Condition.TrueCondition)
                 .Cast<AutomationElement>().Where(w => !before.Contains(Handle(w)) && IsProbePage(w)).ToArray();
-        Uia.WaitUntil(() => Opened().Length > 0, TimeSpan.FromSeconds(20));
-        Thread.Sleep(500);
-        foreach (var w in Opened())
+        // In a finally: a failure here must never hide the test's own.
+        try
         {
-            try { ((WindowPattern)w.GetCurrentPattern(WindowPattern.Pattern)).Close(); } catch (Exception) { }
+            Uia.WaitUntil(() => Opened().Length > 0, TimeSpan.FromSeconds(20));
+            Thread.Sleep(500);
+            foreach (var w in Opened())
+            {
+                try { ((WindowPattern)w.GetCurrentPattern(WindowPattern.Pattern)).Close(); } catch (Exception) { }
+            }
+            Uia.WaitUntil(() => Opened().Length == 0, Five);
         }
-        Uia.WaitUntil(() => Opened().Length == 0, Five);
+        catch (Exception) { }
     }
 
     static string Describe(IEnumerable<AutomationElement> windows) =>
