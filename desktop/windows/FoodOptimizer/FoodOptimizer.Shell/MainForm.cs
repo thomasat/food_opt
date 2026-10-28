@@ -126,15 +126,17 @@ sealed class MainForm : Form
         base.OnShown(e);
         _launch.Start();
         await CreateWebViewAsync();
-        if (!IsDisposed) PinProjectsFolder();
+        if (!IsDisposed) await PinProjectsFolderAsync();
     }
 
     /// <summary>D2: makes the projects folder and, the first time for this
     /// user (both install types, no admin), pins it to Quick access, here
-    /// on the UI thread (Shell COM needs an STA thread). Recorded in
-    /// settings.json, so a user who unpins it later keeps it unpinned and
-    /// the uninstaller unpins only what the app pinned.</summary>
-    void PinProjectsFolder()
+    /// on the UI thread (Shell COM needs an STA thread; the wait for the
+    /// pin to show is an await, not a block). Recorded in settings.json:
+    /// the app looks once, so a user who unpins it later keeps it
+    /// unpinned, and it is "ours" only when this launch pinned it, so the
+    /// uninstaller unpins only what the app pinned.</summary>
+    async Task PinProjectsFolderAsync()
     {
         try
         {
@@ -145,9 +147,10 @@ sealed class MainForm : Form
             _log.Write("projects.create_failed", ex.GetType().Name);
             return;
         }
-        if (!QuickAccessRule.ShouldPin(_settings) || !QuickAccess.Pin(_paths.ProjectsDir, _log)) return;
-        _settings.QuickAccessPinned = true;
-        if (!_settings.Save(_paths.SettingsPath)) _log.Write("settings.save_failed");
+        if (!QuickAccessRule.ShouldPin(_settings)) return;
+        var outcome = await QuickAccess.PinAsync(_paths.ProjectsDir, _log);
+        if (QuickAccessRule.Record(_settings, outcome) && !_settings.Save(_paths.SettingsPath))
+            _log.Write("settings.save_failed");
     }
 
     /// <summary>Creates the web view, trying again for a few seconds (a

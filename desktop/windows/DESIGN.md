@@ -27,7 +27,10 @@ One page. The full spec is `docs/superpowers/specs/2026-10-23-windows-port-desig
   path rule safe.
 - The all-users installer never deletes anything in a per-user location.
   At a user's next launch of the IT copy, that user's own per-user copy runs
-  its own uninstaller; their projects and state stay.
+  its own uninstaller; their projects and state stay. Their own shortcuts
+  still open the per-user copy, so it hands off to the IT copy (it starts
+  it and quits before holding any name) and the same cleanup follows. A
+  taskbar pin of the per-user copy then stops working; pin the IT copy.
 - The app, not the installer, pins the projects folder to Quick access, at
   its first launch. The all-users installer then needs nothing from a
   user's profile, and an uninstall unpins only what the app pinned.

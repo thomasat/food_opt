@@ -10,39 +10,70 @@ public static class QuickAccess
 {
     const string Home = "shell:::{679f85cb-0220-4080-b29b-5540cc05aab6}";
 
-    /// <summary>True when the folder is pinned now or was already listed;
-    /// logs quickaccess.pinned, listed or failed. Never throws.</summary>
-    public static bool Pin(string dir, ShellLog log)
+    /// <summary>How long a pin may take to show in Quick access.</summary>
+    static readonly TimeSpan ListWait = TimeSpan.FromSeconds(2);
+    static readonly TimeSpan ListPoll = TimeSpan.FromMilliseconds(100);
+
+    /// <summary>Pins the folder unless Quick access lists it already, then
+    /// looks again: Pinned only when this call pinned it and it is listed
+    /// now. Logs quickaccess.pinned, listed, not_listed or failed. Each
+    /// look uses a Shell object of its own, so none outlives an await.
+    /// Never throws.</summary>
+    public static async Task<PinOutcome> PinAsync(string dir, ShellLog log)
+    {
+        try
+        {
+            switch (WithShell(s => Listed(s, dir)))
+            {
+                case null:
+                    log.Write("quickaccess.failed", "no_shell");
+                    return PinOutcome.Failed;
+                case true:
+                    log.Write("quickaccess.listed", dir);
+                    return PinOutcome.AlreadyListed;
+            }
+            var invoked = WithShell(s =>
+            {
+                dynamic? folder = s.Namespace(dir);
+                if (folder == null) return false;
+                folder.Self.InvokeVerb("pintohome");
+                return true;
+            });
+            if (invoked != true)
+            {
+                log.Write("quickaccess.failed", invoked == null ? "no_shell" : "no_folder");
+                return PinOutcome.Failed;
+            }
+            for (var waited = TimeSpan.Zero; ; waited += ListPoll)
+            {
+                if (WithShell(s => Listed(s, dir)) == true)
+                {
+                    log.Write("quickaccess.pinned", dir);
+                    return PinOutcome.Pinned;
+                }
+                if (waited >= ListWait) break;
+                await Task.Delay(ListPoll);
+            }
+            log.Write("quickaccess.not_listed", dir);
+            return PinOutcome.NotListed;
+        }
+        catch (Exception e)
+        {
+            log.Write("quickaccess.failed", e.GetType().Name);
+            return PinOutcome.Failed;
+        }
+    }
+
+    /// <summary>f on a new Shell.Application, released after; null when
+    /// there is no Shell.</summary>
+    static bool? WithShell(Func<dynamic, bool> f)
     {
         object? shell = null;
         try
         {
             var type = Type.GetTypeFromProgID("Shell.Application");
-            if (type == null || (shell = Activator.CreateInstance(type)) == null)
-            {
-                log.Write("quickaccess.failed", "no_shell");
-                return false;
-            }
-            dynamic s = shell;
-            if (Listed(s, dir))
-            {
-                log.Write("quickaccess.listed", dir);
-                return true;
-            }
-            dynamic? folder = s.Namespace(dir);
-            if (folder == null)
-            {
-                log.Write("quickaccess.failed", "no_folder");
-                return false;
-            }
-            folder.Self.InvokeVerb("pintohome");
-            log.Write("quickaccess.pinned", dir);
-            return true;
-        }
-        catch (Exception e)
-        {
-            log.Write("quickaccess.failed", e.GetType().Name);
-            return false;
+            if (type == null || (shell = Activator.CreateInstance(type)) == null) return null;
+            return f(shell);
         }
         finally
         {

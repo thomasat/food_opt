@@ -8,6 +8,17 @@ static class Program
     [STAThread]
     static int Main()
     {
+        var paths = UserPaths.Resolve(Environment.GetEnvironmentVariable,
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+        Directory.CreateDirectory(paths.StateDir);
+        var log = new ShellLog(paths.ShellLogPath);
+        var layout = InstallLayout.FromExeDirectory(Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory));
+        // D1: a per-user copy on a PC with the IT copy opens the IT copy and
+        // quits, before it holds any name: the IT copy then runs this copy's
+        // own uninstaller. The IT copy never hands off.
+        if (ItCopyHandoff.Run(layout, log)) return 0;
+
         WinShell.SetAppUserModelId(AppIdentity.AppUserModelId);
         ApplicationConfiguration.Initialize();
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
@@ -24,14 +35,8 @@ static class Program
             return 0;
         }
 
-        var paths = UserPaths.Resolve(Environment.GetEnvironmentVariable,
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
-        Directory.CreateDirectory(paths.StateDir);
         ShellLog.Rotate(paths.ShellLogPath);
-        var log = new ShellLog(paths.ShellLogPath);
         log.Write("shell.start", AppIdentity.Version);
-        var layout = InstallLayout.FromExeDirectory(Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory));
         // The name the installer and uninstaller of this copy's scope check.
         using var installerMutex = InstallerMutex.Hold(layout.RunningMutex, log);
 

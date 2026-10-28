@@ -87,6 +87,11 @@ Name: "en"; MessagesFile: "compiler:Default.isl,installer_messages.isl"
 
 [Files]
 Source: "{#ImageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; The all-users marker: the shell reads it (InstallLayout.AllUsers), holds
+; the all-users running name and never hands off to another copy. A file
+; entry, so a copy that fails stops the install (Abort under
+; /SUPPRESSMSGBOXES); Inno deletes it at uninstall.
+Source: "all-users"; DestDir: "{app}"; Flags: ignoreversion; Check: IsAdminInstallMode
 
 [InstallDelete]
 ; An upgrade starts from a clean Python and app: a package an older lock had
@@ -108,7 +113,6 @@ Filename: "{app}\FoodOptimizer.exe"; Description: "{cm:OpenApp}"; Flags: postins
 Filename: "{app}\Start Here.txt"; Description: "{cm:OpenStartHere}"; Flags: postinstall shellexec nowait skipifsilent unchecked runasoriginaluser
 
 [UninstallDelete]
-Type: files; Name: "{app}\all-users"
 Type: dirifempty; Name: "{app}"
 
 [Code]
@@ -575,7 +579,8 @@ end;
 
 { Whether the app pinned the projects folder (D2): it pins it at its first
   launch and records that in settings.json (ShellSettings writes exactly
-  this text). A pin the user made stays. }
+  this text). A pin the user made stays: a folder already listed when the
+  app looked is recorded as "quickAccessChecked" only, never as this. }
 function AppPinnedProjects: Boolean;
 var
   S: AnsiString;
@@ -614,14 +619,10 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then begin
     { An all-users install never changes a per-user copy (D1): that
-      user's next launch of this copy runs the per-user copy's own
-      uninstaller. The app pins the projects folder (D2). }
-    if IsAdminInstallMode then begin
-      { The shell reads it: this copy's app holds the all-users name and
-        looks for this user's per-user copy. }
-      if not SaveStringToFile(ExpandConstant('{app}\all-users'), 'all-users' + #13#10, False) then
-        Log('could not write ' + ExpandConstant('{app}\all-users'));
-    end;
+      user's next launch (of either copy: a per-user copy hands off to
+      this one) runs the per-user copy's own uninstaller. The [Files]
+      entry above marks this copy all-users. The app pins the projects
+      folder (D2). }
     if not IsAdminInstallMode then begin
       if not ForceDirectories(ProjectsDir) then
         Log('could not create ' + ProjectsDir);

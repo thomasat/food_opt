@@ -81,6 +81,12 @@ The Windows full suite runs in the VM, in the image-Python venv from
 set FOODOPT_SLOW_TESTS=& set PYTHONDONTWRITEBYTECODE=1& set GIT_PYTHON_REFRESH=quiet& C:\work\venv\Scripts\python.exe -m pytest tests tests\desktop_launcher tests\desktop_page -q -p no:cacheprovider -rf --basetemp C:\work\<fresh>
 ```
 
+Then the slow launcher tests (real Streamlit), with a fresh `--basetemp`:
+
+```
+set FOODOPT_SLOW_TESTS=1& set PYTHONDONTWRITEBYTECODE=1& set GIT_PYTHON_REFRESH=quiet& C:\work\venv\Scripts\python.exe -m pytest tests\desktop_launcher -q -p no:cacheprovider -rf --basetemp C:\work\<fresh>
+```
+
 ## Signing + notarization (required before distributing)
 
 One-time setup:

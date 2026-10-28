@@ -136,8 +136,11 @@ Uninstall:
 - A running per-user copy is seen only in its own user's session, while
   an IT upgrade waits for every user's running all-users copy.
 - An all-users install never changes a per-user copy. When that user
-  next opens Food Optimizer, it runs their copy's own uninstaller; projects
-  are kept. A per-user install over an all-users copy is refused.
+  next opens Food Optimizer, the IT copy opens (their own copy's shortcuts
+  open the IT copy and quit) and runs their copy's own uninstaller,
+  silently; projects are kept. A taskbar pin of the per-user copy stops
+  working then: pin the IT copy again. A per-user install over an
+  all-users copy is refused.
 - Uninstalling a per-user copy deletes the app and the user's
   `%LOCALAPPDATA%\FoodOptimizer` and keeps the projects in
   `%USERPROFILE%\FoodOptimizer`; it keeps that state folder while an
@@ -155,7 +158,7 @@ Uninstall:
 | `4` | A fatal error while installing; run the same command again, it repairs | Failed |
 | `5` | Stopped while installing; run the same command again, it repairs | Failed |
 | `6` | Setup was ended from outside (for example by Task Manager); run it again | Failed |
-| `7` | Refused: SYSTEM without `/ALLUSERS`; installed by IT (all-users copy present); install folder over 80 characters; install folder holds other files; too little free space | Failed |
+| `7` | Refused: SYSTEM without `/ALLUSERS`; installed by IT (all-users copy present); install folder over 80 characters; install folder holds other files; an all-users `/DIR` that holds files, that a user owns, or that is or lies under a link (junction); too little free space | Failed |
 | `8` | Needs a restart before it can install (not used by Food Optimizer) | Failed |
 | `9` | Installed, but the pre-warm import failed (security software blocked a file); the app will not open until IT allows it | Failed |
 
@@ -234,7 +237,7 @@ FoodOptimizer.exe                        the window (.NET, WebView2)
 ### Data at rest
 
 - State, per user: `%LOCALAPPDATA%\FoodOptimizer\`, holding `server.port`,
-  `server.base`, `status.txt`, `status.txt.tmp`, `launch.lock`,
+  `server.base`, `status.txt`, `status.txt.tmp`, `launch.lock` (a folder),
   `launcher.log`, `launcher.log.1`, `settings.json`, `shell.log`,
   `shell.log.1` and the `WebView2` folder (the page's browser profile).
 - Projects, per user: `%USERPROFILE%\FoodOptimizer\`, one `<name>.pkl`
@@ -244,8 +247,9 @@ FoodOptimizer.exe                        the window (.NET, WebView2)
   not JSON is reported as damaged.
 - Moving them: `FOODOPT_STATE_DIR` and `FOODOPT_PROJECTS_DIR` replace the
   two folders above (the tests use them; IT may set them in the user's
-  environment before the first launch). Uninstall deletes a moved state
-  folder only when it is named `FoodOptimizer`.
+  environment before the first launch). A per-user uninstall with no
+  all-users copy installed deletes a moved state folder only when it is
+  named `FoodOptimizer`.
 - Nothing is encrypted by the app (it relies on BitLocker). The logs list
   file paths, which include the Windows user name. `launcher.log` moves to
   `launcher.log.1` at each launch; `shell.log` moves to `shell.log.1` at
@@ -259,11 +263,13 @@ FoodOptimizer.exe                        the window (.NET, WebView2)
   each user opens it. Uninstalling a per-user copy unpins it only if the
   app pinned it.
 - The only registry entry is the uninstall key, which Inno Setup writes
-  (HKCU per user, HKLM for all users). The app only reads its own HKCU
-  uninstall key (to find this user's per-user copy) and writes none.
+  (HKCU per user, HKLM for all users). The app only reads its own uninstall
+  keys (HKCU to find this user's per-user copy, HKLM to find the IT copy)
+  and writes none.
 - The all-users installer never deletes anything in a user's profile: at
-  a user's next launch of the IT copy, that user's own per-user copy runs
-  its own uninstaller, silently.
+  a user's next launch of either copy (a per-user copy opens the IT copy
+  and quits), that user's own per-user copy runs its own uninstaller,
+  silently.
 - No services, scheduled tasks, drivers or shell extensions.
 
 ### Allow-listing
@@ -283,15 +289,17 @@ What the files carry:
 
 The rules:
 
-- A publisher + product rule (AppLocker, WDAC or Defender for Endpoint) for
-  Food System Innovations' files, Food Optimizer as the product.
+- A publisher + product rule (AppLocker or WDAC) for Food System
+  Innovations' files, Food Optimizer as the product. Defender for
+  Endpoint has no product rule: its certificate indicator allows every
+  file the certificate signs.
 - A path rule for `%PROGRAMFILES%\Food Optimizer\*` (the all-users
   install, where only administrators can write).
 - Hash rules for the vendor-signed files: check the installed files against
   the release's `FoodOptimizer-<ver>-Windows.files.txt` (flat SHA-256 values,
   not the PE hashes AppLocker and WDAC use), then generate the rules from
   those files with `Get-AppLockerFileInformation -Directory "<install folder>"
-  -Recurse | New-AppLockerPolicy -RuleType Hash ...` or
+  -Recurse -FileType Exe,Dll,Script | New-AppLockerPolicy -RuleType Hash ...` or
   `New-CIPolicy -Level Hash`.
 - Third-party DLLs and `.pyd` files that Food System Innovations re-signed
   keep their own product name, so under WDAC they need the path rule or

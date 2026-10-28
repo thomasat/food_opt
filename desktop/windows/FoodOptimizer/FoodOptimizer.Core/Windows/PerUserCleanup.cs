@@ -107,7 +107,7 @@ public static class PerUserCleanup
 
     /// <summary>A link, or a folder that can't be looked at (so it can't be
     /// ruled out); a missing one isn't (the file checks fail for it).</summary>
-    static bool IsReparsePoint(string path)
+    internal static bool IsReparsePoint(string path)
     {
         try { return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0; }
         catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException) { return false; }

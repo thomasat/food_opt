@@ -50,18 +50,18 @@ public static class PerUserCopy
         return null;
     }
 
-    static string Normalize(string path) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+    internal static string Normalize(string path) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
 
     /// <summary>A folder name ending in a space or dot ("." and ".." aside):
     /// Win32 drops those from a path's last part but keeps them in a middle
     /// one, so the folder checked and the folder run from could differ.</summary>
-    static bool OddName(string path) =>
+    internal static bool OddName(string path) =>
         path.Split('\\', '/').Any(part => part is not ("." or "..") && part.Length > 0
             && (part[^1] == ' ' || part[^1] == '.'));
 
     /// <summary>Whether the folder or any folder above it is a junction or
     /// other link: one could lead to a folder that is not this user's.</summary>
-    static bool OnALink(string dir, Func<string, bool> isReparsePoint)
+    internal static bool OnALink(string dir, Func<string, bool> isReparsePoint)
     {
         for (var p = dir; !string.IsNullOrEmpty(p); p = Path.GetDirectoryName(p))
             if (isReparsePoint(p)) return true;
