@@ -7728,8 +7728,13 @@ class TestScaleRound:
         assert len(opt.pending_batch) == 2
         reopened = FoodOptimizer("scale_round")
         assert reopened.pending_batch_total == 100.0
-        assert [r['recipe'] for r in reopened.pending_batch] == pytest.approx(
-            [r['recipe'] for r in opt.pending_batch])
+        # One approx per recipe: pytest 9.2 refuses approx on a list of
+        # dicts (nested data); the tolerance is approx's default either way.
+        got = [r['recipe'] for r in reopened.pending_batch]
+        want = [r['recipe'] for r in opt.pending_batch]
+        assert len(got) == len(want)
+        for recipe, expected in zip(got, want):
+            assert recipe == pytest.approx(expected)
 
     def test_scaling_twice_goes_from_the_amounts_on_the_table(
             self, tmp_path, monkeypatch):
