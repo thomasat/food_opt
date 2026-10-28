@@ -45,18 +45,39 @@ def test_silent_uninstall_keeps_projects(per_user):
 
 
 def test_uninstall_keeps_a_pin_the_app_did_not_make(installer, clean_machine, l2_home):
-    """D2: the user pinned the projects folder themselves (settings.json
-    does not say the app pinned it): uninstalling leaves their pin."""
+    """D2: the user pinned the projects folder themselves. The app's first
+    launch finds it listed: it records that it looked (so it never tries
+    again) but not that it pinned it, and uninstalling leaves the pin."""
     result = l2.install(installer, "user", dir=l2_home.root, env=l2_home.env)
     assert result.rc == 0, result.log[-3000:]
+    log = l2_home.state / "shell.log"
     try:
+        l2_home.projects.mkdir(parents=True, exist_ok=True)
         assert l2.pin(l2_home.projects), l2.quick_access()
-        assert '"quickAccessPinned": true' not in l2.settings_text(l2_home)
+        for launch in (1, 2):
+            after = l2.log_size(log)
+            job = l2.start_shell(l2_home.root, l2_home)
+            try:
+                assert l2.wait_log(log, l2.NAVIGATE, l2.FIRST_OPEN_LIMIT_S, after), l2._text(log)[-3000:]
+                m = l2.wait_log(log, r"quickaccess\.(pinned|listed|failed|not_listed)( .*)?", 5, after)
+                if launch == 1:
+                    assert m and m.group(1) == "listed", l2._text(log)[-3000:]
+                    assert l2.wait_for(lambda: '"quickAccessChecked": true' in l2.settings_text(l2_home), 10), \
+                        l2.settings_text(l2_home)
+                else:
+                    assert m is None, l2._text(log)[-3000:]
+                assert '"quickAccessPinned": true' not in l2.settings_text(l2_home)
+            finally:
+                for hwnd in l2.top_windows(job.pid):
+                    l2.close_window(hwnd)
+                if not l2.wait_for(lambda: not job.alive(), 10):
+                    l2.kill_under(l2_home.root)
+                l2.wait_for(lambda: not l2.processes_under(l2_home.root), 10)
         assert l2.uninstall(l2_home.root, "user", env=l2_home.env) == 0
-        log = l2.last_uninstall_log()
-        assert not l2_home.root.exists(), log[-3000:]
-        assert l2.in_quick_access(l2_home.projects), log[-3000:]
-        assert "quickaccess: not pinned by the app" in log, log[-3000:]
+        log_text = l2.last_uninstall_log()
+        assert not l2_home.root.exists(), log_text[-3000:]
+        assert l2.in_quick_access(l2_home.projects), log_text[-3000:]
+        assert "quickaccess: not pinned by the app" in log_text, log_text[-3000:]
     finally:
         l2.unpin_under(l2_home.base)
 

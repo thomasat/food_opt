@@ -20,6 +20,7 @@ public sealed class ShellSettingsTests : IDisposable
             LastOpenedVersion = "0.9.0",
             Window = new SavedWindow(@"\\.\DISPLAY1", 320, 90, 1280, 860, true),
             QuickAccessPinned = true,
+            QuickAccessChecked = true,
         };
         Assert.True(s.Save(Path));
         var back = ShellSettings.Load(Path);
@@ -28,6 +29,7 @@ public sealed class ShellSettingsTests : IDisposable
         Assert.Equal("0.9.0", back.LastOpenedVersion);
         Assert.Equal(s.Window, back.Window);
         Assert.True(back.QuickAccessPinned);
+        Assert.True(back.QuickAccessChecked);
         using var doc = JsonDocument.Parse(File.ReadAllBytes(Path));
         Assert.Equal(1, doc.RootElement.GetProperty("version").GetInt32());
         Assert.Equal(@"\\.\DISPLAY1", doc.RootElement.GetProperty("window").GetProperty("monitor").GetString());
@@ -41,6 +43,7 @@ public sealed class ShellSettingsTests : IDisposable
         Assert.Null(s.LastOpenedVersion);
         Assert.Null(s.Window);
         Assert.False(s.QuickAccessPinned);
+        Assert.False(s.QuickAccessChecked);
     }
 
     /// <summary>The uninstaller searches settings.json for this exact text
@@ -54,6 +57,12 @@ public sealed class ShellSettingsTests : IDisposable
         var text = File.ReadAllText(Path);
         Assert.Contains("\"quickAccessPinned\": false", text);
         Assert.DoesNotContain("\"quickAccessPinned\": true", text);
+        // Already listed when the app looked: checked, not ours, so the
+        // uninstaller's search finds nothing to unpin.
+        Assert.True(new ShellSettings { QuickAccessChecked = true }.Save(Path));
+        text = File.ReadAllText(Path);
+        Assert.Contains("\"quickAccessChecked\": true", text);
+        Assert.DoesNotContain("\"quickAccessPinned\": true", text);
     }
 
     [Theory]
@@ -65,6 +74,8 @@ public sealed class ShellSettingsTests : IDisposable
     {
         File.WriteAllText(Path, text);
         Assert.Equal(expected, ShellSettings.Load(Path).QuickAccessPinned);
+        File.WriteAllText(Path, text.Replace("quickAccessPinned", "quickAccessChecked"));
+        Assert.Equal(expected, ShellSettings.Load(Path).QuickAccessChecked);
     }
 
     [Fact]

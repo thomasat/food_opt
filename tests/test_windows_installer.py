@@ -312,13 +312,12 @@ def test_running_checks_are_per_scope():
                      r"not AppClosed\(SetupMessage\(msgUninstallAppRunningError\), UninstallSilent\) then\s+Abort;",
                      unins), unins
     assert "InitializeUninstall" not in _code_section()
-    # The marker: written only by the all-users installer, deleted by its uninstaller.
-    code = _code_section()
-    assert code.count("SaveStringToFile(") == 1
-    assert re.search(r"if IsAdminInstallMode then begin\s+(\{[^}]*\}\s+)?"
-                     r"if not SaveStringToFile\(ExpandConstant\('\{app\}\\all-users'\), 'all-users' \+ #13#10, False\)",
-                     _function("CurStepChanged"))
-    assert {"Type": "files", "Name": "{app}\\all-users"} in section_entries("UninstallDelete")
+    # The marker: copied only by the all-users installer, as a [Files]
+    # entry, so a failed copy fails the install (Inno's file error; Abort
+    # under /SUPPRESSMSGBOXES) instead of an IT copy that holds the
+    # per-user name (test_the_all_users_marker_is_a_files_entry).
+    assert MARKER_ENTRY in section_entries("Files")
+    assert "SaveStringToFile(" not in _code_section()
     layout = (WINDOWS / "FoodOptimizer" / "FoodOptimizer.Core" / "InstallLayout.cs").read_text(encoding="utf-8")
     assert 'File.Exists(Path.Combine(Root, "all-users"))' in layout
 
@@ -328,10 +327,32 @@ def test_languages_layer_our_messages():
         {"Name": "en", "MessagesFile": "compiler:Default.isl,installer_messages.isl"}]
 
 
+MARKER_ENTRY = {"Source": "all-users", "DestDir": "{app}", "Flags": "ignoreversion", "Check": "IsAdminInstallMode"}
+
+
 def test_one_files_entry_copies_the_image():
+    """The image, then the all-users marker (all-users installs only)."""
     assert section_entries("Files") == [
         {"Source": "{#ImageDir}\\*", "DestDir": "{app}",
-         "Flags": "ignoreversion recursesubdirs createallsubdirs"}]
+         "Flags": "ignoreversion recursesubdirs createallsubdirs"},
+        MARKER_ENTRY]
+
+
+def test_the_all_users_marker_is_a_files_entry():
+    """Final review (ruling): the marker tells the shell it is the IT copy
+    (the Global running name, no hand-off). A [Files] entry, not a Pascal
+    write: a copy that fails stops the install (Inno's file error box;
+    Abort, then rollback, under /SUPPRESSMSGBOXES), where a failed
+    SaveStringToFile was only logged. Its source is a file of its own
+    beside setup.iss; Inno deletes it at uninstall as it does every file
+    it copied. Level 2: test_an_it_install_that_cannot_copy_its_marker_fails."""
+    source = WINDOWS / MARKER_ENTRY["Source"]
+    assert source.is_file()
+    assert source.read_bytes() == b"all-users\n"
+    assert section_entries("Files")[-1] == MARKER_ENTRY
+    assert "{app}\\all-users" not in ISS.read_text(encoding="ascii")
+    layout = (WINDOWS / "FoodOptimizer" / "FoodOptimizer.Core" / "InstallLayout.cs").read_text(encoding="utf-8")
+    assert 'File.Exists(Path.Combine(Root, "all-users"))' in layout
 
 
 def test_install_delete_clears_the_bundled_folders():
@@ -341,8 +362,7 @@ def test_install_delete_clears_the_bundled_folders():
         {"Type": "filesandordirs", "Name": "{app}\\shared"},
         {"Type": "filesandordirs", "Name": "{app}\\runtimes"},
         {"Type": "files", "Name": "{app}\\*.dll"}]
-    assert section_entries("UninstallDelete") == [{"Type": "files", "Name": "{app}\\all-users"},
-                                                  {"Type": "dirifempty", "Name": "{app}"}]
+    assert section_entries("UninstallDelete") == [{"Type": "dirifempty", "Name": "{app}"}]
 
 
 def test_three_shortcuts():
@@ -715,6 +735,40 @@ def test_the_app_finds_a_per_user_copy_where_the_installer_puts_it():
     assert 'fileExists(Path.Combine(dir, "all-users"))' in rule
 
 
+def test_a_per_user_copy_hands_off_to_the_it_copy():
+    """D1 hand-off (final review): the user's own shortcuts open the
+    per-user copy, which never cleans itself up. Opened on a PC with an IT
+    copy, it starts the IT copy's FoodOptimizer.exe and exits 0 before it
+    holds any name, so the IT copy's cleanup (whose uninstaller checks the
+    per-user running name) can run. The IT copy is found read-only: HKLM's
+    uninstall entry (the x64 shell reads the 64-bit view, setup.iss's
+    HKLM64), else %ProgramW6432%\\Food Optimizer; it must hold the app and
+    the all-users marker and not be this copy's folder. The IT copy itself
+    never hands off (no loop)."""
+    program = (WINDOWS / "FoodOptimizer" / "FoodOptimizer.Shell" / "Program.cs").read_text(encoding="utf-8")
+    main = program[program.index("static int Main()"):]
+    handoff = main.index("ItCopyHandoff.Run(")
+    assert handoff < main.index("SingleInstance.TryAcquire(") < main.index("InstallerMutex.Hold(")
+    assert handoff < main.index("WinShell.SetAppUserModelId(")
+    assert "if (ItCopyHandoff.Run(layout, log)) return 0;" in main
+    run = (CORE / "Windows" / "ItCopyHandoff.cs").read_text(encoding="utf-8")
+    body = run[run.index("public static bool Run("):]
+    assert body.index("if (layout.AllUsers) return false;") < body.index("ItCopy.HandOffTarget(")
+    assert "ItCopy.HandOffTarget(layout.AllUsers, layout.Root, InstallLocation(), DefaultDir(), File.Exists, " \
+           "PerUserCleanup.IsReparsePoint)" in body
+    # Logged first, then started: no shell execute, its own folder, no arguments.
+    assert body.index('log.Write("percopy.handoff", dir);') < body.index("Process.Start(")
+    assert "UseShellExecute = false," in body and "WorkingDirectory = dir," in body
+    assert "ArgumentList" not in run and "Arguments" not in run
+    assert "Registry.LocalMachine.OpenSubKey(PerUserCleanup.UninstallKey)" in run
+    assert 'Environment.GetEnvironmentVariable("ProgramW6432")' in run
+    assert "PerUserCopy.FolderName" in run
+    rule = (CORE / "ItCopy.cs").read_text(encoding="utf-8")
+    assert "if (allUsers) return null;" in rule
+    assert 'fileExists(Path.Combine(dir, "FoodOptimizer.exe")) && fileExists(Path.Combine(dir, "all-users"))' in rule
+    assert "PerUserCopy.OnALink(" in rule and "PerUserCopy.OddName(" in rule
+
+
 def test_uninstall_keeps_state_when_an_it_copy_exists():
     """D1: the all-users app runs a per-user copy's uninstaller while it
     uses the same state folder (settings, WebView2): a per-user uninstall
@@ -763,6 +817,10 @@ def test_unpin_only_what_the_app_pinned():
     # pins the bytes).
     settings = (CORE / "ShellSettings.cs").read_text(encoding="utf-8")
     assert 'j.WriteBoolean("quickAccessPinned", QuickAccessPinned);' in settings
+    # A folder already listed when the app looked (final review) is only
+    # "checked": the uninstaller never reads that flag.
+    assert 'j.WriteBoolean("quickAccessChecked", QuickAccessChecked);' in settings
+    assert "quickAccessChecked" not in pinned
     assert "Indented = true" in settings
     assert re.search(r"if not IsAdminInstallMode then begin\s+if not ForceDirectories\(ProjectsDir\) then",
                      _function("CurStepChanged"))

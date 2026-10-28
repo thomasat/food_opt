@@ -162,3 +162,49 @@ def test_design_note_exists():
     flat = " ".join(text.split())
     for needle in ("shared launcher", "Job Object", "per-user", "all-users", "No SBOM"):
         assert needle in flat, needle
+
+
+def _install_switches() -> str:
+    text = WIN_README.read_text(encoding="utf-8")
+    start = text.index("## Install switches and exit codes")
+    return _flat(text[start:text.index("\n## ", start + 1)])
+
+
+def test_readme_says_what_the_per_user_hand_off_does():
+    """D1 hand-off (final review): what happens at the user's next launch
+    from either copy, and that a taskbar pin of the per-user copy stops
+    working; the design note says the same."""
+    section = _install_switches()
+    for needle in ("An all-users install never changes a per-user copy.",
+                   "their own copy's shortcuts open the IT copy",
+                   "runs their copy's own uninstaller, silently; projects are kept.",
+                   "A taskbar pin of the per-user copy stops working then: pin the IT copy again."):
+        assert needle in section, needle
+    design = _flat(REPO / "desktop" / "windows" / "DESIGN.md")
+    assert "hands off to the IT copy" in design
+    assert "taskbar pin" in design
+
+
+def test_readme_reference_facts_are_exact():
+    """Final review: the reference facts IT reads match the code."""
+    text = _flat(WIN_README)
+    switches = _install_switches()
+    # Exit 7 also covers an IT /DIR that holds files, a user owns, or is
+    # (or lies under) a link (setup.iss LockDownAppDir).
+    row = re.search(r"\| `7` \| ([^|]+) \|", switches).group(1)
+    for needle in ("an all-users `/DIR` that holds files, that a user owns, or that is or lies under a link",):
+        assert needle in row, row
+    assert "`launch.lock` (a folder)" in text
+    assert ("A per-user uninstall with no all-users copy installed deletes a moved state folder only when it "
+            "is named `FoodOptimizer`.") in text
+    assert "Defender for Endpoint" in text and "certificate indicator" in text
+    assert "Get-AppLockerFileInformation -Directory \"<install folder>\" -Recurse -FileType Exe,Dll,Script" in text
+
+
+def test_windows_launcher_slow_run_is_documented():
+    """Final review: the real-Streamlit launcher tests need
+    FOODOPT_SLOW_TESTS=1, which the Windows full-suite line clears."""
+    section = _flat(_mac_section("## Run the tests"))
+    assert ("set FOODOPT_SLOW_TESTS=1& set PYTHONDONTWRITEBYTECODE=1& set GIT_PYTHON_REFRESH=quiet& "
+            "C:\\work\\venv\\Scripts\\python.exe -m pytest tests\\desktop_launcher -q -p no:cacheprovider -rf "
+            "--basetemp C:\\work\\<fresh>") in section

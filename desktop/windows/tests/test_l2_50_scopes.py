@@ -352,6 +352,89 @@ def test_that_users_next_launch_removes_it(installer, l2_home, cleanup):
         _close(job, PROGRAM_FILES)
 
 
+def _it_shells():
+    return [pid for pid, path in l2.processes_under(PROGRAM_FILES)
+            if pathlib.Path(path).name.lower() == "foodoptimizer.exe"]
+
+
+def test_the_per_user_copy_opens_the_it_copy_instead(installer, l2_home, cleanup):
+    """D1 hand-off (final review): the user's own shortcuts still open the
+    per-user copy, which never cleans itself up. Opened once IT has
+    installed, it starts the IT copy and exits 0 before it holds any name;
+    the IT copy then runs the per-user copy's own uninstaller as at any
+    launch. The copy, its Apps entry and its shortcuts go; projects stay;
+    the IT window opens."""
+    keep, links = _default_per_user_copy(installer, l2_home)
+    result = l2.install(installer, "system", all_users=True)
+    assert result.rc == 0, result.log[-3000:]
+    log = l2_home.state / "shell.log"
+    job = l2.start_shell(DEFAULT_USER_ROOT, l2_home)
+    try:
+        m = l2.wait_log(log, r"percopy\.handoff (.*)", 60)
+        assert m, _shell_log(l2_home)
+        assert m.group(1).strip().rstrip("\\").lower() == str(PROGRAM_FILES).lower(), m.group(0)
+        assert l2.wait_for(lambda: job.poll() is not None, 30), _shell_log(l2_home)
+        assert job.poll() == 0
+        m = l2.wait_log(log, PERCOPY, 60)
+        assert m and m.group(1) == "uninstall", _shell_log(l2_home)
+        assert m.group(2).strip().rstrip("\\").lower() == str(DEFAULT_USER_ROOT).lower(), m.group(0)
+        assert l2.wait_for(lambda: not DEFAULT_USER_ROOT.exists() and l2.uninstall_entry("user") is None, 120), \
+            _shell_log(l2_home)
+        for lnk in links:
+            assert l2.wait_for(lambda: not lnk.exists(), 30), lnk
+        assert l2.wait_log(log, NAVIGATE, l2.FIRST_OPEN_LIMIT_S), _shell_log(l2_home)
+        assert _it_shells(), l2.processes()
+        text = l2._text(log)
+        # The per-user shell held nothing: the IT shell is the only one
+        # that started (one shell.start, after the hand-off).
+        assert "Running.PerUser" not in text, text[-3000:]
+        assert text.count(" shell.start ") == 1 and text.index("percopy.handoff") < text.index(" shell.start "), \
+            text[-3000:]
+        assert keep.read_bytes() == b"\x80\x04keep"
+        assert (PROGRAM_FILES / "FoodOptimizer.exe").is_file() and l2.uninstall_entry("machine") is not None
+    finally:
+        job.close()
+        for pid in _it_shells():
+            for hwnd in l2.top_windows(pid):
+                l2.close_window(hwnd)
+        if not l2.wait_for(lambda: not _it_shells(), 10):
+            l2.kill_under(PROGRAM_FILES)
+        l2.wait_for(lambda: not l2.processes_under(PROGRAM_FILES), 10)
+
+
+def test_an_it_install_that_cannot_copy_its_marker_fails(installer, l2_home, cleanup):
+    """Final review (ruling): the all-users marker is a [Files] entry, so
+    an IT install that cannot copy it fails rather than leave an IT copy
+    that would hold the per-user name and hand off. Here a folder named
+    all-users (with a file in it) stands where the marker goes; Inno's file
+    error is answered Abort under /SUPPRESSMSGBOXES. The same command, run
+    again once the folder is gone, repairs the install (README: codes 4
+    and 5)."""
+    import shutil
+    first = l2.install(installer, "system", all_users=True)
+    assert first.rc == 0, first.log[-3000:]
+    marker = PROGRAM_FILES / "all-users"
+    assert marker.is_file()
+    marker.unlink()
+    marker.mkdir()
+    (marker / "x.txt").write_bytes(b"x")
+    try:
+        result = l2.install(installer, "system", all_users=True)
+        l2.report("marker_copy_failed_rc", result.rc)
+        assert result.rc not in (0, 9), result.log[-3000:]
+        assert "all-users" in result.log, result.log[-3000:]
+        assert "prewarm rc=" not in result.log, result.log[-3000:]
+        shutil.rmtree(marker)
+        again = l2.install(installer, "system", all_users=True)
+        assert again.rc == 0, again.log[-3000:]
+        assert marker.is_file()
+    finally:
+        if marker.is_dir():
+            shutil.rmtree(marker, ignore_errors=True)
+        _remove("machine")
+        shutil.rmtree(PROGRAM_FILES, ignore_errors=True)
+
+
 def _canary(home):
     """A folder of the user's own that looks like a copy of ours (our
     files' bytes) beside a file of theirs."""

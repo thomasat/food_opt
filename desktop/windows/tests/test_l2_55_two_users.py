@@ -198,7 +198,9 @@ def test_an_it_install_leaves_another_users_running_copy(installer, other_user, 
         m = l2.wait_log(home.state / "shell.log", HELD, 120)
         assert m and m.group(1) == "held", _log(home)[-3000:]
         assert f"mutex.held Local\\FoodOptimizer.Running.PerUser.{GUID}" in _log(home), _log(home)[-3000:]
-        result = l2.install(installer, "system", all_users=True, close_apps=False)
+        # The documented switches, /CLOSEAPPLICATIONS included: it closes
+        # only apps using the IT copy's own files, never this copy.
+        result = l2.install(installer, "system", all_users=True)
         assert result.rc == 0, result.log[-3000:]
         assert job.alive()
         assert l2.manifest(home.root, skip=()) == before, result.log[-3000:]

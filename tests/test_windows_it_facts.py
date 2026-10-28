@@ -171,9 +171,11 @@ def test_nothing_writes_registry_services_or_tasks():
     """Files, registry and services: setup.iss has no [Registry] section,
     no service or scheduled task and no registry write or delete (Inno
     writes and deletes its own uninstall key). The shell and its core make
-    one registry call: PerUserCleanup reads this user's own uninstall key,
-    read-only (OpenSubKey with no writable argument), to find a per-user
-    copy for its own uninstaller (D1)."""
+    two registry calls, both read-only (OpenSubKey with no writable
+    argument) of this app's own uninstall key: PerUserCleanup reads HKCU's
+    to find this user's per-user copy for its own uninstaller, and
+    ItCopyHandoff HKLM's to find the IT copy a per-user copy hands off to
+    (D1)."""
     calls = []
     for folder in (SHELL, CORE):
         for path in folder.rglob("*.cs"):
@@ -181,17 +183,17 @@ def test_nothing_writes_registry_services_or_tasks():
             assert "Microsoft.Win32.Registry" not in text and "RegistryKey" not in text, path.name
             for m in re.finditer(r"\bRegistry\b", text):
                 calls.append((path.name, text[m.start():text.index(";", m.start())]))
-    assert len(calls) == 1, calls
-    name, call = calls[0]
-    assert name == "PerUserCleanup.cs", calls
-    assert re.fullmatch(r"Registry\.CurrentUser\.OpenSubKey\([^,()]*\)", call), call
+    assert sorted(name for name, _call in calls) == ["ItCopyHandoff.cs", "PerUserCleanup.cs"], calls
+    hive = {"PerUserCleanup.cs": "CurrentUser", "ItCopyHandoff.cs": "LocalMachine"}
+    for name, call in calls:
+        assert re.fullmatch(r"Registry\.%s\.OpenSubKey\([^,()]*\)" % hive[name], call), call
     iss = ISS.read_text(encoding="ascii")
     assert "[Registry]" not in iss
     for needle in ("sc.exe", "schtasks", "CreateService", "RegWrite", "RegDelete"):
         assert needle.lower() not in iss.lower(), needle
     section = _flat(_section("Files, registry and services"))
     assert "uninstall key" in section
-    assert "only reads its own HKCU uninstall key" in section and "writes none" in section, section
+    assert "only reads its own uninstall keys" in section and "writes none" in section, section
 
 
 def test_allow_listing_names_every_signer_in_the_install():
