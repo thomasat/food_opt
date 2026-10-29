@@ -71,8 +71,8 @@ public class KeysAndMenusTests
     }
 
     /// Each key is sent while the app has the foreground and the box the
-    /// focus, and does nothing a browser would; a letter typed after them
-    /// still reaches the box.
+    /// focus, and does nothing a browser would; the box keeps the focus and
+    /// a letter typed after them still reaches it.
     [Fact]
     public void Browser_keys_do_nothing()
     {
@@ -87,6 +87,7 @@ public class KeysAndMenusTests
         SendToBox(app, "{F12}");
         SendToBox(app, "^+i");
         Assert.False(Uia.WaitUntil(() => Uia.TopWindow("DevTools") != null, Three));
+        Assert.True(app.PageHasFocus(BoxElement(app)), $"the browser keys took the focus from the box; {ShellApp.Foreground()} has the foreground");
         SendToBox(app, "x");
         AssertBox(app, "keepx", "F5, Ctrl+P, F12, Ctrl+Shift+I and x");
     }

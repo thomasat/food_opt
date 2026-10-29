@@ -49,7 +49,15 @@ public sealed class ShellApp : IDisposable
     [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
     [DllImport("user32.dll")] static extern void mouse_event(uint flags, int dx, int dy, int data, UIntPtr extra);
 
+    [DllImport("user32.dll")] static extern bool GetGUIThreadInfo(uint thread, ref GUITHREADINFO info);
     [StructLayout(LayoutKind.Sequential)] struct POINT { public int X, Y; }
+    [StructLayout(LayoutKind.Sequential)]
+    struct GUITHREADINFO
+    {
+        public int cbSize, flags;
+        public IntPtr hwndActive, hwndFocus, hwndCapture, hwndMenuOwner, hwndMoveSize, hwndCaret;
+        public int left, top, right, bottom;
+    }
 
     ShellApp(ShellRun run, Process process)
     {
@@ -202,20 +210,32 @@ public sealed class ShellApp : IDisposable
 
     /// <summary>Gives an element of the page the keyboard focus the way a
     /// user does: a click on it, while the app has the foreground. UI
-    /// Automation's SetFocus can leave the keyboard in a WebView2 window
-    /// that drops every key (Chrome_RenderWidgetHostHWND; 2 of 40 launches
-    /// under load), while the element still reports the focus.</summary>
+    /// Automation's SetFocus (the window's too) can leave the keyboard in
+    /// WebView2's Chrome_RenderWidgetHostHWND, which drops every key, while
+    /// the element still reports the focus (2 of 40 launches under load),
+    /// so that window does not count as the page having the focus.</summary>
     public void Focus(AutomationElement target)
     {
         AssertForeground();
-        if (HasFocus(target)) return;
-        Assert.True(Uia.WaitUntil(() =>
+        if (PageHasFocus(target)) return;
+        for (var click = 0; click < 4; click++)
         {
-            if (HasFocus(target)) return true;
             var (x, y) = Center(target);
             ClickAt(x, y, 0x0002, 0x0004);
-            return Uia.WaitUntil(() => HasFocus(target), TimeSpan.FromSeconds(1), 50);
-        }, TimeSpan.FromSeconds(5), 100), $"'{Uia.NameOf(target)}' never got the keyboard focus; {Foreground()} has the foreground");
+            if (Uia.WaitUntil(() => PageHasFocus(target), TimeSpan.FromSeconds(1), 50)) return;
+        }
+        Assert.Fail($"'{Uia.NameOf(target)}' never got the keyboard focus (element focused: {HasFocus(target)}; keys go to {KeyboardWindow()}); {Foreground()} has the foreground");
+    }
+
+    /// <summary>The element has the focus and the keys reach it.</summary>
+    public bool PageHasFocus(AutomationElement target) =>
+        HasFocus(target) && !KeyboardWindow().StartsWith("Chrome_RenderWidgetHostHWND", StringComparison.Ordinal);
+
+    /// <summary>The window of the app's UI thread that has the keyboard focus, described.</summary>
+    string KeyboardWindow()
+    {
+        var info = new GUITHREADINFO { cbSize = Marshal.SizeOf<GUITHREADINFO>() };
+        return GetGUIThreadInfo(GetWindowThreadProcessId(Hwnd, out _), ref info) ? Describe(info.hwndFocus) : "no window";
     }
 
     /// <summary>Sends keys to <paramref name="target"/> (an element of the
