@@ -306,7 +306,9 @@ def test_excel_cached_measurement_formula_is_preserved(project):
     assert project.results_from_workbook(out).frame['Taste'].tolist() == [8]
 
 
-def test_workbook_separates_formulations_and_has_internal_navigation(project):
+def test_workbook_separates_formulations_and_has_internal_navigation(project, monkeypatch):
+    import wording
+    monkeypatch.setattr(wording.sys, "platform", "darwin")  # names Numbers on a Mac
     project.set_records('actual', True)
     book = load_workbook(io.BytesIO(project.workbook_bytes(project.pending_batch, 100, print_pack=False)))
     for title in ('Round overview', 'Results'):

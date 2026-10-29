@@ -252,8 +252,10 @@ def test_table_height_grows_with_rows_and_stops_at_the_cap():
     assert table_height(50, max_rows=12) == table_height(12, max_rows=12)
 
 
-def test_saved_line_shows_the_time_today_and_the_date_before_that():
+def test_saved_line_shows_the_time_today_and_the_date_before_that(monkeypatch):
     from datetime import datetime, timedelta
+    import wording
+    monkeypatch.setattr(wording.sys, "platform", "darwin")  # the Mac's words
     now = datetime.now().astimezone()
     today = now.replace(hour=14, minute=32)
     assert saved_line(today) == "Saved automatically at 14:32, on this Mac"
@@ -473,7 +475,7 @@ def _literal_texts(node):
 def _stray_literals(path):
     import ast
     import pathlib
-    tree = ast.parse(pathlib.Path(path).read_text())
+    tree = ast.parse(pathlib.Path(path).read_text(encoding="utf-8"))
     offenders = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -548,10 +550,10 @@ def test_the_total_box_is_parked_empty_rather_than_popped():
 
     root = pathlib.Path(__file__).resolve().parent.parent
     for name in ("app.py", "ui_setup.py", "ui_batch.py", "ui_results.py"):
-        text = (root / name).read_text()
+        text = (root / name).read_text(encoding="utf-8")
         assert 'pop("scale_total"' not in text, name
     for name in ("ui_setup.py", "ui_batch.py", "ui_results.py"):
-        assert "clear_scale_total()" in (root / name).read_text(), name
+        assert "clear_scale_total()" in (root / name).read_text(encoding="utf-8"), name
 
     # And what it parks is the empty box, for drain_clears to assign before
     # the box is drawn again.
@@ -853,3 +855,140 @@ def test_the_made_as_help_says_what_each_of_the_three_answers_means():
         # list both, and a three-item list of two options is unreadable.
         assert "," not in option
     assert wording.PREMIX_MADE_AS_PORTIONED == "Pre-mix: keep proportions fixed"
+
+
+# ------------------------------------------------------------------ #
+# CSV uploads from any Excel: Windows saves cp1252, French and most of
+# Europe save ';' with decimal commas.
+# ------------------------------------------------------------------ #
+import io as _io
+
+import pandas as _pd
+
+
+def _csv(text, encoding="utf-8"):
+    return _io.BytesIO(text.encode(encoding))
+
+
+def test_read_uploaded_csv_reads_plain_utf8():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(_csv("Ingredient,Lowest\nOats,2.5\n"))
+    assert list(df.columns) == ["Ingredient", "Lowest"]
+    assert df["Lowest"].iloc[0] == 2.5
+
+
+def test_read_uploaded_csv_drops_the_bom():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(_csv("﻿Ingredient,Lowest\nOats,2.5\n"))
+    assert list(df.columns)[0] == "Ingredient"
+
+
+def test_read_uploaded_csv_reads_windows_excel_cp1252():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(_csv("Ingrédient,Température °C\nOats,4\n", "cp1252"))
+    assert list(df.columns) == ["Ingrédient", "Température °C"]
+
+
+def test_read_uploaded_csv_reads_french_excel_semicolons_and_decimal_commas():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(_csv("Ingredient;Firmness\nOats;7,4\n", "cp1252"))
+    assert list(df.columns) == ["Ingredient", "Firmness"]
+    assert df["Firmness"].iloc[0] == 7.4
+
+
+def test_read_uploaded_csv_keeps_dot_decimals_with_semicolons():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(_csv("Ingredient;Firmness\nOats;7.4\n"))
+    assert df["Firmness"].iloc[0] == 7.4
+    assert _pd.api.types.is_float_dtype(df["Firmness"])
+
+
+def test_read_uploaded_csv_reads_tabs():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(_csv("Ingredient\tLowest\nOats\t3\n"))
+    assert list(df.columns) == ["Ingredient", "Lowest"]
+    assert df["Lowest"].iloc[0] == 3
+
+
+def test_read_uploaded_csv_reads_a_single_column():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(_csv("Ingredient\nOats\nRice\n"))
+    assert list(df.columns) == ["Ingredient"]
+    assert list(df["Ingredient"]) == ["Oats", "Rice"]
+
+
+def test_read_uploaded_csv_reads_dot_thousands_in_a_semicolon_file():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(_csv("Ingredient;Lowest;Highest\nWater;1.250;2.000\n"))
+    assert df["Lowest"].iloc[0] == 1250.0
+    assert df["Highest"].iloc[0] == 2000.0
+
+
+def test_read_uploaded_csv_reads_both_separators():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(_csv("Ingredient;Lowest\nWater;1.234,5\n"))
+    assert df["Lowest"].iloc[0] == 1234.5
+    assert _pd.api.types.is_float_dtype(df["Lowest"])
+
+
+def test_read_uploaded_csv_ignores_text_columns_when_choosing_the_decimal():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(
+        _csv("Ingredient;Lowest;Notes\nOats;7.4;use 2,5 g\nRice;3.1;ok\n"))
+    assert list(df["Lowest"]) == [7.4, 3.1]
+    assert df["Notes"].iloc[0] == "use 2,5 g"
+
+
+def test_read_uploaded_csv_notes_of_numbers_alone_do_not_flip_dot_decimals():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(_csv("Ingredient;Lowest;Notes\nOats;7.4;2,5\n"))
+    assert df["Lowest"].iloc[0] == 7.4
+
+
+def test_read_uploaded_csv_keeps_quoted_comma_text_in_a_comma_file():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(_csv('Ingredient,Note\nOats,"1,5 cups"\n'))
+    assert df["Note"].iloc[0] == "1,5 cups"
+
+
+def test_read_uploaded_csv_reads_a_leading_zero_dot_as_a_decimal():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(_csv("Ingredient;Lowest\nOats;0.500\n"))
+    assert df["Lowest"].iloc[0] == 0.5
+
+
+def test_read_uploaded_csv_dates_do_not_stop_decimal_commas():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(
+        _csv("Formulation;Date;Score\n1;26.10.2026;7,4\n2;27.10.2026;6,1\n"))
+    assert list(df["Score"]) == [7.4, 6.1]
+    assert list(df["Date"]) == ["26.10.2026", "27.10.2026"]
+
+
+def test_read_uploaded_csv_reads_comma_thousands_in_a_semicolon_file():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(_csv("Ingredient;Lowest\nWater;1,234.5\n"))
+    assert df["Lowest"].iloc[0] == 1234.5
+
+
+def test_read_uploaded_csv_comma_thousands_never_turn_a_decimal_comma_into_tens():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(_csv("Ingredient;Lowest;Highest\nWater;1,234.5;2,5\n"))
+    highest = df["Highest"].iloc[0]
+    assert highest != 25
+    assert not (isinstance(highest, (int,)) or _pd.api.types.is_integer_dtype(df["Highest"]))
+
+
+def test_read_uploaded_csv_removes_the_export_escape():
+    from ui_helpers import read_uploaded_csv
+    df = read_uploaded_csv(_csv("Formulation,Note\n1,'=SUM(A1)\n2,'-sweet\n"))
+    assert list(df["Note"]) == ["=SUM(A1)", "-sweet"]
+    df = read_uploaded_csv(_csv("Note\nit's\n"))
+    assert df["Note"].iloc[0] == "it's"
+
+
+def test_every_csv_upload_reads_through_the_one_reader():
+    import pathlib
+    root = pathlib.Path(__file__).resolve().parent.parent
+    for module in ("ui_setup.py", "ui_results.py", "ui_batch.py"):
+        assert "pd.read_csv(" not in (root / module).read_text(encoding="utf-8"), module

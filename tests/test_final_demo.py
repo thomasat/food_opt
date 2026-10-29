@@ -142,40 +142,40 @@ def test_the_review_has_no_noise_control():
 
 def test_the_noise_is_saved_with_the_project_and_read_back():
     opt = _opt("saved")
-    raw = json.load(open("saved.pkl"))
+    raw = json.load(open("saved.pkl", encoding="utf-8"))
     assert "tasting_noise" not in raw                     # the default writes nothing new
     opt.tasting_noise = 2.0
     opt.save()
-    assert json.load(open("saved.pkl"))["tasting_noise"] == 2.0
+    assert json.load(open("saved.pkl", encoding="utf-8"))["tasting_noise"] == 2.0
     again = FoodOptimizer("saved")
     assert again.tasting_noise == 2.0
     # Back to the default (None): nothing on disk.
     again.tasting_noise = None
     again.save()
-    assert "tasting_noise" not in json.load(open("saved.pkl"))
+    assert "tasting_noise" not in json.load(open("saved.pkl", encoding="utf-8"))
     assert FoodOptimizer("saved").tasting_noise is None
 
 
 def test_an_older_file_loads_with_the_assumed_noise():
     _opt("older")
-    raw = json.load(open("older.pkl"))
+    raw = json.load(open("older.pkl", encoding="utf-8"))
     raw.pop("tasting_noise", None)
     assert raw["CLASS_VERSION"] == FoodOptimizer.CLASS_VERSION == 17     # nothing bumped
-    json.dump(raw, open("older.pkl", "w"))
-    before = open("older.pkl").read()
+    json.dump(raw, open("older.pkl", "w", encoding="utf-8"))
+    before = open("older.pkl", encoding="utf-8").read()
     opt = FoodOptimizer("older")
     assert opt.load_error is None if hasattr(opt, "load_error") else True
     assert opt.tasting_noise is None
-    assert open("older.pkl").read() == before            # not rewritten on open
+    assert open("older.pkl", encoding="utf-8").read() == before            # not rewritten on open
     assert FoodOptimizer.validate_state(raw)
 
 
 @pytest.mark.parametrize("bad", ["two", -1, 0, True, float("nan"), [2]])
 def test_a_damaged_noise_reads_as_the_assumed_one(bad):
     _opt("damaged")
-    raw = json.load(open("damaged.pkl"))
+    raw = json.load(open("damaged.pkl", encoding="utf-8"))
     raw["tasting_noise"] = bad
-    with open("damaged.pkl", "w") as f:
+    with open("damaged.pkl", "w", encoding="utf-8") as f:
         f.write(json.dumps(raw).replace("NaN", "NaN"))
     opt = FoodOptimizer("damaged")
     assert opt.tasting_noise is None
@@ -185,7 +185,7 @@ def test_start_over_and_a_new_project_keep_the_default():
     fresh = FoodOptimizer("fresh")
     assert fresh.tasting_noise is None
     # app.py's Start this project over writes a fresh FoodOptimizer.
-    src = open(APP_PATH).read()
+    src = open(APP_PATH, encoding="utf-8").read()
     i = src.index("wording.START_OVER_LABEL")
     assert "_fresh = FoodOptimizer(_target, storage=STORAGE)" in src[i:i + 2000]
     # Suggestions never read it: food_bo has no use of it outside its state.

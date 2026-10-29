@@ -331,9 +331,12 @@ def _cells(book):
             for s in book if s.sheet_state == "visible"}
 
 
-def test_the_shipped_round6_file_equals_a_rebuild(tmp_path):
+def test_the_shipped_round6_file_equals_a_rebuild(tmp_path, monkeypatch):
     """build.py's round6_results() writes it from the current workbook:
-    same sheets and cells, the pilot's values and notes."""
+    same sheets and cells, the pilot's values and notes. The shipped file is
+    built on a Mac, so the rebuild uses the Mac's words."""
+    import wording
+    monkeypatch.setattr(wording.sys, "platform", "darwin")
     out = tmp_path / "rebuilt.xlsx"
     _builder().write_round6_results(str(out), work_dir=str(tmp_path / "work"))
     shipped, rebuilt = load_workbook(sp.ROUND6_RESULTS), load_workbook(out)

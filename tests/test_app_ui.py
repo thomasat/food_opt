@@ -288,6 +288,19 @@ def test_create_project_rejects_bad_name(tmp_path, monkeypatch):
     assert list(tmp_path.glob("*.pkl")) == []
 
 
+def test_create_project_refuses_a_name_windows_reserves(tmp_path, monkeypatch):
+    """CON.pkl cannot be saved on Windows, and a project made on a Mac can be
+    copied to one — so the name is refused on every computer."""
+    monkeypatch.chdir(tmp_path)
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.run()
+    at.text_input(key="new_project_name").set_value("CON")
+    _submit_button(at, "Create project").click()
+    at.run()
+    assert [e.value for e in at.error] == [wording.name_reserved("CON")]
+    assert list(tmp_path.glob("*.pkl")) == []
+
+
 @pytest.mark.parametrize("typed", ["", "   "])
 def test_create_project_with_no_name_asks_for_one(tmp_path, monkeypatch, typed):
     """An empty box broke no rule the 64-character line names (final walk
@@ -608,7 +621,7 @@ def test_sample_project_button_reopens_existing_without_recreating(tmp_path, mon
     # previous visitor already worked in the sample.
     state = sample_projects.shipped_state(sample_projects.ROUND6)
     state["tasting_noise"] = 2.0
-    (tmp_path / f"{sample_projects.ROUND6}.pkl").write_text(json.dumps(state))
+    (tmp_path / f"{sample_projects.ROUND6}.pkl").write_text(json.dumps(state), encoding="utf-8")
 
     # app.py never auto-opens the most-recently-used project on a shared host
     # (os.path.isdir("/mount/src")); force that guard so the welcome panel
@@ -632,7 +645,7 @@ def test_sample_project_button_reopens_existing_without_recreating(tmp_path, mon
     at.run()
     assert not at.exception
 
-    kept = json.loads((tmp_path / f"{sample_projects.ROUND6}.pkl").read_text())
+    kept = json.loads((tmp_path / f"{sample_projects.ROUND6}.pkl").read_text(encoding="utf-8"))
     assert kept["tasting_noise"] == 2.0
     assert len(FoodOptimizer(sample_projects.ROUND6).X_history) == 15
     assert sample_projects.ROUND6 in [h.value for h in at.sidebar.subheader]
@@ -3361,11 +3374,13 @@ def test_deleting_takes_a_last_trial_that_was_entirely_left_out(burger):
 
 def test_the_desktop_bundle_ships_every_module():
     root = pathlib.Path(APP_PATH).resolve().parent
-    build = (root / "desktop" / "build_dmg.sh").read_text()
-    e2e = (root / "desktop" / "test_e2e.sh").read_text()
+    manifest = (root / "desktop" / "shared" / "bundle_manifest.txt").read_text(
+        encoding="utf-8").splitlines()
+    golden = (root / "desktop" / "mac_bundle_files.txt").read_text(
+        encoding="utf-8").splitlines()
     for module in ("ui_setup.py", "ui_batch.py", "ui_results.py"):
-        assert module in build, module
-        assert module in e2e, module
+        assert module in manifest, module
+        assert f"Resources/{module}" in golden, module
 
 
 _FIRST_RUN_SENTENCE = "Setup time depends on your connection and computer."
@@ -3387,9 +3402,26 @@ def test_first_run_copy_gives_the_honest_timing():
     root = pathlib.Path(APP_PATH).resolve().parent
     for name in ("desktop/FoodOptimizerApp.swift", "desktop/start_here.txt",
                  "desktop/README.md", "README.md"):
-        text = (root / name).read_text()
+        text = (root / name).read_text(encoding="utf-8")
         assert _FIRST_RUN_SENTENCE in _flowed(text), name
         assert "a few minutes, up to 15" not in text, name
+
+
+def test_windows_first_opening_copy():
+    """Windows downloads nothing: its first opening is slow for another
+    reason, and says so in one sentence — never the Mac's download
+    sentence. The window note says "this window"; Start Here, read before
+    the app opens, says "the app's window", on purpose."""
+    from tests.shared_texts import texts
+    root = pathlib.Path(APP_PATH).resolve().parent
+    sentence = "First opening takes longer. Keep this window open."
+    start_here_sentence = "First opening takes longer. Keep the app's window open."
+    start_here = _flowed((root / "desktop" / "windows" / "start_here.txt")
+                         .read_text(encoding="utf-8"))
+    assert start_here_sentence in start_here
+    assert texts("windows")["steps.note.first_opening"] == sentence
+    assert _FIRST_RUN_SENTENCE not in start_here
+    assert not any(_FIRST_RUN_SENTENCE in t for t in texts("windows").values())
 
 
 def test_the_last_trial_line_counts_a_trial_that_was_entirely_left_out(burger):
@@ -3412,10 +3444,10 @@ def test_a_stale_trial_is_reported_above_the_tabs_not_in_the_sidebar(open_batch,
     the fixed message container above the tabs."""
     import json
     notice = wording.batch_discarded_notice(1)
-    state = json.loads((tmp_path / "burger.pkl").read_text())
+    state = json.loads((tmp_path / "burger.pkl").read_text(encoding="utf-8"))
     for row in state["pending_batch"]:
         row["recipe"].pop("Methylcellulose")
-    (tmp_path / "burger.pkl").write_text(json.dumps(state))
+    (tmp_path / "burger.pkl").write_text(json.dumps(state), encoding="utf-8")
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
     at.run()
@@ -4394,12 +4426,32 @@ def test_the_result_grid_does_not_follow_you_to_another_project(open_batch):
 
 
 def test_get_help_gives_an_address_to_write_to():
-    """A user who threw away the disk image has no other route."""
+    """A user who threw away the disk image has no other route — and a
+    private address, so the log and a description need not be public."""
     root = pathlib.Path(APP_PATH).resolve().parent
-    swift = _flowed((root / "desktop" / "FoodOptimizerApp.swift").read_text())
-    assert "https://github.com/thomasat/food_opt/issues" in swift
-    assert ("Describe the problem and what you expected. Do not attach project files, "
-            "saved copies or formulations, because that page is public.") in swift
+    swift = _flowed((root / "desktop" / "FoodOptimizerApp.swift").read_text(encoding="utf-8"))
+    assert ("Email sohum.patnaik@fsi.org. Describe the problem and what you expected. "
+            "Attaching the app's log file helps — Help › Show Log File finds it "
+            "for you.") in swift
+    assert ("Click Try again. If the problem persists, email sohum.patnaik@fsi.org "
+            "and attach the file from Help › Show Log File.") in swift
+    assert "github.com/thomasat/food_opt/issues" not in swift
+    assert "Food Intelligence Lab" not in swift
+    # The same two sentences in the shared texts, on both OSes.
+    from tests.shared_texts import read_lf, texts
+    for os_name in ("mac", "windows"):
+        t = texts(os_name)
+        assert t["help.get_help.body"] == (
+            "Email sohum.patnaik@fsi.org. Describe the problem and what you expected. "
+            "Attaching the app's log file helps — Help › Show Log File finds it for you.")
+        assert t["error.could_not_start.body"] == (
+            "Click Try again. If the problem persists, email sohum.patnaik@fsi.org "
+            "and attach the file from Help › Show Log File.")
+    cs = sorted((root / "desktop" / "windows" / "FoodOptimizer").glob("**/*.cs"))
+    if cs:
+        source = "\n".join(read_lf(p) for p in cs)
+        assert "github.com/thomasat/food_opt/issues" not in source
+        assert "help.get_help.body" in source
 
 
 def test_emptying_the_forms_raises_no_widget_warning_on_screen(open_batch):
@@ -7748,7 +7800,7 @@ def test_restore_accepts_the_copy_every_confirmation_promises(burger, tmp_path):
     archived = storage_backend.LocalStorage().archive("burger", "pre_delete",
                                                       copy=True)
     assert archived == "burger_pre_delete"
-    kept = json.loads((tmp_path / "burger_pre_delete.pkl").read_text())
+    kept = json.loads((tmp_path / "burger_pre_delete.pkl").read_text(encoding="utf-8"))
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
     at.session_state["_restore_candidate"] = kept
@@ -8977,6 +9029,50 @@ def test_a_note_survives_a_csv_round_trip(burger):
         reloaded.notes_history
 
 
+def test_a_formula_note_survives_a_csv_round_trip(burger):
+    """The export prefixes ' to a note that starts with =; the reader takes it
+    off again, so the note comes back as typed."""
+    from ui_helpers import read_uploaded_csv
+    burger.tell({"Pea protein": 12.0, "Methylcellulose": 1.2},
+                {"Juiciness": 6.0, "Firmness": 5.0}, formulation_no=1,
+                batch_no=1, note="=1+1")
+    text = FoodOptimizer("burger").history_csv()
+    assert "'=1+1" in text
+    df = read_uploaded_csv(io.BytesIO(text.encode("utf-8")))
+    assert list(df["Note"]) == ["=1+1"]
+
+
+def test_formula_like_headers_survive_a_csv_round_trip(tmp_path, monkeypatch):
+    """An ingredient named =Pea and a measurement named +Juicy head their
+    columns with a leading ' in the export; the upload takes it off, so the
+    rows import under the right names."""
+    from ui_helpers import read_uploaded_csv
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("eqhead")
+    opt.add_ingredient("=Pea", 0, 25)
+    opt.add_ingredient("@Salt", 0, 3)
+    opt.add_objective("+Juicy", 1.0, goal="max", min_val=0, max_val=10)
+    opt.tell({"=Pea": 12.0, "@Salt": 1.2}, {"+Juicy": 6.0}, formulation_no=1,
+             batch_no=1)
+    text = FoodOptimizer("eqhead").history_csv()
+    assert "'=Pea" in text and "'@Salt" in text and "'+Juicy" in text
+    downloaded = read_uploaded_csv(io.BytesIO(text.encode("utf-8")))
+    at = AppTest.from_file(APP_PATH, default_timeout=180)
+    at.session_state["_loaded_project"] = "eqhead"
+    at.session_state["add_past_mode"] = wording.UPLOAD_A_FILE
+    at.session_state["_import_rows"] = downloaded
+    at.run()
+    _submit_button(at, wording.IMPORT_ALL_ROWS_BUTTON).click()
+    at.run()
+    assert not at.exception
+    assert not at.error, [e.value for e in at.error]
+    reloaded = FoodOptimizer("eqhead")
+    assert len(reloaded.recipe_history) == 2
+    assert reloaded.recipe_history[1]["=Pea"] == pytest.approx(12.0)
+    assert reloaded.recipe_history[1]["@Salt"] == pytest.approx(1.2)
+    assert reloaded.Y_history[1] == reloaded.Y_history[0] == pytest.approx(60.0)
+
+
 # ------------------------------------------------------------------ #
 #  Copy wave (2026-09-13): the behaviour behind the words. A button
 #  that names what it deletes, a counter that says "complete", the
@@ -9377,7 +9473,7 @@ def test_the_sample_is_written_with_shares_that_add_up_to_a_hundred(
     # Read the FILE, not the loaded object: import_json normalises on the
     # way in, so the loaded project has always looked right.
     for name in sample_projects.YOGURT_NAMES:
-        written = json.loads((tmp_path / f"{name}.pkl").read_text())
+        written = json.loads((tmp_path / f"{name}.pkl").read_text(encoding="utf-8"))
         weights = {o['name']: o['weight'] for o in written['objectives']}
         assert weights == {"Consistency": 25.0, "Creaminess": 25.0,
                            "Tanginess": 25.0, "Uniformity": 25.0}, weights
@@ -9700,13 +9796,13 @@ def test_the_copy_sentence_points_somewhere_the_reader_can_reach(scored):
                                  "use Saved copies in the sidebar.")
 
 
-def test_saving_a_copy_says_where_it_went(burger):
+def test_saving_a_copy_names_the_file(burger):
     """A download is the one action in the app that leaves no mark: the
     reader clicked and nothing moved, under a heading promising a list."""
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.run()
     assert _unknown(at.sidebar, "download_button", wording.SAVE_A_COPY)
-    assert not any("Downloads folder" in c.value for c in at.sidebar.caption)
+    assert not any(c.value.startswith("Saved as '") for c in at.sidebar.caption)
     # AppTest cannot click a download button — it arrives as an
     # UnknownElement — so what its on_click leaves behind is set here, and
     # the line it is read for is what this pins.
@@ -9715,11 +9811,11 @@ def test_saving_a_copy_says_where_it_went(burger):
     at.run()
     assert not at.exception
     said = [c.value for c in at.sidebar.caption
-            if "Downloads folder" in c.value]
-    assert said == [f"Saved as '{name}' in your Downloads folder."], said
+            if c.value.startswith("Saved as '")]
+    assert said == [f"Saved as '{name}'."], said
     # Said once: the next run has nothing to report.
     at.run()
-    assert not any("Downloads folder" in c.value for c in at.sidebar.caption)
+    assert not any(c.value.startswith("Saved as '") for c in at.sidebar.caption)
 
 
 def test_the_apps_own_copies_are_listed_and_open_from_the_sidebar(burger,
@@ -9803,7 +9899,7 @@ def test_a_copy_the_app_saved_itself_restores_through_the_sidebar(burger,
     burger.delete_formulation(1)
     assert FoodOptimizer("burger").formulation_ids == []
     # What the uploader hands on: the archive's own bytes, read as a copy.
-    kept = json.loads((tmp_path / "burger_pre_delete.pkl").read_text())
+    kept = json.loads((tmp_path / "burger_pre_delete.pkl").read_text(encoding="utf-8"))
     at = AppTest.from_file(APP_PATH, default_timeout=180)
     at.session_state["_loaded_project"] = "burger"
     at.session_state["_restore_candidate"] = kept
@@ -10005,7 +10101,7 @@ def test_the_app_says_it_is_starting_before_its_heavy_imports():
     heavy imports, then the placeholder is cleared."""
     import ast
     root = pathlib.Path(__file__).resolve().parent.parent
-    tree = ast.parse((root / "app.py").read_text())
+    tree = ast.parse((root / "app.py").read_text(encoding="utf-8"))
 
     def line_of_call(attr, owner=None, arg_is=None):
         """The line of the FIRST matching call. ast.walk visits by node, not
@@ -10108,7 +10204,7 @@ def test_an_older_sample_on_disk_is_opened_as_it_stands_never_rebuilt(
     old = FoodOptimizer(sample_projects.ROUND6)
     old.add_ingredient("Oat flour", 0, 100)
     old.add_objective("Taste", 1.0, goal="max")
-    before = _sample_file(tmp_path).read_text()
+    before = _sample_file(tmp_path).read_text(encoding="utf-8")
 
     at = AppTest.from_file(APP_PATH, default_timeout=300)
     at.run()
@@ -10117,7 +10213,7 @@ def test_an_older_sample_on_disk_is_opened_as_it_stands_never_rebuilt(
     kept = FoodOptimizer(sample_projects.ROUND6)
     assert [v["name"] for v in kept.variables] == ["Oat flour"]
     assert [o["name"] for o in kept.objectives] == ["Taste"]
-    assert _sample_file(tmp_path).read_text() == before
+    assert _sample_file(tmp_path).read_text(encoding="utf-8") == before
     # Only the all-10 project (and the results file) was missing, so only
     # they are said to be added.
     assert any(s.value == wording.sample_opened(wording.YOGURT_SAMPLE_NAME, 1, 1)
@@ -10217,7 +10313,7 @@ def test_start_this_sample_over_puts_the_shipped_copy_back_and_keeps_the_edit(
     at = AppTest.from_file(APP_PATH, default_timeout=300)
     at.run()
     _click_sample(at)
-    other_before = _sample_file(tmp_path, sample_projects.ALL10).read_text()
+    other_before = _sample_file(tmp_path, sample_projects.ALL10).read_text(encoding="utf-8")
 
     _submit_button(at.sidebar, wording.START_SAMPLE_OVER_LABEL).click()
     at.run()
@@ -10232,8 +10328,8 @@ def test_start_this_sample_over_puts_the_shipped_copy_back_and_keeps_the_edit(
     assert copies and all(
         c.name.startswith(f"{sample_projects.ROUND6}_sample_reset")
         for c in copies)
-    assert any("Oat flour" in c.read_text() for c in copies)
-    assert _sample_file(tmp_path, sample_projects.ALL10).read_text() == other_before
+    assert any("Oat flour" in c.read_text(encoding="utf-8") for c in copies)
+    assert _sample_file(tmp_path, sample_projects.ALL10).read_text(encoding="utf-8") == other_before
 
 
 def test_opening_a_project_again_keeps_its_default_batch_size(burger):

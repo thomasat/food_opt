@@ -1,5 +1,6 @@
 """Tests for the FoodOptimizer core engine."""
 
+import csv
 import io
 import json
 import os
@@ -15,7 +16,7 @@ import openpyxl
 
 import wording
 from food_bo import (
-    FoodOptimizer, ingredients_template_workbook,
+    FoodOptimizer, frame_workbook, ingredients_template_workbook,
     _name_taken_message, FormulaError, LinearForm, parse_formula,
 )
 
@@ -331,6 +332,126 @@ def test_history_csv_carries_the_units_the_screen_shows(tmp_path, monkeypatch):
         assert col in df.columns, list(df.columns)
     assert "Water" not in df.columns
     assert df["Taste"].iloc[0] == 3.0
+
+
+def test_history_csv_escapes_formula_text(tmp_path, monkeypatch):
+    """A text cell that starts = + - @ tab or CR is a formula to a
+    spreadsheet; the export prefixes ' to it. Numbers are left alone."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("csvesc")
+    opt.add_ingredient("Water", 0, 100)
+    opt.add_objective("Taste", 1.0, goal="max", min_val=-10, max_val=10)
+    notes = ['=HYPERLINK("x")', "+1", "-sweet", "@cmd", "\tx"]
+    for i, note in enumerate(notes, start=1):
+        opt.tell({"Water": 10.0 * i}, {"Taste": -1.5}, formulation_no=i,
+                 batch_no=1, note=note)
+    df = pd.read_csv(io.StringIO(opt.history_csv()), dtype=str,
+                     keep_default_na=False)
+    assert list(df["Note"]) == ["'" + n for n in notes]
+    assert list(df["Taste"]) == ["-1.5"] * len(notes)
+    assert list(df["Water (g)"]) == ["10.0", "20.0", "30.0", "40.0", "50.0"]
+
+
+def test_history_csv_escapes_formula_headers(tmp_path, monkeypatch):
+    """A column header is a cell too: an ingredient or target named = + - @
+    gets the same leading ' as a text cell, and the reader takes it off."""
+    from ui_helpers import read_uploaded_csv
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("csvhead")
+    opt.add_ingredient("=1+1", 0, 100)
+    opt.add_ingredient("+salt", 0, 10)
+    opt.add_objective("-sweet", 1.0, goal="max", min_val=0, max_val=10)
+    opt.add_objective("@cmd", 1.0, goal="max", min_val=0, max_val=10)
+    opt.tell({"=1+1": 10.0, "+salt": 1.0}, {"-sweet": 5.0, "@cmd": 4.0},
+             formulation_no=1, batch_no=1)
+    text = opt.history_csv()
+    header = next(csv.reader(io.StringIO(text)))
+    for name in ("'=1+1 (g)", "'+salt (g)", "'-sweet", "'@cmd"):
+        assert name in header, header
+    df = read_uploaded_csv(io.BytesIO(text.encode("utf-8")))
+    assert list(df.columns) == list(opt.history_export_frame().columns)
+    assert df["=1+1 (g)"].tolist() == [10.0]
+    assert df["-sweet"].tolist() == [5.0]
+
+
+def _formula_project(tmp_path, monkeypatch):
+    """A project whose names, note and record all start with =, and a
+    Calculation (the app's own notation, never Excel's)."""
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("=p", robust=False)
+    opt.add_ingredient("=1+1", 5, 20)
+    opt.add_ingredient("Water", 0, 100)
+    opt.set_formulation_total(100)
+    opt.set_formula("Water", "= rest")
+    opt.add_ingredient("Salt", 0, 5)
+    opt.set_formula("Salt", "= 0.5")
+    opt.add_objective('=HYPERLINK("x")', 1, goal="max", min_val=0, max_val=10)
+    import custom_records
+    field = custom_records.add_field(opt, "=op", "formulation")
+    opt.tell({"=1+1": 12, "Water": 87.5, "Salt": 0.5}, {'=HYPERLINK("x")': 5},
+             formulation_no=1, batch_no=1, note="=note")
+    opt.set_pending_batch([{"=1+1": 10, "Water": 89.5, "Salt": 0.5},
+                           {"=1+1": 15, "Water": 84.5, "Salt": 0.5}], batch_no=2)
+    custom_records.save_values(opt, 2, [("formulation", "3", field, "=v")])
+    return opt
+
+
+def _cells(data):
+    book = openpyxl.load_workbook(io.BytesIO(data))
+    return [(sheet.title, cell) for sheet in book.worksheets
+            for row in sheet.iter_rows() for cell in row]
+
+
+def test_workbooks_keep_text_that_starts_with_equals_as_text(tmp_path, monkeypatch):
+    """openpyxl makes any text starting with = a formula, which Excel would
+    run (=HYPERLINK) or show as #NAME?. Every download writes such a name,
+    note or record as text, exactly as typed, and holds no formula at all."""
+    opt = _formula_project(tmp_path, monkeypatch)
+    downloads = {
+        "print pack": opt.workbook_bytes(opt.pending_batch, None),
+        "compact": opt.workbook_bytes(opt.pending_batch, None, print_pack=False),
+        "all formulations": opt.all_formulations_workbook(),
+        "frame": frame_workbook({"Ingredients": pd.DataFrame({"Name": ["=1+1"]})}),
+    }
+    expected = {
+        "print pack": {"=1+1", "=1+1 (g)", '=HYPERLINK("x")', "=v"},
+        "compact": {"=1+1", "=1+1 (g)", "=v"},
+        "all formulations": {"=1+1", "=1+1 (g)", '=HYPERLINK("x")', "=note", "=v",
+                             "= 0.5"},
+        "frame": {"=1+1"},
+    }
+    for name, data in downloads.items():
+        cells = _cells(data)
+        assert [(t, c.coordinate) for t, c in cells if c.data_type == "f"] == [], name
+        texts = {c.value for _t, c in cells
+                 if c.data_type == "s" and isinstance(c.value, str)}
+        assert expected[name] <= texts, (name, expected[name] - texts)
+
+
+def test_the_text_pass_changes_no_byte_of_a_plain_workbook(tmp_path, monkeypatch):
+    """A workbook with no text starting with = is byte for byte what it was
+    before the pass existed (save times aside)."""
+    import food_bo
+    from tests.test_near_copy import _zip_parts
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("plain", robust=False)
+    opt.add_ingredient("Protein", 5, 20)
+    opt.add_ingredient("Water", 0, 100)
+    opt.set_formulation_total(100)
+    opt.set_formula("Water", "= rest")
+    opt.add_objective("Taste", 1, goal="max", min_val=0, max_val=10)
+    opt.tell({"Protein": 12, "Water": 88}, {"Taste": 5}, formulation_no=1,
+             batch_no=1, note="-sweet, +salt")
+    opt.set_pending_batch([{"Protein": 10, "Water": 90}], batch_no=2)
+
+    def downloads():
+        return [_zip_parts(opt.workbook_bytes(opt.pending_batch, None)),
+                _zip_parts(opt.workbook_bytes(opt.pending_batch, None, print_pack=False)),
+                _zip_parts(opt.all_formulations_workbook())]
+
+    with_pass = downloads()
+    monkeypatch.setattr(food_bo, "_keep_text_cells", lambda book: None)
+    assert downloads() == with_pass
 
 
 def test_history_csv_backfills_variable_added_mid_run(tmp_path, monkeypatch):
@@ -4177,7 +4298,56 @@ _USER_FACING_SOURCES = ["app.py", "ui_helpers.py", "ui_setup.py", "ui_batch.py",
                         "bo_views.py"]
 # The user-facing files that are not Python. They are scanned as plain text,
 # except the Swift wrapper, where only its string literals are screen text.
-_USER_FACING_TEXT = ["desktop/start_here.txt", "desktop/README.md", "README.md"]
+def _user_facing_text_files(root):
+    """README.md and every desktop/**/*.md and *.txt a person reads, found by
+    glob so a new document (the Windows Start Here) is swept the day it
+    lands. Locks, file lists and build output are not prose; the Start Here
+    source is swept through its two renders instead."""
+    root = pathlib.Path(root)
+    found = set()
+    version_file = root / "desktop" / "VERSION"
+    current = (tuple(int(p) for p in version_file.read_text(encoding="utf-8").strip().split("."))
+               if version_file.is_file() else None)
+    for pattern in ("*.md", "*.txt"):
+        for path in (root / "desktop").rglob(pattern):
+            rel = path.relative_to(root).as_posix()
+            # Published release notes are kept verbatim (owner, 2026-10-24);
+            # the notes of the version being released (not older than
+            # desktop/VERSION) are new copy and are swept (phase 6).
+            if rel.startswith("desktop/release_notes/"):
+                m = re.fullmatch(r"desktop/release_notes/(\d+)\.(\d+)\.(\d+)\.md", rel)
+                if not (m and current is not None and tuple(map(int, m.groups())) >= current):
+                    continue
+            if (rel.endswith(".lock.txt")
+                    or path.name in ("bundle_manifest.txt", "mac_bundle_files.txt", "image_files.txt")
+                    or {"build", "dist", ".cache"} & set(rel.split("/")[1:-1])
+                    or rel == "desktop/shared/start_here.src.md"):
+                continue
+            found.add(rel)
+    return ["README.md"] + sorted(found)
+
+
+_USER_FACING_TEXT = _user_facing_text_files(pathlib.Path(__file__).resolve().parent.parent)
+_START_HERE_FILES = {"desktop/start_here.txt", "desktop/windows/start_here.txt"}
+
+
+def _shared_screen_texts(root):
+    """(label, text) for every text in desktop/shared/messages.json, per OS,
+    and every text node of the shared page."""
+    import json
+    root = pathlib.Path(root)
+    doc = json.loads((root / "desktop" / "shared" / "messages.json").read_text(encoding="utf-8"))
+    out = []
+    for entry in doc["messages"] + doc["menus"]:
+        for os_name in ("mac", "windows"):
+            text = entry["text"][os_name] if os_name in entry["text"] else entry["text"]["mac"]
+            if text is not None:
+                out.append((f"messages.json:{entry['id']}/{os_name}", text))
+    html = (root / "desktop" / "shared" / "pages" / "status.html").read_text(encoding="utf-8")
+    html = re.sub(r"<script.*?</script>|<style.*?</style>|<!--.*?-->", "", html, flags=re.S)
+    out += [("status.html", node.strip()) for node in re.findall(r">([^<>]*)<", html)
+            if node.strip()]
+    return out
 _USER_FACING_SWIFT = "desktop/FoodOptimizerApp.swift"
 # The launcher writes the lines the first screen shows while it is setting
 # itself up — `status "…"` and the WARM_MSG it publishes for the load step.
@@ -4193,7 +4363,7 @@ _LAUNCHER_SCREEN_TEXT = re.compile(
 def _launcher_lines(root):
     """Every sentence desktop/launcher.sh puts on the first screen, with the
     bar's own `|percent` tail and its shell variables taken off."""
-    text = (root / _USER_FACING_LAUNCHER).read_text()
+    text = (root / _USER_FACING_LAUNCHER).read_text(encoding="utf-8")
     out = []
     for literal in _LAUNCHER_SCREEN_TEXT.findall(text):
         line = literal.split("|")[0]
@@ -4592,7 +4762,7 @@ def _how_it_works():
 def _string_constants(path):
     """Every string literal in a Python file, minus docstrings — those are
     notes to the next engineer, not screen text."""
-    tree = ast.parse(pathlib.Path(path).read_text())
+    tree = ast.parse(pathlib.Path(path).read_text(encoding="utf-8"))
     docstrings = set()
     for node in ast.walk(tree):
         body = getattr(node, "body", None)
@@ -4705,7 +4875,7 @@ def test_the_ftue_allowance_is_scoped():
     for name in _USER_FACING_SOURCES:
         if name == "wording.py":
             continue
-        uses = _wording_uses(ast.parse((root / name).read_text()))
+        uses = _wording_uses(ast.parse((root / name).read_text(encoding="utf-8")))
         assert all(name == "ui_insights.py" and where in _FTUE_DRAWERS
                    for where, _ in uses), (name, uses)
 
@@ -4793,7 +4963,7 @@ def _food_bo_prose_literals(source=None):
     `source` lets a test sweep an altered copy of the file."""
     root = pathlib.Path(__file__).resolve().parent.parent
     if source is None:
-        source = (root / "food_bo.py").read_text()
+        source = (root / "food_bo.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     skip = set()
     for node in ast.walk(tree):
@@ -4861,7 +5031,7 @@ def test_the_food_bo_sweep_reads_more_than_the_raise_sites():
     nowhere near a `raise`, is what the sweep has to catch — so the sweep
     itself is run over a copy of the file with one planted."""
     root = pathlib.Path(__file__).resolve().parent.parent
-    source = (root / "food_bo.py").read_text()
+    source = (root / "food_bo.py").read_text(encoding="utf-8")
     sentence = "the ingredients that can still vary"
     planted = source.replace(
         "    def per_amount_text(self):",
@@ -4887,22 +5057,22 @@ def test_no_old_vocabulary_reaches_the_user_outside_python():
     root = pathlib.Path(__file__).resolve().parent.parent
     offenders = []
     for name in _USER_FACING_TEXT:
-        for i, line in enumerate(( root / name).read_text().splitlines(), 1):
+        for i, line in enumerate(( root / name).read_text(encoding="utf-8").splitlines(), 1):
             # Both record scopes also apply to process-only trials.
-            if (name, line) in {
-                ("desktop/start_here.txt", "formulation/trial or each ingredient in the round. Enter values in the"),
-                ("README.md", "record, then choose each formulation/trial or each ingredient in the round."),
-            }:
+            if (name in _START_HERE_FILES and line ==
+                    "formulation/trial or each ingredient in the round. Enter values in the") or (
+                    name == "README.md" and line ==
+                    "record, then choose each formulation/trial or each ingredient in the round."):
                 continue
             # Process-only studies deliberately use trials in the user guide.
-            if name == "desktop/start_here.txt" and line == "and time. A project containing only process settings uses trials and does":
+            if name in _START_HERE_FILES and line == "and time. A project containing only process settings uses trials and does":
                 continue
             # v3: the Results fold, named as the screen names it.
             scanned = line.replace("worked out", "") if "score is" in line or \
                 line.startswith("worked out shows") else line
             if any(pattern.search(scanned) for pattern in _BANNED):
                 offenders.append((name, i, line))
-    swift = (root / _USER_FACING_SWIFT).read_text()
+    swift = (root / _USER_FACING_SWIFT).read_text(encoding="utf-8")
     for fragment in _SWIFT_NOT_PROSE:
         swift = swift.replace(fragment, "")
     for literal in re.findall(r'"((?:[^"\\\n]|\\.)*)"', swift):
@@ -4911,7 +5081,41 @@ def test_no_old_vocabulary_reaches_the_user_outside_python():
     for line in _launcher_lines(root):
         if any(pattern.search(line) for pattern in _BANNED):
             offenders.append((_USER_FACING_LAUNCHER, line))
+    for label, text in _shared_screen_texts(root):
+        if any(pattern.search(text) for pattern in _BANNED):
+            offenders.append((label, text))
     assert offenders == [], offenders
+
+
+def test_user_facing_text_files_find_the_windows_start_here():
+    found = set(_USER_FACING_TEXT)
+    assert {"README.md", "desktop/README.md", "desktop/start_here.txt",
+            "desktop/windows/start_here.txt", "desktop/windows/README.md"} <= found
+    assert not any(n.endswith(".lock.txt") for n in found)
+    assert "desktop/shared/start_here.src.md" not in found
+
+
+def test_published_release_notes_are_not_swept(tmp_path):
+    """Owner, 2026-10-24: published release notes are kept verbatim, so the
+    vocabulary sweep skips desktop/release_notes/ (and only that folder)."""
+    for rel in ("README.md", "desktop/README.md", "desktop/release_notes/0.8.0.md",
+                "desktop/release_notes/older/0.7.2.txt", "desktop/windows/notes.md"):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text("ranges\n", encoding="utf-8")
+    assert _user_facing_text_files(tmp_path) == [
+        "README.md", "desktop/README.md", "desktop/windows/notes.md"]
+
+
+def test_unpublished_release_notes_are_swept(tmp_path):
+    """Phase 6: only published notes (older than desktop/VERSION) are kept
+    verbatim; the notes of the version being released are new copy and
+    follow the vocabulary like any other page."""
+    (tmp_path / "desktop" / "release_notes" / "older").mkdir(parents=True)
+    (tmp_path / "desktop" / "VERSION").write_text("0.9.0\n", encoding="utf-8")
+    for rel in ("README.md", "desktop/release_notes/0.8.0.md", "desktop/release_notes/0.9.0.md",
+                "desktop/release_notes/older/0.7.2.txt"):
+        (tmp_path / rel).write_text("ranges\n", encoding="utf-8")
+    assert _user_facing_text_files(tmp_path) == ["README.md", "desktop/release_notes/0.9.0.md"]
 
 
 def test_the_launcher_and_the_window_name_the_load_step_alike():
@@ -4920,13 +5124,24 @@ def test_the_launcher_and_the_window_name_the_load_step_alike():
     line for it cannot drift apart: they drifted, and the warm-up — the slow
     part of a cold start — was drawn under "Opening your projects"."""
     root = pathlib.Path(__file__).resolve().parent.parent
-    swift = (root / _USER_FACING_SWIFT).read_text()
+    swift = (root / _USER_FACING_SWIFT).read_text(encoding="utf-8")
     label = re.search(r'let loadStepLabel = "((?:[^"\\\n]|\\.)*)"',
                       swift).group(1)
     warm = re.search(r'WARM_MSG="((?:[^"\\\n]|\\.)*)"',
-                     (root / _USER_FACING_LAUNCHER).read_text()).group(1)
+                     (root / _USER_FACING_LAUNCHER).read_text(encoding="utf-8")).group(1)
     assert warm.startswith(label), (warm, label)
     assert "model" not in warm.lower() and "model" not in label.lower()
+    # The shared launcher and page (Windows now, the Mac later) agree too.
+    import sys
+    from tests.shared_texts import texts
+    shared = str(root / "desktop" / "shared")
+    if shared not in sys.path:
+        sys.path.insert(0, shared)
+    from launcher.status_lines import LOAD_LINE, STARTING_LINE
+    for os_name in ("mac", "windows"):
+        assert LOAD_LINE.startswith(texts(os_name)["steps.load"]), os_name
+    assert texts("mac")["launcher.status.load"] == LOAD_LINE == warm
+    assert texts("mac")["launcher.status.starting"] == STARTING_LINE
 
 
 def test_no_screen_says_not_made():
@@ -4941,12 +5156,14 @@ def test_no_screen_says_not_made():
                       if _NOT_MADE.search(text)]
     for name in _USER_FACING_TEXT:
         offenders += [(name, i) for i, line
-                      in enumerate((root / name).read_text().splitlines(), 1)
+                      in enumerate((root / name).read_text(encoding="utf-8").splitlines(), 1)
                       if _NOT_MADE.search(line)]
-    swift = (root / _USER_FACING_SWIFT).read_text()
+    swift = (root / _USER_FACING_SWIFT).read_text(encoding="utf-8")
     offenders += [(_USER_FACING_SWIFT, literal) for literal
                   in re.findall(r'"((?:[^"\\\n]|\\.)*)"', swift)
                   if _NOT_MADE.search(literal)]
+    offenders += [(label, text) for label, text in _shared_screen_texts(root)
+                  if _NOT_MADE.search(text)]
     assert offenders == [], offenders
 
 
@@ -4961,12 +5178,14 @@ def test_no_screen_says_bench_sheet():
                       if _BENCH_SHEET.search(text)]
     for name in _USER_FACING_TEXT:
         offenders += [(name, i) for i, line
-                      in enumerate((root / name).read_text().splitlines(), 1)
+                      in enumerate((root / name).read_text(encoding="utf-8").splitlines(), 1)
                       if _BENCH_SHEET.search(line)]
-    swift = (root / _USER_FACING_SWIFT).read_text()
+    swift = (root / _USER_FACING_SWIFT).read_text(encoding="utf-8")
     offenders += [(_USER_FACING_SWIFT, literal) for literal
                   in re.findall(r'"((?:[^"\\\n]|\\.)*)"', swift)
                   if _BENCH_SHEET.search(literal)]
+    offenders += [(label, text) for label, text in _shared_screen_texts(root)
+                  if _BENCH_SHEET.search(text)]
     assert offenders == [], offenders
 
 
@@ -4996,12 +5215,14 @@ def test_no_screen_says_backup():
                       if _BACKUP.search(text)]
     for name in _USER_FACING_TEXT:
         offenders += [(name, i) for i, line
-                      in enumerate((root / name).read_text().splitlines(), 1)
+                      in enumerate((root / name).read_text(encoding="utf-8").splitlines(), 1)
                       if _BACKUP.search(line)]
-    swift = (root / _USER_FACING_SWIFT).read_text()
+    swift = (root / _USER_FACING_SWIFT).read_text(encoding="utf-8")
     offenders += [(_USER_FACING_SWIFT, literal) for literal
                   in re.findall(r'"((?:[^"\\\n]|\\.)*)"', swift)
                   if _BACKUP.search(literal)]
+    offenders += [(label, text) for label, text in _shared_screen_texts(root)
+                  if _BACKUP.search(text)]
     assert offenders == [], offenders
 
 
@@ -6031,8 +6252,10 @@ class TestTheTotalIsAlwaysReachable:
                     <= 20 + 1e-9), row
             assert opt._check_constraints(row), row
             # Still the total the box says, within the band the limit is
-            # enforced as.
-            assert sum(row.values()) == pytest.approx(100.0, rel=0.005)
+            # enforced as. A row the optimiser left exactly on the band's
+            # edge sums to 99.49999999999999: the extra 1e-9 is that
+            # rounding, not a broken limit.
+            assert abs(sum(row.values()) - 100.0) <= 0.005 * 100.0 + 1e-9, row
 
     def test_a_projection_that_would_break_a_limit_is_not_taken(
             self, tmp_path, monkeypatch):
@@ -7608,8 +7831,13 @@ class TestScaleRound:
         assert len(opt.pending_batch) == 2
         reopened = FoodOptimizer("scale_round")
         assert reopened.pending_batch_total == 100.0
-        assert [r['recipe'] for r in reopened.pending_batch] == pytest.approx(
-            [r['recipe'] for r in opt.pending_batch])
+        # One approx per recipe: pytest 9.2 refuses approx on a list of
+        # dicts (nested data); the tolerance is approx's default either way.
+        got = [r['recipe'] for r in reopened.pending_batch]
+        want = [r['recipe'] for r in opt.pending_batch]
+        assert len(got) == len(want)
+        for recipe, expected in zip(got, want):
+            assert recipe == pytest.approx(expected)
 
     def test_scaling_twice_goes_from_the_amounts_on_the_table(
             self, tmp_path, monkeypatch):

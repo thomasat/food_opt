@@ -5,6 +5,8 @@ Spec: docs/superpowers/specs/2026-09-29-review-fixes-design.md §1.3, §9."""
 import copy
 import io
 import itertools
+import re
+import zipfile
 
 import openpyxl
 import pytest
@@ -253,12 +255,24 @@ def test_workbook_bytes_are_identical_whether_or_not_the_screen_flagged_the_row(
     opt = _project(rows=6)
     _waiting(opt, 7, 3)
     opt.set_pending_batch([{"Pea": 6.0, "Oil": 4.0}], batch_no=4)
-    before = opt.workbook_bytes(opt.pending_batch, None)
+    before = _zip_parts(opt.workbook_bytes(opt.pending_batch, None))
     near_copies = _near_copy_prefixes(opt, opt.pending_batch)
     assert near_copies   # this suggestion really is flagged on screen
     opt.batch_frame(opt.pending_batch, near_copies=near_copies)
-    after = opt.workbook_bytes(opt.pending_batch, None)
+    after = _zip_parts(opt.workbook_bytes(opt.pending_batch, None))
     assert before == after
+
+
+def _zip_parts(data):
+    """{name: bytes} of a workbook, ignoring the save times openpyxl stamps
+    (zip entry times are not part of the bytes compared; docProps/core.xml's
+    created and modified elements are removed)."""
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        parts = {name: zf.read(name) for name in zf.namelist()}
+    parts["docProps/core.xml"] = re.sub(
+        rb"<dcterms:(created|modified)\b[^>]*>.*?</dcterms:\1>", b"",
+        parts["docProps/core.xml"], flags=re.S)
+    return parts
 
 
 # ------------------------------------------------------------------ #

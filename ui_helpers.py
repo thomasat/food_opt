@@ -5,10 +5,13 @@ st.rerun(), so `st.success("Saved"); st.rerun()` shows nothing. The audit found
 14 such sites. flash() queues the message in session state; render_flash() at
 the top of the script shows it on the next run.
 """
+import csv
+import io
 import json
 import re
 from datetime import datetime
 
+import pandas as pd
 import streamlit as st
 
 import sample_projects
@@ -922,3 +925,94 @@ def reset_grids():
         st.session_state.pop(premix_errors_key(name), None)
     st.session_state.pop(_PREMIX_GRIDS, None)
     st.session_state.pop(ING_PENDING_KEY, None)
+
+
+_NUMBER_CELL = re.compile(
+    r"^[+-]?(\d+|\d{1,3}(\.\d{3})+|\d{1,3}(,\d{3})+)([.,]\d+)?([eE][+-]?\d+)?$")
+_DOT_THOUSANDS = re.compile(r"^[+-]?[1-9]\d{0,2}(\.\d{3})+$")
+_EXPORT_ESCAPE = re.compile(r"^'[=+\-@\t\r]")
+
+
+def _number_format(text, sep):
+    """(decimal, thousands, text positions) for pd.read_csv, judged from the
+    numeric columns only: a dot decimal anywhere wins (with comma thousands,
+    1,234.5, in a ';' file holding no comma decimal or dot thousands); else a
+    ';' file with a comma decimal or dot thousands (1.250) reads European;
+    else plain dots."""
+    rows = list(csv.reader(io.StringIO(text), delimiter=sep))[1:]
+    columns = {}
+    for row in rows:
+        for position, cell in enumerate(row):
+            columns.setdefault(position, []).append(cell.strip())
+    dot = european = comma_thousands = False
+    text_positions = set()
+    for position, cells in columns.items():
+        cells = [cell for cell in cells if cell]
+        if not all(_NUMBER_CELL.match(cell) for cell in cells):
+            text_positions.add(position)
+            continue
+        for cell in cells:
+            has_dot, has_comma = "." in cell, "," in cell
+            if has_dot and has_comma:
+                if cell.rfind(".") > cell.rfind(","):
+                    dot = comma_thousands = True
+                else:
+                    european = True
+            elif has_dot:
+                if _DOT_THOUSANDS.match(cell):
+                    european = True
+                else:
+                    dot = True
+            elif has_comma:
+                european = True
+    if sep != ";":
+        return ".", None, text_positions
+    if dot:
+        # Comma thousands only when no cell reads European; mixed, a 2,5
+        # would become 25, so leave 1,234.5 as text instead.
+        thousands = "," if comma_thousands and not european else None
+        return ".", thousands, text_positions
+    if european:
+        return ",", ".", text_positions
+    return ".", None, text_positions
+
+
+def _unescape_export(cell):
+    """The CSV export's leading ' before = + - @ tab CR, taken off again."""
+    if isinstance(cell, str) and _EXPORT_ESCAPE.match(cell):
+        return cell[1:]
+    return cell
+
+
+def read_uploaded_csv(uploaded):
+    """An uploaded CSV, read the way the spreadsheet that wrote it meant:
+    UTF-8 (with or without the BOM Excel adds) or Windows' cp1252; commas,
+    semicolons or tabs between columns; numbers judged from numeric columns
+    only (decimal commas and dot thousands in ';' files); and the export's
+    escape apostrophe before = + - @ taken off text cells and headers."""
+    raw = uploaded.getvalue()
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = raw.decode("cp1252")
+    lines = text.splitlines()
+    try:
+        sep = csv.Sniffer().sniff("\n".join(lines[:5]), delimiters=",;\t").delimiter
+    except csv.Error:
+        sep = ","
+    decimal, thousands, text_positions = _number_format(text, sep)
+    df = pd.read_csv(io.StringIO(text), sep=sep, decimal=decimal, thousands=thousands)
+    if thousands and text_positions:
+        # pandas applies thousands= to every column, so a text column such as
+        # 26.10.2026 would read as 26102026: take those from a plain read.
+        plain = pd.read_csv(io.StringIO(text), sep=sep, decimal=decimal)
+        offset = 0 if isinstance(df.index, pd.RangeIndex) else df.index.nlevels
+        for position in sorted(text_positions):
+            if offset <= position < offset + df.shape[1]:
+                df.isetitem(position - offset, plain.iloc[:, position - offset])
+    for column in df.columns:
+        if pd.api.types.is_string_dtype(df[column].dtype):
+            df[column] = df[column].map(_unescape_export)
+    # The export escapes its header cells the same way.
+    df.columns = [_unescape_export(c) for c in df.columns]
+    return df

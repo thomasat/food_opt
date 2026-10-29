@@ -762,6 +762,8 @@ with st.sidebar:
                     st.error(wording.NAME_EMPTY)
                 elif not _NAME_RE.fullmatch(name):
                     st.error(wording.name_not_allowed(name))
+                elif storage_backend.is_reserved_name(name):
+                    st.error(wording.name_reserved(name))
                 elif name in existing_projects:
                     st.error(wording.name_taken(name))
                 elif storage_backend.is_archive_name(name) or STORAGE.exists(name):

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Every decision the Windows shell makes, with no UI: testable on any OS. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>FoodOptimizer.Core</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="FoodOptimizer.Tests" />
+    <InternalsVisibleTo Include="FoodOptimizer" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Every string the shell shows: the shared file, built in. -->
+    <EmbeddedResource Include="../../../shared/messages.json" LogicalName="messages.json" />
+  </ItemGroup>
+</Project>

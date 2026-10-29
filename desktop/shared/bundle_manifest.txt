@@ -1,0 +1,20 @@
+app.py
+bo_views.py
+calculation_editor.py
+custom_records.py
+data/ingredients_template.csv
+data/samples/burger_setup/Example setup - plant-based burger.json
+data/samples/yogurt_pilot/Round 6 results (pilot).xlsx
+data/samples/yogurt_pilot/Yogurt pilot - Round 6 to score.json
+data/samples/yogurt_pilot/Yogurt pilot - all 10 Rounds.json
+food_bo.py
+insights.py
+sample_projects.py
+storage.py
+ui_batch.py
+ui_helpers.py
+ui_insights.py
+ui_results.py
+ui_setup.py
+wording.py
+workbook_flow.py

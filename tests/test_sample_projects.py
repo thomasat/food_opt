@@ -39,8 +39,8 @@ def test_every_shipped_file_exists():
     (sp.ROUND6, 5, 6), (sp.ALL10, 10, None)])
 def test_shipped_project_equals_a_rebuild_from_the_csvs(tmp_path, name, scored, open_round):
     _builder().build(name, scored, open_round, out_dir=str(tmp_path))
-    rebuilt = (tmp_path / f"{name}.pkl").read_text()
-    shipped = (sp.SAMPLE_DIR / f"{name}.json").read_text()
+    rebuilt = (tmp_path / f"{name}.pkl").read_text(encoding="utf-8")
+    shipped = (sp.SAMPLE_DIR / f"{name}.json").read_text(encoding="utf-8")
     assert _norm(rebuilt) == _norm(shipped)
 
 
@@ -50,7 +50,7 @@ def test_shipped_projects_carry_no_date(name):
     """The pilot's CSVs date no Batch, so the shipped files carry no date at
     all: not the day build.py ran as the day a pilot row was recorded, nor
     as the day the open Round 6 was opened."""
-    text = (sp.SAMPLE_DIR / f"{name}.json").read_text()
+    text = (sp.SAMPLE_DIR / f"{name}.json").read_text(encoding="utf-8")
     assert not TS.search(text)
     state = json.loads(text)
     assert state["timestamps_history"] == [None] * len(state["results_history"])
@@ -167,14 +167,14 @@ def test_restore_archives_then_writes_the_shipped_copy(store):
     opt = FoodOptimizer(sp.ROUND6, storage=store)
     opt.tasting_noise = 3.0
     opt.save()
-    Path("My own project.pkl").write_text('{"keep": true}')
+    Path("My own project.pkl").write_text('{"keep": true}', encoding="utf-8")
     first = sp.restore(sp.ROUND6, store)
     second = sp.restore(sp.ROUND6, store)
     assert first == f"{sp.ROUND6}_sample_reset"
     assert second == f"{sp.ROUND6}_sample_reset_1"
     assert FoodOptimizer(sp.ROUND6, storage=store).tasting_noise is None
-    assert json.loads(Path(f"{first}.pkl").read_text())["tasting_noise"] == 3.0
-    assert Path("My own project.pkl").read_text() == '{"keep": true}'
+    assert json.loads(Path(f"{first}.pkl").read_text(encoding="utf-8"))["tasting_noise"] == 3.0
+    assert Path("My own project.pkl").read_text(encoding="utf-8") == '{"keep": true}'
     assert Path(f"{sp.ALL10}.pkl").exists()
 
 
@@ -356,12 +356,13 @@ def test_the_results_file_is_never_a_project_or_a_copy(store):
     assert sorted(store.list_projects()) == sorted(sp.YOGURT_NAMES)
 
 
-@pytest.mark.parametrize("doc", ["README.md", "desktop/start_here.txt", "desktop/README.md"])
+@pytest.mark.parametrize("doc", ["README.md", "desktop/start_here.txt", "desktop/shared/manual_walkthrough.md",
+                                 "desktop/windows/start_here.txt"])
 def test_the_docs_say_what_the_screen_says(doc):
     """The walkthrough names the results file by the name it has in the
     FoodOptimizer folder, and (v3) no stop: the Review has no stop rule."""
     import wording
-    text = " ".join((Path(sp._ROOT) / doc).read_text().split())
+    text = " ".join((Path(sp._ROOT) / doc).read_text(encoding="utf-8").split())
     assert 'Stop: score within noise of 100' not in text and "within noise" not in text
     assert sp.ROUND6_RESULTS_FILE_NAME in text
     assert "Browse files" in text and "FoodOptimizer" in text
@@ -604,10 +605,10 @@ def test_a_changed_copy_from_an_earlier_build_is_kept(store):
     state = _earlier_build(sp.ROUND6)
     state["tasting_noise"] = 2.0
     store.save(sp.ROUND6, state)
-    before = Path(f"{sp.ROUND6}.pkl").read_text()
+    before = Path(f"{sp.ROUND6}.pkl").read_text(encoding="utf-8")
     assert sp.refresh(store) == []
     assert sp.ensure(store) == [sp.ALL10]
-    assert Path(f"{sp.ROUND6}.pkl").read_text() == before
+    assert Path(f"{sp.ROUND6}.pkl").read_text(encoding="utf-8") == before
     # Start this sample over still brings it up to date, keeping a copy.
     archived = sp.restore(sp.ROUND6, store)
     assert store.load(sp.ROUND6) == sp.shipped_state(sp.ROUND6)

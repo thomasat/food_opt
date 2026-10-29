@@ -5,17 +5,48 @@ Design spec: `docs/superpowers/specs/2026-08-13-desktop-packaging-design.md`.
 
 ## Build
 
+The version is `desktop/VERSION` (one `X.Y.Z` line); nothing else sets it.
+
 ```bash
-./desktop/build_dmg.sh 0.6.0        # version is the only argument
+./desktop/build_dmg.sh --check      # can I build? guards only, builds nothing
+./desktop/build_dmg.sh              # release build of desktop/VERSION
+./desktop/build_dmg.sh --test-build # internal testing only
 ```
 
-Output: `desktop/dist/FoodOptimizer-0.6.0.dmg`. Unsigned builds print a
-loud warning and are for internal testing only — never send one to a
-recipient.
+- A **release build** writes `desktop/dist/FoodOptimizer-X.Y.Z.dmg`. It
+  refuses (exit 2) a tree with uncommitted changes, a HEAD that is not tag
+  `vX.Y.Z`, and a version argument that disagrees with `desktop/VERSION`:
+  build it from a clean worktree at the tag (see the ritual below).
+  `--check` runs the same guards and prints `ready to build X.Y.Z from vX.Y.Z`.
+- A **test build** skips the guards, prints a loud `TEST BUILD - not for
+  release` warning and writes `desktop/dist/FoodOptimizer-X.Y.Z-test.dmg`.
+  `test_e2e.sh` makes one. Never send it to a recipient.
+- Every build writes a **build record** beside the dmg,
+  `desktop/dist/FoodOptimizer-X.Y.Z.build.txt`: version, commit, whether the
+  tree was clean, both lock hashes, the dmg's sha256, signed, notarized.
+- Unsigned builds print a loud warning and are for internal testing only.
 
 The build compiles the native window wrapper (`FoodOptimizerApp.swift`)
 with `swiftc`, so the build machine needs the Xcode Command Line Tools
 (`xcode-select --install`). Recipients need nothing extra.
+
+## What ships
+
+`desktop/shared/bundle_manifest.txt` lists the files both apps ship: one
+repo-relative path per line, sorted, LF line endings, no comments. The Mac
+build copies each to `Contents/Resources/<same path>`; `build_dmg.sh` names
+no app file itself. `desktop/mac_bundle_files.txt` is the exact listing of
+the built `Contents/`, and `test_e2e.sh` fails on any difference.
+
+To ship a new module or data file:
+
+1. add it to `desktop/shared/bundle_manifest.txt`;
+2. add `Resources/<path>` (and any new folder) to `desktop/mac_bundle_files.txt`;
+3. run `./desktop/test_e2e.sh`.
+
+The golden list is a decision, not a side effect: edit it by hand, or run
+`python desktop/bundle_listing.py --write` and review the diff before
+committing (without `--write` it prints the diff and exits 1 when stale).
 
 ## Test
 
@@ -26,6 +57,35 @@ with `swiftc`, so the build machine needs the Xcode Command Line Tools
 
 Level 2 downloads ~1 GB of dependencies into a throwaway temp HOME
 (deleted afterward); it never touches your real environment.
+
+## Run the tests
+
+The Mac gate is the locked venv, built from the Mac lock:
+
+```bash
+uv venv --python 3.13 ~/.cache/food-opt/venv-locked   # add --clear to rebuild
+uv pip install --python ~/.cache/food-opt/venv-locked/bin/python \
+  -r desktop/requirements.lock.txt "pytest>=9,<10" matplotlib
+~/.cache/food-opt/venv-locked/bin/python -m pytest -q -p no:cacheprovider
+```
+
+The lock is for CPython 3.13. Expect `0 failed`. A conda or other environment fails 12 golden fixture
+comparisons, because its scipy differs; that is by design. Never re-record
+the goldens outside the locked venv. Slow launcher tests need
+`FOODOPT_SLOW_TESTS=1`.
+
+The Windows full suite runs in the VM, in the image-Python venv from
+`windows/README.md`, "Test":
+
+```
+set FOODOPT_SLOW_TESTS=& set PYTHONDONTWRITEBYTECODE=1& set GIT_PYTHON_REFRESH=quiet& C:\work\venv\Scripts\python.exe -m pytest tests tests\desktop_launcher tests\desktop_page -q -p no:cacheprovider -rf --basetemp C:\work\<fresh>
+```
+
+Then the slow launcher tests (real Streamlit), with a fresh `--basetemp`:
+
+```
+set FOODOPT_SLOW_TESTS=1& set PYTHONDONTWRITEBYTECODE=1& set GIT_PYTHON_REFRESH=quiet& C:\work\venv\Scripts\python.exe -m pytest tests\desktop_launcher -q -p no:cacheprovider -rf --basetemp C:\work\<fresh>
+```
 
 ## Signing + notarization (required before distributing)
 
@@ -46,58 +106,136 @@ Then every distribution build:
 ```bash
 export SIGN_IDENTITY="Developer ID Application: Your Name (YOURTEAMID)"
 export NOTARY_PROFILE=foodopt-notary
-./desktop/build_dmg.sh 0.6.0
+./desktop/build_dmg.sh              # in a clean worktree at the tag
 ```
 
 ## Updating dependencies
 
-When `requirements.txt` changes, regenerate the lock and commit it:
+When `requirements.txt` changes, run `./desktop/update_lock.sh` and commit
+both locks it writes:
 
-```bash
-./desktop/update_lock.sh
-```
+- **Run it on an Apple Silicon Mac.** It refuses anywhere else, because the
+  Mac lock is resolved for the machine it runs on.
+- **The Mac lock (`desktop/requirements.lock.txt`) is rewritten only when its
+  packages or hashes change.** `launcher.sh` hashes the whole file, so any
+  byte change, even a comment, makes every Mac user redo the ~1 GB online
+  setup.
+- **The Windows lock (`desktop/requirements-windows.lock.txt`) is derived
+  from the Mac lock:** the same versions, plus the packages only Windows
+  needs (`colorama`, `watchdog`). `tests/test_locks.py` checks they agree.
+- **Commit both.** When the Mac lock changed, the script says so: re-measure
+  `EXPECTED_SETUP_MB` in `launcher.sh` and update `MAC_LOCK_SHA256` in
+  `tests/test_locks.py`.
 
-The launcher detects the changed lock hash and re-runs setup on users'
-machines automatically.
-
-## Publishing a release (the download link you send people)
+## Publishing a release (Mac and Windows together)
 
 Releases are published as **GitHub Releases** — each version gets a
-permanent download URL. Never commit dmg files to the repo.
+permanent download URL. Never commit dmg or exe files to the repo.
 
-The full ritual for version X.Y.Z:
+Mac and Windows ship together, from one tag. ⚠ marks a step that a test or
+a tool guards; skipping it can publish the wrong file. The ritual for
+version X.Y.Z:
 
-```bash
-# 0. Only if requirements.txt changed since the last release:
-./desktop/update_lock.sh            # then commit the updated lock
+1. Ahead of time: Food System Innovations' Artifact Signing validation is
+   done (the Windows build is signed with it).
+2. Only if `requirements.txt` changed since the last release: run
+   `./desktop/update_lock.sh` (it rewrites the Mac lock only when packages
+   changed) and commit the result. Then re-measure `EXPECTED_SETUP_MB` in
+   `launcher.sh`, `desktop/windows/size_gate.json` and the disk figures in
+   both Start Here files and both READMEs.
+3. ⚠ Release PR (true merge): bump `desktop/VERSION`, the download links
+   in `README.md` and `windows/download_email.md`, and write
+   `desktop/release_notes/X.Y.Z.md`, the release page.
+   `tests/test_release_guards.py` checks that they all agree, and fails at
+   the tag while any `PENDING(` is left in a text that is sent.
+4. ⚠ Tag first; both builds come from the tag:
 
-# 1. Build (set SIGN_IDENTITY + NOTARY_PROFILE first for real distributions)
-./desktop/build_dmg.sh X.Y.Z
+   ```bash
+   git tag -a vX.Y.Z <sha>
+   git push origin vX.Y.Z
+   ```
 
-# 2. Verify
-./desktop/test_e2e.sh               # must end "0 failed"
-# ...plus the manual checklist below before sending to real recipients.
+5. Mac: build and verify in a clean worktree at the tag, signing set up:
 
-# 3. Make sure the release is cut from main (merge + push first), then:
-gh release create vX.Y.Z "desktop/dist/FoodOptimizer-X.Y.Z.dmg" \
-  --title "Food Optimizer X.Y.Z" \
-  --notes "See 'Start Here.txt' inside the download for install steps."
-```
+   ```bash
+   git worktree add ../food_opt-vX.Y.Z vX.Y.Z
+   cd ../food_opt-vX.Y.Z
+   export SIGN_IDENTITY="Developer ID Application: Your Name (YOURTEAMID)"
+   export NOTARY_PROFILE=foodopt-notary
+   ./desktop/build_dmg.sh            # refuses a dirty tree or a HEAD that is not the tag
+   ./desktop/test_e2e.sh             # must end "0 failed"
+   ```
 
-The link to send people (also shown on the release page):
+   ...plus the Mac manual checklist below.
+6. Windows: in the build VM, follow `windows/README.md`, "Release (Windows
+   half)": a VM-local clone at the tag, the signed build, pytest, Level 2,
+   the checklist and the locked-down profile.
+7. ⚠ Copy and check. `scp` from the VM into the release worktree's
+   `desktop/dist/`, beside the dmg and its record:
+   `FoodOptimizer-X.Y.Z-Windows.exe`, `FoodOptimizer-X.Y.Z-Windows.build.txt`,
+   `FoodOptimizer-X.Y.Z-Windows.files.txt`. Each file's hash must be its
+   record's (`dmg_sha256`, `installer_sha256`, `files_list_sha256`), and
+   both records must say `tree_clean=yes`, `signed=yes` and the tag's
+   commit (the Mac's also `notarized=yes`):
+
+   ```bash
+   shasum -a 256 desktop/dist/FoodOptimizer-X.Y.Z*
+   cat desktop/dist/FoodOptimizer-X.Y.Z.build.txt desktop/dist/FoodOptimizer-X.Y.Z-Windows.build.txt
+   git rev-parse vX.Y.Z^{commit}
+   ```
+
+8. ⚠ Draft. The release page is `desktop/release_notes/X.Y.Z.md` as
+   committed; the per-file list is attached, not advertised:
+
+   ```bash
+   gh release create vX.Y.Z --draft --verify-tag --title "Food Optimizer X.Y.Z" \
+     --notes-file desktop/release_notes/X.Y.Z.md \
+     desktop/dist/FoodOptimizer-X.Y.Z.dmg \
+     desktop/dist/FoodOptimizer-X.Y.Z-Windows.exe \
+     desktop/dist/FoodOptimizer-X.Y.Z-Windows.files.txt
+   gh release view vX.Y.Z --json assets
+   ```
+
+   Compare each asset's digest in `gh release view` with its record.
+9. ⚠ Publish, then check both links answer:
+
+   ```bash
+   gh release edit vX.Y.Z --draft=false --latest
+   curl -I https://github.com/thomasat/food_opt/releases/download/vX.Y.Z/FoodOptimizer-X.Y.Z.dmg
+   curl -I https://github.com/thomasat/food_opt/releases/download/vX.Y.Z/FoodOptimizer-X.Y.Z-Windows.exe
+   ```
+
+   Keep the time between steps 3 and 9 short: the links 404 in between.
+
+TODO: after the first Windows release ships, delete
+`tests/test_windows_ready.py` and `tests/fixtures/wording_snapshot_080.json`.
+
+Mac hotfixes before the first combined release ship from the `release-080`
+branch (made at the last Mac-only tag) and merge forward into main with
+true merges; a Windows or signing delay never blocks the Mac. After it,
+feature releases ship together. If Windows is blocked for a patch, the Mac
+patch may ship alone with the same version, and the Windows build follows.
+
+GitHub Actions are disabled (billing lock). Until they return, VM_BUILD is
+the CI: pytest there at the release commit is a release gate. Re-enable
+with `gh workflow enable tests -R thomasat/food_opt`.
+
+The links to send people (also on the release page):
 
 ```
 https://github.com/thomasat/food_opt/releases/download/vX.Y.Z/FoodOptimizer-X.Y.Z.dmg
+https://github.com/thomasat/food_opt/releases/download/vX.Y.Z/FoodOptimizer-X.Y.Z-Windows.exe
 ```
 
+For Windows recipients, send the three lines in `windows/download_email.md`.
+
 Notes:
-- The repo is public, so the link works for anyone — no GitHub account needed.
+- The repo is public, so the links work for anyone — no GitHub account needed.
 - Unsigned builds are for internal testers only. Before a link goes to
-  real recipients, complete the signing setup above and rebuild — an
-  unsigned dmg triggers the exact security warnings this project exists
-  to avoid.
-- To replace a release's dmg (e.g. after signing):
-  `gh release upload vX.Y.Z <dmg> --clobber`
+  real recipients, complete the signing setup and rebuild — an unsigned
+  build triggers the exact security warnings this project exists to avoid.
+- To replace a release's file (e.g. after signing):
+  `gh release upload vX.Y.Z <file> --clobber`
 
 ## System requirements (copy-paste for emails / download page)
 
@@ -147,62 +285,7 @@ warnings entirely, and the checklist below gates distribution on that.
 5. In-window plumbing: upload an ingredients file (file picker opens), save a
    copy (lands in ~/Downloads), Cmd-Q and window-close both stop the
    app completely (check Activity Monitor: no streamlit left).
-6. Sample walkthrough: click "Try the yogurt pilot". "Yogurt pilot -
-   Round 6 to score" opens on "4 · Review" (15 formulations scored, Round
-   6 made and waiting). On "2 · Make a round", open "Or upload results
-   from a file", click "Browse files" and choose "Round 6 results
-   (pilot).xlsx" in ~/FoodOptimizer (it is already there; "Download the
-   pilot's Round 6 results" is the other way), then click "Save uploaded
-   results". "3 · Results" shows "Round 6 results" (F16, F17 new best, tied);
-   on "4 · Review", "Start Round 7" opens "2 · Make a round" with
-   Suggestion 1–3, and "See the pilot's Rounds 7–10" opens "Yogurt pilot
-   - all 10 Rounds" on "4 · Review". Manage project → "Start this example over" puts Round 6 back
-   to waiting and the results file back in ~/FoodOptimizer, shows one
-   line ("… is back as shipped. Your version is in Saved copies."), and
-   the old version is listed in Saved copies. Quit and reopen the app:
-   a sample opens on "4 · Review" again.
-   Example setup: "Open the burger example" opens "Example setup -
-   plant-based burger" on "1 · Set up" (illustrative values, no results:
-   calculations, pre-mixes, a process setting, records, a formulation
-   total); its "4 · Review" says "No results: this example shows set-up
-   only." with "Try the yogurt pilot". It never appears unless opened.
-6a. UI walkthrough on a project of your own: create one with a default
-   batch size of 100 g, Lot and actual amounts recorded (Preparation and
-   records), and a Water row whose Rule cell says "= rest", so its
-   Highest reads "calculated" and one line under the grid gives
-   what it comes to in numbers. On "1 · Set up", type
-   into the ingredients grid and check that "Save changes" lights up and
-   "Discard changes" puts the grid back; open "Preparation and records" and
-   "Advanced" and check nothing else sits on the tab. In "Preparation and records",
-   check that an ingredient limit offers a "Limit is" choice of "At
-   least", "At most", "Between" or "Exactly" - one box, or two for
-   "Between" -
-   and that "Write it as" offers "% of default batch size" (it is
-   there only while a default batch size is set), and that picking an
-   ingredient does not close "Preparation and records" under you. Go to "2 · Make a
-   round", generate one, check every row of the round table totals the
-   batch size and that Water's column is headed "Water · calculated (g)",
-   change "Batch size (g)" to 250 and watch every amount
-   in the round table follow it, download the round sheets (Excel) and
-   open it: the sheets
-   are protected, only the cells the instruction line names take a value,
-   and a printed greyscale copy makes clear which they are — every one of
-   them is boxed, and boxed and shaded are the one treatment: there is no
-   second, shaded-but-locked kind of cell. Each formulation page has an
-   "Actual (g)" column beside its amounts, with a "Lot" cell per
-   ingredient on the "Round 1" page. Water is printed as "Water ·
-   calculated" on the formulation pages and "Water · calculated (g)" on the
-   round sheet — the mark on the name, the unit behind it, one shape
-   everywhere, with the line "Water is calculated: = rest
-   (batch size − every other ingredient). Weigh the amount printed."
-   under the amounts. Record a result (or mark one Not
-   scored and score it later from Results), and confirm the `.pkl` appears
-   in `~/FoodOptimizer/`.
-6b. On "3 · Results", click "Download all formulations (Excel)" and open
-   it: the "Set up" sheet in THAT file is the one with the Rule column,
-   and it spells Water out as "= rest (batch size − every other
-   ingredient)" with "calculated" in its Status cell. (The round sheets
-   in step 6a are a different download and carry no Set-up sheet.)
+6. Run the demo walkthrough in `shared/manual_walkthrough.md`.
 7. Quit, relaunch: fast start, project still listed and loads.
 8. Wi-Fi off on a set-up machine: works fully offline.
 9. Wi-Fi off on a fresh machine: plain-language "needs internet once"
