@@ -1,6 +1,5 @@
 using System.Runtime.CompilerServices;
 using System.Windows.Automation;
-using WinForms = System.Windows.Forms;
 
 namespace FoodOptimizer.UiTests;
 
@@ -63,12 +62,14 @@ public class DownloadTests
         var box = FileNameBox(dialog);
         ((ValuePattern)box.GetCurrentPattern(ValuePattern.Pattern)).SetValue(value);
         // SetValue alone changes the text without the dialog noticing: a
-        // typed space and backspace make it read the box again.
-        box.SetFocus();
-        Thread.Sleep(200);
-        WinForms.SendKeys.SendWait("{END} {BACKSPACE}");
-        Thread.Sleep(300);
-        Assert.Equal(value, Uia.Value(box));
+        // typed space and backspace make it read the box again. Each is
+        // sent while the dialog has the foreground and the box the focus,
+        // and waited for in the box.
+        var seen = "";
+        ShellApp.Send(dialog, box, "{END} ");
+        Assert.True(Uia.WaitUntil(() => (seen = Uia.Value(box)) == value + " ", Three), $"the File name box reads '{seen}' after a space; {ShellApp.Foreground()} has the foreground");
+        ShellApp.Send(dialog, box, "{BACKSPACE}");
+        Assert.True(Uia.WaitUntil(() => (seen = Uia.Value(box)) == value, Three), $"the File name box reads '{seen}' after a backspace; {ShellApp.Foreground()} has the foreground");
     }
 
     /// <summary>Clicks Download a CSV and answers the Save As dialog with <paramref name="path"/>.</summary>

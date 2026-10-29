@@ -17,69 +17,96 @@ public class KeysAndMenusTests
         return (app, edit);
     }
 
-    static void TypeInto(ShellApp app, AutomationElement edit, string keys)
+    /// <summary>The text box, looked up again each time (never a stale element).</summary>
+    static AutomationElement BoxElement(ShellApp app) => app.WaitFor(ControlType.Edit, "Type here", Three);
+
+    /// <summary>The text box's value now, or null when it is not there.</summary>
+    static string? Box(ShellApp app) => Uia.Find(app.Window, ControlType.Edit, "Type here") is { } e ? Uia.Value(e) : null;
+
+    /// <summary>Sends keys to the box while the app has the foreground and the box the focus.</summary>
+    static void SendToBox(ShellApp app, string keys) => app.Send(BoxElement(app), keys);
+
+    /// <summary>Waits for the box to read <paramref name="expected"/>;
+    /// fails naming what it reads and what has the foreground.</summary>
+    static void AssertBox(ShellApp app, string expected, string after)
     {
-        app.Activate();
-        edit.SetFocus();
-        Thread.Sleep(300);
-        WinForms.SendKeys.SendWait(keys);
-        Thread.Sleep(400);
+        string? seen = null;
+        Assert.True(Uia.WaitUntil(() => (seen = Box(app)) == expected, Three),
+            $"after {after} the box reads '{seen ?? "(no box)"}', not '{expected}'; {ShellApp.Foreground()} has the foreground");
+    }
+
+    /// <summary>Types into the box, while the app has the foreground and
+    /// the box has the focus, and waits until the box shows it.</summary>
+    static void TypeInto(ShellApp app, string text)
+    {
+        SendToBox(app, text);
+        AssertBox(app, text, "typing");
     }
 
     static void AssertZoom(ShellApp app, double expected) =>
         Assert.True(Uia.WaitUntil(() => app.SavedZoom() is { } z && Math.Abs(z - expected) < 0.001, TimeSpan.FromSeconds(2)),
-            $"saved zoom {app.SavedZoom()} != {expected}");
+            $"saved zoom {app.SavedZoom()} != {expected}; {ShellApp.Foreground()} has the foreground");
 
+    /// Each key is sent only while the app has the foreground and the box
+    /// the focus (a browser window an earlier test's link opened can take
+    /// them), and each step is waited for in the box or on the clipboard,
+    /// which is emptied first so a copy left by an earlier run cannot pass.
     [Fact]
     public void Editing_keys_work_in_a_text_box()
     {
-        var (app, edit) = Loaded(ShellRun.Fresh());
-        using var _ = app;
-        TypeInto(app, edit, "hello spike");
-        WinForms.SendKeys.SendWait("^a");
-        WinForms.SendKeys.SendWait("^c");
-        Thread.Sleep(400);
-        Assert.Equal("hello spike", ShellApp.Clipboard());
-        WinForms.SendKeys.SendWait("{END}");
-        WinForms.SendKeys.SendWait("^v");
-        Thread.Sleep(400);
-        Assert.Equal("hello spikehello spike", Uia.Value(edit));
-        WinForms.SendKeys.SendWait("^z");
-        Thread.Sleep(400);
-        Assert.Equal("hello spike", Uia.Value(edit));
+        var (app, _) = Loaded(ShellRun.Fresh());
+        using var _app = app;
+        ShellApp.ClearClipboard();
+        TypeInto(app, "hello spike");
+        SendToBox(app, "^a");
+        SendToBox(app, "^c");
+        var copied = "";
+        Assert.True(Uia.WaitUntil(() => (copied = ShellApp.Clipboard()) == "hello spike", Three),
+            $"the clipboard holds '{copied}' after Ctrl+A, Ctrl+C; {ShellApp.Foreground()} has the foreground");
+        SendToBox(app, "{END}");
+        SendToBox(app, "^v");
+        AssertBox(app, "hello spikehello spike", "End, Ctrl+V");
+        SendToBox(app, "^z");
+        AssertBox(app, "hello spike", "Ctrl+Z");
     }
 
+    /// Each key is sent while the app has the foreground and the box the
+    /// focus, and does nothing a browser would; a letter typed after them
+    /// still reaches the box.
     [Fact]
     public void Browser_keys_do_nothing()
     {
-        var (app, edit) = Loaded(ShellRun.Fresh());
-        using var _ = app;
-        TypeInto(app, edit, "keep");
-        WinForms.SendKeys.SendWait("{F5}");
+        var (app, _) = Loaded(ShellRun.Fresh());
+        using var _app = app;
+        TypeInto(app, "keep");
+        SendToBox(app, "{F5}");
         Thread.Sleep(3000);
-        Assert.Equal("keep", Uia.Value(app.WaitFor(ControlType.Edit, "Type here", Three)));
-        WinForms.SendKeys.SendWait("^p");
+        Assert.Equal("keep", Box(app));
+        SendToBox(app, "^p");
         Assert.False(Uia.WaitUntil(() => Uia.TopWindow("Print") != null, Three));
-        WinForms.SendKeys.SendWait("{F12}");
-        WinForms.SendKeys.SendWait("^+i");
+        SendToBox(app, "{F12}");
+        SendToBox(app, "^+i");
         Assert.False(Uia.WaitUntil(() => Uia.TopWindow("DevTools") != null, Three));
+        SendToBox(app, "x");
+        AssertBox(app, "keepx", "F5, Ctrl+P, F12, Ctrl+Shift+I and x");
     }
 
     [Fact]
     public void Zoom_keys_step_and_persist()
     {
-        var (app, edit) = Loaded(ShellRun.Fresh());
-        using var _ = app;
-        TypeInto(app, edit, "^=");
-        WinForms.SendKeys.SendWait("^=");
-        AssertZoom(app, 1.2);
-        WinForms.SendKeys.SendWait("^-");
+        var (app, _) = Loaded(ShellRun.Fresh());
+        using var _app = app;
+        SendToBox(app, "^=");
         AssertZoom(app, 1.1);
-        WinForms.SendKeys.SendWait("^{ADD}");
+        SendToBox(app, "^=");
         AssertZoom(app, 1.2);
-        WinForms.SendKeys.SendWait("^{SUBTRACT}");
+        SendToBox(app, "^-");
         AssertZoom(app, 1.1);
-        WinForms.SendKeys.SendWait("^0");
+        SendToBox(app, "^{ADD}");
+        AssertZoom(app, 1.2);
+        SendToBox(app, "^{SUBTRACT}");
+        AssertZoom(app, 1.1);
+        SendToBox(app, "^0");
         AssertZoom(app, 1.0);
     }
 
@@ -95,9 +122,9 @@ public class KeysAndMenusTests
     {
         const int presses = 25;
         const string bigger = " command.run " + MenuIds.Bigger;
-        var (app, edit) = Loaded(ShellRun.Fresh());
-        using var _ = app;
-        TypeInto(app, edit, "");
+        var (app, _) = Loaded(ShellRun.Fresh());
+        using var _app = app;
+        app.Focus(BoxElement(app));
         var deadline = DateTime.UtcNow.AddSeconds(60);
         while (Logged(app, bigger) < presses && DateTime.UtcNow < deadline)
         {

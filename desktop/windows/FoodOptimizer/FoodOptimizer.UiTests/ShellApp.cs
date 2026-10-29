@@ -40,9 +40,16 @@ public sealed class ShellApp : IDisposable
 
     [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hwnd);
     [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(POINT p);
+    [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr hwnd, System.Text.StringBuilder text, int max);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr hwnd, System.Text.StringBuilder text, int max);
     [DllImport("user32.dll")] static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
     [DllImport("user32.dll")] static extern void mouse_event(uint flags, int dx, int dy, int data, UIntPtr extra);
+
+    [StructLayout(LayoutKind.Sequential)] struct POINT { public int X, Y; }
 
     ShellApp(ShellRun run, Process process)
     {
@@ -128,26 +135,99 @@ public sealed class ShellApp : IDisposable
     /// has it (a browser window an external link opened can come up late,
     /// during the next test): keys sent meanwhile would go to that window.
     /// True when the window has the foreground.</summary>
-    public bool EnsureForeground()
+    public bool EnsureForeground() => EnsureForeground(Window);
+
+    /// <summary><see cref="EnsureForeground()"/> for any top-level window
+    /// (a dialog of the app, a file dialog).</summary>
+    public static bool EnsureForeground(AutomationElement window)
     {
-        if (IsForeground) return true;
-        Activate();
-        return Uia.WaitUntil(() => IsForeground, TimeSpan.FromSeconds(3), 50);
+        var hwnd = new IntPtr(window.Current.NativeWindowHandle);
+        if (GetForegroundWindow() == hwnd) return true;
+        try { window.SetFocus(); } catch (Exception) { }
+        SetForegroundWindow(hwnd);
+        return Uia.WaitUntil(() => GetForegroundWindow() == hwnd, TimeSpan.FromSeconds(3), 50);
     }
 
-    public void Keys(string sendKeys)
+    /// <summary>Fails, naming the window that has it, unless
+    /// <paramref name="window"/> has (or gets back) the foreground.</summary>
+    public static void AssertForeground(AutomationElement window) =>
+        Assert.True(EnsureForeground(window), $"'{Uia.NameOf(window)}' does not have the foreground; {Foreground()} has it");
+
+    public void AssertForeground() => AssertForeground(Window);
+
+    /// <summary>The foreground window, described for a failure message.</summary>
+    public static string Foreground() => Describe(GetForegroundWindow());
+
+    static string Describe(IntPtr hwnd)
     {
-        Activate();
-        WinForms.SendKeys.SendWait(sendKeys);
-        Thread.Sleep(300);
+        if (hwnd == IntPtr.Zero) return "no window";
+        var title = new System.Text.StringBuilder(256);
+        var cls = new System.Text.StringBuilder(256);
+        GetWindowText(hwnd, title, title.Capacity);
+        GetClassName(hwnd, cls, cls.Capacity);
+        GetWindowThreadProcessId(hwnd, out var pid);
+        string name;
+        try { using var p = System.Diagnostics.Process.GetProcessById((int)pid); name = p.ProcessName; }
+        catch (Exception) { name = "?"; }
+        return $"{cls} '{title}' of {name} ({pid})";
+    }
+
+    /// <summary>Gives <paramref name="target"/> (in <paramref name="window"/>)
+    /// the keyboard focus while its window has the foreground; fails,
+    /// naming what has them, when it cannot. Keys sent next reach it.</summary>
+    public static void Focus(AutomationElement window, AutomationElement target)
+    {
+        AssertForeground(window);
+        if (HasFocus(target)) return;
+        Assert.True(Uia.WaitUntil(() =>
+        {
+            if (HasFocus(target)) return true;
+            // The window first: Win32 focus back on it (the web view takes
+            // it on), then the element (DOM focus inside the page).
+            try { window.SetFocus(); target.SetFocus(); }
+            catch (InvalidOperationException) { }
+            return HasFocus(target);
+        }, TimeSpan.FromSeconds(3), 100), $"'{Uia.NameOf(target)}' never got the keyboard focus; {Foreground()} has the foreground");
+    }
+
+    /// <summary>Whether UI Automation's focused element (which starts from
+    /// the Win32 focus, then asks the page) is <paramref name="e"/>: a web
+    /// element's own HasKeyboardFocus reports only the page's focus.</summary>
+    static bool HasFocus(AutomationElement e)
+    {
+        try { return Automation.Compare(AutomationElement.FocusedElement, e); }
+        catch (Exception) { return false; }
+    }
+
+    public void Focus(AutomationElement target) => Focus(Window, target);
+
+    /// <summary>Sends keys to <paramref name="target"/> only while the app
+    /// has the foreground and the target has the keyboard focus.</summary>
+    public void Send(AutomationElement target, string keys) => Send(Window, target, keys);
+
+    public static void Send(AutomationElement window, AutomationElement target, string keys)
+    {
+        Focus(window, target);
+        WinForms.SendKeys.SendWait(keys);
+    }
+
+    /// <summary>Puts the cursor on (x, y) and fails unless that point is
+    /// this window's, with the window in the foreground: a click or wheel
+    /// sent there then reaches the app, not a window over it.</summary>
+    void PointAt(double x, double y)
+    {
+        AssertForeground();
+        SetCursorPos((int)x, (int)y);
+        Thread.Sleep(100);
+        var under = GetAncestor(WindowFromPoint(new POINT { X = (int)x, Y = (int)y }), 2 /* GA_ROOT */);
+        Assert.True(under == Hwnd, $"the point ({x:0}, {y:0}) is on {Describe(under)}, not the app");
     }
 
     /// <summary>Ctrl + mouse wheel over the middle of the window.</summary>
     public void CtrlWheel(int notches)
     {
-        Activate();
         var r = Window.Current.BoundingRectangle;
-        SetCursorPos((int)(r.X + r.Width / 2), (int)(r.Y + r.Height / 2));
+        PointAt(r.X + r.Width / 2, r.Y + r.Height / 2);
         const byte VK_CONTROL = 0x11;
         keybd_event(VK_CONTROL, 0, 0, UIntPtr.Zero);
         for (var i = 0; i < Math.Abs(notches); i++)
@@ -195,7 +275,11 @@ public sealed class ShellApp : IDisposable
         return items;
     }
 
-    public void CloseMenus() => WinForms.SendKeys.SendWait("{ESC}{ESC}");
+    public void CloseMenus()
+    {
+        AssertForeground();
+        WinForms.SendKeys.SendWait("{ESC}{ESC}");
+    }
 
     /// <summary>Opens a menu and clicks one of its items.</summary>
     public void Menu(string menu, string item)
@@ -217,11 +301,40 @@ public sealed class ShellApp : IDisposable
     public static string Clipboard()
     {
         var text = "";
-        var t = new Thread(() => text = WinForms.Clipboard.GetText());
+        OnSta(() => { text = WinForms.Clipboard.GetText(); });
+        return text;
+    }
+
+    /// <summary>Empties the clipboard, so a later check cannot pass on
+    /// what an earlier run (or anything else) left there.</summary>
+    public static void ClearClipboard()
+    {
+        Assert.True(Uia.WaitUntil(() =>
+        {
+            try
+            {
+                OnSta(() => { WinForms.Clipboard.Clear(); });
+                return !OnSta(() => WinForms.Clipboard.ContainsText());
+            }
+            catch (ExternalException) { return false; }   // another program holds it for a moment
+        }, TimeSpan.FromSeconds(5)), "the clipboard could not be emptied");
+    }
+
+    static void OnSta(Action a)
+    {
+        Exception? failed = null;
+        var t = new Thread(() => { try { a(); } catch (Exception ex) { failed = ex; } });
         t.SetApartmentState(ApartmentState.STA);
         t.Start();
         t.Join();
-        return text;
+        if (failed != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failed).Throw();
+    }
+
+    static T OnSta<T>(Func<T> f)
+    {
+        T result = default!;
+        OnSta(() => { result = f(); });
+        return result;
     }
 
     public double? SavedZoom()
@@ -230,10 +343,9 @@ public sealed class ShellApp : IDisposable
         catch (Exception) { return null; }
     }
 
-    static void ClickAt(double x, double y, uint down, uint up, int data = 0)
+    void ClickAt(double x, double y, uint down, uint up, int data = 0)
     {
-        SetCursorPos((int)x, (int)y);
-        Thread.Sleep(100);
+        PointAt(x, y);
         mouse_event(down, 0, 0, data, UIntPtr.Zero);
         mouse_event(up, 0, 0, data, UIntPtr.Zero);
         Thread.Sleep(300);
@@ -247,7 +359,6 @@ public sealed class ShellApp : IDisposable
 
     public void RightClick(AutomationElement e)
     {
-        Activate();
         var (x, y) = Center(e);
         ClickAt(x, y, 0x0008, 0x0010);
     }
@@ -255,7 +366,6 @@ public sealed class ShellApp : IDisposable
     /// <summary>Right-clicks a point given as fractions of the window.</summary>
     public void RightClickWindowAt(double fx, double fy)
     {
-        Activate();
         var r = Window.Current.BoundingRectangle;
         ClickAt(r.X + r.Width * fx, r.Y + r.Height * fy, 0x0008, 0x0010);
     }
@@ -263,7 +373,6 @@ public sealed class ShellApp : IDisposable
     /// <summary>The mouse's back button over the middle of the window.</summary>
     public void MouseBack()
     {
-        Activate();
         var (x, y) = Center(Window);
         ClickAt(x, y, 0x0080, 0x0100, 1);
     }

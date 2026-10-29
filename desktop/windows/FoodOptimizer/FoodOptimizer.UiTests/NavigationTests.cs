@@ -173,9 +173,9 @@ public class NavigationTests
         Uia.Invoke(app.WaitFor(ControlType.Button, "Prompt", Ten));
         var prompt = app.WaitForDialog(Ten);
         var box = Uia.WaitFor(prompt, ControlType.Edit, "", Three);
-        box.SetFocus();
-        WinForms.SendKeys.SendWait("abc");
-        Thread.Sleep(300);
+        var seen = "";
+        ShellApp.Send(prompt, box, "abc");
+        Assert.True(Uia.WaitUntil(() => (seen = Uia.Value(box)) == "abc", Three), $"the prompt's box reads '{seen}'; {ShellApp.Foreground()} has the foreground");
         Uia.Invoke(Uia.WaitFor(prompt, ControlType.Button, "OK", Three));
         app.WaitFor(ControlType.Text, "prompt: abc", Ten);
     }
@@ -195,6 +195,7 @@ public class NavigationTests
         var names = line[(line.IndexOf("context_menu.kept ") + 18)..].Split(',');
         Assert.Contains("paste", names);
         Assert.All(names, n => Assert.Contains(n, new[] { "cut", "copy", "paste", "selectAll" }));
+        app.AssertForeground();   // the menu closes when it loses the foreground too
         WinForms.SendKeys.SendWait("{ESC}");
         Thread.Sleep(500);
 

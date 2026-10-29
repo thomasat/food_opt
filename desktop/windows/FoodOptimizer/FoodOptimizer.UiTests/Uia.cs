@@ -41,7 +41,7 @@ static class Uia
         {
             try { if (condition()) return true; }
             catch (ElementNotAvailableException) { }
-            catch (COMException) { }
+            catch (ExternalException) { }   // COM errors, and the clipboard held for a moment
             Thread.Sleep(pollMs);
         }
         try { return condition(); }
