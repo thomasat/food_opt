@@ -172,8 +172,9 @@ public sealed class ShellApp : IDisposable
         return $"{cls} '{title}' of {name} ({pid})";
     }
 
-    /// <summary>Gives <paramref name="target"/> (in <paramref name="window"/>)
-    /// the keyboard focus while its window has the foreground; fails,
+    /// <summary>Gives <paramref name="target"/> (a control of a Win32
+    /// dialog in <paramref name="window"/>) the keyboard focus while its
+    /// window has the foreground; fails,
     /// naming what has them, when it cannot. Keys sent next reach it.</summary>
     public static void Focus(AutomationElement window, AutomationElement target)
     {
@@ -199,11 +200,32 @@ public sealed class ShellApp : IDisposable
         catch (Exception) { return false; }
     }
 
-    public void Focus(AutomationElement target) => Focus(Window, target);
+    /// <summary>Gives an element of the page the keyboard focus the way a
+    /// user does: a click on it, while the app has the foreground. UI
+    /// Automation's SetFocus can leave the keyboard in a WebView2 window
+    /// that drops every key (Chrome_RenderWidgetHostHWND; 2 of 40 launches
+    /// under load), while the element still reports the focus.</summary>
+    public void Focus(AutomationElement target)
+    {
+        AssertForeground();
+        if (HasFocus(target)) return;
+        Assert.True(Uia.WaitUntil(() =>
+        {
+            if (HasFocus(target)) return true;
+            var (x, y) = Center(target);
+            ClickAt(x, y, 0x0002, 0x0004);
+            return Uia.WaitUntil(() => HasFocus(target), TimeSpan.FromSeconds(1), 50);
+        }, TimeSpan.FromSeconds(5), 100), $"'{Uia.NameOf(target)}' never got the keyboard focus; {Foreground()} has the foreground");
+    }
 
-    /// <summary>Sends keys to <paramref name="target"/> only while the app
-    /// has the foreground and the target has the keyboard focus.</summary>
-    public void Send(AutomationElement target, string keys) => Send(Window, target, keys);
+    /// <summary>Sends keys to <paramref name="target"/> (an element of the
+    /// page) only while the app has the foreground and the target has the
+    /// keyboard focus.</summary>
+    public void Send(AutomationElement target, string keys)
+    {
+        Focus(target);
+        WinForms.SendKeys.SendWait(keys);
+    }
 
     public static void Send(AutomationElement window, AutomationElement target, string keys)
     {
