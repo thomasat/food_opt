@@ -59,6 +59,12 @@ with st.sidebar:
     opt = st.session_state.optimizer
     if getattr(opt, "load_error", None):
         st.error(opt.load_error)
+    if not opt.X_history and not opt.pending_batch:
+        st.error(
+            "**This project has no experiments.** If a campaign is under way, the app "
+            "has probably restarted after sleeping: **restore your latest backup** "
+            "(below) before doing anything else."
+        )
     _n_act = len(opt.active_variables())
     _n_all = len(opt.variables)
     _pruned = f" | {_n_all - _n_act} pruned" if _n_all > _n_act else ""
@@ -554,13 +560,23 @@ with tab_optimize:
                 "Generate without recording the expert check (off-protocol)",
                 key="skip_check",
             )
+        _empty = not _opt.X_history and not _pb
+        _new_ok = False
+        if _empty:
+            st.error(
+                "No experiments in this project. If the campaign has already started, "
+                "**restore your latest backup** (sidebar) first: generating now would "
+                "start over with round-1 recipes."
+            )
+            _new_ok = st.checkbox("This is a brand-new campaign (no earlier rounds)",
+                                  key="confirm_new_campaign")
         if _pb:
             st.caption(
                 f"A round-{_pb['round']} batch is waiting for scores. Generating again "
                 f"replaces it — only do that if it hasn't been made yet."
             )
-        if st.button(f"Generate {batch_size} Recipes", type="primary",
-                     disabled=_opt.check_due() and not _override):
+        if st.button(f"Generate {batch_size} Recipes", type="primary", key="generate_btn",
+                     disabled=(_opt.check_due() and not _override) or (_empty and not _new_ok)):
             if not _opt.variables:
                 st.error("Please load ingredients in Setup tab first!")
             elif not _opt.objectives:
