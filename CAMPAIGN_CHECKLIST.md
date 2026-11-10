@@ -50,8 +50,11 @@ so try the next most recent one.
       **candidate list** of ingredients or process changes the FSA may add (with
       plausible ranges), e.g. what's in stock or can arrive before the next round.
       Leave it blank to let the FSA suggest freely.
-- [ ] **Starting recipe:** enter the starting recipe and its first-session scores
-      under *Add a non-BO sample* (kind: manual, round 0, used in the model).
+- [ ] **Starting recipe:** after the first session, enter the starting recipe and
+      its scores with **Import Historical Experiments (CSV)** on the Optimization
+      Loop tab: one row with a column for every ingredient and process parameter
+      (not water) and every attribute. Earlier tastings of the same recipe family
+      can go in the same file.
 - [ ] The **dairy reference** (Arla, served twice per session) is not a
       recipe: keep its scores on the panel sheets. Don't enter it as a recipe in the app.
 - [ ] Download a backup.

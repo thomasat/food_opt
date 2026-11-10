@@ -641,34 +641,6 @@ with tab_optimize:
         else:
             st.caption("Generate a batch first.")
 
-        with st.expander("Add a non-BO sample (e.g. an extra recipe the team wants tasted)"):
-            if _opt.variables and _opt.objectives:
-                _m_df = pd.DataFrame([
-                    {"Variable": v['name'], "Amount": float(v.get('_absent_value', 0.0))}
-                    for v in _opt.variables if v['type'] == 'continuous'
-                ])
-                with st.form("manual_form"):
-                    _m_ed = st.data_editor(_m_df, hide_index=True, disabled=["Variable"],
-                                           key="manual_editor")
-                    _m_round = st.number_input("Round", min_value=0, value=max(_r_done, 1), step=1)
-                    _m_gp = st.checkbox("Use in the model", value=True)
-                    cols = st.columns(len(_opt.objectives))
-                    _m_scores = {}
-                    for j, obj in enumerate(_opt.objectives):
-                        with cols[j]:
-                            _m_scores[obj['name']] = st.number_input(
-                                f"{obj['name']} ({obj['min_val']}-{obj['max_val']})",
-                                key=f"man_o{j}",
-                            )
-                    if st.form_submit_button("Save sample"):
-                        _rec = {r["Variable"]: float(r["Amount"]) for _, r in _m_ed.iterrows()}
-                        _opt.tell(_rec, _m_scores, role='manual', in_gp=_m_gp,
-                                  round_num=int(_m_round))
-                        st.session_state.show_backup_warning = True
-                        st.rerun()
-            else:
-                st.caption("Set up ingredients and objectives first.")
-
     st.divider()
 
     # -------------------------------------------------------------- #
