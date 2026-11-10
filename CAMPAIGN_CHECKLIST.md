@@ -30,7 +30,7 @@ so try the next most recent one.
 - [ ] **Ingredients** (A): upload a CSV with **every** ingredient of the starting
       recipe, including water, with columns `Name, Min, Max, Sodium, Cost`
       (sodium and cost per gram). Ranges are in grams and must be makeable.
-- [ ] **Balance ingredient** (G): set **Tap water** as the balance, with the batch
+- [ ] **Balance ingredient** (F): set **Tap water** as the balance, with the batch
       total (e.g. 1002 g) and a min/max amount of water. Water is then filled up
       to the batch total instead of being searched over.
 - [ ] **Process parameters** (A2): cook temperature (78–92 °C) and cook time
@@ -39,14 +39,14 @@ so try the next most recent one.
       lecithin): in the *Adaptive EGBO* panel, **Deactivate** each one and **hold it
       at its current amount**. It stays in every recipe at that amount and can be
       reactivated at a check.
-- [ ] **Property constraints** (D): sodium and cost **maximums** per batch.
+- [ ] **Property constraints** (C): sodium and cost **maximums** per batch.
 - [ ] **Objectives** (B): every attribute, with weight, scale **0–15** (the app
       defaults to 0–10, so change it), and goal (max / min / target value).
       Don't change these during the campaign. If an attribute has to be added
       later, every earlier recipe needs a score for it first.
-- [ ] **BO hyperparameters** (F): click **Use campaign config (recommended)**.
+- [ ] **BO hyperparameters** (E): click **Use campaign config (recommended)**.
       This setting locks once the first result is saved.
-- [ ] **Campaign settings** (G): expert check every **3** rounds, and the
+- [ ] **Campaign settings** (F): expert check every **3** rounds, and the
       **candidate list** (ingredients or process changes the FSA may add, with
       plausible ranges).
 - [ ] **Starting recipe:** enter the starting recipe and its first-session scores

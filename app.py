@@ -2,7 +2,6 @@ import json
 import os
 import glob
 import shutil
-import pickle
 
 import streamlit as st
 import pandas as pd
@@ -275,24 +274,11 @@ with tab_setup:
                     st.rerun()
 
     # -------------------------------------------------------------- #
-    #  Column B: Screening Model, Constraints
+    #  Column B: Constraints, BO settings, campaign settings
     # -------------------------------------------------------------- #
     with col_b:
-        # --- C. Low-Fidelity Model ---
-        st.subheader("C. Low-Fidelity Model (Optional)")
-        uploaded_pkl = st.file_uploader("Upload Model .pkl", type=["pkl"])
-        if uploaded_pkl:
-            try:
-                model = pickle.load(uploaded_pkl)
-                st.session_state.optimizer.load_screening_model(model)
-                st.success("Model loaded!")
-            except Exception as e:
-                st.error(f"Error loading pickle: {e}")
-
-        st.divider()
-
-        # --- D. Property Constraints ---
-        st.subheader("D. Property Constraints")
+        # --- C. Property Constraints ---
+        st.subheader("C. Property Constraints")
         st.caption(
             "Constraints on computed properties (e.g., total cost, total protein) "
             "based on ingredient properties from your CSV."
@@ -322,8 +308,8 @@ with tab_setup:
 
         st.divider()
 
-        # --- E. Ingredient Quantity Constraints ---
-        st.subheader("E. Ingredient Quantity Constraints")
+        # --- D. Ingredient Quantity Constraints ---
+        st.subheader("D. Ingredient Quantity Constraints")
         st.caption(
             "Set upper/lower limits on the **sum of ingredient quantities**. "
             "Useful for synergistic effects (e.g., Sugar + Honey <= 50g) "
@@ -403,7 +389,7 @@ with tab_setup:
             st.write("Load ingredients first to add quantity constraints.")
 
         st.divider()
-        st.subheader("F. BO Hyperparameters")
+        st.subheader("E. BO Hyperparameters")
         _opt = st.session_state.optimizer
         _cur_cfg = getattr(_opt, "bo_config", None)
         if _opt.X_history:
@@ -453,7 +439,7 @@ with tab_setup:
             st.info(f"Current: {_cur_cfg if _cur_cfg else 'Standard (library defaults)'}")
 
         st.divider()
-        st.subheader("G. Adaptive EGBO campaign settings")
+        st.subheader("F. Adaptive EGBO campaign settings")
         _ce = st.number_input(
             "Expert check every N rounds (0 = no scheduled checks)",
             min_value=0, max_value=20, value=int(_opt.check_every), step=1, key="check_every_in",
@@ -685,7 +671,7 @@ with tab_optimize:
                                 key=f"ref_{_pb['round']}o{j}",
                             )
                 else:
-                    st.caption("No reference recipe set (Setup tab, section G).")
+                    st.caption("No reference recipe set (Setup tab, section F).")
 
                 if st.form_submit_button("Save Results"):
                     for i, recipe in enumerate(_pb['recipes']):
