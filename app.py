@@ -449,8 +449,9 @@ with tab_setup:
             st.rerun()
 
         _pool = st.text_area(
-            "Candidates the expert may add (ingredients or process changes, one per line, "
-            "with a plausible range). Included in the expert report.",
+            "Optional: candidates the expert may add (ingredients or process changes, one "
+            "per line, with a plausible range). If filled in, they're listed in the expert "
+            "report; if left blank, the expert suggests additions freely.",
             value=_opt.candidate_pool, key="cand_pool_in", height=120,
         )
         if st.button("Save candidate list"):

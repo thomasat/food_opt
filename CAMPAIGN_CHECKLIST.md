@@ -46,9 +46,10 @@ so try the next most recent one.
       later, every earlier recipe needs a score for it first.
 - [ ] **BO hyperparameters** (E): click **Use campaign config (recommended)**.
       This setting locks once the first result is saved.
-- [ ] **Campaign settings** (F): expert check every **3** rounds, and the
-      **candidate list** (ingredients or process changes the FSA may add, with
-      plausible ranges).
+- [ ] **Campaign settings** (F): expert check every **3** rounds. Optionally, a
+      **candidate list** of ingredients or process changes the FSA may add (with
+      plausible ranges), e.g. what's in stock or can arrive before the next round.
+      Leave it blank to let the FSA suggest freely.
 - [ ] **Starting recipe:** enter the starting recipe and its first-session scores
       under *Add a non-BO sample* (kind: manual, round 0, used in the model).
 - [ ] The **dairy reference** (Arla, served twice per session) is not a
