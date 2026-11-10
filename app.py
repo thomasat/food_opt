@@ -7,7 +7,7 @@ import pickle
 import streamlit as st
 import pandas as pd
 
-from food_bo import FoodOptimizer
+from food_bo import DEFAULT_BO_CONFIG, FoodOptimizer
 
 st.set_page_config(page_title="Food Optimizer", layout="wide")
 st.title("Formulation Assistant")
@@ -57,37 +57,50 @@ with st.sidebar:
         st.success("Upgraded session to latest version.")
 
     opt = st.session_state.optimizer
+    if getattr(opt, "load_error", None):
+        st.error(opt.load_error)
     _n_act = len(opt.active_variables())
     _n_all = len(opt.variables)
     _pruned = f" | {_n_all - _n_act} pruned" if _n_all > _n_act else ""
     st.caption(
         f"Active: **{opt.project_name}** | {len(opt.X_history)} experiments "
-        f"| {_n_act} active vars{_pruned}"
+        f"| {opt.completed_rounds()} rounds | {_n_act} active vars{_pruned}"
     )
 
     # --- Backup & Restore ---
     st.divider()
     st.subheader("Backup & Restore")
+    st.caption(
+        "The downloaded backup **is** the record: the server copy can be lost "
+        "when the app restarts. Download after every round and keep every file."
+    )
 
     project_json = json.dumps(opt.export_json(), indent=2)
     st.download_button(
         "Download Project Backup",
         data=project_json,
-        file_name=f"{opt.project_name}.json",
+        file_name=opt.backup_filename(),
         mime="application/json",
     )
 
     uploaded_json = st.file_uploader("Restore from backup", type=["json"], key="restore_json")
     if uploaded_json is not None:
         if st.button("Restore Project"):
-            state = json.loads(uploaded_json.read())
-            state['project_name'] = st.session_state.optimizer.project_name
-            st.session_state.optimizer.import_json(state)
-            st.success(
-                f"Restored {len(st.session_state.optimizer.X_history)} experiments "
-                f"into {st.session_state.optimizer.project_name}"
-            )
-            st.rerun()
+            try:
+                state = json.loads(uploaded_json.getvalue())
+                state['project_name'] = st.session_state.optimizer.project_name
+                st.session_state.optimizer.import_json(state)
+                st.session_state.pop("current_batch", None)
+                st.session_state["_restored_msg"] = (
+                    f"Restored {len(st.session_state.optimizer.X_history)} experiments "
+                    f"({st.session_state.optimizer.completed_rounds()} rounds) into "
+                    f"{st.session_state.optimizer.project_name}."
+                )
+                st.rerun()
+            except (ValueError, KeyError, TypeError) as e:
+                st.error(f"Restore failed, nothing was changed: {e}")
+    if st.session_state.get("_restored_msg"):
+        st.success(st.session_state.pop("_restored_msg"))
 
     # --- Hard Reset ---
     st.divider()
@@ -171,9 +184,18 @@ with tab_setup:
             with pp_cols[2]:
                 pp_max = st.number_input("Max Value", value=100.0, key="pp_max")
             if st.form_submit_button("Add Process Parameter"):
-                if pp_name:
-                    st.session_state.optimizer.add_process_parameter(pp_name, pp_min, pp_max)
-                    st.success(f"Added process parameter: {pp_name}")
+                if st.session_state.optimizer.X_history:
+                    st.error(
+                        "Experiments already exist. Add process parameters mid-run in the "
+                        "Adaptive EGBO panel (Optimization Loop tab), which asks for the "
+                        "baseline setting used so far."
+                    )
+                elif pp_name:
+                    try:
+                        st.session_state.optimizer.add_process_parameter(pp_name, pp_min, pp_max)
+                        st.success(f"Added process parameter: {pp_name}")
+                    except ValueError as e:
+                        st.error(str(e))
 
         proc_vars = [
             v for v in st.session_state.optimizer.variables
@@ -189,9 +211,15 @@ with tab_setup:
                         f"{pv['name']}: [{pv['bounds'][0]}, {pv['bounds'][1]}]{_tag}"
                     )
                 with pc2:
-                    if st.button("Remove", key=f"rm_pp_{i}"):
-                        st.session_state.optimizer.remove_process_parameter(pv['name'])
-                        st.rerun()
+                    if st.button("Remove", key=f"rm_pp_{i}",
+                                 disabled=bool(st.session_state.optimizer.X_history),
+                                 help="After experiments exist, deactivate instead "
+                                      "(Adaptive EGBO panel)."):
+                        try:
+                            st.session_state.optimizer.remove_process_parameter(pv['name'])
+                            st.rerun()
+                        except ValueError as e:
+                            st.error(str(e))
 
         st.divider()
 
@@ -222,12 +250,15 @@ with tab_setup:
                 elif obj_min >= obj_max:
                     st.error("Range Min must be less than Range Max.")
                 else:
-                    st.session_state.optimizer.add_objective(
-                        obj_name.strip(), obj_weight, obj_goal,
-                        target=obj_target if obj_goal == 'target' else None,
-                        min_val=obj_min, max_val=obj_max,
-                    )
-                    st.success(f"Added {obj_name}")
+                    try:
+                        st.session_state.optimizer.add_objective(
+                            obj_name.strip(), obj_weight, obj_goal,
+                            target=obj_target if obj_goal == 'target' else None,
+                            min_val=obj_min, max_val=obj_max,
+                        )
+                        st.success(f"Added {obj_name}")
+                    except ValueError as e:
+                        st.error(str(e))
 
         if st.session_state.optimizer.objectives:
             st.write("Active Objectives:")
@@ -366,63 +397,96 @@ with tab_setup:
             st.write("Load ingredients first to add quantity constraints.")
 
         st.divider()
-        st.subheader("F. BO Hyperparameters (optional)")
-        st.caption(
-            "Standard = library defaults. 'Expert-selected' lets the expert fix the "
-            "GP kernel, lengthscale prior, noise handling and acquisition **once** at "
-            "the start (the GP still refits lengthscales/noise from data each "
-            "iteration). Set before the first recipe."
-        )
+        st.subheader("F. BO Hyperparameters")
         _opt = st.session_state.optimizer
         _cur_cfg = getattr(_opt, "bo_config", None)
-        _mode = st.radio(
-            "BO hyperparameters",
-            ["Standard (default)", "Expert-selected"],
-            index=1 if _cur_cfg else 0,
-            key="bo_cfg_mode",
-            horizontal=True,
-        )
-        if _mode == "Standard (default)":
-            if _cur_cfg is not None and st.button("Apply: revert to defaults"):
-                _opt.set_bo_config(None)
-                st.success("Using default BO hyperparameters.")
-                st.rerun()
+        if _opt.X_history:
+            st.info(
+                "**Locked for this campaign** (experiments exist): "
+                f"{_cur_cfg if _cur_cfg else 'Standard (library defaults)'}"
+            )
         else:
-            with st.form("bo_config_form"):
-                bc1, bc2 = st.columns(2)
-                with bc1:
-                    _k = st.selectbox("Kernel", ["matern52", "matern32", "rbf", "linear", "poly2"])
-                    _lp = st.selectbox("Lengthscale prior", ["default", "long", "short"])
-                with bc2:
-                    _ns = st.selectbox("Noise", ["default", "low", "fixed_tiny"])
-                    _aq = st.selectbox("Acquisition", ["qlognei", "qlogei", "qucb"])
-                st.caption(
-                    "Note: `fixed_tiny` noise suits a deterministic objective, not a noisy "
-                    "sensory panel — keep `default` unless you have a specific reason."
-                )
-                if st.form_submit_button("Apply expert config"):
-                    _opt.set_bo_config({
-                        "kernel": _k, "lengthscale_prior": _lp,
-                        "noise": _ns, "acquisition": _aq,
-                    })
-                    st.success(f"BO config set: {_opt.bo_config}")
+            st.caption(
+                "Fixed **once**, before the first recipe; the GP still refits "
+                "lengthscales and noise from data every round. Campaign default: "
+                "Matérn-5/2, default lengthscale prior, learned noise, qLogNEI "
+                "(the configuration tested in simulation)."
+            )
+            if _cur_cfg != DEFAULT_BO_CONFIG:
+                if st.button("Use campaign config (recommended)", type="primary"):
+                    _opt.set_bo_config(dict(DEFAULT_BO_CONFIG))
                     st.rerun()
-            with st.expander("Or paste an expert config (JSON)"):
-                _txt = st.text_area(
-                    "Expert config JSON",
-                    value='{"kernel": "matern52", "lengthscale_prior": "default", '
-                          '"noise": "default", "acquisition": "qlognei"}',
-                    key="bo_cfg_json",
-                )
-                if st.button("Apply pasted config"):
-                    try:
-                        _opt.set_bo_config(json.loads(_txt))
-                        st.success(f"BO config set: {_opt.bo_config}")
+            _mode = st.radio(
+                "Other options",
+                ["Keep current", "Standard (library defaults)", "Custom"],
+                key="bo_cfg_mode", horizontal=True,
+            )
+            if _mode == "Standard (library defaults)" and _cur_cfg is not None:
+                if st.button("Apply: library defaults"):
+                    _opt.set_bo_config(None)
+                    st.rerun()
+            elif _mode == "Custom":
+                with st.form("bo_config_form"):
+                    bc1, bc2 = st.columns(2)
+                    with bc1:
+                        _k = st.selectbox("Kernel", ["matern52", "matern32", "rbf", "linear", "poly2"])
+                        _lp = st.selectbox("Lengthscale prior", ["default", "long", "short"])
+                    with bc2:
+                        _ns = st.selectbox("Noise", ["default", "low", "fixed_tiny"])
+                        _aq = st.selectbox("Acquisition", ["qlognei", "qlogei", "qucb"])
+                    st.caption(
+                        "`fixed_tiny` noise suits a deterministic objective, not a noisy "
+                        "sensory panel — keep `default` unless you have a specific reason."
+                    )
+                    if st.form_submit_button("Apply custom config"):
+                        _opt.set_bo_config({
+                            "kernel": _k, "lengthscale_prior": _lp,
+                            "noise": _ns, "acquisition": _aq,
+                        })
                         st.rerun()
-                    except Exception as _e:
-                        st.error(f"Invalid JSON: {_e}")
-        if _cur_cfg:
-            st.info(f"Active BO config: {_cur_cfg}")
+            st.info(f"Current: {_cur_cfg if _cur_cfg else 'Standard (library defaults)'}")
+
+        st.divider()
+        st.subheader("G. Adaptive EGBO campaign settings")
+        _ce = st.number_input(
+            "Expert check every N rounds (0 = no scheduled checks)",
+            min_value=0, max_value=20, value=int(_opt.check_every), step=1, key="check_every_in",
+        )
+        if int(_ce) != int(_opt.check_every):
+            _opt.set_check_every(_ce)
+            st.rerun()
+
+        _pool = st.text_area(
+            "Candidates the expert may add (ingredients or process changes, one per line, "
+            "with a plausible range). Included in the expert report.",
+            value=_opt.candidate_pool, key="cand_pool_in", height=120,
+        )
+        if st.button("Save candidate list"):
+            _opt.set_candidate_pool(_pool)
+            st.success("Saved.")
+
+        st.markdown("**Reference recipe** (re-tasted every session to track panel "
+                    "drift and noise)")
+        if _opt.variables:
+            _ref = _opt.reference_recipe or {}
+            _ref_df = pd.DataFrame([
+                {"Variable": v['name'], "Amount": float(_ref.get(v['name'], v.get('_absent_value', 0.0)))}
+                for v in _opt.variables if v['type'] == 'continuous'
+            ])
+            _ref_ed = st.data_editor(_ref_df, hide_index=True, disabled=["Variable"],
+                                     key="ref_editor")
+            rc1, rc2 = st.columns(2)
+            with rc1:
+                if st.button("Save reference recipe"):
+                    _opt.set_reference_recipe(
+                        {r["Variable"]: float(r["Amount"]) for _, r in _ref_ed.iterrows()})
+                    st.success("Reference recipe saved.")
+            with rc2:
+                if _opt.reference_recipe and st.button("Clear reference recipe"):
+                    _opt.set_reference_recipe(None)
+                    st.rerun()
+        else:
+            st.caption("Load ingredients first.")
 
 
 # ================================================================== #
@@ -430,17 +494,40 @@ with tab_setup:
 # ================================================================== #
 
 with tab_optimize:
+    _opt = st.session_state.optimizer
+    _r_done = _opt.completed_rounds()
+    _pb = _opt.pending_batch
+
+    # -- Round status and the expert-check schedule --
+    s1, s2, s3 = st.columns(3)
+    with s1:
+        st.metric("Rounds completed", _r_done)
+    with s2:
+        st.metric("Current round", _pb['round'] if _pb else _r_done + 1)
+    with s3:
+        if _opt.check_every:
+            _next = (_r_done // _opt.check_every + (0 if _opt.check_due() else 1)) * _opt.check_every
+            st.metric("Expert check after round", _next)
+        else:
+            st.metric("Expert check after round", "—")
+    if _opt.check_due():
+        st.warning(
+            f"**Expert check due after round {_r_done}.** Open *Adaptive EGBO* below: "
+            f"prepare the expert report, make any changes, and record the decision "
+            f"(also when nothing changes) before generating round {_r_done + 1}.",
+            icon="\U0001F9D1‍\U0001F52C",
+        )
+
     # -- Backup warning after new data is recorded --
     if st.session_state.get("show_backup_warning"):
-        st.warning("**Your experiment data has changed. Download a backup now!**", icon="\u26a0\ufe0f")
-        opt = st.session_state.optimizer
-        backup_json = json.dumps(opt.export_json(), indent=2)
+        st.warning("**Your experiment data has changed. Download a backup now!**", icon="⚠️")
+        backup_json = json.dumps(_opt.export_json(), indent=2)
         col_dl, col_dismiss = st.columns([1, 1])
         with col_dl:
             st.download_button(
-                "\u2b07 Download Backup Now",
+                "⬇ Download Backup Now",
                 data=backup_json,
-                file_name=f"{opt.project_name}_backup.json",
+                file_name=_opt.backup_filename(),
                 mime="application/json",
                 type="primary",
                 use_container_width=True,
@@ -452,45 +539,60 @@ with tab_optimize:
         st.divider()
 
     col_ask, col_tell = st.columns([1, 1.5])
+    _proc_names = {v['name'] for v in _opt.variables if v.get('category') == 'process'}
 
     # -------------------------------------------------------------- #
     #  Ask: Generate Experiments
     # -------------------------------------------------------------- #
     with col_ask:
         st.subheader("Generate Experiments")
-        batch_size = st.slider("Batch Size", 1, 10, 3)
+        batch_size = st.slider("Batch Size", 1, 10, 5)
 
-        if st.button(f"Generate {batch_size} Recipes", type="primary"):
-            if not st.session_state.optimizer.variables:
+        _override = False
+        if _opt.check_due():
+            _override = st.checkbox(
+                "Generate without recording the expert check (off-protocol)",
+                key="skip_check",
+            )
+        if _pb:
+            st.caption(
+                f"A round-{_pb['round']} batch is waiting for scores. Generating again "
+                f"replaces it — only do that if it hasn't been made yet."
+            )
+        if st.button(f"Generate {batch_size} Recipes", type="primary",
+                     disabled=_opt.check_due() and not _override):
+            if not _opt.variables:
                 st.error("Please load ingredients in Setup tab first!")
-            elif not st.session_state.optimizer.objectives:
+            elif not _opt.objectives:
                 st.error("Please define objectives in Setup tab first!")
             else:
                 with st.spinner("Optimizing..."):
                     try:
-                        recipes = st.session_state.optimizer.ask(n_suggestions=batch_size)
-                        st.session_state.current_batch = recipes
+                        _opt.ask(n_suggestions=batch_size)
+                        st.session_state.show_backup_warning = True
+                        st.rerun()
                     except ValueError as e:
                         st.error(str(e))
 
-        if "current_batch" in st.session_state:
-            st.info("Suggested Batch:")
+        if _opt.pending_batch:
+            _pb = _opt.pending_batch
+            st.info(f"Round {_pb['round']} batch (generated {_pb.get('time', '')}):")
+            df_batch = pd.DataFrame(_pb['recipes'])
+            df_batch.index = [f"Recipe #{i + 1}" for i in range(len(df_batch))]
 
-            proc_names = {
-                v['name'] for v in st.session_state.optimizer.variables
-                if v.get('category') == 'process'
-            }
-            df_batch = pd.DataFrame(st.session_state.current_batch)
-
-            ing_cols = [c for c in df_batch.columns if c not in proc_names]
+            ing_cols = [c for c in df_batch.columns if c not in _proc_names]
             if ing_cols:
                 st.caption("Ingredients:")
-                st.dataframe(df_batch[ing_cols].style.format("{:.2f}"), hide_index=True)
+                st.dataframe(df_batch[ing_cols].style.format("{:.3g}"))
 
-            proc_cols = [c for c in df_batch.columns if c in proc_names]
+            proc_cols = [c for c in df_batch.columns if c in _proc_names]
             if proc_cols:
                 st.caption("Process Parameters:")
-                st.dataframe(df_batch[proc_cols].style.format("{:.2f}"), hide_index=True)
+                st.dataframe(df_batch[proc_cols].style.format("{:.3g}"))
+            st.download_button(
+                "Download batch (CSV)", df_batch.to_csv(),
+                file_name=f"{_opt.project_name}_R{_pb['round']:02d}_batch.csv",
+            )
 
     # -------------------------------------------------------------- #
     #  Tell: Input Lab Results
@@ -498,38 +600,114 @@ with tab_optimize:
     with col_tell:
         st.subheader("Input Lab Results")
 
-        if "current_batch" in st.session_state and st.session_state.current_batch:
+        if _opt.pending_batch:
+            _pb = _opt.pending_batch
+            _ref = _opt.reference_recipe
             with st.form("results_form"):
                 batch_inputs = {}
-                for i, recipe in enumerate(st.session_state.current_batch):
+                for i, recipe in enumerate(_pb['recipes']):
                     st.markdown(f"**Recipe #{i + 1}**")
-                    cols = st.columns(len(st.session_state.optimizer.objectives))
+                    cols = st.columns(len(_opt.objectives))
                     rec_scores = {}
-                    for j, obj in enumerate(st.session_state.optimizer.objectives):
+                    for j, obj in enumerate(_opt.objectives):
                         with cols[j]:
                             rec_scores[obj['name']] = st.number_input(
                                 f"{obj['name']} ({obj['min_val']}-{obj['max_val']})",
-                                key=f"r{i}o{j}",
+                                key=f"r{_pb['round']}_{i}o{j}",
                             )
                     batch_inputs[i] = rec_scores
                     st.divider()
 
+                ref_scores, ref_tasted, ref_in_gp = None, False, True
+                if _ref:
+                    st.markdown("**Reference recipe** (same recipe every session)")
+                    ref_tasted = st.checkbox("Tasted in this session", value=True,
+                                             key=f"ref_tasted_{_pb['round']}")
+                    ref_in_gp = st.checkbox(
+                        "Use in the model (it is a real observation; repeats help the GP "
+                        "estimate noise)", value=True, key=f"ref_gp_{_pb['round']}")
+                    cols = st.columns(len(_opt.objectives))
+                    ref_scores = {}
+                    for j, obj in enumerate(_opt.objectives):
+                        with cols[j]:
+                            ref_scores[obj['name']] = st.number_input(
+                                f"{obj['name']} ({obj['min_val']}-{obj['max_val']})",
+                                key=f"ref_{_pb['round']}o{j}",
+                            )
+                else:
+                    st.caption("No reference recipe set (Setup tab, section G).")
+
                 if st.form_submit_button("Save Results"):
-                    for i, recipe in enumerate(st.session_state.current_batch):
-                        st.session_state.optimizer.tell(recipe, batch_inputs[i])
-                    del st.session_state.current_batch
+                    for i, recipe in enumerate(_pb['recipes']):
+                        _opt.tell(recipe, batch_inputs[i], role='bo')
+                    if _ref and ref_tasted:
+                        _opt.tell(_ref, ref_scores, role='reference', in_gp=ref_in_gp)
+                    _opt.clear_pending_batch()
                     st.session_state.show_backup_warning = True
-                    st.success("Saved!")
+                    st.session_state.pop("expert_report", None)
                     st.rerun()
+        else:
+            st.caption("Generate a batch first.")
+
+        with st.expander("Add a non-BO sample (e.g. an extra recipe the team wants tasted)"):
+            if _opt.variables and _opt.objectives:
+                _m_df = pd.DataFrame([
+                    {"Variable": v['name'], "Amount": float(v.get('_absent_value', 0.0))}
+                    for v in _opt.variables if v['type'] == 'continuous'
+                ])
+                with st.form("manual_form"):
+                    _m_ed = st.data_editor(_m_df, hide_index=True, disabled=["Variable"],
+                                           key="manual_editor")
+                    _m_role = st.selectbox("Kind", ["manual", "reference"])
+                    _m_round = st.number_input("Round", min_value=0, value=max(_r_done, 1), step=1)
+                    _m_gp = st.checkbox("Use in the model", value=True)
+                    cols = st.columns(len(_opt.objectives))
+                    _m_scores = {}
+                    for j, obj in enumerate(_opt.objectives):
+                        with cols[j]:
+                            _m_scores[obj['name']] = st.number_input(
+                                f"{obj['name']} ({obj['min_val']}-{obj['max_val']})",
+                                key=f"man_o{j}",
+                            )
+                    if st.form_submit_button("Save sample"):
+                        _rec = {r["Variable"]: float(r["Amount"]) for _, r in _m_ed.iterrows()}
+                        _opt.tell(_rec, _m_scores, role=_m_role, in_gp=_m_gp,
+                                  round_num=int(_m_round))
+                        st.session_state.show_backup_warning = True
+                        st.rerun()
+            else:
+                st.caption("Set up ingredients and objectives first.")
 
     st.divider()
 
     # -------------------------------------------------------------- #
-    #  Adaptive EGBO: revise the design space mid-run (arm 2)
+    #  Finalists: rank by predicted utility, not the best single score
     # -------------------------------------------------------------- #
-    with st.expander("Adaptive EGBO: export trajectory & revise design space"):
-        _opt = st.session_state.optimizer
+    with st.expander("Finalists (ranked by the model's predicted utility)"):
+        st.caption(
+            "A single tasting is noisy, so the best observed score is often a lucky one. "
+            "The model's predicted utility pools evidence from similar recipes. Re-taste "
+            "the top 2–3 with more panelists before choosing the final recipe."
+        )
+        if st.button("Compute finalists"):
+            with st.spinner("Fitting the model..."):
+                _fin = _opt.finalists(5)
+            _rows = []
+            for f in _fin:
+                row = {"Exp #": f['index'], "Round": f['round'], "Observed": round(f['observed'], 3)}
+                if f['predicted'] is not None:
+                    row["Predicted"] = round(f['predicted'], 3)
+                    row["± sd"] = round(f['sd'], 3)
+                rec = _opt.recipe_history[f['index']]
+                row.update({k: round(v, 3) for k, v in rec.items() if v})
+                _rows.append(row)
+            st.dataframe(pd.DataFrame(_rows), hide_index=True)
 
+    # -------------------------------------------------------------- #
+    #  Adaptive EGBO: revise the design space at the scheduled checks
+    # -------------------------------------------------------------- #
+    with st.expander("Adaptive EGBO: expert check & revise design space",
+                     expanded=_opt.check_due()):
         _act = _opt.active_variables()
         _inact = _opt.inactive_variables()
         ac1, ac2 = st.columns(2)
@@ -539,11 +717,22 @@ with tab_optimize:
             st.metric("Pruned (still in GP)", len(_inact))
 
         st.markdown(
-            "**1. Export the trajectory** to query the expert for ingredients to add "
-            "or remove. Append your candidate pool (minus the active variables) "
-            "before sending."
+            "**1. Prepare the expert report.** It has the objective definitions, the best "
+            "recipes with each attribute's gap and share of the loss, the current ranges "
+            "(flagging variables stuck at a limit), the reference recipe by session, all "
+            "experiments by round, and earlier decisions. Give it to the expert (FSA)."
         )
-        st.code(_opt.export_trajectory(), language="text")
+        if st.button("Prepare expert report"):
+            with st.spinner("Fitting the model..."):
+                st.session_state.expert_report = _opt.expert_report()
+        if st.session_state.get("expert_report"):
+            _txt, _snap = st.session_state.expert_report
+            st.download_button(
+                "Download report (.md)", _txt,
+                file_name=f"{_opt.project_name}_check_after_R{_snap['after_round']:02d}.md",
+            )
+            with st.container(height=400):
+                st.markdown(_txt)
 
         st.markdown(
             "**2. Add the expert's suggested variable(s)** to the design space. The "
@@ -609,7 +798,44 @@ with tab_optimize:
 
         st.divider()
         st.markdown(
-            "**3. Prune the design space.** Deactivating a variable removes it from "
+            "**3. Widen or narrow a range.** Past experiments are kept: after a "
+            "narrowing, recipes outside the new range still inform the model, and only "
+            "new recipes are restricted to it."
+        )
+        _cont = [v for v in _opt.variables if v['type'] == 'continuous']
+        if _cont:
+            _rv_name = st.selectbox(
+                "Variable", [v['name'] for v in _cont], key="range_pick",
+                format_func=lambda n: (
+                    f"{n}  [{_opt._var_by_name(n)['bounds'][0]:g}, "
+                    f"{_opt._var_by_name(n)['bounds'][1]:g}]"
+                    + ("" if _opt._var_by_name(n).get('active', True) else "  (pruned)")
+                ),
+            )
+            _rv = _opt._var_by_name(_rv_name)
+            with st.form("range_form"):
+                rr1, rr2 = st.columns(2)
+                with rr1:
+                    _rlo = st.number_input("New min", value=float(_rv['bounds'][0]),
+                                           key=f"rng_lo_{_rv_name}", format="%.4g")
+                with rr2:
+                    _rhi = st.number_input("New max", value=float(_rv['bounds'][1]),
+                                           key=f"rng_hi_{_rv_name}", format="%.4g")
+                if st.form_submit_button("Apply new range"):
+                    try:
+                        _opt.set_variable_bounds(_rv_name, _rlo, _rhi)
+                        st.session_state.show_backup_warning = True
+                        st.session_state["_range_msg"] = (
+                            f"'{_rv_name}' range is now [{_rlo:g}, {_rhi:g}] — generate a new batch.")
+                        st.rerun()
+                    except ValueError as e:
+                        st.error(str(e))
+            if st.session_state.get("_range_msg"):
+                st.success(st.session_state.pop("_range_msg"))
+
+        st.divider()
+        st.markdown(
+            "**4. Prune the design space.** Deactivating a variable removes it from "
             "the active set without deleting anything: past experiments stay in the "
             "GP, and only the acquisition search is restricted (the variable is held "
             "at its pinned value). Fully reversible — this is what lets the active "
@@ -693,6 +919,45 @@ with tab_optimize:
             else:
                 st.caption("No ingredients loaded.")
 
+        st.divider()
+        st.markdown(
+            "**5. Record the check** — every scheduled check, including when nothing "
+            "changes. The report prepared in step 1 is saved with it."
+        )
+        if not st.session_state.get("expert_report"):
+            st.caption("Prepare the expert report (step 1) first, so it is saved with the decision.")
+        with st.form("record_check_form"):
+            _dec = st.text_input("Decision (e.g. 'no change', or 'added X; widened Y to 0–8%')")
+            _why = st.text_area("Reasoning (which attributes and evidence it was based on)")
+            _by = st.text_input("Decided by (e.g. FSA, reviewed by <food scientist>)")
+            if st.form_submit_button("Record check",
+                                     disabled=not st.session_state.get("expert_report")):
+                if not _dec.strip():
+                    st.error("Enter the decision (write 'no change' if nothing changed).")
+                else:
+                    _opt.record_check(_dec, _why, by=_by,
+                                      report=st.session_state.expert_report[1])
+                    st.session_state.show_backup_warning = True
+                    st.session_state.pop("expert_report", None)
+                    st.rerun()
+
+        if _opt.design_log:
+            st.caption("Design log (checks and changes after data exists):")
+            st.dataframe(pd.DataFrame([
+                {
+                    "After round": e.get('after_round'),
+                    "Type": e.get('type'),
+                    "What": (e.get('decision') if e.get('type') == 'check' else
+                             ", ".join(f"{k}={v}" for k, v in e.items()
+                                       if k not in ('type', 'after_round', 'time', 'report',
+                                                    'rationale', 'by', 'decision'))),
+                    "Reasoning": e.get('rationale', ''),
+                    "By": e.get('by', ''),
+                    "Time": e.get('time'),
+                }
+                for e in _opt.design_log
+            ]), hide_index=True)
+
     st.divider()
 
     # -------------------------------------------------------------- #
@@ -730,7 +995,7 @@ with tab_optimize:
                     for _, row in import_df.iterrows():
                         recipe = {name: float(row[name]) for name in var_names}
                         results = {name: float(row[name]) for name in obj_names}
-                        st.session_state.optimizer.tell(recipe, results)
+                        st.session_state.optimizer.tell(recipe, results, role='import')
                         imported += 1
                     st.session_state.show_backup_warning = True
                     st.success(f"Imported {imported} experiments!")
@@ -769,11 +1034,15 @@ with tab_optimize:
     # -------------------------------------------------------------- #
     if st.session_state.optimizer.X_history:
         st.subheader("Experiment History")
+        st.session_state.optimizer._sync_meta()
 
         hist = []
         for i, x in enumerate(st.session_state.optimizer.X_history):
             row = st.session_state.optimizer._decode(x)
             row['_index'] = i
+            _meta = st.session_state.optimizer.meta_history[i]
+            row['Round'] = _meta.get('round')
+            row['Kind'] = _meta.get('role') + ("" if _meta.get('in_gp', True) else " (not in model)")
             row['Total_Utility_Score'] = st.session_state.optimizer.Y_history[i]
 
             res_hist = getattr(st.session_state.optimizer, 'results_history', [])

@@ -1,3 +1,5 @@
+import copy
+import datetime
 import json
 import os
 import pickle
@@ -85,8 +87,24 @@ def _build_covar(cfg, dim):
     return ScaleKernel(base)
 
 
+def _now():
+    return datetime.datetime.now().isoformat(timespec="seconds")
+
+
+def _json_default(obj):
+    if isinstance(obj, tuple):
+        return list(obj)
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.floating):
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    return obj
+
+
 class FoodOptimizer:
-    CLASS_VERSION = 5  # bump when adding methods/attrs to force session refresh
+    CLASS_VERSION = 6  # bump when adding methods/attrs to force session refresh
 
     def __init__(self, project_name="experiment", robust=False):
         """Initialize or load a food optimization project.
@@ -112,11 +130,32 @@ class FoodOptimizer:
         self.Y_history = []
         self.recipe_history = []
         self.results_history = []
+        self._init_campaign_state()
+        self.load_error = None
 
         if os.path.exists(self.filename):
             self.load()
         else:
             self.save()
+
+    def _init_campaign_state(self):
+        """Per-experiment metadata and the adaptive-EGBO record (v6+).
+
+        meta_history[i] = {'round', 'role', 'in_gp', 'time'} runs parallel to
+        X_history. role: 'bo' (an EGBO recipe), 'reference' (the fixed recipe
+        re-tasted each session, for drift and noise), 'manual' (any other
+        non-BO sample), 'import' (bulk-imported history). Only in_gp samples
+        train the GP.
+        design_log: every design-space change made after data exists, plus one
+        'check' entry per expert check (decision, rationale, and the exact
+        report the expert saw).
+        """
+        self.meta_history = []
+        self.design_log = []
+        self.pending_batch = None   # {'round', 'recipes', 'time'}: generated, not yet scored
+        self.check_every = 3        # expert checks after rounds 3, 6, 9, ...
+        self.candidate_pool = ""    # ingredients/process changes the expert may add
+        self.reference_recipe = None
 
     # ------------------------------------------------------------------ #
     #  Setup: Ingredients & Process Parameters
@@ -146,6 +185,8 @@ class FoodOptimizer:
         })
         if self.X_history:
             self._reencode_history()
+            self._design_changed('add', name=name, category='ingredient',
+                                 bounds=[min_val, max_val])
         self.save()
 
     def load_ingredients_from_csv(self, df):
@@ -234,10 +275,25 @@ class FoodOptimizer:
         self.variables.append(var)
         if self.X_history:
             self._reencode_history()
+            self._design_changed('add', name=name, category='process',
+                                 bounds=[min_val, max_val], baseline=baseline)
         self.save()
 
     def remove_process_parameter(self, name):
-        """Remove a process parameter by name."""
+        """Remove a process parameter by name (setup only).
+
+        Mid-run this would drop a column without re-encoding the history, so it
+        is refused once experiments exist: deactivate the parameter instead,
+        which pins it and keeps every past observation in the GP.
+        """
+        if self.X_history and any(
+            v['name'] == name and v.get('category') == 'process' for v in self.variables
+        ):
+            raise ValueError(
+                f"Experiments already exist, so '{name}' can't be removed. "
+                f"Deactivate it instead (Adaptive EGBO panel): it is then held fixed "
+                f"and past data stays valid."
+            )
         self.variables = [
             v for v in self.variables
             if not (v['name'] == name and v.get('category') == 'process')
@@ -253,6 +309,28 @@ class FoodOptimizer:
 
     def add_objective(self, name, weight, goal='max', target=None,
                       min_val=None, max_val=None):
+        """Add (or redefine) an objective and recompute every stored utility.
+
+        Mid-run, every past experiment must already have a value for `name`
+        (enter them via Edit first). Otherwise those experiments would silently
+        score 0 on the new term and the GP would be trained on inconsistent
+        utilities.
+        """
+        if self.Y_history:
+            if len(self.results_history) != len(self.Y_history):
+                raise ValueError(
+                    "Some experiments were recorded without raw results, so "
+                    "utilities can't be recomputed for a new objective."
+                )
+            missing = [i for i, r in enumerate(self.results_history) if r.get(name) is None]
+            if missing:
+                shown = ", ".join(f"#{i}" for i in missing[:8])
+                more = f" (+{len(missing) - 8} more)" if len(missing) > 8 else ""
+                raise ValueError(
+                    f"{len(missing)} past experiment(s) have no '{name}' score: "
+                    f"{shown}{more}. Enter those scores first (Edit a past result), "
+                    f"or the new objective would count as 0 for them."
+                )
         self.objectives = [obj for obj in self.objectives if obj['name'] != name]
         self.objectives.append({
             'name': name,
@@ -262,16 +340,23 @@ class FoodOptimizer:
             'min_val': float(min_val) if min_val is not None else 0.0,
             'max_val': float(max_val) if max_val is not None else 10.0,
         })
+        self._recompute_utilities()
+        if self.Y_history:
+            self._log('objective', action='add_or_redefine', objective=dict(self.objectives[-1]))
         self.save()
 
     def remove_objective(self, name):
         """Remove an objective and recalculate stored utility scores."""
         self.objectives = [obj for obj in self.objectives if obj['name'] != name]
-        if self.results_history:
-            for i, results_dict in enumerate(self.results_history):
-                if i < len(self.Y_history):
-                    self.Y_history[i] = self._compute_utility(results_dict)
+        self._recompute_utilities()
+        if self.Y_history:
+            self._log('objective', action='remove', name=name)
         self.save()
+
+    def _recompute_utilities(self):
+        for i, results_dict in enumerate(self.results_history):
+            if i < len(self.Y_history):
+                self.Y_history[i] = self._compute_utility(results_dict)
 
     # ------------------------------------------------------------------ #
     #  Setup: Constraints
@@ -379,6 +464,8 @@ class FoodOptimizer:
             self.recipe_history.pop(index)
         if index < len(self.results_history):
             self.results_history.pop(index)
+        if index < len(self.meta_history):
+            self.meta_history.pop(index)
         self.save()
 
     def rewind_to(self, index):
@@ -390,6 +477,8 @@ class FoodOptimizer:
         self.Y_history = self.Y_history[:keep]
         self.recipe_history = self.recipe_history[:keep]
         self.results_history = self.results_history[:keep]
+        self.meta_history = self.meta_history[:keep]
+        self.pending_batch = None
         self.save()
 
     # ------------------------------------------------------------------ #
@@ -556,11 +645,20 @@ class FoodOptimizer:
         dim = bounds_tensor.shape[1]
 
         # Cold start: space-filling Sobol sequence
-        if len(self.X_history) < n_init_random:
-            return self._ask_cold_start(n_suggestions, bounds_tensor, dim)
+        if len(self._training_indices()) < n_init_random:
+            recipes = self._ask_cold_start(n_suggestions, bounds_tensor, dim)
+        else:
+            # Warm: GP-based Bayesian optimization
+            recipes = self._ask_optimize(n_suggestions, bounds_tensor, dim)
 
-        # Warm: GP-based Bayesian optimization
-        return self._ask_optimize(n_suggestions, bounds_tensor, dim)
+        # Persist the batch so it survives an app restart and is in the backup.
+        self.pending_batch = {
+            'round': self.completed_rounds() + 1,
+            'recipes': [dict(r) for r in recipes],
+            'time': _now(),
+        }
+        self.save()
+        return recipes
 
     def _ask_cold_start(self, n_suggestions, bounds_tensor, dim):
         """Generate initial recipes using Sobol sampling."""
@@ -613,16 +711,7 @@ class FoodOptimizer:
         print(f"DEBUG: Optimization step (batch of {n_suggestions})...")
         torch.manual_seed(len(self.X_history))
 
-        train_X = torch.tensor(self.X_history, dtype=torch.double)
-        train_Y = torch.tensor(self.Y_history, dtype=torch.double).unsqueeze(-1)
-        train_X_norm = normalize(train_X, bounds_tensor)
-
-        input_tf = Warp(d=dim, indices=list(range(dim))) if self.robust else None
-
-        gp = self._build_gp(train_X_norm, train_Y, dim, input_tf)
-        mll = ExactMarginalLogLikelihood(gp.likelihood, gp)
-        fit_gpytorch_mll(mll)
-
+        gp, train_X_norm, train_Y = self._fit_gp(bounds_tensor, dim)
         acq_func = self._build_acqf(gp, train_X_norm, train_Y)
 
         # fixed_features drops the inactive columns from the optimization outright
@@ -645,18 +734,128 @@ class FoodOptimizer:
             for i in range(n_suggestions)
         ]
 
-    def tell(self, recipe_dict, results_dict):
-        """Record an experiment's recipe and results."""
+    def _fit_gp(self, bounds_tensor=None, dim=None):
+        """Fit the GP on the in-GP samples. Returns (gp, train_X_norm, train_Y)."""
+        if bounds_tensor is None:
+            bounds_tensor = self._get_bounds()
+            dim = bounds_tensor.shape[1]
+        idx = self._training_indices()
+        train_X = torch.tensor([self.X_history[i] for i in idx], dtype=torch.double)
+        train_Y = torch.tensor([self.Y_history[i] for i in idx], dtype=torch.double).unsqueeze(-1)
+        train_X_norm = normalize(train_X, bounds_tensor)
+
+        input_tf = Warp(d=dim, indices=list(range(dim))) if self.robust else None
+
+        gp = self._build_gp(train_X_norm, train_Y, dim, input_tf)
+        mll = ExactMarginalLogLikelihood(gp.likelihood, gp)
+        fit_gpytorch_mll(mll)
+        return gp, train_X_norm, train_Y
+
+    def tell(self, recipe_dict, results_dict, role='bo', in_gp=True, round_num=None):
+        """Record an experiment's recipe and results.
+
+        role: 'bo' (default), 'reference', 'manual' or 'import'. in_gp=False keeps
+        the sample in the record but out of the GP. round_num defaults to the
+        round of the pending batch, else the latest round (or the next one for a
+        BO sample when nothing is pending).
+        """
         if not self.objectives:
             raise ValueError("No objectives defined!")
         for obj in self.objectives:
             if results_dict.get(obj['name']) is None:
                 raise ValueError(f"Missing data for {obj['name']}")
+        if role not in ('bo', 'reference', 'manual', 'import'):
+            raise ValueError(f"Unknown role {role!r}.")
+        if round_num is None:
+            if self.pending_batch:
+                round_num = self.pending_batch['round']
+            elif role == 'import':
+                round_num = 0
+            elif role == 'bo':
+                round_num = self.completed_rounds() + 1
+            else:
+                round_num = max(self.completed_rounds(), 1)
 
+        self._sync_meta()
         self.X_history.append(self._encode(recipe_dict))
         self.Y_history.append(self._compute_utility(results_dict))
         self.recipe_history.append(dict(recipe_dict))
         self.results_history.append(dict(results_dict))
+        self.meta_history.append({
+            'round': int(round_num), 'role': role, 'in_gp': bool(in_gp), 'time': _now(),
+        })
+        self.save()
+
+    def clear_pending_batch(self):
+        """Call once a pending batch's scores are all saved (or it is abandoned)."""
+        self.pending_batch = None
+        self.save()
+
+    # ------------------------------------------------------------------ #
+    #  Rounds, checks and the design log
+    # ------------------------------------------------------------------ #
+
+    def _sync_meta(self):
+        """Pad meta_history for experiments recorded before v6 (treated as BO
+        samples in the GP, round unknown)."""
+        while len(self.meta_history) < len(self.X_history):
+            self.meta_history.append({'round': None, 'role': 'bo', 'in_gp': True, 'time': None})
+
+    def _training_indices(self):
+        self._sync_meta()
+        return [i for i in range(len(self.X_history)) if self.meta_history[i].get('in_gp', True)]
+
+    def completed_rounds(self):
+        """Highest round with at least one scored BO recipe (0 before any)."""
+        self._sync_meta()
+        rounds = [m['round'] for m in self.meta_history
+                  if m.get('role') == 'bo' and m.get('round') is not None]
+        return max(rounds) if rounds else 0
+
+    def check_due(self):
+        """True when an expert check is scheduled after the last completed round
+        and hasn't been recorded yet."""
+        r = self.completed_rounds()
+        if not self.check_every or r == 0 or r % int(self.check_every):
+            return False
+        return not any(e.get('type') == 'check' and e.get('after_round') == r
+                       for e in self.design_log)
+
+    def _log(self, kind, **details):
+        entry = {'type': kind, 'after_round': self.completed_rounds(), 'time': _now()}
+        entry.update(copy.deepcopy(details))
+        self.design_log.append(entry)
+
+    def _design_changed(self, action, **details):
+        """Log a design-space change made once data exists. A pending batch was
+        generated for the old design, so it is dropped."""
+        on_schedule = self.check_due() or any(
+            e.get('type') == 'check' and e.get('after_round') == self.completed_rounds()
+            for e in self.design_log)
+        self._log('change', action=action, on_schedule=bool(on_schedule), **details)
+        self.pending_batch = None
+
+    def record_check(self, decision, rationale, by="", report=None):
+        """Record an expert check: the decision (e.g. 'no change' or a summary of
+        the changes), the reasoning, who decided, and the report they saw."""
+        self._log('check', decision=str(decision), rationale=str(rationale),
+                  by=str(by), report=report)
+        self.save()
+
+    def set_check_every(self, n):
+        n = int(n)
+        if n < 0:
+            raise ValueError("check_every must be >= 0 (0 = no scheduled checks).")
+        self.check_every = n
+        self.save()
+
+    def set_candidate_pool(self, text):
+        self.candidate_pool = str(text)
+        self.save()
+
+    def set_reference_recipe(self, recipe):
+        self.reference_recipe = None if recipe is None else {
+            k: float(v) for k, v in recipe.items()}
         self.save()
 
     # ------------------------------------------------------------------ #
@@ -822,6 +1021,8 @@ class FoodOptimizer:
 
         var['active'] = False
         var['_frozen_at'] = frozen
+        if self.X_history:
+            self._design_changed('deactivate', name=name, pinned_at=frozen)
         self.save()
 
     def reactivate_variable(self, name):
@@ -832,6 +1033,54 @@ class FoodOptimizer:
             return
         var['active'] = True
         var.pop('_frozen_at', None)
+        if self.X_history:
+            self._design_changed('reactivate', name=name)
+        self.save()
+
+    def set_variable_bounds(self, name, min_val, max_val):
+        """Widen or narrow a variable's search range (adaptive EGBO).
+
+        X_history stores raw (unnormalized) values and the GP normalizes with the
+        current bounds at every fit, so nothing needs re-encoding: after a
+        narrowing, past experiments outside the new range stay in the GP as
+        valid observations, while new recipes are searched inside it only.
+        """
+        var = self._var_by_name(name)
+        if var['type'] != 'continuous':
+            raise ValueError(f"'{name}' is not continuous; ranges apply to continuous variables.")
+        lo, hi = float(min_val), float(max_val)
+        if not lo < hi:
+            raise ValueError(f"Min ({lo}) must be less than Max ({hi}) for '{name}'.")
+        if var.get('category', 'ingredient') == 'ingredient' and lo < 0:
+            raise ValueError(f"An ingredient amount can't be negative ('{name}').")
+        if not var.get('active', True):
+            frozen = self._frozen_value(var)
+            if not lo <= frozen <= hi:
+                raise ValueError(
+                    f"'{name}' is deactivated and pinned at {frozen:g}, outside "
+                    f"[{lo:g}, {hi:g}]. Reactivate it first, or keep the pinned value in range."
+                )
+        old = tuple(var['bounds'])
+        if old == (lo, hi):
+            return
+        var['bounds'] = (lo, hi)
+        try:
+            pinned = {v['name']: self._frozen_value(v) for v in self.inactive_variables()}
+            self._assert_constraints_satisfiable(pinned)
+        except ValueError:
+            var['bounds'] = old
+            raise
+        if self.X_history:
+            outside = sum(
+                1 for r in self.recipe_history
+                if not lo - 1e-12 <= float(r.get(name, var.get('_absent_value', 0.0))) <= hi + 1e-12
+            )
+            self._design_changed(
+                'set_range', name=name, old=list(old), new=[lo, hi],
+                widened=bool(lo < old[0] or hi > old[1]),
+                narrowed=bool(lo > old[0] or hi < old[1]),
+                past_outside_new_range=outside,
+            )
         self.save()
 
     def remove_ingredient(self, name, force=False):
@@ -884,12 +1133,22 @@ class FoodOptimizer:
         self.quantity_constraints = kept
 
         self._reencode_history()
+        if self.X_history:
+            self._design_changed('delete', name=name, forced=bool(force))
         self.save()
 
     def set_bo_config(self, spec):
         """Set expert-selected BO hyperparameters (arm 3). Pass None/{} for the
-        library defaults (arm 1). Chosen once at project start, not per iteration."""
-        self.bo_config = validate_bo_config(spec)
+        library defaults (arm 1). Chosen once at project start, not per iteration:
+        refused once any experiment is recorded, so the GP config is fixed for
+        the whole campaign."""
+        new = validate_bo_config(spec)
+        if self.X_history and new != self.bo_config:
+            raise ValueError(
+                "The BO configuration is locked once experiments exist, so the whole "
+                "campaign runs with one fixed GP setup. Start a new project to change it."
+            )
+        self.bo_config = new
         self.save()
 
     def fork(self, new_project_name):
@@ -932,6 +1191,221 @@ class FoodOptimizer:
                 f"{mark} iter {i + 1}: utility={y:.4f} | {comp} | attrs: {attrs}"
             )
         return "\n".join(lines)
+
+    # ------------------------------------------------------------------ #
+    #  Finalists and the expert report (adaptive EGBO checks)
+    # ------------------------------------------------------------------ #
+
+    def predicted_utilities(self, min_points=5):
+        """GP posterior mean and sd of utility at every recorded experiment.
+
+        With noisy panels the best *observed* score is biased upward (a lucky
+        session), so finalists should be ranked by the posterior mean, which
+        pools evidence from similar recipes. Returns None if there are fewer
+        than `min_points` in-GP samples or the fit fails.
+        """
+        if len(self._training_indices()) < min_points:
+            return None
+        try:
+            torch.manual_seed(0)
+            bounds_tensor = self._get_bounds()
+            gp, _, _ = self._fit_gp(bounds_tensor, bounds_tensor.shape[1])
+            X = normalize(torch.tensor(self.X_history, dtype=torch.double), bounds_tensor)
+            with torch.no_grad():
+                post = gp.posterior(X)
+            mean = post.mean.squeeze(-1).tolist()
+            sd = post.variance.clamp_min(0).sqrt().squeeze(-1).tolist()
+            return [{'mean': m, 'sd': s} for m, s in zip(mean, sd)]
+        except Exception as e:  # never block the lab on a GP fit problem
+            print(f"Warning: GP prediction failed: {e}")
+            return None
+
+    def finalists(self, k=3):
+        """Top-k recorded recipes by predicted utility (observed utility if the
+        GP is unavailable). Reference samples are excluded. Returns a list of
+        dicts with index, round, role, observed, predicted, sd."""
+        self._sync_meta()
+        pred = self.predicted_utilities()
+        rows = []
+        for i, y in enumerate(self.Y_history):
+            m = self.meta_history[i]
+            if m.get('role') == 'reference':
+                continue
+            rows.append({
+                'index': i, 'round': m.get('round'), 'role': m.get('role'),
+                'observed': float(y),
+                'predicted': None if pred is None else pred[i]['mean'],
+                'sd': None if pred is None else pred[i]['sd'],
+            })
+        key = (lambda r: r['predicted']) if pred is not None else (lambda r: r['observed'])
+        return sorted(rows, key=key, reverse=True)[:k]
+
+    def _objective_breakdown(self, results):
+        """Per-objective score, weighted loss (weight * (1 - utility)) and the
+        signed gap to the goal in raw units."""
+        out = []
+        for obj in self.objectives:
+            raw = results.get(obj['name'])
+            if raw is None:
+                continue
+            val = float(raw)
+            lo, hi = obj.get('min_val', 0.0), obj.get('max_val', 10.0)
+            u = self._compute_utility({obj['name']: val}) / obj['weight'] if obj['weight'] else 0.0
+            if obj['goal'] == 'max':
+                gap, want = val - hi, f"higher (max {hi:g})"
+            elif obj['goal'] == 'min':
+                gap, want = val - lo, f"lower (min {lo:g})"
+            else:
+                t = obj.get('target')
+                t = (hi + lo) / 2 if t is None else t
+                gap, want = val - t, f"target {t:g}"
+            out.append({'name': obj['name'], 'value': val, 'want': want, 'gap': gap,
+                        'loss': obj['weight'] * (1.0 - u)})
+        return out
+
+    def expert_report(self, k=3):
+        """Everything the expert needs at a check, as (markdown_text, snapshot).
+
+        The snapshot is a JSON-serializable copy of the same content; record_check
+        stores it so the exact information behind each decision is preserved.
+        """
+        self._sync_meta()
+        r_done = self.completed_rounds()
+        fin = self.finalists(k)
+        pred = self.predicted_utilities()
+        L = []
+        L.append(f"# Expert check after round {r_done} — {self.project_name}")
+        L.append("")
+        L.append("The optimizer (BO) sees only the overall utility. The per-attribute "
+                 "breakdown below is for you: use it to decide whether to add or remove "
+                 "variables, or widen or narrow ranges.")
+        L.append("")
+
+        L.append("## Objective (what each score means)")
+        L.append("| Attribute | Goal | Scale | Weight |")
+        L.append("|---|---|---|---|")
+        for o in self.objectives:
+            goal = o['goal'] if o['goal'] != 'target' else f"target {o.get('target'):g}"
+            L.append(f"| {o['name']} | {goal} | {o['min_val']:g}–{o['max_val']:g} | {o['weight']:g} |")
+        tot_w = sum(o['weight'] for o in self.objectives)
+        L.append(f"\nUtility = sum of weight × attribute utility (max {tot_w:g}). "
+                 f"Loss = weight × (1 − attribute utility): how much each attribute "
+                 f"costs the total.")
+        L.append("")
+
+        L.append("## Best recipes so far" + (" (ranked by the model's predicted utility, "
+                 "which corrects for lucky single tastings)" if pred else " (by observed utility)"))
+        for rank, f in enumerate(fin, 1):
+            i = f['index']
+            rec = self.recipe_history[i] if i < len(self.recipe_history) else {}
+            comp = ", ".join(f"{n}={rec[n]:.3g}" for n in [v['name'] for v in self.variables]
+                             if rec.get(n))
+            p = "" if f['predicted'] is None else f", predicted {f['predicted']:.3f} ± {f['sd']:.3f}"
+            L.append(f"\n**{rank}. Exp #{i}** (round {f['round']}): observed {f['observed']:.3f}{p}")
+            L.append(f"- Recipe: {comp}")
+            res = self.results_history[i] if i < len(self.results_history) else {}
+            bd = sorted(self._objective_breakdown(res), key=lambda b: -b['loss'])
+            L.append("- Attributes, largest loss first: " + "; ".join(
+                f"{b['name']} {b['value']:g} (want {b['want']}, gap {b['gap']:+.3g}, "
+                f"loss {b['loss']:.3f})" for b in bd))
+        L.append("")
+
+        # Mean loss per attribute over the finalists: where the remaining gap is.
+        if fin:
+            agg = {}
+            for f in fin:
+                res = self.results_history[f['index']] if f['index'] < len(self.results_history) else {}
+                for b in self._objective_breakdown(res):
+                    agg.setdefault(b['name'], []).append(b)
+            L.append("## Where the remaining gap is (mean over the best recipes)")
+            L.append("| Attribute | Mean score | Want | Mean gap | Mean loss | Share of loss |")
+            L.append("|---|---|---|---|---|---|")
+            tot = sum(np.mean([b['loss'] for b in bs]) for bs in agg.values()) or 1.0
+            for name, bs in sorted(agg.items(), key=lambda kv: -np.mean([b['loss'] for b in kv[1]])):
+                ml = float(np.mean([b['loss'] for b in bs]))
+                L.append(f"| {name} | {np.mean([b['value'] for b in bs]):.3g} | {bs[0]['want']} | "
+                         f"{np.mean([b['gap'] for b in bs]):+.3g} | {ml:.3f} | {ml / tot:.0%} |")
+            L.append("")
+
+        L.append("## Current design space")
+        L.append("| Variable | Type | Status | Range | In best recipes |")
+        L.append("|---|---|---|---|---|")
+        for v in self.variables:
+            if v['type'] != 'continuous':
+                continue
+            lo, hi = float(v['bounds'][0]), float(v['bounds'][1])
+            status = "active" if v.get('active', True) else f"pruned (pinned at {self._frozen_value(v):g})"
+            vals = [float(self.recipe_history[f['index']].get(v['name'], v.get('_absent_value', 0.0)))
+                    for f in fin if f['index'] < len(self.recipe_history)]
+            flag = ""
+            if vals and v.get('active', True) and hi > lo:
+                z = [(x - lo) / (hi - lo) for x in vals]
+                if all(zz >= 0.95 for zz in z):
+                    flag = " — **at the upper limit** (consider widening)"
+                elif all(zz <= 0.05 for zz in z):
+                    flag = (" — **unused** (at 0)" if lo == 0 and v.get('category', 'ingredient') == 'ingredient'
+                            else " — **at the lower limit** (consider widening)")
+            shown = ", ".join(f"{x:.3g}" for x in vals)
+            L.append(f"| {v['name']} | {v.get('category', 'ingredient')} | {status} | "
+                     f"{lo:g}–{hi:g} | {shown}{flag} |")
+        L.append("")
+        if self.candidate_pool.strip():
+            L.append("## Candidates you may add")
+            L.append(self.candidate_pool.strip())
+            L.append("")
+
+        refs = [i for i, m in enumerate(self.meta_history) if m.get('role') == 'reference']
+        if refs:
+            L.append("## Reference recipe by session (drift and noise check)")
+            names = [o['name'] for o in self.objectives]
+            L.append("| Round | Utility | " + " | ".join(names) + " |")
+            L.append("|---|---|" + "---|" * len(names))
+            for i in refs:
+                res = self.results_history[i] if i < len(self.results_history) else {}
+                L.append(f"| {self.meta_history[i].get('round')} | {self.Y_history[i]:.3f} | " +
+                         " | ".join(f"{res.get(n, float('nan')):g}" for n in names) + " |")
+            if len(refs) > 1:
+                L.append(f"\nReference utility sd across sessions: "
+                         f"{np.std([self.Y_history[i] for i in refs], ddof=1):.3f} "
+                         f"(treat differences smaller than about this as noise).")
+            L.append("")
+
+        L.append("## All experiments by round")
+        rounds = sorted({m.get('round') for m in self.meta_history},
+                        key=lambda x: -1 if x is None else x)
+        names = [v['name'] for v in self.variables]
+        for rd in rounds:
+            L.append(f"\n**Round {rd if rd is not None else '?'}**")
+            for i, m in enumerate(self.meta_history):
+                if m.get('round') != rd:
+                    continue
+                rec = self.recipe_history[i] if i < len(self.recipe_history) else {}
+                res = self.results_history[i] if i < len(self.results_history) else {}
+                comp = ", ".join(f"{n}={rec[n]:.3g}" for n in names if rec.get(n))
+                attrs = ", ".join(f"{k2}={v2:g}" for k2, v2 in res.items())
+                tag = "" if m.get('role') == 'bo' else f" [{m.get('role')}]"
+                L.append(f"- #{i}{tag}: utility {self.Y_history[i]:.3f} | {comp} | {attrs}")
+        L.append("")
+
+        changes = [e for e in self.design_log if e.get('type') in ('change', 'check', 'objective')]
+        if changes:
+            L.append("## Earlier checks and design changes")
+            for e in changes:
+                if e['type'] == 'check':
+                    L.append(f"- After R{e['after_round']}: CHECK — {e.get('decision')} "
+                             f"({e.get('by') or 'expert'}): {e.get('rationale')}")
+                else:
+                    d = {k2: v2 for k2, v2 in e.items() if k2 not in ('type', 'after_round', 'time', 'report')}
+                    L.append(f"- After R{e['after_round']}: {e['type']} {d}")
+            L.append("")
+
+        text = "\n".join(L)
+        snapshot = json.loads(json.dumps({
+            'after_round': r_done, 'time': _now(), 'markdown': text,
+            'finalists': fin, 'objectives': self.objectives, 'variables': self.variables,
+            'bo_config': self.bo_config, 'n_experiments': len(self.X_history),
+        }, default=_json_default))
+        return text, snapshot
 
     def _build_gp(self, train_X_norm, train_Y, dim, input_tf):
         """Build the GP. With bo_config == None this is byte-identical to the
@@ -989,6 +1463,7 @@ class FoodOptimizer:
                 state = pickle.load(f)
                 self.__dict__.update(state)
             self.screening_model = None
+            self.load_error = None
 
             # Backward compatibility for older pickle files
             if not hasattr(self, 'quantity_constraints'):
@@ -999,6 +1474,7 @@ class FoodOptimizer:
                 self.results_history = []
             if not hasattr(self, 'bo_config'):
                 self.bo_config = None
+            self._backfill_campaign_state()
             for var in self.variables:
                 if 'category' not in var:
                     var['category'] = 'ingredient'
@@ -1006,26 +1482,43 @@ class FoodOptimizer:
 
             # Recalculate utility scores to pick up formula changes
             if self.results_history and self.objectives:
-                for i, results_dict in enumerate(self.results_history):
-                    if i < len(self.Y_history):
-                        self.Y_history[i] = self._compute_utility(results_dict)
-        except Exception:
-            print("Warning: Load failed.")
+                self._recompute_utilities()
+        except Exception as e:
+            # Never continue on top of a file we couldn't read: the next save()
+            # would overwrite it with an empty project. Set it aside instead.
+            stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            aside = f"{os.path.splitext(self.filename)[0]}_unreadable_{stamp}.pkl"
+            try:
+                os.replace(self.filename, aside)
+            except OSError:
+                aside = None
+            self.__init__fresh_after_failed_load()
+            self.load_error = (
+                f"Could not read the saved project ({type(e).__name__}: {e}). "
+                + (f"The file was kept as {aside}. " if aside else "")
+                + "Restore from your latest downloaded backup."
+            )
+            print(f"Warning: Load failed: {e}")
+
+    def __init__fresh_after_failed_load(self):
+        self.variables, self.objectives = [], []
+        self.ingredient_properties, self.constraints, self.quantity_constraints = {}, [], []
+        self.screening_model, self.bo_config = None, None
+        self.X_history, self.Y_history, self.recipe_history, self.results_history = [], [], [], []
+        self._init_campaign_state()
+
+    def _backfill_campaign_state(self):
+        defaults = {'meta_history': [], 'design_log': [], 'pending_batch': None,
+                    'check_every': 3, 'candidate_pool': "", 'reference_recipe': None}
+        for k, v in defaults.items():
+            if not hasattr(self, k):
+                setattr(self, k, copy.deepcopy(v))
+        self._sync_meta()
 
     def export_json(self):
         """Export full project state as a JSON-serializable dict."""
-
-        def _make_serializable(obj):
-            if isinstance(obj, tuple):
-                return list(obj)
-            if isinstance(obj, np.integer):
-                return int(obj)
-            if isinstance(obj, np.floating):
-                return float(obj)
-            if isinstance(obj, np.ndarray):
-                return obj.tolist()
-            return obj
-
+        self._sync_meta()
+        import botorch, gpytorch
         state = {
             'project_name': self.project_name,
             'variables': self.variables,
@@ -1039,12 +1532,51 @@ class FoodOptimizer:
             'recipe_history': self.recipe_history,
             'results_history': self.results_history,
             'bo_config': self.bo_config,
+            'meta_history': self.meta_history,
+            'design_log': self.design_log,
+            'pending_batch': self.pending_batch,
+            'check_every': self.check_every,
+            'candidate_pool': self.candidate_pool,
+            'reference_recipe': self.reference_recipe,
             'CLASS_VERSION': self.CLASS_VERSION,
+            'exported_at': _now(),
+            'versions': {'botorch': botorch.__version__, 'gpytorch': gpytorch.__version__,
+                         'torch': torch.__version__},
         }
-        return json.loads(json.dumps(state, default=_make_serializable))
+        return json.loads(json.dumps(state, default=_json_default))
+
+    def backup_filename(self):
+        """Dated name for a downloaded backup, e.g. mozz_R03_20261202-1415.json."""
+        stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M")
+        return f"{self.project_name}_R{self.completed_rounds():02d}_{stamp}.json"
 
     def import_json(self, state):
-        """Restore project state from a JSON dict (as produced by export_json)."""
+        """Restore project state from a JSON dict (as produced by export_json).
+
+        All-or-nothing: if anything in the backup is invalid, the project is left
+        exactly as it was. On success the restored state is saved to disk (a
+        restore that only lived in memory would be lost on the next restart).
+        """
+        saved = {k: copy.deepcopy(v) for k, v in self.__dict__.items() if k != 'screening_model'}
+        try:
+            self._import_json(state)
+        except Exception:
+            self.__dict__.update(saved)
+            raise
+        self.save()
+
+    def _import_json(self, state):
+        if not isinstance(state, dict) or 'variables' not in state:
+            raise ValueError("This file doesn't look like a project backup.")
+        n = len(state.get('recipe_history') or state.get('X_history') or [])
+        for key in ('results_history', 'Y_history'):
+            if state.get(key) and len(state[key]) != n:
+                raise ValueError(
+                    f"Backup is inconsistent: {len(state[key])} entries in {key} but "
+                    f"{n} experiments. Use a different backup file."
+                )
+        if state.get('recipe_history') and len(state.get('results_history') or []) != n:
+            raise ValueError("Backup is inconsistent: recipes and results don't match up.")
         self.project_name = state.get('project_name', self.project_name)
         self.filename = f"{self.project_name}.pkl"
         self.variables = state.get('variables', [])
@@ -1073,5 +1605,14 @@ class FoodOptimizer:
             self.Y_history = [self._compute_utility(r) for r in self.results_history]
         else:
             self.Y_history = state.get('Y_history', [])
+
+        self.meta_history = [dict(m) for m in state.get('meta_history', [])][:len(self.X_history)]
+        self.design_log = state.get('design_log', [])
+        self.pending_batch = state.get('pending_batch')
+        self.check_every = int(state.get('check_every', 3))
+        self.candidate_pool = state.get('candidate_pool', "")
+        self.reference_recipe = state.get('reference_recipe')
+        self._sync_meta()
+        self.load_error = None
 
         self.save()
