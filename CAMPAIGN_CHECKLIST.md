@@ -62,7 +62,7 @@ check is recorded.
 1. In **Adaptive EGBO**, click **Prepare expert report** and download it.
    It shows each attribute's gap, the best recipes, the ranges, and which
    variables are stuck at a limit.
-2. The expert (FSA, reviewed by a food scientist) decides whether to:
+2. The FSA decides whether to:
    - **add** an ingredient or process parameter (a process parameter needs the
      setting used so far, its *baseline*);
    - **widen or narrow** a range;

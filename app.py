@@ -945,7 +945,7 @@ with tab_optimize:
         with st.form("record_check_form"):
             _dec = st.text_input("Decision (e.g. 'no change', or 'added X; widened Y to 0–8%')")
             _why = st.text_area("Reasoning (which attributes and evidence it was based on)")
-            _by = st.text_input("Decided by (e.g. FSA, reviewed by <food scientist>)")
+            _by = st.text_input("Decided by (e.g. FSA)")
             if st.form_submit_button("Record check",
                                      disabled=not st.session_state.get("expert_report")):
                 if not _dec.strip():
