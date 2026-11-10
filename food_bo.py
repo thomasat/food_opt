@@ -156,37 +156,57 @@ class FoodOptimizer:
         self.check_every = 3        # expert checks after rounds 3, 6, 9, ...
         self.candidate_pool = ""    # ingredients/process changes the expert may add
         self.reference_recipe = None
+        self.balance = None         # {'name', 'total', 'min', 'max'}: e.g. water filled to the batch total
 
     # ------------------------------------------------------------------ #
     #  Setup: Ingredients & Process Parameters
     # ------------------------------------------------------------------ #
 
-    def add_ingredient(self, name, min_val, max_val):
-        """Add a single ingredient. Safe to call mid-run (adaptive EGBO): the
-        ingredient is treated as absent (=0) in every prior recipe, and the
-        encoded history is rebuilt so the GP stays dimensionally consistent."""
+    def add_ingredient(self, name, min_val, max_val, baseline=None):
+        """Add a single ingredient. Safe to call mid-run (adaptive EGBO).
+
+        `baseline` is the amount used in every earlier recipe: 0 (the default)
+        for a new ingredient, or the fixed amount of an ingredient that was in
+        the base recipe but not being varied (e.g. lecithin held at 5 g). Past
+        recipes are re-encoded at that amount, so they stay valid observations.
+        """
+        if getattr(self, 'balance', None) and name == self.balance['name']:
+            raise ValueError(f"'{name}' is the balance ingredient (filled to the batch total).")
         for var in self.variables:
             if var['name'] == name:
                 return
         min_val, max_val = float(min_val), float(max_val)
+        var = {
+            'name': name,
+            'type': 'continuous',
+            'bounds': (min_val, max_val),
+            'category': 'ingredient',
+            'active': True,
+        }
         if self.X_history:
             if len(self.recipe_history) != len(self.X_history):
                 raise ValueError(
                     "Cannot add a variable mid-run: some experiments were recorded "
                     "without stored recipes. Start a fresh project or re-import history."
                 )
-            min_val = 0.0  # absent-in-past encodes as 0; it must be within bounds
-        self.variables.append({
-            'name': name,
-            'type': 'continuous',
-            'bounds': (min_val, max_val),
-            'category': 'ingredient',
-            'active': True,
-        })
+            baseline = 0.0 if baseline is None else float(baseline)
+            if baseline < 0:
+                raise ValueError("The amount used so far can't be negative.")
+            if baseline == 0.0:
+                min_val = 0.0  # absent-in-past encodes as 0; it must be within bounds
+                var['bounds'] = (min_val, max_val)
+            elif not (min_val <= baseline <= max_val):
+                raise ValueError(
+                    f"The amount used so far ({baseline:g}) must lie within "
+                    f"[{min_val:g}, {max_val:g}]."
+                )
+            else:
+                var['_absent_value'] = baseline
+        self.variables.append(var)
         if self.X_history:
             self._reencode_history()
             self._design_changed('add', name=name, category='ingredient',
-                                 bounds=[min_val, max_val])
+                                 bounds=list(var['bounds']), baseline=baseline)
         self.save()
 
     def load_ingredients_from_csv(self, df):
@@ -208,8 +228,14 @@ class FoodOptimizer:
         standard_cols = {'Name', 'Min', 'Max', 'Type'}
         prop_cols = [c for c in df.columns if c not in standard_cols]
 
+        bal = getattr(self, 'balance', None)
         for _, row in df.iterrows():
             name = row['Name']
+            if bal and name == bal['name']:
+                self.ingredient_properties[name] = {
+                    c.lower(): float(row[c]) for c in prop_cols
+                    if pd.notna(pd.to_numeric(row[c], errors='coerce'))}
+                continue
             min_val, max_val = float(row['Min']), float(row['Max'])
             if min_val >= max_val:
                 raise ValueError(
@@ -556,8 +582,15 @@ class FoodOptimizer:
             indices, coeffs = [], []
             offset_lhs = 0.0
 
+            bal = getattr(self, 'balance', None)
+            bal_prop = (self.ingredient_properties.get(bal['name'], {}).get(metric, 0.0)
+                        if bal else 0.0)
+            if bal_prop:
+                offset_lhs += bal_prop * bal['total']
             for var_name, idx in var_indices.items():
                 prop_val = self.ingredient_properties.get(var_name, {}).get(metric, 0.0)
+                if bal_prop and self._var_by_name(var_name).get('category', 'ingredient') == 'ingredient':
+                    prop_val -= bal_prop
                 if prop_val != 0:
                     var_def = next(v for v in self.variables if v['name'] == var_name)
                     v_min, v_max = var_def['bounds']
@@ -574,6 +607,24 @@ class FoodOptimizer:
                 constraints_list.append((t_idx, t_coeffs, constr['min'] - offset_lhs))
             if constr['max'] is not None:
                 constraints_list.append((t_idx, -t_coeffs, -(constr['max'] - offset_lhs)))
+
+        # Balance ingredient: total - sum(ingredients) must stay within [min, max]
+        bal = getattr(self, 'balance', None)
+        if bal:
+            indices, coeffs, offset = [], [], 0.0
+            for v in self.variables:
+                if v['type'] == 'continuous' and v.get('category', 'ingredient') == 'ingredient':
+                    lo, hi = v['bounds']
+                    indices.append(var_indices[v['name']])
+                    coeffs.append(hi - lo)
+                    offset += lo
+            if indices:
+                t_idx = torch.tensor(indices, dtype=torch.long)
+                t_coeffs = torch.tensor(coeffs, dtype=torch.double)
+                # sum >= total - max_balance ; sum <= total - min_balance
+                if bal.get('max') is not None:
+                    constraints_list.append((t_idx, t_coeffs, bal['total'] - bal['max'] - offset))
+                constraints_list.append((t_idx, -t_coeffs, -(bal['total'] - bal.get('min', 0.0) - offset)))
 
         # Quantity constraints (direct sum of ingredient quantities)
         for qc in getattr(self, 'quantity_constraints', []):
@@ -601,8 +652,55 @@ class FoodOptimizer:
 
         return constraints_list
 
+    def balance_amount(self, recipe_dict):
+        """Amount of the balance ingredient for a recipe (None if no balance)."""
+        bal = getattr(self, 'balance', None)
+        if not bal:
+            return None
+        used = sum(float(recipe_dict.get(v['name'], v.get('_absent_value', 0.0)))
+                   for v in self.variables
+                   if v['type'] == 'continuous' and v.get('category', 'ingredient') == 'ingredient')
+        return bal['total'] - used
+
+    def with_balance(self, recipe_dict):
+        """Copy of the recipe with the balance ingredient filled in."""
+        r = dict(recipe_dict)
+        amt = self.balance_amount(r)
+        if amt is not None:
+            r[self.balance['name']] = amt
+        return r
+
+    def set_balance(self, name, total, min_amount=0.0, max_amount=None):
+        """Make `name` (e.g. water) the balance ingredient: it is not searched
+        over but filled up to the batch `total`, and kept within
+        [min_amount, max_amount]. Its properties (sodium, cost) still count in
+        property constraints. Set before the first experiment; pass name=None
+        to clear."""
+        if self.X_history:
+            raise ValueError("The balance ingredient is fixed once experiments exist.")
+        if name is None:
+            self.balance = None
+            self.save()
+            return
+        total = float(total)
+        lo = float(min_amount or 0.0)
+        hi = None if max_amount is None else float(max_amount)
+        if total <= 0 or lo < 0 or (hi is not None and hi < lo):
+            raise ValueError("Check the batch total and the balance range.")
+        self.variables = [v for v in self.variables if v['name'] != name]
+        for qc in self.quantity_constraints:
+            qc['ingredients'] = [n for n in qc['ingredients'] if n != name]
+        self.balance = {'name': name, 'total': total, 'min': lo, 'max': hi}
+        self.save()
+
     def _check_constraints(self, recipe_dict):
         """Return True if a recipe satisfies all constraints."""
+        bal = getattr(self, 'balance', None)
+        if bal:
+            amt = self.balance_amount(recipe_dict)
+            if amt < bal.get('min', 0.0) - 1e-6 or (bal.get('max') is not None and amt > bal['max'] + 1e-6):
+                return False
+            recipe_dict = self.with_balance(recipe_dict)
         # Property-based constraints
         for constr in self.constraints:
             metric = constr['metric']
@@ -651,6 +749,7 @@ class FoodOptimizer:
             # Warm: GP-based Bayesian optimization
             recipes = self._ask_optimize(n_suggestions, bounds_tensor, dim)
 
+        recipes = [self.with_balance(r) for r in recipes]
         # Persist the batch so it survives an app restart and is in the backup.
         self.pending_batch = {
             'round': self.completed_rounds() + 1,
@@ -699,12 +798,37 @@ class FoodOptimizer:
             if len(results) >= n_suggestions:
                 break
 
+        if len(results) < n_suggestions:
+            # Random draws rarely satisfy tight mass/sodium/cost constraints; sample
+            # uniformly inside the feasible region instead.
+            results += self._sample_feasible(n_suggestions - len(results), bounds_tensor, dim)
         if not results:
             raise ValueError(
                 "No valid recipes found — constraints may be too restrictive. "
                 "Try widening ingredient ranges or relaxing constraints."
             )
         return results
+
+    def _sample_feasible(self, n, bounds_tensor, dim):
+        from botorch.utils.sampling import get_polytope_samples
+        ineq = self._get_botorch_constraints() or None
+        eq = [(torch.tensor([c], dtype=torch.long), torch.tensor([1.0], dtype=torch.double), float(z))
+              for c, z in self._get_fixed_features().items()] or None
+        try:
+            pts = get_polytope_samples(
+                n=n, bounds=torch.stack([torch.zeros(dim), torch.ones(dim)]).double(),
+                inequality_constraints=ineq, equality_constraints=eq,
+                seed=len(self.X_history), n_burnin=2000, n_thinning=64,
+            )
+        except Exception as e:
+            print(f"Warning: feasible sampling failed: {e}")
+            return []
+        out = []
+        for i in range(pts.shape[0]):
+            rec = self._decode(unnormalize(pts[i], bounds_tensor).numpy().flatten())
+            if self._check_constraints(rec):
+                out.append(rec)
+        return out
 
     def _ask_optimize(self, n_suggestions, bounds_tensor, dim):
         """Generate recipes using GP + qNoisyExpectedImprovement."""
@@ -776,6 +900,8 @@ class FoodOptimizer:
             else:
                 round_num = max(self.completed_rounds(), 1)
 
+        if getattr(self, 'balance', None) and role != 'reference':
+            recipe_dict = self.with_balance(recipe_dict)
         self._sync_meta()
         self.X_history.append(self._encode(recipe_dict))
         self.Y_history.append(self._compute_utility(results_dict))
@@ -1299,7 +1425,7 @@ class FoodOptimizer:
             i = f['index']
             rec = self.recipe_history[i] if i < len(self.recipe_history) else {}
             comp = ", ".join(f"{n}={rec[n]:.3g}" for n in [v['name'] for v in self.variables]
-                             if rec.get(n))
+                             + ([self.balance['name']] if self.balance else []) if rec.get(n))
             p = "" if f['predicted'] is None else f", predicted {f['predicted']:.3f} ± {f['sd']:.3f}"
             L.append(f"\n**{rank}. Exp #{i}** (round {f['round']}): observed {f['observed']:.3f}{p}")
             L.append(f"- Recipe: {comp}")
@@ -1373,7 +1499,7 @@ class FoodOptimizer:
         L.append("## All experiments by round")
         rounds = sorted({m.get('round') for m in self.meta_history},
                         key=lambda x: -1 if x is None else x)
-        names = [v['name'] for v in self.variables]
+        names = [v['name'] for v in self.variables] + ([self.balance['name']] if self.balance else [])
         for rd in rounds:
             L.append(f"\n**Round {rd if rd is not None else '?'}**")
             for i, m in enumerate(self.meta_history):
@@ -1509,7 +1635,8 @@ class FoodOptimizer:
 
     def _backfill_campaign_state(self):
         defaults = {'meta_history': [], 'design_log': [], 'pending_batch': None,
-                    'check_every': 3, 'candidate_pool': "", 'reference_recipe': None}
+                    'check_every': 3, 'candidate_pool': "", 'reference_recipe': None,
+                    'balance': None}
         for k, v in defaults.items():
             if not hasattr(self, k):
                 setattr(self, k, copy.deepcopy(v))
@@ -1538,6 +1665,7 @@ class FoodOptimizer:
             'check_every': self.check_every,
             'candidate_pool': self.candidate_pool,
             'reference_recipe': self.reference_recipe,
+            'balance': self.balance,
             'CLASS_VERSION': self.CLASS_VERSION,
             'exported_at': _now(),
             'versions': {'botorch': botorch.__version__, 'gpytorch': gpytorch.__version__,
@@ -1612,6 +1740,7 @@ class FoodOptimizer:
         self.check_every = int(state.get('check_every', 3))
         self.candidate_pool = state.get('candidate_pool', "")
         self.reference_recipe = state.get('reference_recipe')
+        self.balance = state.get('balance')
         self._sync_meta()
         self.load_error = None
 

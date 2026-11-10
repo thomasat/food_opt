@@ -27,25 +27,39 @@ so try the next most recent one.
       batch are back.
 
 **Real project setup** (Setup tab)
-- [ ] **Ingredients** (A) and **process parameters** (A2), with makeable ranges.
-      Add process parameters now rather than mid-run if possible.
-- [ ] **Objectives** (B): all attributes, with weight, scale (min–max) and goal
-      (max / min / target value). Don't change these during the campaign. If an
-      attribute has to be added later, every earlier recipe needs a score for it first.
+- [ ] **Ingredients** (A): upload a CSV with **every** ingredient of the starting
+      recipe, including water, with columns `Name, Min, Max, Sodium, Cost`
+      (sodium and cost per gram). Ranges are in grams and must be makeable.
+- [ ] **Balance ingredient** (G): set **Tap water** as the balance, with the batch
+      total (e.g. 1002 g) and a min/max amount of water. Water is then filled up
+      to the batch total instead of being searched over.
+- [ ] **Process parameters** (A2): cook temperature (78–92 °C) and cook time
+      (6–12 min).
+- [ ] **Ingredients the FSA does not want varied** (e.g. potassium sorbate,
+      lecithin): in the *Adaptive EGBO* panel, **Deactivate** each one and **hold it
+      at its current amount**. It stays in every recipe at that amount and can be
+      reactivated at a check.
+- [ ] **Property constraints** (D): sodium and cost **maximums** per batch.
+- [ ] **Objectives** (B): every attribute, with weight, scale **0–15** (the app
+      defaults to 0–10, so change it), and goal (max / min / target value).
+      Don't change these during the campaign. If an attribute has to be added
+      later, every earlier recipe needs a score for it first.
 - [ ] **BO hyperparameters** (F): click **Use campaign config (recommended)**.
       This setting locks once the first result is saved.
-- [ ] **Campaign settings** (G):
-  - [ ] Expert check every **3** rounds.
-  - [ ] **Candidate list**: ingredients or process changes the expert may add, with
-        plausible ranges.
-  - [ ] **Reference recipe**: the same recipe, re-tasted every session.
+- [ ] **Campaign settings** (G): expert check every **3** rounds, and the
+      **candidate list** (ingredients or process changes the FSA may add, with
+      plausible ranges).
+- [ ] **Starting recipe:** enter the starting recipe and its first-session scores
+      under *Add a non-BO sample* (kind: manual, round 0, used in the model).
+- [ ] The **dairy reference** (Arla, served twice per session) is not a
+      recipe: keep its scores on the panel sheets. Don't enter it as a recipe in the app.
 - [ ] Download a backup.
 
 ## Every round
 
 1. Restore the latest backup if the project shows no experiments.
 2. **Generate 5 recipes** (batch size 5). Download the batch CSV **and** a backup.
-3. Make and taste the 5 recipes, plus the **reference recipe**, in the same session.
+3. Make and taste the 5 recipes, plus the dairy reference (twice), in the same session.
 4. Enter the scores (panel means) and **Save Results**.
    - Keep the per-panelist score sheets on your side.
 5. Download a backup.
@@ -63,11 +77,12 @@ check is recorded.
    It shows each attribute's gap, the best recipes, the ranges, and which
    variables are stuck at a limit.
 2. The FSA decides whether to:
-   - **add** an ingredient or process parameter (a process parameter needs the
-     setting used so far, its *baseline*);
+   - **add** an ingredient or process parameter, giving the **amount or setting
+     used so far** (0 for a brand-new ingredient);
    - **widen or narrow** a range;
-   - **deactivate** a variable. Data is kept, and it can be reactivated later.
-     Don't use permanent deletion.
+   - **deactivate** a variable and **hold it at** a chosen amount (it defaults to
+     the amount in the best recipe; 0 drops an ingredient). Data is kept, and it can
+     be reactivated later. Don't use permanent deletion.
    - or make **no change**.
 3. Make the changes in the panel.
 4. **Record the check**: the decision (write *no change* if nothing changed), the

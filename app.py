@@ -471,6 +471,40 @@ with tab_setup:
             _opt.set_candidate_pool(_pool)
             st.success("Saved.")
 
+        st.markdown("**Balance ingredient** (e.g. water): not searched over, but filled "
+                    "up to the batch total, so the batch size stays fixed.")
+        _bal = _opt.balance
+        if _bal:
+            st.info(f"Balance: **{_bal['name']}** fills the batch to {_bal['total']:g} "
+                    f"(kept between {_bal['min']:g} and "
+                    f"{'no limit' if _bal['max'] is None else format(_bal['max'], 'g')}).")
+        if not _opt.X_history:
+            with st.form("balance_form"):
+                bl1, bl2, bl3, bl4 = st.columns(4)
+                with bl1:
+                    _bn = st.text_input("Ingredient", value=_bal['name'] if _bal else "Tap water")
+                with bl2:
+                    _bt = st.number_input("Batch total", value=float(_bal['total']) if _bal else 1000.0)
+                with bl3:
+                    _bmin = st.number_input("Min amount", value=float(_bal['min']) if _bal else 0.0)
+                with bl4:
+                    _bmax = st.number_input("Max amount (0 = none)",
+                                            value=float(_bal['max'] or 0.0) if _bal else 0.0)
+                bc1, bc2 = st.columns(2)
+                with bc1:
+                    _set_bal = st.form_submit_button("Set balance ingredient")
+                with bc2:
+                    _clr_bal = st.form_submit_button("Clear", disabled=not _bal)
+                if _set_bal:
+                    try:
+                        _opt.set_balance(_bn.strip(), _bt, _bmin, _bmax or None)
+                        st.rerun()
+                    except ValueError as e:
+                        st.error(str(e))
+                if _clr_bal:
+                    _opt.set_balance(None, 0)
+                    st.rerun()
+
         st.markdown("**Reference recipe** (re-tasted every session to track panel "
                     "drift and noise)")
         if _opt.variables:
@@ -764,29 +798,26 @@ with tab_optimize:
             new_name = st.text_input("Name", key="adaptive_new_name")
             nc1, nc2, nc3 = st.columns(3)
             with nc1:
-                new_min = st.number_input(
-                    "Min", value=0.0, key="adaptive_new_min",
-                    disabled=(add_type == "Ingredient" and _has_hist),
-                    help="Ingredients added mid-run have min 0 (absent in prior recipes).",
-                )
+                new_min = st.number_input("Min", value=0.0, key="adaptive_new_min")
             with nc2:
                 new_max = st.number_input("Max", value=10.0, key="adaptive_new_max")
             with nc3:
                 new_base = st.number_input(
-                    "Baseline (process only)", value=0.0, key="adaptive_new_base",
-                    disabled=(add_type == "Ingredient"),
-                    help="The value used in ALL prior batches. Past experiments encode "
-                         "at this value; must lie within [Min, Max].",
+                    "Amount / setting used so far", value=0.0, key="adaptive_new_base",
+                    disabled=not _has_hist,
+                    help="The amount (ingredient) or setting (process) used in ALL earlier "
+                         "recipes. 0 for a brand-new ingredient. Must lie within [Min, Max].",
                 )
             if add_type == "Ingredient":
                 st.caption(
-                    "Ingredient: absent (0) in every past recipe; mid-run its min is 0 "
-                    "and BO decides how much to use."
+                    "Ingredient: give the amount used in every earlier recipe — 0 if it is "
+                    "new, or its fixed amount if it was in the base recipe but not being "
+                    "varied (e.g. lecithin held at 5 g)."
                 )
             else:
                 st.caption(
-                    "Process parameter: past batches ran at a fixed setting, so give the "
-                    "Baseline (that setting) — it must lie within [Min, Max]."
+                    "Process parameter: past batches ran at a fixed setting — give that "
+                    "setting. It must lie within [Min, Max]."
                 )
             if st.form_submit_button("Add to design space"):
                 nm = new_name.strip()
@@ -795,7 +826,8 @@ with tab_optimize:
                 else:
                     try:
                         if add_type == "Ingredient":
-                            _opt.add_ingredient(nm, new_min, new_max)
+                            _opt.add_ingredient(nm, new_min, new_max,
+                                                baseline=(new_base if _has_hist else None))
                         else:
                             _opt.add_process_parameter(
                                 nm, new_min, new_max,
@@ -821,7 +853,8 @@ with tab_optimize:
         _cont = [v for v in _opt.variables if v['type'] == 'continuous']
         if _cont:
             _rv_name = st.selectbox(
-                "Variable", [v['name'] for v in _cont], key="range_pick",
+                "Variable", [v['name'] for v in _cont],
+                key="range_pick_" + "|".join(v['name'] for v in _cont),
                 format_func=lambda n: (
                     f"{n}  [{_opt._var_by_name(n)['bounds'][0]:g}, "
                     f"{_opt._var_by_name(n)['bounds'][1]:g}]"
@@ -854,28 +887,37 @@ with tab_optimize:
             "**4. Prune the design space.** Deactivating a variable removes it from "
             "the active set without deleting anything: past experiments stay in the "
             "GP, and only the acquisition search is restricted (the variable is held "
-            "at its pinned value). Fully reversible — this is what lets the active "
+            "at the amount you choose). Fully reversible — this is what lets the active "
             "set shrink as well as grow, so expert false positives don't accumulate."
         )
 
         if len(_act) > 1:
-            _off = st.multiselect(
-                "Deactivate (prune from the active set)",
-                [v['name'] for v in _act],
-                key="egbo_deactivate",
-                help="Ingredients pin at 0; process parameters pin at their baseline "
-                     "or lower bound.",
-            )
-            if st.button("Deactivate selected", disabled=not _off):
-                try:
-                    for nm in _off:
-                        _opt.deactivate_variable(nm)
-                    st.session_state.pop("current_batch", None)
-                    st.session_state.show_backup_warning = True
-                    st.success(f"Pruned: {', '.join(_off)} — generate a new batch.")
-                    st.rerun()
-                except ValueError as e:
-                    st.error(str(e))
+            _off = st.selectbox("Deactivate (stop varying)", [v['name'] for v in _act],
+                                key="egbo_deactivate_" + "|".join(v['name'] for v in _act))
+            _offv = _opt._var_by_name(_off)
+            _best_i = max(range(len(_opt.Y_history)), key=lambda i: _opt.Y_history[i]) \
+                if _opt.Y_history else None
+            _default_hold = float(_opt.recipe_history[_best_i].get(
+                _off, _offv.get('_absent_value', 0.0))) if _best_i is not None \
+                else float(_offv.get('_absent_value', _opt._frozen_value(_offv)))
+            with st.form(f"hold_form_{_off}"):
+                _hold = st.number_input(
+                    f"Hold {_off} at (range {_offv['bounds'][0]:g}–{_offv['bounds'][1]:g})",
+                    value=_default_hold, key=f"hold_{_off}", format="%.4g",
+                    help="Defaults to its amount in the best recipe so far. Use 0 to drop "
+                         "an ingredient entirely.",
+                )
+                if st.form_submit_button("Deactivate"):
+                    try:
+                        _opt.deactivate_variable(_off, value=_hold)
+                        st.session_state.show_backup_warning = True
+                        st.session_state["_prune_msg"] = (
+                            f"'{_off}' is now held at {_hold:g} — generate a new batch.")
+                        st.rerun()
+                    except ValueError as e:
+                        st.error(str(e))
+            if st.session_state.get("_prune_msg"):
+                st.success(st.session_state.pop("_prune_msg"))
         else:
             st.caption("At least 2 active variables are needed before pruning.")
 
@@ -895,7 +937,7 @@ with tab_optimize:
             _on = st.multiselect(
                 "Reactivate (return to the active set)",
                 [v['name'] for v in _inact],
-                key="egbo_reactivate",
+                key="egbo_reactivate_" + "|".join(v['name'] for v in _inact),
             )
             if st.button("Reactivate selected", disabled=not _on):
                 for nm in _on:

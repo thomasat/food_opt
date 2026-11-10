@@ -308,3 +308,130 @@ class TestBackup:
         rng = np.random.default_rng(16)
         run_round(opt, rng)
         assert opt.backup_filename().startswith("mozz_R01_")
+
+
+# ------------------------------------------------------------------ #
+#  Proxy's plant-based mozzarella setup: grams, water as balance,
+#  cook step, sodium and cost limits
+# ------------------------------------------------------------------ #
+
+import pandas as pd
+
+MOZZ = {  # name: (min g, max g, start g, sodium mg/g, cost $/g)
+    "Coconut oil": (150, 280, 220, 0.0, 0.004),
+    "Tapioca starch": (70, 150, 110, 0.0, 0.002),
+    "Soy protein isolate": (20, 60, 35, 10.0, 0.008),
+    "Potato starch": (10, 40, 25, 0.0, 0.002),
+    "Salt": (8, 16, 13, 393.0, 0.0005),
+    "Kappa carrageenan": (4, 12, 8, 10.0, 0.02),
+    "Soy lecithin": (2, 8, 5, 0.0, 0.01),
+    "Guar gum": (2, 6, 4, 0.0, 0.01),
+    "Lactic acid": (2, 5, 3.6, 0.0, 0.005),
+    "Nutritional yeast": (1, 5, 3, 1.0, 0.02),
+}
+
+
+@pytest.fixture
+def mozz(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    o = FoodOptimizer(project_name="proxy_mozz")
+    rows = [{"Name": n, "Min": lo, "Max": hi, "Sodium": na, "Cost": c}
+            for n, (lo, hi, _, na, c) in MOZZ.items()]
+    rows.append({"Name": "Tap water", "Min": 0, "Max": 1002, "Sodium": 0.0, "Cost": 0.0})
+    o.load_ingredients_from_csv(pd.DataFrame(rows))
+    o.set_balance("Tap water", total=1002, min_amount=450, max_amount=700)
+    o.add_process_parameter("Cook temp", 78, 92)
+    o.add_process_parameter("Cook time", 6, 12)
+    o.add_constraint("sodium", max_val=6000)   # mg per batch
+    o.add_constraint("cost", max_val=3.2)      # $ per batch
+    for a, goal in (("Stretchy", "target"), ("Rich", "max"), ("Artificial", "min")):
+        o.add_objective(a, 1 / 3, goal=goal, target=10 if goal == "target" else None,
+                        min_val=0, max_val=15)
+    o.set_bo_config(DEFAULT_BO_CONFIG)
+    return o
+
+
+def mozz_score(r, rng):
+    oil, starch = r["Coconut oil"] / 280, r["Tapioca starch"] / 150
+    t = (r["Cook temp"] - 78) / 14
+    return {
+        "Stretchy": float(np.clip(15 * (0.5 * starch + 0.3 * t + 0.2 * r["Kappa carrageenan"] / 12)
+                                  + rng.normal(0, 0.5), 0, 15)),
+        "Rich": float(np.clip(15 * oil + rng.normal(0, 0.5), 0, 15)),
+        "Artificial": float(np.clip(3 + 0.6 * r["Nutritional yeast"] + rng.normal(0, 0.5), 0, 15)),
+    }
+
+
+def feasible(o, r):
+    water = r["Tap water"]
+    total = sum(r[n] for n in MOZZ) + water
+    sodium = sum(r[n] * MOZZ[n][3] for n in MOZZ)
+    cost = sum(r[n] * MOZZ[n][4] for n in MOZZ)
+    return (abs(total - 1002) < 1e-6 and 450 - 1e-6 <= water <= 700 + 1e-6
+            and sodium <= 6000 + 1e-6 and cost <= 3.2 + 1e-6
+            and all(MOZZ[n][0] - 1e-6 <= r[n] <= MOZZ[n][1] + 1e-6 for n in MOZZ))
+
+
+class TestMozzSetup:
+    def test_water_is_balance_not_variable(self, mozz):
+        assert "Tap water" not in [v["name"] for v in mozz.variables]
+        assert mozz.ingredient_properties["Tap water"] == {"sodium": 0.0, "cost": 0.0}
+
+    def test_round1_recipes_feasible_and_distinct(self, mozz):
+        recipes = mozz.ask(n_suggestions=5)
+        assert len(recipes) == 5
+        assert all(feasible(mozz, r) for r in recipes)
+        oils = {round(r["Coconut oil"], 3) for r in recipes}
+        assert len(oils) == 5
+
+    def test_bo_rounds_stay_feasible(self, mozz):
+        rng = np.random.default_rng(20)
+        for _ in range(3):
+            recipes = mozz.ask(n_suggestions=5)
+            assert all(feasible(mozz, r) for r in recipes), recipes
+            for r in recipes:
+                mozz.tell(r, mozz_score(r, rng))
+            mozz.clear_pending_batch()
+        assert mozz.recipe_history[-1]["Tap water"] > 0
+        text, _ = mozz.expert_report()
+        assert "Tap water=" in text
+
+    def test_hold_ingredient_at_amount(self, mozz):
+        rng = np.random.default_rng(21)
+        for r in mozz.ask(n_suggestions=5):
+            mozz.tell(r, mozz_score(r, rng))
+        mozz.clear_pending_batch()
+        mozz.deactivate_variable("Soy lecithin", value=5.0)
+        recipes = mozz.ask(n_suggestions=3)
+        assert all(abs(r["Soy lecithin"] - 5.0) < 1e-6 for r in recipes)
+        assert all(feasible(mozz, r) for r in recipes)
+
+    def test_add_ingredient_with_baseline(self, mozz):
+        rng = np.random.default_rng(22)
+        for r in mozz.ask(n_suggestions=5):
+            mozz.tell(r, mozz_score(r, rng))
+        mozz.clear_pending_batch()
+        # Potassium sorbate was in every recipe at 0.8 g but not varied.
+        mozz.add_ingredient("Potassium sorbate", 0.5, 1.2, baseline=0.8)
+        col = [v["name"] for v in mozz.variables].index("Potassium sorbate")
+        assert all(abs(x[col] - 0.8) < 1e-9 for x in mozz.X_history)
+        with pytest.raises(ValueError, match="must lie within"):
+            mozz.add_ingredient("Citric acid", 1, 2, baseline=0.5)
+        mozz.ask(n_suggestions=2)
+
+    def test_balance_survives_backup(self, mozz):
+        blob = json.loads(json.dumps(mozz.export_json()))
+        blob["project_name"] = "proxy_mozz_restored"
+        fresh = FoodOptimizer(project_name="proxy_mozz_restored")
+        fresh.import_json(blob)
+        assert fresh.balance == mozz.balance
+        assert all(feasible(fresh, r) for r in fresh.ask(n_suggestions=3))
+
+    def test_round1_with_tight_constraints_uses_feasible_sampling(self, mozz):
+        # Oil + tapioca within a 5 g window: random draws almost never satisfy it.
+        mozz.add_quantity_constraint(["Coconut oil", "Tapioca starch"], min_val=330, max_val=335)
+        recipes = mozz.ask(n_suggestions=5)
+        assert len(recipes) == 5
+        for r in recipes:
+            assert feasible(mozz, r)
+            assert 330 - 1e-6 <= r["Coconut oil"] + r["Tapioca starch"] <= 335 + 1e-6
