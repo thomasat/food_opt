@@ -491,29 +491,6 @@ with tab_setup:
                     _opt.set_balance(None, 0)
                     st.rerun()
 
-        st.markdown("**Reference recipe** (re-tasted every session to track panel "
-                    "drift and noise)")
-        if _opt.variables:
-            _ref = _opt.reference_recipe or {}
-            _ref_df = pd.DataFrame([
-                {"Variable": v['name'], "Amount": float(_ref.get(v['name'], v.get('_absent_value', 0.0)))}
-                for v in _opt.variables if v['type'] == 'continuous'
-            ])
-            _ref_ed = st.data_editor(_ref_df, hide_index=True, disabled=["Variable"],
-                                     key="ref_editor")
-            rc1, rc2 = st.columns(2)
-            with rc1:
-                if st.button("Save reference recipe"):
-                    _opt.set_reference_recipe(
-                        {r["Variable"]: float(r["Amount"]) for _, r in _ref_ed.iterrows()})
-                    st.success("Reference recipe saved.")
-            with rc2:
-                if _opt.reference_recipe and st.button("Clear reference recipe"):
-                    _opt.set_reference_recipe(None)
-                    st.rerun()
-        else:
-            st.caption("Load ingredients first.")
-
 
 # ================================================================== #
 #  Tab 2: Optimization Loop
@@ -638,7 +615,6 @@ with tab_optimize:
 
         if _opt.pending_batch:
             _pb = _opt.pending_batch
-            _ref = _opt.reference_recipe
             with st.form("results_form"):
                 batch_inputs = {}
                 for i, recipe in enumerate(_pb['recipes']):
@@ -654,30 +630,9 @@ with tab_optimize:
                     batch_inputs[i] = rec_scores
                     st.divider()
 
-                ref_scores, ref_tasted, ref_in_gp = None, False, True
-                if _ref:
-                    st.markdown("**Reference recipe** (same recipe every session)")
-                    ref_tasted = st.checkbox("Tasted in this session", value=True,
-                                             key=f"ref_tasted_{_pb['round']}")
-                    ref_in_gp = st.checkbox(
-                        "Use in the model (it is a real observation; repeats help the GP "
-                        "estimate noise)", value=True, key=f"ref_gp_{_pb['round']}")
-                    cols = st.columns(len(_opt.objectives))
-                    ref_scores = {}
-                    for j, obj in enumerate(_opt.objectives):
-                        with cols[j]:
-                            ref_scores[obj['name']] = st.number_input(
-                                f"{obj['name']} ({obj['min_val']}-{obj['max_val']})",
-                                key=f"ref_{_pb['round']}o{j}",
-                            )
-                else:
-                    st.caption("No reference recipe set (Setup tab, section F).")
-
                 if st.form_submit_button("Save Results"):
                     for i, recipe in enumerate(_pb['recipes']):
                         _opt.tell(recipe, batch_inputs[i], role='bo')
-                    if _ref and ref_tasted:
-                        _opt.tell(_ref, ref_scores, role='reference', in_gp=ref_in_gp)
                     _opt.clear_pending_batch()
                     st.session_state.show_backup_warning = True
                     st.session_state.pop("expert_report", None)
@@ -694,7 +649,6 @@ with tab_optimize:
                 with st.form("manual_form"):
                     _m_ed = st.data_editor(_m_df, hide_index=True, disabled=["Variable"],
                                            key="manual_editor")
-                    _m_role = st.selectbox("Kind", ["manual", "reference"])
                     _m_round = st.number_input("Round", min_value=0, value=max(_r_done, 1), step=1)
                     _m_gp = st.checkbox("Use in the model", value=True)
                     cols = st.columns(len(_opt.objectives))
@@ -707,7 +661,7 @@ with tab_optimize:
                             )
                     if st.form_submit_button("Save sample"):
                         _rec = {r["Variable"]: float(r["Amount"]) for _, r in _m_ed.iterrows()}
-                        _opt.tell(_rec, _m_scores, role=_m_role, in_gp=_m_gp,
+                        _opt.tell(_rec, _m_scores, role='manual', in_gp=_m_gp,
                                   round_num=int(_m_round))
                         st.session_state.show_backup_warning = True
                         st.rerun()
@@ -755,7 +709,7 @@ with tab_optimize:
         st.markdown(
             "**1. Prepare the expert report.** It has the objective definitions, the best "
             "recipes with each attribute's gap and share of the loss, the current ranges "
-            "(flagging variables stuck at a limit), the reference recipe by session, all "
+            "(flagging variables stuck at a limit), all "
             "experiments by round, and earlier decisions. Give it to the expert (FSA)."
         )
         if st.button("Prepare expert report"):
