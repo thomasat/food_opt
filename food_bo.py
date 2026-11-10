@@ -858,8 +858,10 @@ class FoodOptimizer:
             acq_function=acq_func,
             bounds=torch.stack([torch.zeros(dim), torch.ones(dim)]).double(),
             q=n_suggestions,
-            num_restarts=20,
-            raw_samples=1024,
+            # Same effort as the NeurIPS paper's EGBO runs (10 restarts, 512 raw
+            # samples); 20 x 1024 was ~2.6x slower with no tested benefit.
+            num_restarts=10,
+            raw_samples=512,
             sequential=True,
             inequality_constraints=self._get_botorch_constraints(),
             fixed_features=self._get_fixed_features() or None,
