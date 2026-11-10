@@ -435,3 +435,27 @@ class TestMozzSetup:
         for r in recipes:
             assert feasible(mozz, r)
             assert 330 - 1e-6 <= r["Coconut oil"] + r["Tapioca starch"] <= 335 + 1e-6
+
+
+class TestOldSessionObjects:
+    def test_object_from_older_code_still_works(self, tmp_path, monkeypatch):
+        """Simulate an optimizer created before v6/v7 fields existed (e.g. one held
+        in a Streamlit session across a redeploy)."""
+        monkeypatch.chdir(tmp_path)
+        o = FoodOptimizer("old_session")
+        o.add_ingredient("A", 0, 10)
+        o.add_ingredient("B", 0, 10)
+        o.add_objective("T", 1, "max")
+        for k in ("meta_history", "design_log", "pending_batch", "check_every",
+                  "candidate_pool", "reference_recipe", "balance", "load_error"):
+            o.__dict__.pop(k, None)
+        assert o.balance is None and o.completed_rounds() == 0 and not o.check_due()
+        r = o.ask(n_suggestions=2)
+        for x in r:
+            o.tell(x, {"T": 5.0})
+        o.clear_pending_batch()
+        o.deactivate_variable("B", value=1.0)
+        assert isinstance(o.__dict__["meta_history"], list) and len(o.meta_history) == 2
+        assert isinstance(o.__dict__["design_log"], list) and len(o.design_log) == 1
+        assert FoodOptimizer.meta_history == () and FoodOptimizer.design_log == ()
+        json.dumps(o.export_json())

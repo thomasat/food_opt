@@ -104,7 +104,19 @@ def _json_default(obj):
 
 
 class FoodOptimizer:
-    CLASS_VERSION = 6  # bump when adding methods/attrs to force session refresh
+    CLASS_VERSION = 7  # bump when adding methods/attrs to force session refresh
+
+    # Class-level defaults for attributes added after v5, so an object created
+    # by older code (e.g. still held in a Streamlit session across a redeploy)
+    # reads sensible values instead of raising AttributeError.
+    meta_history = ()
+    design_log = ()
+    pending_batch = None
+    check_every = 3
+    candidate_pool = ""
+    reference_recipe = None
+    balance = None
+    load_error = None
 
     def __init__(self, project_name="experiment", robust=False):
         """Initialize or load a food optimization project.
@@ -924,6 +936,8 @@ class FoodOptimizer:
     def _sync_meta(self):
         """Pad meta_history for experiments recorded before v6 (treated as BO
         samples in the GP, round unknown)."""
+        if not isinstance(self.__dict__.get('meta_history'), list):
+            self.meta_history = list(self.meta_history)
         while len(self.meta_history) < len(self.X_history):
             self.meta_history.append({'round': None, 'role': 'bo', 'in_gp': True, 'time': None})
 
@@ -948,6 +962,8 @@ class FoodOptimizer:
                        for e in self.design_log)
 
     def _log(self, kind, **details):
+        if not isinstance(self.__dict__.get('design_log'), list):
+            self.design_log = list(self.design_log)
         entry = {'type': kind, 'after_round': self.completed_rounds(), 'time': _now()}
         entry.update(copy.deepcopy(details))
         self.design_log.append(entry)
