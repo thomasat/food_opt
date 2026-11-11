@@ -1,6 +1,6 @@
-# Campaign checklist: adaptive EGBO in the Formulation Assistant
+# Instructions: adaptive EGBO in the Formulation Assistant
 
-## The one rule: the downloaded backup is the record
+## Most important rule: the downloaded backup is the record
 
 The app goes to sleep when nobody uses it, and when it wakes up **its saved
 data is usually gone**. Expect this between most rounds.
