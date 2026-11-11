@@ -1,6 +1,6 @@
 # Instructions: adaptive EGBO in the Formulation Assistant
 
-## Most important rule: the downloaded backup is the record
+## Most important rule: download a backup after every iteration
 
 The app goes to sleep when nobody uses it, and when it wakes up **its saved
 data is usually gone**. Expect this between most rounds.
