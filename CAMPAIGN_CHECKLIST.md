@@ -1,8 +1,5 @@
 # Campaign checklist: adaptive EGBO in the Formulation Assistant
 
-For the team running a campaign: 10 rounds of 5 recipes, with expert checks
-after rounds 3 and 6 (and 9).
-
 ## The one rule: the downloaded backup is the record
 
 The app goes to sleep when nobody uses it, and when it wakes up **its saved
