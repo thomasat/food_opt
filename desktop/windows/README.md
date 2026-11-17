@@ -2,7 +2,7 @@
 
 ## Status
 
-Windows build: unsigned, internal testing only.
+Windows build: 0.9.0 ships unsigned; signing comes in a later release.
 
 The design is `docs/superpowers/specs/2026-10-23-windows-port-design.md`.
 Releasing: "Release (Windows half)" below, inside the combined ritual in
@@ -39,7 +39,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File desktop\windows\build_instal
   the installer goes to `DIR`'s sibling `dist\`. `<OutDir>\FoodOptimizer\`
   must be at most 80 characters, and the build refuses a folder there that
   holds anything but an earlier build.
-- Every build prints `UNSIGNED build - internal testing only.`
+- Every build prints `UNSIGNED build (signed=no).`
 
 The steps: the bundled Python and the Windows lock, Microsoft's C++
 runtime, the app, the shared launcher and Start Here (phase 3b), then
@@ -60,8 +60,9 @@ Output:
   `signed=no`).
 - `build\FoodOptimizer.files.txt`: the sha256 of every file in the image.
 - `build\FoodOptimizer.unsigned.txt`: the binaries not signed by their
-  vendor (phase 6 signs them; it includes `FoodOptimizer.exe`, the shell's
-  own DLLs, and the two WebView2 wrappers that ReadyToRun recompiles).
+  vendor (signing, when it comes, covers them; it includes `FoodOptimizer.exe`,
+  the shell's own DLLs, and the two WebView2 wrappers that ReadyToRun
+  recompiles).
 - `dist\FoodOptimizer-<ver>-Windows[-test].exe`: the installer.
 - `dist\FoodOptimizer-<ver>-Windows[-test].files.txt`: a byte copy of the
   per-file list, published as a release asset.
@@ -274,13 +275,11 @@ FoodOptimizer.exe                        the window (.NET, WebView2)
 
 ### Allow-listing
 
-Scope the rules to the product, not to the signers. The files carry their
-vendors' signatures; only those their vendors left unsigned
-(`build\FoodOptimizer.unsigned.txt`) are signed by Food System Innovations.
-What the files carry:
+0.9.0 is unsigned: allow it by hash or path, not by publisher. Publisher
+rules become possible once releases are signed. What the files carry:
 
-- Food System Innovations: the installer, the uninstaller,
-  `FoodOptimizer.exe` and the files it signs;
+- No signature: the installer, the uninstaller, `FoodOptimizer.exe` and
+  the other binaries their vendors left unsigned;
 - Python Software Foundation: `python.exe`, `pythonw.exe`, `python313.dll`
   and CPython's own modules;
 - Microsoft Windows Software Compatibility Publisher: the C++ runtime DLLs
@@ -289,28 +288,33 @@ What the files carry:
 
 The rules:
 
-- A publisher + product rule (AppLocker or WDAC) for Food System
-  Innovations' files, Food Optimizer as the product. Defender for
-  Endpoint has no product rule: its certificate indicator allows every
-  file the certificate signs.
+- The installer: a hash rule. The release page shows each download's
+  sha256, and `Get-FileHash "FoodOptimizer-<ver>-Windows.exe"` prints it;
+  that flat SHA-256 is what a Defender for Endpoint file indicator takes.
+  For AppLocker or WDAC, generate the rule from the file itself
+  (`Get-AppLockerFileInformation -Path "<installer>" | New-AppLockerPolicy
+  -RuleType Hash ...` or `New-CIPolicy -Level Hash`): they use the PE hash,
+  not the flat one.
 - A path rule for `%PROGRAMFILES%\Food Optimizer\*` (the all-users
   install, where only administrators can write).
-- Hash rules for the vendor-signed files: check the installed files against
-  the release's `FoodOptimizer-<ver>-Windows.files.txt` (flat SHA-256 values,
-  not the PE hashes AppLocker and WDAC use), then generate the rules from
-  those files with `Get-AppLockerFileInformation -Directory "<install folder>"
+- Or hash rules for the installed files: check them against the release's
+  `FoodOptimizer-<ver>-Windows.files.txt` (flat SHA-256 values, not the PE
+  hashes AppLocker and WDAC use), then generate the rules from those files
+  with `Get-AppLockerFileInformation -Directory "<install folder>"
   -Recurse -FileType Exe,Dll,Script | New-AppLockerPolicy -RuleType Hash ...` or
-  `New-CIPolicy -Level Hash`.
-- Third-party DLLs and `.pyd` files that Food System Innovations re-signed
-  keep their own product name, so under WDAC they need the path rule or
-  hash rules; a publisher + product rule covers only Food Optimizer's own
-  files.
+  `New-CIPolicy -Level Hash`. The list leaves out `unins000.exe` (Inno
+  Setup writes it at install). Each release needs new hash rules.
 - Do not allow the Python Software Foundation or Microsoft signers
   machine-wide: the path or hash rule already covers their files here.
 - AppLocker's default rules allow non-admins only `%PROGRAMFILES%` and
   `%WINDIR%`, so they block a per-user install (it runs from the user's
   profile). Use the
   all-users install on such PCs.
+- Smart App Control blocks unsigned apps, with no override for the user.
+- Once releases are signed by Food System Innovations: a publisher +
+  product rule (AppLocker or WDAC), Food Optimizer as the product. Defender
+  for Endpoint has no product rule: its certificate indicator allows every
+  file the certificate signs.
 
 ## Test
 
@@ -357,9 +361,9 @@ event counts). Its installs use user folders under `C:\FOL2\` (a user
 named `José Müller`) and never your own projects. `-Cleanup` lets it
 uninstall a Food Optimizer it did not install.
 
-## Testing an unsigned build (internal only)
+## Opening an unsigned build
 
-An unsigned build is never sent to a recipient; signing is phase 6.
+0.9.0 ships unsigned; signing comes in a later release.
 Opening one shows SmartScreen's "Windows protected your PC" with
 "Unknown publisher": click More info, then Run anyway.
 
@@ -425,7 +429,7 @@ network, Defender real-time on with the rare-file rule
 (`01443614-cd74-433a-b99e-2ecdc07bfc25`) enabled, AppLocker's default
 rules enforced for Exe, Msi, Script and Appx.
 Smart App Control is off on the evaluation image (it blocks unsigned
-builds outright; on a signed build, note its state in L1). AppLocker's
+apps, with no override for the user; on a signed build, note its state in L1). AppLocker's
 default rules allow only `%PROGRAMFILES%` and `%WINDIR%` for non-admins,
 which is why L2 blocks the per-user installer and L3 uses the IT install.
 
@@ -439,7 +443,7 @@ which is why L2 blocks the per-user installer and L3 uses the IT install.
   round sheet, close → record any prompt or block.
 - **L5** Defender events 1121/1122 and AppLocker events 8003/8004 since L3
   → list each blocked file. On an unsigned build, rare-file blocks are
-  expected; they feed phase 6.
+  expected; add what they need to "Allow-listing".
 - **L6** SYSTEM uninstall → exit 0; `fostd`'s projects and state folder
   stay.
 
@@ -461,13 +465,13 @@ Steps 6 and 7 of the combined ritual ("Publishing a release" in
    ```
 
 2. The release build (no switch: it refuses unless the tree is clean and
-   HEAD is the tag) from that clone, then signing:
+   HEAD is the tag) from that clone:
 
    ```
    powershell -NoProfile -ExecutionPolicy Bypass -File desktop\windows\build_installer.ps1
    ```
 
-   PENDING(signing step)
+   No signing step while releases are unsigned (0.9.0).
 3. pytest under the image's Python at the tag, as in "Test" above: 0
    failed, apart from a list stated in the release PR.
 4. Level 2 with the three installers and `-Cleanup` (`run_level2.ps1`, as

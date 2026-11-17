@@ -1750,10 +1750,9 @@ def test_own_formulation_joins_the_open_batch(burger):
     # The table above says three, and the row says what it is.
     assert any(m.value == wording.make_these(1, 3)
                for m in at.markdown), [m.value for m in at.markdown]
-    # v3: the Round table names the app's two (not yet made) Suggestion 1
-    # and 2, and the reader's own row by its number.
+    # The Round table names every row by its number, the reader's own too.
     assert [c.split(" · ")[0] for c in at.tabs[1].table[0].value.columns] == [
-        "Suggestion 1", "Suggestion 2", "F3"]
+        "F1", "F2", "F3"]
     assert any(s.value == "Formulation 3 added to Round 1."
                for s in at.success), [s.value for s in at.success]
 
@@ -2045,7 +2044,7 @@ def test_result_inputs_do_not_clamp_and_refuse_out_of_range_on_save(open_batch):
     at.run()
     assert not at.exception
     # Said below the whole grid, so it names the row as its heading does.
-    assert any(e.value == ("Suggestion 1: Firmness 12 N is outside 0–10 N. "
+    assert any(e.value == ("Formulation 1: Firmness 12 N is outside 0–10 N. "
                            "Fix it, or raise Scale maximum in Set up.")
                for e in at.error), [e.value for e in at.error]
     assert FoodOptimizer("burger").X_history == []
@@ -8461,7 +8460,7 @@ def test_tab_two_reads_as_the_three_steps_of_the_work(open_batch):
             < _first(order, wording.STEP_PRINT_HEADING)
             < _first(order, wording.DOWNLOAD_BATCH_SHEETS)
             < _first(order, wording.STEP_RECORD_HEADING)
-            < _first(order, wording.suggestion_heading(1))
+            < _first(order, wording.formulation_heading(1))
             < _first(order, "0 of 2 complete")
             < _first(order, wording.SAVE_RESULTS)), order
     # The two folded extras come after Save, in one order, and the one
@@ -8973,9 +8972,9 @@ def test_an_out_of_range_result_is_said_where_it_was_typed(open_batch):
     assert said == ["Firmness 12 N is outside 0–10 N. Fix it, or raise "
                     "Scale maximum in Set up."], said
     order = _tab_flow(at)
-    # The grid names an unmade app suggestion as the table does (v3).
+    # The grid names each row by its formulation number.
     assert (order.index(said[0])
-            < _first(order, wording.suggestion_heading(2))), order
+            < _first(order, wording.formulation_heading(2))), order
     save = _submit_button(at, wording.SAVE_RESULTS)
     assert not save.disabled
     save.click().run()
@@ -10387,11 +10386,11 @@ def test_the_round_tab_reads_in_one_order(open_batch):
         wording.STEP_PRINT_HEADING,
         wording.STEP_RECORD_HEADING,
         # One heading per row of the round, inside step 3, each with its
-        # own More fold (spec 2026-09-30 §3, V11). v3: an unmade app
-        # suggestion is named as the table above names it.
-        wording.suggestion_heading(1),
+        # own More fold (spec 2026-09-30 §3, V11), named by its
+        # formulation number (owner, 2026-11-16).
+        wording.formulation_heading(1),
         wording.MORE,
-        wording.suggestion_heading(2),
+        wording.formulation_heading(2),
         wording.MORE,
         wording.ADD_OWN_EXPANDER,
         wording.UPLOAD_EXPANDER,

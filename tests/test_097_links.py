@@ -37,8 +37,10 @@ def _links(at):
 
 
 def _scripts(at):
+    """The one-shot scripts (the sidebar's A11Y_SCRIPT is on every run)."""
     return [e.proto.body for e in at.get("html")
-            if getattr(e.proto, "unsafe_allow_javascript", False)]
+            if getattr(e.proto, "unsafe_allow_javascript", False)
+            and e.proto.body != ui_helpers.A11Y_SCRIPT]
 
 
 def _blocks(node, out=None):

@@ -12,7 +12,8 @@ from tests.shared_texts import REPO, flowed, read_lf
 SRC = REPO / "desktop" / "shared" / "start_here.src.md"
 MAC = REPO / "desktop" / "start_here.txt"
 WIN = REPO / "desktop" / "windows" / "start_here.txt"
-MAC_SHA256 = "644f36920a5dd5731cff0a4893bd63c04a4fcad4123551f7ba32116b7a502b09"
+# 0.9.0 (owner, 2026-11-16): "Round workbook" and three lines rewrapped.
+MAC_SHA256 = "ef8f36f66c6b32628bfb6dbfbd3de591dfe1b631dde389465d3e493edf411648"
 
 
 def _module():
@@ -68,9 +69,10 @@ def test_windows_start_here_says_what_the_spec_requires():
                    "First opening takes longer. Keep the app's window open.",
                    "Quick access",
                    "Enable Editing",
-                   "Windows may not recognize the app yet. Click More info. "
-                   "Check the publisher is Food System Innovations, then click Run anyway.",
-                   "If Edge warns about the download, choose Keep.",
+                   'Windows may say "Unknown publisher." Click More info, then Run anyway.',
+                   "Download the Round workbook (Excel).",
+                   "If Edge warns about the download, click \u2026 then Keep. "
+                   "Then click the arrow beside Delete, then Keep anyway.",
                    wording.SUPPORT_EMAIL,
                    "AppData\\Local\\FoodOptimizer\\launcher.log"):
         assert needed in text, needed
@@ -84,3 +86,12 @@ def test_no_render_ships_an_html_comment():
     would leak into the render users read."""
     assert "<!--" not in read_lf(WIN)
     assert "<!--" not in read_lf(MAC)
+
+
+def test_no_line_runs_past_80_characters():
+    """Start Here opens in TextEdit and Notepad, which wrap a long line
+    wherever the window ends; two lines ran to 102 and 121 characters."""
+    for path in (MAC, WIN):
+        long = [(n, len(line)) for n, line in enumerate(read_lf(path).splitlines(), 1)
+                if len(line) > 80]
+        assert long == [], (path.name, long)

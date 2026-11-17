@@ -198,8 +198,8 @@ def test_nothing_writes_registry_services_or_tasks():
 
 def test_allow_listing_names_every_signer_in_the_install():
     """The binaries keep their vendors' signatures (CPython's PSF, Microsoft's
-    C++ and .NET runtimes); only the unsigned ones are re-signed. A rule for
-    Food System Innovations alone would block python.exe."""
+    C++ and .NET runtimes); the rest carry none while releases are unsigned,
+    and Food System Innovations signs them once signing comes."""
     pins = json.loads((WINDOWS / "pins.json").read_text(encoding="utf-8"))
     section = _flat(_section("Allow-listing"))
     for signer in ("Food System Innovations", pins["python"]["signer"], pins["vc_runtime"]["dll_signer"],
@@ -215,6 +215,24 @@ def test_allow_listing_is_scoped_to_the_product():
                    "Do not allow the Python Software Foundation or Microsoft signers machine-wide"):
         assert needle in section, needle
     assert "all four signers" not in section
+
+
+def test_allow_listing_works_for_an_unsigned_release():
+    """0.9.0 ships unsigned (owner, 2026-11-16): hash or path rules now, a
+    publisher rule only once releases are signed."""
+    section = _flat(_section("Allow-listing"))
+    for needle in ("0.9.0 is unsigned: allow it by hash or path, not by publisher.",
+                   "Publisher rules become possible once releases are signed.",
+                   "No signature: the installer, the uninstaller, `FoodOptimizer.exe`",
+                   "The release page shows each download's sha256",
+                   'Get-FileHash "FoodOptimizer-<ver>-Windows.exe"',
+                   "Defender for Endpoint file indicator",
+                   'Get-AppLockerFileInformation -Path "<installer>"',
+                   "Smart App Control blocks unsigned apps, with no override for the user.",
+                   "Once releases are signed by Food System Innovations: a publisher + product rule"):
+        assert needle in section, needle
+    for gone in ("`) are signed by Food System Innovations", "re-signed", "Food System Innovations: the installer"):
+        assert gone not in section, gone
 
 
 def test_the_test_overrides_are_documented():

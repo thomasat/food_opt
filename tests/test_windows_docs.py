@@ -111,14 +111,43 @@ def test_windows_release_half():
     assert "report.json" not in hand_back
 
 
+# Step 2's note while releases are unsigned (owner, 2026-11-16): it names
+# the release it was written for, and goes when signing comes.
+UNSIGNED_STEP = "No signing step while releases are unsigned (0.9.0)."
+
+
 def test_ritual_names_no_real_version():
-    for text in (_ritual(), _windows_half()):
+    for text in (_ritual(), _windows_half().replace(UNSIGNED_STEP, "")):
         assert not re.search(r"\b\d+\.\d+\.\d+\b", text), re.search(r"\b\d+\.\d+\.\d+\b", text)
 
 
 def test_windows_readme_pending_markers():
     found = set(re.findall(r"PENDING\(((?:[^()]|\([^()]*\))*)\)", WIN_README.read_text(encoding="utf-8")))
-    assert found == {"signing step"}
+    assert found == set()
+
+
+def test_windows_readme_says_the_release_is_unsigned():
+    """0.9.0 ships unsigned (owner, 2026-11-16); signing comes later."""
+    text = WIN_README.read_text(encoding="utf-8")
+    assert "0.9.0 ships unsigned; signing comes in a later release." in text
+    assert UNSIGNED_STEP in _windows_half()
+    assert "never sent to a recipient" not in text
+
+
+def test_ritual_keeps_the_mac_signed_and_lets_windows_ship_unsigned():
+    """Owner, 2026-11-16: Windows ships unsigned (signed=no) only while the
+    release texts say "Unknown publisher"; the Mac is always signed and
+    notarized."""
+    ritual = _flat(_ritual())
+    for needle in ("The Mac's must say `signed=yes` and `notarized=yes`, always.",
+                   "The Windows record says `signed=no` while releases are unsigned (step 1)",
+                   'say `"Unknown publisher."`', "the release build", "An unsigned Mac build is for internal testers only"):
+        assert needle in ritual, needle
+    for gone in ("the signed build", "Artifact Signing validation is done", "both records must say `tree_clean=yes`, `signed=yes`"):
+        assert gone not in ritual, gone
+    half = _flat(_windows_half())
+    assert "then signing" not in half
+    assert "internal testing only" not in _flat(WIN_README)
 
 
 def test_windows_readme_names_the_release_assets():

@@ -362,6 +362,26 @@ REVIEW_DOT_STYLE = """<style>
   content: " \\2022"; color: var(--st-primary-color, #ff4b4b);
 }
 </style>"""
+# Screen readers read Streamlit's Material icon as its ligature text: every
+# fold was heard as "keyboard_arrow_right New project" (the Windows UI
+# Automation walk, 0.9.0). Drawn on every run as the sidebar's last element,
+# the script hides each fold's icon from assistive tech (aria-hidden), now
+# and as folds appear; the arrow still shows. Its own slot takes no space.
+A11Y_MARK = "fo-a11y"
+A11Y_SCRIPT = f"""<style>
+[data-testid="stElementContainer"]:has([data-{A11Y_MARK}]) {{ display: none; }}
+</style><span data-{A11Y_MARK}></span><script>
+(function () {{
+  const doc = window.parent.document;
+  if (doc.body.dataset.foA11y) return;            // once per page
+  doc.body.dataset.foA11y = "1";
+  const quiet = () => doc.querySelectorAll(
+    'summary [data-testid="stIconMaterial"]:not([aria-hidden])'
+  ).forEach((icon) => icon.setAttribute("aria-hidden", "true"));
+  quiet();
+  new MutationObserver(quiet).observe(doc.body, {{childList: true, subtree: true}});
+}})();
+</script>"""
 # Ftue fix C: a keyed expander carries no st-key- class in the page
 # (Streamlit 1.55), so a fold the page scrolls to sits in a keyed container
 # of its own: "Add a formulation to this round" (keyed, so it can be opened).

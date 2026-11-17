@@ -60,7 +60,7 @@ def test_round6_table_values_signs_tags_and_total():
                               "Nutritional yeast", "Tapioca starch", "Xanthan gum"]
     assert table.rows[-1] == "Total (allowed 97.69–98.69 g)"
     assert table.row_header == "Ingredient (g)"
-    assert table.best_no == 10 and table.tied == [] and table.numbers == []
+    assert table.best_no == 10 and table.tied == []
     c = _cells(table)
     best = c["Best so far (F10 · 95.0)"]
     assert best["Coconut cream"].text == "51.84" and best["Tap water"].text == "41.22"
@@ -96,19 +96,18 @@ def test_no_total_limit_reads_total_in_its_unit():
     assert table.rows[-1] == "Total (g)"
 
 
-def test_tie_names_the_first_made_and_suggestions_are_numbered():
+def test_tie_names_the_first_made_and_suggestions_by_number():
     """After the pilot's Round 6, F16 and F17 tie at 98.3: the column names
     F16 (first made) and the tie is said; an app-generated Round not yet
-    made reads Suggestion 1-3, its numbers kept for the workbook."""
+    made reads F19-F21, as the workbook does (owner, 2026-11-16)."""
     opt = _record_round6(_round6())
     ui_batch.ask_alone(opt, n_suggestions=3)
     table = ui_batch.round_compare(opt)
     assert table.columns[0] == "Best so far (F16 · 98.3)"
     assert table.best_no == 16 and table.tied == [17]
     labels = [c.split(" · ")[0] for c in table.columns[1:]]
-    assert labels == ["Suggestion 1", "Suggestion 2", "Suggestion 3"]
+    assert labels == ["F19", "F20", "F21"]
     numbers = [int(r["formulation"]) for r in opt.pending_batch]
-    assert table.numbers == list(zip([1, 2, 3], numbers))
     assert numbers == [19, 20, 21]
     # The workbook and the uploader read the formulation numbers, never the
     # screen's labels.
@@ -124,7 +123,7 @@ def test_own_rows_keep_their_numbers_beside_suggestions(monkeypatch):
     rows[1] = dict(rows[1], note="My own")
     monkeypatch.setattr(opt, "pending_batch", rows)
     table = ui_batch.round_compare(opt)
-    assert table.columns[1].startswith("Suggestion 1")
+    assert table.columns[1].startswith(f"F{rows[0]['formulation']}")
     assert table.columns[2].startswith(f"F{rows[1]['formulation']}")
 
 
@@ -135,8 +134,9 @@ def test_less_tried_label_only_for_explores(monkeypatch):
                   wording.SUGGESTION_BALANCED])
     monkeypatch.setattr(opt, "suggestion_role", lambda recipe, before=None: next(roles))
     table = ui_batch.round_compare(opt)
-    assert table.columns[1:] == ["Suggestion 1", "Suggestion 2 · Less-tried area",
-                                 "Suggestion 3"]
+    first = int(opt.pending_batch[0]["formulation"])
+    assert table.columns[1:] == [f"F{first}", f"F{first + 1} · Less-tried area",
+                                 f"F{first + 2}"]
     for c in table.columns:
         assert wording.SUGGESTION_CLOSE not in c and wording.SUGGESTION_BALANCED not in c
 
@@ -265,37 +265,33 @@ def test_round6_screen_has_the_table_captions_and_no_forecast():
     assert "5 %" in key.help and "allowed range" in key.help
 
 
-def test_app_generated_round_reads_suggestions_on_screen():
+def test_app_generated_round_reads_its_numbers_on_screen():
     opt = _record_round6(_round6())
     ui_batch.ask_alone(opt, n_suggestions=3)
     opt.save()
     at = _app()
     tab = at.tabs[1]
     shown = tab.table[0].value
-    assert [c.split(" · ")[0] for c in shown.columns[1:]] == [
-        "Suggestion 1", "Suggestion 2", "Suggestion 3"]
+    assert [c.split(" · ")[0] for c in shown.columns[1:]] == ["F19", "F20", "F21"]
     assert shown.columns[0] == "Best so far (F16 · 98.3)"
     captions = [c.value for c in tab.caption]
     assert "Best bets to improve on F16, F17 (tied)." in captions
     assert wording.CHOSEN_IN_PILOT not in captions
-    assert not any(c.startswith("F19") for c in shown.columns)
+    assert not any("Suggestion" in c for c in shown.columns)
 
 
-def test_the_record_grid_names_suggestions_as_the_table_does():
-    """v3 integration: the grid under the table says 'Suggestion 1' for an
-    app suggestion not yet made, as the table does; the workbook, the upload
-    and the records keep Formulation 19-21. Once a row is recorded every
-    label is the formulation number again, in the table and the grid."""
+def test_the_record_grid_names_rows_as_the_workbook_does():
+    """The pilot's Round 7: the result boxes say Formulation 19-21, as the
+    workbook, the upload preview, the Results tab and the records do
+    (owner, 2026-11-16: the boxes said 'Suggestion 1-3')."""
     opt = _record_round6(_round6())
     ui_batch.ask_alone(opt, n_suggestions=3)
     opt.save()
-    assert ui_batch.suggestion_numbers(opt) == {19: 1, 20: 2, 21: 3}
     at = _app()
     heads = [m.value for m in at.tabs[1].markdown]
-    assert [h for h in heads if h.startswith("**Suggestion")] == [
-        wording.suggestion_heading(k) for k in (1, 2, 3)]
-    assert not [h for h in heads if h.startswith("**Formulation 1") or
-                h.startswith("**Formulation 2")]
+    assert [h for h in heads if h.startswith("**Formulation")] == [
+        wording.formulation_heading(n) for n in (19, 20, 21)]
+    assert not [h for h in heads if "Suggestion" in h]
     # The workbook still names the formulations by number, and its upload
     # lands on those rows.
     import io
@@ -312,11 +308,10 @@ def test_the_record_grid_names_suggestions_as_the_table_does():
     parsed, _ = opt.parse_batch_results(sheet, opt.pending_batch, with_skipped=True,
                                         weighed=weighed)
     assert [number for number, _, _ in parsed] == [20]
-    # One row recorded: the Round's labels are formulation numbers again.
+    # One row recorded: the labels stay the same.
     number, results, note = parsed[0]
     recipe = next(r["recipe"] for r in opt.pending_batch if r["formulation"] == 20)
     opt.tell(recipe, results, formulation_no=20, batch_no=opt.pending_batch_no, note=note)
-    assert ui_batch.suggestion_numbers(opt) == {}
     assert [c.split(" · ")[0] for c in ui_batch.round_compare(opt).columns[1:]] == [
         "F19", "F20", "F21"]
 
@@ -360,7 +355,7 @@ def test_a_process_only_round_reads_trial(tmp_path, monkeypatch):
     assert shown.index.name == "Process setting"
     assert list(shown.index) == ["Incubation temperature (°C)", "Incubation time (h)"]
     assert shown.columns[0].startswith("Best so far (T") and shown.columns[1].startswith(
-        "Suggestion 1")
+        "T6")
     assert shown.iloc[1, 1].endswith("*at upper limit*")
     key = next(c for c in tab.caption if "More than T" in c.value)
     assert "setting" in key.help
@@ -373,10 +368,10 @@ def test_the_v3_lines_pass_the_vocabulary_guard_and_the_length_rules():
     captions = [wording.improve_on_caption([10]), wording.improve_on_caption([16, 17]),
                 wording.CHOSEN_IN_PILOT, wording.COVER_CAPTION, wording.workbook_sheets(),
                 wording.workbook_sheets(True)]
-    labels = [wording.best_column(10, "95.0"), wording.suggestion_column(1), wording.LESS_TRIED,
+    labels = [wording.best_column(10, "95.0"), wording.LESS_TRIED,
               wording.AT_UPPER_LIMIT, wording.AT_LOWER_LIMIT, wording.compare_row_header("g")]
     helps = [wording.improve_on_help([10]), wording.best_tied_help(16, [17]),
-             wording.SUGGESTION_NUMBERS_HELP, wording.less_tried_help(30),
+             wording.less_tried_help(30),
              wording.compare_key_more(10), wording.compare_key_less(10),
              wording.compare_key_plain(5), wording.compare_key_help(10, 5),
              wording.workbook_sheets_help(), wording.workbook_sheets_help(True),
@@ -394,12 +389,3 @@ def test_the_v3_lines_pass_the_vocabulary_guard_and_the_length_rules():
         "unsure the model is.")
     assert wording.workbook_sheets() == "Sheets: Round overview · Results"
     assert "Preparation" in wording.workbook_sheets_help()
-
-
-def test_the_suggestion_numbers_help_lists_no_numbers():
-    """v3 final cleanup: a live Round 7 on the pilot would have mapped its
-    suggestions to F19–F21, the pilot's own numbers; the "?" says when
-    they get numbers instead of listing them."""
-    text = wording.SUGGESTION_NUMBERS_HELP
-    assert text == "Suggestions get formulation numbers when their results are recorded."
-    assert not any(ch.isdigit() for ch in text)

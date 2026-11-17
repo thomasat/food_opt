@@ -59,7 +59,8 @@ def test_build_script_has_every_refusal():
 
 def test_build_script_prints_the_unsigned_banner_and_record():
     text = _strict(BUILD)
-    assert "UNSIGNED build - internal testing only." in text
+    assert "UNSIGNED build (signed=no)." in text
+    assert "internal testing only" not in text  # 0.9.0 ships unsigned (owner, 2026-11-16)
     assert "TEST BUILD - not for release" in text
     assert "build failed: " in text
 

@@ -240,8 +240,8 @@ def test_scale_error_names_the_value_the_range_and_the_fix():
         "Set up.")
     # A unit that is a word for a score is left off: never '12 score'.
     assert scale_error(dict(obj, name="Crunch", unit="score"), 12.0,
-                       label="Suggestion 1: Crunch") == (
-        "Suggestion 1: Crunch 12 is outside 0–10. Fix it, or raise Scale "
+                       label="Formulation 1: Crunch") == (
+        "Formulation 1: Crunch 12 is outside 0–10. Fix it, or raise Scale "
         "maximum in Set up.")
 
 

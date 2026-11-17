@@ -4,7 +4,7 @@ page (desktop/release_notes/<version>.md), the Windows download email
 
 Owner, 2026-10-25: the main thing sent is a download link. The page holds
 the two download links, three "what is new" lines, one update line and
-about five lines for IT teams; the email is three lines; the README's
+about five lines for IT teams; the email is five lines; the README's
 Windows section is the link and one requirements line. Every claim left is
 read here from the code or the test that backs it."""
 import ast
@@ -47,12 +47,19 @@ def _section(text, heading):
 
 def _start_here_smartscreen():
     text = flowed(read_lf(WINDOWS / "start_here.txt"))
-    return re.search(r"Windows may not recognize the app yet\..*?Run anyway\.", text).group(0)
+    return re.search(r"Windows may say .*?Run anyway\.", text).group(0)
 
 
-SMARTSCREEN = ("Windows may not recognize the app yet. Click More info. "
-               "Check the publisher is Food System Innovations, then click Run anyway.")
-EDGE = "If Edge warns about the download, choose Keep."
+# 0.9.0 ships unsigned (owner, 2026-11-16): SmartScreen names no publisher,
+# so the line says what it does show. Owner-approved words.
+SMARTSCREEN = 'Windows may say "Unknown publisher." Click More info, then Run anyway.'
+# Until the build is signed, no sent text may promise a publisher.
+SENT_TEXTS = (NOTES, EMAIL, README, WINDOWS / "start_here.txt",
+              REPO / "desktop" / "shared" / "start_here.src.md")
+# Edge's keep path, recorded at checklist W1 (WIN11-VM, Edge 157, unsigned
+# installer, 2026-11-16); owner-approved words. "…" is Edge's own button.
+EDGE = ("If Edge warns about the download, click \u2026 then Keep.",
+        "Then click the arrow beside Delete, then Keep anyway.")
 REQUIREMENTS = "Needs 64-bit Windows 10 (22H2) or Windows 11 and 2 GB free."
 
 
@@ -98,7 +105,8 @@ def test_mac_requirement_line_is_what_the_mac_app_enforces():
 
 def test_start_here_smartscreen_is_the_owners_sentence():
     assert _start_here_smartscreen() == SMARTSCREEN
-    assert EDGE in flowed(read_lf(WINDOWS / "start_here.txt"))
+    lines = [line.strip() for line in read_lf(WINDOWS / "start_here.txt").splitlines()]
+    assert lines[lines.index(EDGE[0]):lines.index(EDGE[0]) + 3] == [*EDGE, SMARTSCREEN]
 
 
 def test_notes_are_the_owners_five_parts():
@@ -108,7 +116,7 @@ def test_notes_are_the_owners_five_parts():
     assert re.findall(r"^## (.+)$", text, re.M) == [f"What is new in {VERSION}", "For IT teams"]
     head = text[:text.index("## What is new")]
     assert _lines(head) == [f"**[Download for Mac]({_url('dmg')})**", MAC_NEEDS,
-                            f"**[Download for Windows]({_url('exe')})**", EDGE, SMARTSCREEN]
+                            f"**[Download for Windows]({_url('exe')})**", *EDGE, SMARTSCREEN]
     for gone in ("{{", "MB", "Assets", "Checksums", "SHA-256", "Source code", "IT sheet", "SBOM"):
         assert gone not in text, gone
 
@@ -135,8 +143,22 @@ def _it_lines():
 
 
 def test_notes_have_six_it_lines():
+    """Five, plus the unsigned line while Windows ships unsigned."""
     lines = _it_lines()
     assert len(lines) == 6, lines
+
+
+# 0.9.0 ships unsigned (owner, 2026-11-16): IT allow-lists by hash, as the
+# Windows README's "Allow-listing" says. Goes when signing comes.
+IT_UNSIGNED = "Unsigned: allow-list it by file hash, not by publisher."
+
+
+def test_it_unsigned_line_matches_the_readme():
+    assert _it_lines()[4] == IT_UNSIGNED
+    assert SMARTSCREEN in NOTES.read_text(encoding="utf-8")
+    text = " ".join(WIN_README.read_text(encoding="utf-8").split())
+    allow = text[text.index("### Allow-listing"):text.index("## Test")]
+    assert "allow it by hash or path, not by publisher" in allow
 
 
 def test_notes_bullet_three_names_csv_and_get_help():
@@ -167,21 +189,22 @@ def test_it_install_line_is_the_documented_all_users_command():
     assert command.endswith(" ".join(_l2_constant("SILENT")) + " /ALLUSERS")
 
 
-def test_it_publisher_line_is_setups_and_pending_signing():
-    """Food System Innovations is setup.iss's AppPublisher; until the signed
-    build shows it, a PENDING marker holds the release tag
-    (tests/test_release_guards.py::test_no_pending_marker_at_a_release_tag)."""
-    line = _it_lines()[2]
-    publisher = re.search(r"^AppPublisher=(.*)$", (WINDOWS / "setup.iss").read_text(encoding="ascii"), re.M).group(1)
-    assert _visible(line).strip() == f"Publisher: {publisher}."
-    assert {m.group(1) for m in PENDING.finditer(line)} == {"publisher shown on the signed build"}
+def test_an_unsigned_release_promises_no_publisher():
+    """0.9.0 ships unsigned (owner, 2026-11-16): SmartScreen shows "Unknown
+    publisher", so no sent text names one or asks the reader to check it.
+    The IT publisher line comes back with signing."""
+    for path in SENT_TEXTS:
+        text = path.read_text(encoding="utf-8")
+        assert "Check the publisher" not in text, path
+        assert "Publisher:" not in text, path
+        assert "signed build" not in text, path
 
 
 def test_it_sends_nothing_line_points_to_the_zero_traffic_test():
     """"Sends nothing" is Level 2's zero-traffic test: Food Optimizer's
     processes connect only to loopback during a full session; the release
     ritual runs Level 2 (tests/test_windows_docs.py::test_windows_release_half)."""
-    assert _it_lines()[3] == ("Runs only on this PC and sends nothing. "
+    assert _it_lines()[2] == ("Runs only on this PC and sends nothing. "
                               "FoodOptimizer.exe and its Python connect only to 127.0.0.1.")
     assert _defines("desktop/windows/tests/test_l2_40_traffic.py::test_our_processes_connect_only_to_loopback")
     assert _defines("desktop/windows/tests/test_l2_40_traffic.py::test_the_capture_sees_our_python")
@@ -189,8 +212,8 @@ def test_it_sends_nothing_line_points_to_the_zero_traffic_test():
 
 
 def test_it_requirements_line_is_the_readmes():
-    assert _it_lines()[4] == REQUIREMENTS
-    assert _it_lines()[4] + " Works offline." == _requirements()
+    assert _it_lines()[3] == REQUIREMENTS
+    assert _it_lines()[3] + " Works offline." == _requirements()
 
 
 def test_it_contact_is_get_helps_address():
@@ -203,17 +226,14 @@ def test_notes_links_are_the_two_downloads():
     assert urls == [_url("dmg"), _url("exe")]
 
 
+# W1 recorded Edge's words (2026-11-16): no sent text waits on anything.
 def test_notes_pending_markers():
-    assert {m.group(1) for m in PENDING.finditer(NOTES.read_text(encoding="utf-8"))} == {
-        "publisher shown on the signed build", "exact SmartScreen words on a signed build",
-        "Edge download warning words, from checklist W1"}
+    assert not PENDING.search(NOTES.read_text(encoding="utf-8"))
 
 
 def test_start_here_pending_markers():
     src = REPO / "desktop" / "shared" / "start_here.src.md"
-    assert {m.group(1) for m in PENDING.finditer(src.read_text(encoding="utf-8"))} == {
-        "exact SmartScreen words on a signed build",
-        "Edge download warning words, from checklist W1"}
+    assert not PENDING.search(src.read_text(encoding="utf-8"))
 
 
 def test_notes_sentences_are_short():
@@ -228,11 +248,11 @@ def test_notes_sentences_are_short():
 
 # ---------- the download email ----------
 
-def test_email_is_four_lines():
-    """The direct .exe link, the Edge line, Start Here's SmartScreen sentence
-    and where to ask: no size, steps, subject or attachment lines."""
+def test_email_is_five_lines():
+    """The direct .exe link, the two Edge lines, Start Here's SmartScreen
+    sentence and where to ask: no size, steps, subject or attachment lines."""
     lines = _lines(EMAIL.read_text(encoding="utf-8"))
-    assert lines == [f"Food Optimizer for Windows: {_url('exe')}", EDGE, _start_here_smartscreen(),
+    assert lines == [f"Food Optimizer for Windows: {_url('exe')}", *EDGE, _start_here_smartscreen(),
                      f"Questions: {CONTACT}"]
 
 
@@ -242,17 +262,14 @@ def test_email_links_straight_to_the_exe():
 
 
 def test_email_lines_follow_the_copy_rules():
-    first, _, _, last = _lines(EMAIL.read_text(encoding="utf-8"))
+    first, *_, last = _lines(EMAIL.read_text(encoding="utf-8"))
     for line in (first.split(": https://")[0], last):
         assert len(line.split()) <= 10, line
 
 
 def test_email_pending_markers():
-    """The SmartScreen sentence names the publisher, which only a signed
-    build shows: W1 records the real words before the tag."""
-    assert {m.group(1) for m in PENDING.finditer(EMAIL.read_text(encoding="utf-8"))} == {
-        "exact SmartScreen words on a signed build",
-        "Edge download warning words, from checklist W1"}
+    """W1 recorded Edge's real download-warning words (2026-11-16)."""
+    assert not PENDING.search(EMAIL.read_text(encoding="utf-8"))
 
 
 # ---------- the root README ----------

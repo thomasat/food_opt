@@ -15,6 +15,9 @@ SNAPSHOT = pathlib.Path(__file__).parent / "fixtures" / "wording_snapshot_080.js
 # says which fix changed it.
 ALLOWED_CHANGES = {
     "SUPPORT_EMAIL",  # new: the support address (Windows port phase 1)
+    # Removed in 0.9.0: the Round table names unmade suggestions F19, not
+    # "Suggestion 1", so this "?" has nothing to say (owner, 2026-11-16).
+    "SUGGESTION_NUMBERS_HELP",
 }
 
 

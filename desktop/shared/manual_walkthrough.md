@@ -14,7 +14,7 @@ from a file", click "Browse files" and choose "Round 6 results
 pilot's Round 6 results" is the other way), then click "Save uploaded
 results". "3 · Results" shows "Round 6 results" (F16, F17 new best, tied);
 on "4 · Review", "Start Round 7" opens "2 · Make a round" with
-Suggestion 1–3, and "See the pilot's Rounds 7–10" opens "Yogurt pilot
+F19–F21, and "See the pilot's Rounds 7–10" opens "Yogurt pilot
 - all 10 Rounds" on "4 · Review". Manage project → "Start this example over" puts Round 6 back
 to waiting and the results file back in the FoodOptimizer folder (Mac: in your home folder; Windows: Quick access), shows one
 line ("… is back as shipped. Your version is in Saved copies."), and
@@ -45,7 +45,7 @@ ingredient does not close "Preparation and records" under you. Go to "2 · Make 
 round", generate one, check every row of the round table totals the
 batch size and that Water's column is headed "Water · calculated (g)",
 change "Batch size (g)" to 250 and watch every amount
-in the round table follow it, download the round sheets (Excel) and
+in the round table follow it, download the Round workbook (Excel) and
 open it: the sheets
 are protected, only the cells the instruction line names take a value,
 and a printed greyscale copy makes clear which they are — every one of

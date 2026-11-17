@@ -147,7 +147,7 @@ SCORE_WORD_UNITS = ("score", "scores", "point", "points", "pts", "rating")
 
 
 def outside_scale(name, value_text, range_text, above=True):
-    """'Suggestion 1: Crunch 12 is outside 0–10. Fix it, or raise Scale
+    """'Formulation 1: Crunch 12 is outside 0–10. Fix it, or raise Scale
     maximum in Set up.' — a result typed outside its measurement's range,
     naming the one Set up cell that would let it in (`above`: past the
     top). The texts carry their unit already ('12 N', '0–20 N')."""
@@ -940,20 +940,6 @@ def best_tied_help(no, others):
             f"{', '.join(short_no(n) for n in others)}.")
 
 
-def suggestion_column(k):
-    """A suggestion not yet made: 'Suggestion 1'. Its formulation number
-    stays in the workbook and the records; the table does not show it, so a
-    new Round never reads like a sample's own numbers."""
-    return f"Suggestion {k}"
-
-
-# The key's "?" while the Round's suggestions are unmade. It lists no
-# numbers (owner, v3 final cleanup): on the pilot a live Round 7 mapped its
-# suggestions to F19–F21, the pilot's own numbers.
-SUGGESTION_NUMBERS_HELP = (f"Suggestions get {FORMULATION} numbers when their results are "
-                           "recorded.")
-
-
 # A suggestion's column label when the distance rule says it explores
 # (food_bo.FAR_FROM_TESTED); no label for the other two roles.
 LESS_TRIED = "Less-tried area"
@@ -1171,12 +1157,6 @@ def recorded_line_note(line, note):
 
 def formulation_heading(no):
     return f"**{FORMULATION_CAP} {no}**"
-
-
-def suggestion_heading(k):
-    """Make a round's record grid, for an app suggestion not yet made: the
-    table's own name, '**Suggestion 1**' (suggestion_column)."""
-    return f"**{suggestion_column(k)}**"
 
 
 def nothing_to_save(n):
@@ -4981,6 +4961,14 @@ REVIEW_ROUND_HELP = (f"Opens {TAB_INSIGHTS}: the best so far, how it compares wi
 # The tooltip's expert row title, and its lines.
 PLOT_BO = "BO term"
 PLOT_BO_MODEL_FREE = "model-free: the measured values"
+
+
+def plot_point_name(no, round_label, score_text):
+    """What a screen reader says for one dot on the score chart:
+    'Formulation 16, Round 6, Overall score 98.3'. Without it the chart
+    library reads every tooltip row, the BO term included."""
+    when = round_label if round_label == IMPORTED_NOTE else f"{ROUND_CAP} {round_label}"
+    return f"{FORMULATION_CAP} {no}, {when}, {OVERALL_SCORE_COLUMN} {score_text}"
 
 
 # --- review four ---
