@@ -231,7 +231,7 @@ https://github.com/thomasat/food_opt/releases/download/vX.Y.Z/FoodOptimizer-X.Y.
 https://github.com/thomasat/food_opt/releases/download/vX.Y.Z/FoodOptimizer-X.Y.Z-Windows.exe
 ```
 
-For Windows recipients, send the four lines in `windows/download_email.md`.
+For Windows recipients, send the five lines in `windows/download_email.md`.
 
 Notes:
 - The repo is public, so the links work for anyone — no GitHub account needed.

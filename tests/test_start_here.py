@@ -71,7 +71,8 @@ def test_windows_start_here_says_what_the_spec_requires():
                    "Enable Editing",
                    'Windows may say "Unknown publisher." Click More info, then Run anyway.',
                    "Download the Round workbook (Excel).",
-                   "If Edge warns about the download, choose Keep.",
+                   "If Edge warns about the download, click \u2026 then Keep. "
+                   "Then click the arrow beside Delete, then Keep anyway.",
                    wording.SUPPORT_EMAIL,
                    "AppData\\Local\\FoodOptimizer\\launcher.log"):
         assert needed in text, needed

@@ -4,7 +4,7 @@ page (desktop/release_notes/<version>.md), the Windows download email
 
 Owner, 2026-10-25: the main thing sent is a download link. The page holds
 the two download links, three "what is new" lines, one update line and
-about five lines for IT teams; the email is three lines; the README's
+about five lines for IT teams; the email is five lines; the README's
 Windows section is the link and one requirements line. Every claim left is
 read here from the code or the test that backs it."""
 import ast
@@ -56,7 +56,10 @@ SMARTSCREEN = 'Windows may say "Unknown publisher." Click More info, then Run an
 # Until the build is signed, no sent text may promise a publisher.
 SENT_TEXTS = (NOTES, EMAIL, README, WINDOWS / "start_here.txt",
               REPO / "desktop" / "shared" / "start_here.src.md")
-EDGE = "If Edge warns about the download, choose Keep."
+# Edge's keep path, recorded at checklist W1 (WIN11-VM, Edge 157, unsigned
+# installer, 2026-11-16); owner-approved words. "…" is Edge's own button.
+EDGE = ("If Edge warns about the download, click \u2026 then Keep.",
+        "Then click the arrow beside Delete, then Keep anyway.")
 REQUIREMENTS = "Needs 64-bit Windows 10 (22H2) or Windows 11 and 2 GB free."
 
 
@@ -102,7 +105,8 @@ def test_mac_requirement_line_is_what_the_mac_app_enforces():
 
 def test_start_here_smartscreen_is_the_owners_sentence():
     assert _start_here_smartscreen() == SMARTSCREEN
-    assert EDGE in flowed(read_lf(WINDOWS / "start_here.txt"))
+    lines = [line.strip() for line in read_lf(WINDOWS / "start_here.txt").splitlines()]
+    assert lines[lines.index(EDGE[0]):lines.index(EDGE[0]) + 3] == [*EDGE, SMARTSCREEN]
 
 
 def test_notes_are_the_owners_five_parts():
@@ -112,7 +116,7 @@ def test_notes_are_the_owners_five_parts():
     assert re.findall(r"^## (.+)$", text, re.M) == [f"What is new in {VERSION}", "For IT teams"]
     head = text[:text.index("## What is new")]
     assert _lines(head) == [f"**[Download for Mac]({_url('dmg')})**", MAC_NEEDS,
-                            f"**[Download for Windows]({_url('exe')})**", EDGE, SMARTSCREEN]
+                            f"**[Download for Windows]({_url('exe')})**", *EDGE, SMARTSCREEN]
     for gone in ("{{", "MB", "Assets", "Checksums", "SHA-256", "Source code", "IT sheet", "SBOM"):
         assert gone not in text, gone
 
@@ -222,18 +226,14 @@ def test_notes_links_are_the_two_downloads():
     assert urls == [_url("dmg"), _url("exe")]
 
 
-# The Edge line waits for the real Edge words (checklist W1, on a VM): its
-# marker keeps blocking the release tag until then.
-EDGE_PENDING = {"Edge download warning words, from checklist W1"}
-
-
+# W1 recorded Edge's words (2026-11-16): no sent text waits on anything.
 def test_notes_pending_markers():
-    assert {m.group(1) for m in PENDING.finditer(NOTES.read_text(encoding="utf-8"))} == EDGE_PENDING
+    assert not PENDING.search(NOTES.read_text(encoding="utf-8"))
 
 
 def test_start_here_pending_markers():
     src = REPO / "desktop" / "shared" / "start_here.src.md"
-    assert {m.group(1) for m in PENDING.finditer(src.read_text(encoding="utf-8"))} == EDGE_PENDING
+    assert not PENDING.search(src.read_text(encoding="utf-8"))
 
 
 def test_notes_sentences_are_short():
@@ -248,11 +248,11 @@ def test_notes_sentences_are_short():
 
 # ---------- the download email ----------
 
-def test_email_is_four_lines():
-    """The direct .exe link, the Edge line, Start Here's SmartScreen sentence
-    and where to ask: no size, steps, subject or attachment lines."""
+def test_email_is_five_lines():
+    """The direct .exe link, the two Edge lines, Start Here's SmartScreen
+    sentence and where to ask: no size, steps, subject or attachment lines."""
     lines = _lines(EMAIL.read_text(encoding="utf-8"))
-    assert lines == [f"Food Optimizer for Windows: {_url('exe')}", EDGE, _start_here_smartscreen(),
+    assert lines == [f"Food Optimizer for Windows: {_url('exe')}", *EDGE, _start_here_smartscreen(),
                      f"Questions: {CONTACT}"]
 
 
@@ -262,14 +262,14 @@ def test_email_links_straight_to_the_exe():
 
 
 def test_email_lines_follow_the_copy_rules():
-    first, _, _, last = _lines(EMAIL.read_text(encoding="utf-8"))
+    first, *_, last = _lines(EMAIL.read_text(encoding="utf-8"))
     for line in (first.split(": https://")[0], last):
         assert len(line.split()) <= 10, line
 
 
 def test_email_pending_markers():
-    """W1 records Edge's real download-warning words before the tag."""
-    assert {m.group(1) for m in PENDING.finditer(EMAIL.read_text(encoding="utf-8"))} == EDGE_PENDING
+    """W1 recorded Edge's real download-warning words (2026-11-16)."""
+    assert not PENDING.search(EMAIL.read_text(encoding="utf-8"))
 
 
 # ---------- the root README ----------
