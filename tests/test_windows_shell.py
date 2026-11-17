@@ -263,7 +263,16 @@ def test_webview_settings_are_the_spec_list():
     assert makers == ["WebEnvironment.cs"], makers
 
 
-ICON = REPO / "desktop" / "windows" / "icon.ico"
+def test_the_page_gets_the_keyboard_at_launch():
+    # At launch the host already has the focus before the controller exists,
+    # so OnGotFocus never moves it: InitializeAsync hands it over once ready.
+    host = _strip_comments(read_lf(SHELL / "FoodOptimizer.Shell" / "WebViewHost.cs"))
+    init = host[host.index("public async Task InitializeAsync"):host.index("public void CloseController")]
+    assert re.search(r"Controller = controller;\s*if \(ContainsFocus\) controller\.MoveFocus\("
+                     r"CoreWebView2MoveFocusReason\.Programmatic\);\s*\}", init), init
+
+
+ICON =REPO / "desktop" / "windows" / "icon.ico"
 ICON_SIZES = {16, 20, 24, 32, 40, 48, 64, 256}
 
 

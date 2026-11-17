@@ -43,6 +43,9 @@ sealed class WebViewHost : Control
         controller.Bounds = ClientRectangle;
         controller.IsVisible = FindForm()?.WindowState != FormWindowState.Minimized;
         Controller = controller;
+        // The host may already have the focus (it does at launch), so
+        // OnGotFocus never fires: hand the keyboard to the page now.
+        if (ContainsFocus) controller.MoveFocus(CoreWebView2MoveFocusReason.Programmatic);
     }
 
     /// <summary>Closes the web view (its browser process is gone or the window is closing).</summary>
