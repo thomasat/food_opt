@@ -755,7 +755,6 @@ class RoundCompare:
     tied: list           # the other formulations tied with it
     row_header: str
     unit: str | None     # the one unit every row shares, else None
-    numbers: list        # [(suggestion k, formulation number)] relabelled columns
     formulations: list   # the formulation number of each column after Best so far
     total_row: bool
 
@@ -837,27 +836,11 @@ def _as_float(value):
         return None
 
 
-def suggestion_numbers(opt):
-    """{formulation number: k} for the open Round's app suggestions while no
-    row of it is recorded (or set aside): Make a round's table calls them
-    'Suggestion 1', 2, 3 in that order. A row of the user's own keeps its
-    number; the record grid, the workbook, the upload and the records keep
-    every formulation's number. Empty once anything is recorded."""
-    rows = list(opt.pending_batch or [])
-    if not rows or len(open_rows(opt)) != len(rows):
-        return {}
-    out = {}
-    for row in rows:
-        if not row.get('note'):
-            out[int(row['formulation'])] = len(out) + 1
-    return out
-
-
-def _column_label(opt, row, k):
-    """'Suggestion k' for an app suggestion not yet made (k given), else
-    'F16'; with ' · Less-tried area' when the distance rule says it
-    explores."""
-    label = wording.suggestion_column(k) if k else wording.short_no(row['formulation'])
+def _column_label(opt, row):
+    """'F19', as the record grid, the workbook and the Results tab name the
+    row (owner, 2026-11-16: no 'Suggestion 1'); with ' · Less-tried area'
+    when the distance rule says it explores."""
+    label = wording.short_no(row['formulation'])
     try:
         role = opt.suggestion_role(row['recipe'])
     except Exception:
@@ -882,10 +865,7 @@ def round_compare(opt, scale_to=None):
               [opt._amount_column(v['name'], mark=True) for v in variables])
     best = _compare_index(opt)
     _, tied = best_shown(opt) if best is not None else (None, [])
-    # Suggestions not yet made are numbered 1, 2, 3 on screen (no row of the
-    # Round recorded yet); a row of the user's own keeps its number.
-    shown_as = suggestion_numbers(opt)
-    columns, cells, numbers = [], [], []
+    columns, cells = [], []
     with_total = opt.has_ingredients()
     limit = _total_limit(opt) if with_total else None
     total_label = None
@@ -917,10 +897,7 @@ def round_compare(opt, scale_to=None):
             col.append(total_cell(ref))
         cells.append(col)
     for row in rows:
-        k = shown_as.get(int(row['formulation']))
-        if k:
-            numbers.append((k, int(row['formulation'])))
-        columns.append(_column_label(opt, row, k))
+        columns.append(_column_label(opt, row))
         shown, _ = opt.shown_recipe(row, scale_to)
         at_total = insights.at_total(opt, row['recipe'])
         col = []
@@ -953,7 +930,7 @@ def round_compare(opt, scale_to=None):
     return RoundCompare(
         rows=labels, columns=columns, cells=cells,
         best_no=None if best is None else int(opt.formulation_ids[best]), tied=tied,
-        row_header=wording.compare_row_header(unit), unit=unit, numbers=numbers,
+        row_header=wording.compare_row_header(unit), unit=unit,
         formulations=[int(r['formulation']) for r in rows], total_row=with_total)
 
 
@@ -1064,8 +1041,6 @@ def _draw_compare(opt, table):
     if any(wording.LESS_TRIED in c for c in table.columns):
         from food_bo import FAR_FROM_TESTED
         tips.append(wording.less_tried_help(round(FAR_FROM_TESTED * 100)))
-    if table.numbers:
-        tips.append(wording.SUGGESTION_NUMBERS_HELP)
     # Minor 15 (2026-09-29 review): a suggestion that nearly repeats a
     # formulation still waiting for results, named by its column.
     prefixes = _near_copy_prefixes(opt, opt.pending_batch)

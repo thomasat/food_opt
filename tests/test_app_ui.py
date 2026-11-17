@@ -1750,10 +1750,9 @@ def test_own_formulation_joins_the_open_batch(burger):
     # The table above says three, and the row says what it is.
     assert any(m.value == wording.make_these(1, 3)
                for m in at.markdown), [m.value for m in at.markdown]
-    # v3: the Round table names the app's two (not yet made) Suggestion 1
-    # and 2, and the reader's own row by its number.
+    # The Round table names every row by its number, the reader's own too.
     assert [c.split(" · ")[0] for c in at.tabs[1].table[0].value.columns] == [
-        "Suggestion 1", "Suggestion 2", "F3"]
+        "F1", "F2", "F3"]
     assert any(s.value == "Formulation 3 added to Round 1."
                for s in at.success), [s.value for s in at.success]
 

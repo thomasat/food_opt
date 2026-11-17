@@ -14,7 +14,7 @@ from a file", click "Browse files" and choose "Round 6 results
 pilot's Round 6 results" is the other way), then click "Save uploaded
 results". "3 · Results" shows "Round 6 results" (F16, F17 new best, tied);
 on "4 · Review", "Start Round 7" opens "2 · Make a round" with
-Suggestion 1–3, and "See the pilot's Rounds 7–10" opens "Yogurt pilot
+F19–F21, and "See the pilot's Rounds 7–10" opens "Yogurt pilot
 - all 10 Rounds" on "4 · Review". Manage project → "Start this example over" puts Round 6 back
 to waiting and the results file back in the FoodOptimizer folder (Mac: in your home folder; Windows: Quick access), shows one
 line ("… is back as shipped. Your version is in Saved copies."), and
