@@ -4963,6 +4963,14 @@ PLOT_BO = "BO term"
 PLOT_BO_MODEL_FREE = "model-free: the measured values"
 
 
+def plot_point_name(no, round_label, score_text):
+    """What a screen reader says for one dot on the score chart:
+    'Formulation 16, Round 6, Overall score 98.3'. Without it the chart
+    library reads every tooltip row, the BO term included."""
+    when = round_label if round_label == IMPORTED_NOTE else f"{ROUND_CAP} {round_label}"
+    return f"{FORMULATION_CAP} {no}, {when}, {OVERALL_SCORE_COLUMN} {score_text}"
+
+
 # --- review four ---
 Q2_TITLE = "Are we improving?"
 

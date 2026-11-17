@@ -117,6 +117,29 @@ def test_marks_have_tooltips_with_a_bo_term(specs, name):
         assert any(t.get("title") == wording.PLOT_BO for t in tips), name
 
 
+def test_score_dots_have_their_own_screen_reader_name(specs):
+    """The chart library names each mark by its tooltip rows, so a screen
+    reader heard "BO term: model-free: the measured values" on every dot
+    (Windows UI Automation walk, 0.9.0). The dots carry a description."""
+    spec = specs["improving"]
+    dots = [u for u in _units(spec)
+            if any(t.get("title") == wording.PLOT_BO
+                   for t in u.get("encoding", {}).get("tooltip", []))]
+    assert dots
+    names = set()
+    for unit in dots:
+        assert unit["encoding"]["description"]["field"] == "name", unit["encoding"]
+        rows = spec["datasets"][unit["data"]["name"]]
+        names |= {row["name"] for row in rows}
+    assert names
+    for name in names:
+        assert "BO term" not in name and "model-free" not in name, name
+    assert "Formulation 1, Round 1, Overall score 77.5" == wording.plot_point_name(
+        1, "1", "77.5")
+    assert wording.plot_point_name(3, wording.IMPORTED_NOTE, "80.0") == (
+        "Formulation 3, Made earlier, Overall score 80.0")
+
+
 def _colours(spec):
     found = set()
 

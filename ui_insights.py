@@ -836,18 +836,22 @@ def improving_chart(opt, height=None, upto=None):
             x=alt.X("x:Q", scale=x_scale), y=alt.Y("v:Q", scale=y_scale, title=y_title),
             tooltip=[alt.Tooltip("no:Q", title=_say(opt, wording.FORMULATION_CAP), format="d"),
                      alt.Tooltip("text:N", title=best_name)]))
-    dots = shown.assign(what=each)
+    # The dot's accessible name: the chart library would otherwise read
+    # every tooltip row aloud, "BO term: model-free" included.
+    dots = shown.assign(what=each, name=[
+        _say(opt, wording.plot_point_name(int(no), r, one_decimal(v)))
+        for no, r, v in zip(shown[formulation], shown["round"], shown[score])])
     layers.append(alt.Chart(dots[~dots["best"]]).mark_point(size=40, strokeWidth=1.3, opacity=1,
                                                             color=grey)
                   .encode(x=x, y=y,
                           fill=alt.condition(alt.FieldEqualPredicate(field="full", equal=True),
                                              alt.value(grey), alt.value("transparent")),
-                          tooltip=tips))
+                          tooltip=tips, description="name:N"))
     top_dots = dots[dots["best"]]
     if not top_dots.empty:
         layers.append(alt.Chart(top_dots).mark_point(size=60, filled=True, opacity=1, color=blue,
                                                      stroke=_page(), strokeWidth=1)
-                      .encode(x=x, y=y, tooltip=tips))
+                      .encode(x=x, y=y, tooltip=tips, description="name:N"))
     layers.append(_key_layer([(each, grey, "circle"), (best_name, ink, "stroke"),
                               (avg_name, light, "stroke")]))
     rounds = _round_layer(opt, "place", places, x_scale,
