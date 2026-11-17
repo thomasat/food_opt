@@ -209,7 +209,7 @@ def test_a_test_build_skips_the_release_guards_and_warns(release_repo):
     result = run_build(release_repo, "-TestBuild", "-OutDir", release_repo / "nowhere")
     out = result.stdout
     assert "TEST BUILD - not for release" in out
-    assert "UNSIGNED build - internal testing only." in out
+    assert "UNSIGNED build (signed=no)." in out
     assert _REFUSE_DIRTY not in result.stderr
     assert re.search(r"build failed: ", result.stdout + result.stderr)
     assert result.returncode == 1

@@ -138,9 +138,23 @@ def _it_lines():
     return [line[2:] for line in section.splitlines() if line.startswith("- ")]
 
 
-def test_notes_have_five_it_lines():
+def test_notes_have_six_it_lines():
+    """Five, plus the unsigned line while Windows ships unsigned."""
     lines = _it_lines()
-    assert len(lines) == 5, lines
+    assert len(lines) == 6, lines
+
+
+# 0.9.0 ships unsigned (owner, 2026-11-16): IT allow-lists by hash, as the
+# Windows README's "Allow-listing" says. Goes when signing comes.
+IT_UNSIGNED = "Unsigned: allow-list it by file hash, not by publisher."
+
+
+def test_it_unsigned_line_matches_the_readme():
+    assert _it_lines()[4] == IT_UNSIGNED
+    assert SMARTSCREEN in NOTES.read_text(encoding="utf-8")
+    text = " ".join(WIN_README.read_text(encoding="utf-8").split())
+    allow = text[text.index("### Allow-listing"):text.index("## Test")]
+    assert "allow it by hash or path, not by publisher" in allow
 
 
 def test_notes_bullet_three_names_csv_and_get_help():
@@ -199,7 +213,7 @@ def test_it_requirements_line_is_the_readmes():
 
 
 def test_it_contact_is_get_helps_address():
-    assert _it_lines()[4] == f"Contact: {CONTACT}"
+    assert _it_lines()[5] == f"Contact: {CONTACT}"
     assert CONTACT in (REPO / "desktop" / "shared" / "messages.json").read_text(encoding="utf-8")
 
 

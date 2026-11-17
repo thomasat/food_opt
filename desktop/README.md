@@ -24,7 +24,7 @@ The version is `desktop/VERSION` (one `X.Y.Z` line); nothing else sets it.
 - Every build writes a **build record** beside the dmg,
   `desktop/dist/FoodOptimizer-X.Y.Z.build.txt`: version, commit, whether the
   tree was clean, both lock hashes, the dmg's sha256, signed, notarized.
-- Unsigned builds print a loud warning and are for internal testing only.
+- Unsigned Mac builds print a loud warning and are for internal testing only.
 
 The build compiles the native window wrapper (`FoodOptimizerApp.swift`)
 with `swiftc`, so the build machine needs the Xcode Command Line Tools
@@ -136,8 +136,10 @@ Mac and Windows ship together, from one tag. ⚠ marks a step that a test or
 a tool guards; skipping it can publish the wrong file. The ritual for
 version X.Y.Z:
 
-1. Ahead of time: Food System Innovations' Artifact Signing validation is
-   done (the Windows build is signed with it).
+1. Ahead of time: the Mac's Developer ID identity and notary profile work
+   (step 5). Windows ships unsigned until Food System Innovations' Artifact
+   Signing is set up; an unsigned release's page and download email say
+   `"Unknown publisher."` (`tests/test_release_texts.py`).
 2. Only if `requirements.txt` changed since the last release: run
    `./desktop/update_lock.sh` (it rewrites the Mac lock only when packages
    changed) and commit the result. Then re-measure `EXPECTED_SETUP_MB` in
@@ -168,15 +170,17 @@ version X.Y.Z:
 
    ...plus the Mac manual checklist below.
 6. Windows: in the build VM, follow `windows/README.md`, "Release (Windows
-   half)": a VM-local clone at the tag, the signed build, pytest, Level 2,
+   half)": a VM-local clone at the tag, the release build, pytest, Level 2,
    the checklist and the locked-down profile.
 7. ⚠ Copy and check. `scp` from the VM into the release worktree's
    `desktop/dist/`, beside the dmg and its record:
    `FoodOptimizer-X.Y.Z-Windows.exe`, `FoodOptimizer-X.Y.Z-Windows.build.txt`,
    `FoodOptimizer-X.Y.Z-Windows.files.txt`. Each file's hash must be its
    record's (`dmg_sha256`, `installer_sha256`, `files_list_sha256`), and
-   both records must say `tree_clean=yes`, `signed=yes` and the tag's
-   commit (the Mac's also `notarized=yes`):
+   both records must say `tree_clean=yes` and the tag's commit. The Mac's
+   must say `signed=yes` and `notarized=yes`, always. The Windows record
+   says `signed=no` while releases are unsigned (step 1); once signing
+   exists, `signed=yes`:
 
    ```bash
    shasum -a 256 desktop/dist/FoodOptimizer-X.Y.Z*
@@ -227,13 +231,14 @@ https://github.com/thomasat/food_opt/releases/download/vX.Y.Z/FoodOptimizer-X.Y.
 https://github.com/thomasat/food_opt/releases/download/vX.Y.Z/FoodOptimizer-X.Y.Z-Windows.exe
 ```
 
-For Windows recipients, send the three lines in `windows/download_email.md`.
+For Windows recipients, send the four lines in `windows/download_email.md`.
 
 Notes:
 - The repo is public, so the links work for anyone — no GitHub account needed.
-- Unsigned builds are for internal testers only. Before a link goes to
-  real recipients, complete the signing setup and rebuild — an unsigned
-  build triggers the exact security warnings this project exists to avoid.
+- An unsigned Mac build is for internal testers only: never send one
+  (Gatekeeper calls it damaged; see below). Windows ships unsigned until
+  Artifact Signing is set up: SmartScreen says "Unknown publisher", and the
+  release page and download email say what to click.
 - To replace a release's file (e.g. after signing):
   `gh release upload vX.Y.Z <file> --clobber`
 

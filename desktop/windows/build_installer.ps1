@@ -228,7 +228,7 @@ if ($Check) {
 # ---------- 9. the build ----------
 if ($TestBuild) { Say 'TEST BUILD - not for release' }
 Say '========================================================='
-Say ' UNSIGNED build - internal testing only.'
+Say ' UNSIGNED build (signed=no).'
 Say '========================================================='
 
 $Utf8 = New-Object Text.UTF8Encoding $false
@@ -627,5 +627,5 @@ $installerMb = [math]::Round([double]$installerBytes / 1MB)
 $seconds = [math]::Round(((Get-Date) - $started).TotalSeconds)
 Say ('Built: ' + $Installer + ' (' + $installerMb + ' MB, sha256 ' + $installerSha + ')')
 Say ('build time: ' + $seconds + ' s')
-Say 'UNSIGNED build - internal testing only.'
+Say 'UNSIGNED build (signed=no).'
 exit 0
