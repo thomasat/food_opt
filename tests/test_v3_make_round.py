@@ -281,21 +281,18 @@ def test_app_generated_round_reads_suggestions_on_screen():
     assert not any(c.startswith("F19") for c in shown.columns)
 
 
-def test_the_record_grid_names_suggestions_as_the_table_does():
-    """v3 integration: the grid under the table says 'Suggestion 1' for an
-    app suggestion not yet made, as the table does; the workbook, the upload
-    and the records keep Formulation 19-21. Once a row is recorded every
-    label is the formulation number again, in the table and the grid."""
+def test_the_record_grid_names_rows_as_the_workbook_does():
+    """The pilot's Round 7: the result boxes say Formulation 19-21, as the
+    workbook, the upload preview, the Results tab and the records do
+    (owner, 2026-11-16: the boxes said 'Suggestion 1-3')."""
     opt = _record_round6(_round6())
     ui_batch.ask_alone(opt, n_suggestions=3)
     opt.save()
-    assert ui_batch.suggestion_numbers(opt) == {19: 1, 20: 2, 21: 3}
     at = _app()
     heads = [m.value for m in at.tabs[1].markdown]
-    assert [h for h in heads if h.startswith("**Suggestion")] == [
-        wording.suggestion_heading(k) for k in (1, 2, 3)]
-    assert not [h for h in heads if h.startswith("**Formulation 1") or
-                h.startswith("**Formulation 2")]
+    assert [h for h in heads if h.startswith("**Formulation")] == [
+        wording.formulation_heading(n) for n in (19, 20, 21)]
+    assert not [h for h in heads if "Suggestion" in h]
     # The workbook still names the formulations by number, and its upload
     # lands on those rows.
     import io

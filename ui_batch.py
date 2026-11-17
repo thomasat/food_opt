@@ -839,9 +839,9 @@ def _as_float(value):
 
 def suggestion_numbers(opt):
     """{formulation number: k} for the open Round's app suggestions while no
-    row of it is recorded (or set aside): Make a round's table and its record
-    grid call them 'Suggestion 1', 2, 3 in that order. A row of the user's
-    own keeps its number; the workbook, the upload and the records keep
+    row of it is recorded (or set aside): Make a round's table calls them
+    'Suggestion 1', 2, 3 in that order. A row of the user's own keeps its
+    number; the record grid, the workbook, the upload and the records keep
     every formulation's number. Empty once anything is recorded."""
     rows = list(opt.pending_batch or [])
     if not rows or len(open_rows(opt)) != len(rows):
@@ -1420,14 +1420,11 @@ def _record_results(opt):
                 st.session_state[f'f{number}_leave_out'] = draft.get('not_scored', False)
     st.caption(wording.RECORD_RESULTS_LINE, help=wording.RECORD_RESULTS_HELP)
     left_out, entered, partly = set(), 0, 0
-    # As the table above names them: 'Suggestion 1' until a row is recorded.
-    shown_as = suggestion_numbers(opt)
-
+    # Each box is named by its formulation number, as the workbook, the
+    # upload and the Results tab name it (owner, 2026-11-16).
     for row in rows:
         number = row['formulation']
-        k = shown_as.get(int(number))
-        st.markdown(wording.for_project(opt, wording.suggestion_heading(k) if k
-                                        else wording.formulation_heading(number)))
+        st.markdown(wording.for_project(opt, wording.formulation_heading(number)))
         if number not in open_numbers:
             _recorded_row(opt, number, ordered)
             st.divider()
@@ -1533,19 +1530,14 @@ def _save_results(opt, kept, left_out, to_record):
     # half-saved batch is worse than a refused one.
     typed = {}
     # The refusal lands under the whole grid, so it names the row as the
-    # row's own heading does: 'Suggestion 1' until anything is recorded.
-    shown_as = suggestion_numbers(opt)
+    # row's own heading does: 'Formulation 19'.
     for row in kept:
         number = row['formulation']
         results = {}
         for obj in opt.objectives:
             value = st.session_state.get(_result_key(number, obj['name']))
-            k = shown_as.get(int(number))
             problem = scale_error(
-                obj, value,
-                label=(f"{wording.suggestion_column(k)}: {obj['name']}" if k
-                       else wording.formulation_measurement(number,
-                                                            obj['name'])))
+                obj, value, label=wording.formulation_measurement(number, obj['name']))
             if problem:
                 st.error(wording.for_project(opt, problem))
                 return

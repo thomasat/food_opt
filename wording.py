@@ -1173,12 +1173,6 @@ def formulation_heading(no):
     return f"**{FORMULATION_CAP} {no}**"
 
 
-def suggestion_heading(k):
-    """Make a round's record grid, for an app suggestion not yet made: the
-    table's own name, '**Suggestion 1**' (suggestion_column)."""
-    return f"**{suggestion_column(k)}**"
-
-
 def nothing_to_save(n):
     """Every open row is ticked Not scored, so Save results has nothing to
     record. The count is the reader's own, and the way out is the tick."""
