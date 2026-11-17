@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="FoodOptimizer.Core/FoodOptimizer.Core.csproj" />
+  <Project Path="FoodOptimizer.Shell/FoodOptimizer.Shell.csproj" />
+  <Project Path="FoodOptimizer.Tests/FoodOptimizer.Tests.csproj" />
+  <Project Path="FoodOptimizer.UiTests/FoodOptimizer.UiTests.csproj" />
+</Solution>

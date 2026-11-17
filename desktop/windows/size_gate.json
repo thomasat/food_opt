@@ -1,0 +1,10 @@
+{
+  "installer_max_bytes": 283115520,
+  "image_max_bytes": 1300234240,
+  "disk_free_gb": 2,
+  "measured": {
+    "commit": "027b44b1249386c407f1679ab09a32749598aeef",
+    "installer_bytes": 249551715,
+    "image_bytes": 1174185550
+  }
+}

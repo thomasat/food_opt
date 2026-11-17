@@ -241,9 +241,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let alert = NSAlert()
         alert.messageText = "Food Optimizer support"
         alert.informativeText =
-            "Write to us at https://github.com/thomasat/food_opt/issues. "
-            + "Describe the problem and what you expected. Do not attach project "
-            + "files, saved copies or formulations, because that page is public. "
+            "Email sohum.patnaik@fsi.org. "
+            + "Describe the problem and what you expected. "
             + "Attaching the app's log file helps — Help › Show Log File "
             + "finds it for you."
         alert.runModal()
@@ -533,8 +532,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // different about this particular give-up, said before the shared advice.
     func showCouldNotStartStatus(detail: String? = nil) {
         let body = (detail.map { $0 + " " } ?? "")
-            + "Click Try again. If the problem persists, contact "
-            + "the Food Intelligence Lab and attach the file from Help › Show "
+            + "Click Try again. If the problem persists, email "
+            + "sohum.patnaik@fsi.org and attach the file from Help › Show "
             + "Log File."
         showStatus("The app could not start", body, retry: true)
     }

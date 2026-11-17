@@ -1,0 +1,32 @@
+Info.plist
+MacOS/
+MacOS/FoodOptimizer
+MacOS/uv
+Resources/
+Resources/app.py
+Resources/bo_views.py
+Resources/calculation_editor.py
+Resources/custom_records.py
+Resources/data/
+Resources/data/ingredients_template.csv
+Resources/data/samples/
+Resources/data/samples/burger_setup/
+Resources/data/samples/burger_setup/Example setup - plant-based burger.json
+Resources/data/samples/yogurt_pilot/
+Resources/data/samples/yogurt_pilot/Round 6 results (pilot).xlsx
+Resources/data/samples/yogurt_pilot/Yogurt pilot - Round 6 to score.json
+Resources/data/samples/yogurt_pilot/Yogurt pilot - all 10 Rounds.json
+Resources/food_bo.py
+Resources/icon.icns
+Resources/insights.py
+Resources/launcher.sh
+Resources/requirements.lock.txt
+Resources/sample_projects.py
+Resources/storage.py
+Resources/ui_batch.py
+Resources/ui_helpers.py
+Resources/ui_insights.py
+Resources/ui_results.py
+Resources/ui_setup.py
+Resources/wording.py
+Resources/workbook_flow.py

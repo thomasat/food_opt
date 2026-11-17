@@ -7,7 +7,8 @@ import pytest
 
 import insights
 import wording
-from tests.test_ask_unchanged import exempt_and_waiting, fixture, run, same
+from tests.golden import same
+from tests.test_ask_unchanged import exempt_and_waiting, fixture, run
 from tests.test_complete_results import _add_cook_loss, _patty, _tell
 
 

@@ -1,0 +1,24 @@
+<Project>
+  <!-- Settings every project of the Windows shell shares. The version is
+       desktop/VERSION, the single version source for both desktop builds. -->
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <ArtifactsPath>$(MSBuildThisFileDirectory)../../.cache/shell</ArtifactsPath>
+    <Version>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)../../VERSION').Trim())</Version>
+    <FileVersion>$(Version).0</FileVersion>
+    <InformationalVersion>$(Version)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+  <!-- What ships is the same from any checkout: source paths (and the .pdb
+       path in each .dll) are mapped to /_/ from the git root. Not the test
+       projects: the UI tests find the repo through [CallerFilePath]. -->
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'FoodOptimizer.Shell' Or '$(MSBuildProjectName)' == 'FoodOptimizer.Core'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+</Project>

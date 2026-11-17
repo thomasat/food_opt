@@ -38,7 +38,7 @@ def test_the_loader_never_writes_back(tmp_path, monkeypatch):
 def test_the_fixtures_are_frozen_json():
     """No NaN or Infinity: every file is plain JSON a browser could read."""
     for name in E.NAMES:
-        text = (E.HERE / f"{name}.json").read_text()
+        text = (E.HERE / f"{name}.json").read_text(encoding="utf-8")
         assert "NaN" not in text and "Infinity" not in text
         assert json.loads(text)["CLASS_VERSION"] == 17
 

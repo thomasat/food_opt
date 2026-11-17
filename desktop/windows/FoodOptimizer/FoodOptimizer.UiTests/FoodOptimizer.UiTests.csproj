@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- UI Automation tests that drive the published FoodOptimizer.exe on an
+       interactive Windows desktop (uitests/run_ui_tests.ps1). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
+    <IsPackable>false</IsPackable>
+    <!-- Tests pass no cancellation token to the code under test. -->
+    <NoWarn>$(NoWarn);xUnit1051</NoWarn>
+    <RootNamespace>FoodOptimizer.UiTests</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="System.Management" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- One shell at a time: the tests share the desktop and the stage. -->
+    <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Using Include="System.IO" />
+    <Using Include="System.Net.Http" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../FoodOptimizer.Core/FoodOptimizer.Core.csproj" />
+  </ItemGroup>
+</Project>

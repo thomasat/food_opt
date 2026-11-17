@@ -10,7 +10,8 @@ import pytest
 import insights
 import wording
 from food_bo import FoodOptimizer
-from tests.test_ask_unchanged import exempt_and_waiting, fixture, run, same
+from tests.golden import same
+from tests.test_ask_unchanged import exempt_and_waiting, fixture, run
 from tests.test_complete_results import _full, _patty, _tell
 
 
@@ -183,7 +184,8 @@ def test_insights_counts_nothing_from_it():
 def test_suggestions_are_bit_identical_whether_it_waits_or_is_set_aside():
     """The owner's rule (§9 I5): Move to Not scored changes no suggestion.
     Formulation 7 of the fixture project waits for Cook loss; moved to Not
-    scored, ask() hands the model the same rows and suggests the same."""
+    scored, ask() hands the model the same rows and suggests the same —
+    bit-identical on the Mac; within 0.1% on Windows."""
     opt = exempt_and_waiting()
     opt.set_aside_formulation(7)
     same(run(opt), fixture()["exempt_and_waiting"])

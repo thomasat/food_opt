@@ -23,13 +23,13 @@ def test_the_snack_bar_sits_at_the_gate():
 
 
 def test_the_process_only_fixture_is_frozen_json():
-    text = (D.HERE / f"{D.PROCESS_ONLY}.json").read_text()
+    text = (D.HERE / f"{D.PROCESS_ONLY}.json").read_text(encoding="utf-8")
     assert "NaN" not in text and "Infinity" not in text
 
 
 def test_the_first_screen_viewport():
     """R-I17: the new pins open at 1280 × 800, not the suite's 1280 × 860.
     Read from the file: the helper module imports Playwright."""
-    text = (pathlib.Path(__file__).parent / "browser" / "grid_helpers.py").read_text()
+    text = (pathlib.Path(__file__).parent / "browser" / "grid_helpers.py").read_text(encoding="utf-8")
     assert 'FIRST_SCREEN = {"width": 1280, "height": 800}' in text
     assert "def above_the_fold(locator, viewport=FIRST_SCREEN):" in text

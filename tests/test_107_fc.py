@@ -15,7 +15,7 @@ def _isolate(tmp_path, monkeypatch):
 
 def test_the_512_draws_are_the_samplers_own():
     import pathlib
-    source = (pathlib.Path(__file__).resolve().parent.parent / "food_bo.py").read_text()
+    source = (pathlib.Path(__file__).resolve().parent.parent / "food_bo.py").read_text(encoding="utf-8")
     assert "SobolQMCNormalSampler(sample_shape=torch.Size([512]))" in source
 
 

@@ -17,7 +17,7 @@ from tests.test_app_ui import APP_PATH
 
 
 def _install(name):
-    state = json.loads((D.HERE / f"{name}.json").read_text())
+    state = json.loads((D.HERE / f"{name}.json").read_text(encoding="utf-8"))
     opt = FoodOptimizer(state["project_name"])
     opt.import_json(state)
     opt.save()

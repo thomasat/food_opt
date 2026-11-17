@@ -37,8 +37,10 @@ def _links(at):
 
 
 def _scripts(at):
+    """The one-shot scripts (the sidebar's A11Y_SCRIPT is on every run)."""
     return [e.proto.body for e in at.get("html")
-            if getattr(e.proto, "unsafe_allow_javascript", False)]
+            if getattr(e.proto, "unsafe_allow_javascript", False)
+            and e.proto.body != ui_helpers.A11Y_SCRIPT]
 
 
 def _blocks(node, out=None):
@@ -145,7 +147,7 @@ def test_opening_a_project_lands_at_the_top():
 
 def test_the_tab_and_link_rules_in_the_source():
     """04 §5: the comments say links may open Insights and no flow moves there."""
-    app = pathlib.Path(APP_PATH).read_text()
+    app = pathlib.Path(APP_PATH).read_text(encoding="utf-8")
     assert "links the user clicks, open it" in app
     assert "No step of the loop moves the user there" in app
     assert "no flow moves there on its own" in ui_helpers.go_to_tab.__doc__

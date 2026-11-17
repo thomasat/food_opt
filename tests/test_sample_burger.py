@@ -71,12 +71,12 @@ def test_the_names_are_exact_and_say_what_each_is_for():
 
 def test_the_shipped_burger_equals_a_rebuild(tmp_path):
     _builder().build(out_dir=str(tmp_path))
-    rebuilt = (tmp_path / f"{sp.BURGER}.pkl").read_text()
-    assert TS.sub('"<ts>"', rebuilt) == TS.sub('"<ts>"', SHIPPED.read_text())
+    rebuilt = (tmp_path / f"{sp.BURGER}.pkl").read_text(encoding="utf-8")
+    assert TS.sub('"<ts>"', rebuilt) == TS.sub('"<ts>"', SHIPPED.read_text(encoding="utf-8"))
 
 
 def test_the_shipped_burger_carries_no_date_no_results_and_no_open_round():
-    text = SHIPPED.read_text()
+    text = SHIPPED.read_text(encoding="utf-8")
     assert not TS.search(text)
     state = json.loads(text)
     for key in ("X_history", "Y_history", "results_history", "recipe_history",
@@ -95,7 +95,7 @@ def test_nothing_in_the_burger_reads_as_measured_or_sourced():
     """Beside the real yogurt pilot, the example never reads like real data
     (controller ruling, 2026-10-14): no date, no year, no month, no panel
     or panellists, no study."""
-    text = SHIPPED.read_text()
+    text = SHIPPED.read_text(encoding="utf-8")
     assert not TS.search(text)
 
     def strings(node):
@@ -218,7 +218,7 @@ def test_restore_burger_archives_then_writes_the_shipped_copy(store):
     archived = sp.restore(sp.BURGER, store)
     assert archived == f"{sp.BURGER}_{sp.RESET_LABEL}"
     assert FoodOptimizer(sp.BURGER, storage=store).formulation_total == 100
-    assert json.loads(Path(f"{archived}.pkl").read_text())["formulation_total"] == 250
+    assert json.loads(Path(f"{archived}.pkl").read_text(encoding="utf-8"))["formulation_total"] == 250
     assert sorted(store.list_projects()) == [sp.BURGER]
     assert not Path(sp.ROUND6_RESULTS_FILE_NAME).exists()
 
@@ -332,9 +332,9 @@ def test_manage_project_has_a_samples_group_with_both(at):
 def test_start_this_sample_over_restores_the_burger_on_set_up(at, tmp_path):
     _click(at.main, wording.SEE_EXAMPLE_SETUP_LABEL)
     at.run()
-    state = json.loads((tmp_path / f"{sp.BURGER}.pkl").read_text())
+    state = json.loads((tmp_path / f"{sp.BURGER}.pkl").read_text(encoding="utf-8"))
     state["formulation_total"] = 250.0
-    (tmp_path / f"{sp.BURGER}.pkl").write_text(json.dumps(state))
+    (tmp_path / f"{sp.BURGER}.pkl").write_text(json.dumps(state), encoding="utf-8")
     at.session_state["main_tab"] = wording.TAB_INSIGHTS
     at.run()
     _click(at.sidebar, wording.START_SAMPLE_OVER_LABEL)
@@ -342,7 +342,7 @@ def test_start_this_sample_over_restores_the_burger_on_set_up(at, tmp_path):
     _click(at.sidebar, wording.YES_START_SAMPLE_OVER)
     at.run()
     assert not at.exception
-    assert json.loads((tmp_path / f"{sp.BURGER}.pkl").read_text())["formulation_total"] == 100.0
+    assert json.loads((tmp_path / f"{sp.BURGER}.pkl").read_text(encoding="utf-8"))["formulation_total"] == 100.0
     assert (tmp_path / f"{sp.BURGER}_sample_reset.pkl").exists()
     assert [s.value for s in at.success] == [wording.sample_restored(sp.BURGER)]
     assert at.session_state["main_tab"] == TAB_SETUP
@@ -488,7 +488,7 @@ def test_the_burger_properties_say_their_units(store):
     assert set(opt.grid_properties()) == set(_UNIT_NAMES)
     # Cost names no currency: the example has none.
     assert not any(c in "".join(opt.properties()) for c in "$€£")
-    text = SHIPPED.read_text()
+    text = SHIPPED.read_text(encoding="utf-8")
     for old in _OLD_NAMES.values():
         assert f'"{old}"' not in text, old
     # The fat limit still reads the fat figures, under the new name.
@@ -533,7 +533,7 @@ def test_opening_the_burger_leaves_its_file_as_shipped(at, tmp_path):
     at.run()
     at.run()
     assert not at.exception
-    assert json.loads((tmp_path / f"{sp.BURGER}.pkl").read_text()) == sp.shipped_state(sp.BURGER)
+    assert json.loads((tmp_path / f"{sp.BURGER}.pkl").read_text(encoding="utf-8")) == sp.shipped_state(sp.BURGER)
 
 
 def test_an_old_burger_on_disk_launches_with_the_unit_names(tmp_path, monkeypatch):

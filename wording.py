@@ -6,6 +6,19 @@ separate heading or command after a middle dot with a capital letter. Keep
 user-entered names, units, calculation tokens and legacy import labels unchanged.
 Prefer direct instructions and current control names over idioms.
 """
+import sys
+
+
+# Where a reader writes for help: the Mac and Windows windows, Start Here
+# and the README all give this one address.
+SUPPORT_EMAIL = "sohum.patnaik@fsi.org"
+
+
+def on_windows():
+    """True on Windows. Read at call time, never frozen at import, so a
+    sentence names the computer the reader is on (and a test can say which)."""
+    return sys.platform == "win32"
+
 
 # ------------------------------------------------------------------ #
 # Concepts. The set of formulations issued together is a "round" on
@@ -78,6 +91,11 @@ NAME_RULE = "Up to 64 characters. Start with a letter or a number."
 _NAME_EXTRA = " _.-"
 
 
+def name_reserved(name):
+    """Create project with a device name Windows reserves (CON, NUL, COM1…)."""
+    return f"“{name}” is a name Windows reserves. Choose another."
+
+
 def name_not_allowed(name):
     """Create project with a name the rule refuses: which part breaks it and
     the fix, worked out from the name typed (the rule alone named no
@@ -129,7 +147,7 @@ SCORE_WORD_UNITS = ("score", "scores", "point", "points", "pts", "rating")
 
 
 def outside_scale(name, value_text, range_text, above=True):
-    """'Suggestion 1: Crunch 12 is outside 0–10. Fix it, or raise Scale
+    """'Formulation 1: Crunch 12 is outside 0–10. Fix it, or raise Scale
     maximum in Set up.' — a result typed outside its measurement's range,
     naming the one Set up cell that would let it in (`above`: past the
     top). The texts carry their unit already ('12 N', '0–20 N')."""
@@ -198,7 +216,7 @@ def scaled_amounts_caution(total_text, names_text="", n_outside=0, n_total=0):
 def saved_line(when):
     """'Saved automatically at 14:32, on this Mac' — `when` is the already
     formatted time or date+time."""
-    return f"Saved automatically at {when}, on this Mac"
+    return f"Saved automatically at {when}, on this {'PC' if on_windows() else 'Mac'}"
 
 
 def best_moved(before, after):
@@ -441,12 +459,12 @@ def prefilled_outside_caption(no):
 
 
 def copy_downloaded(file_name):
-    """'Saved as "burger copy 2026-09-15.json" in your Downloads folder.'
+    """'Saved as "burger copy 2026-09-15.json".'
 
     A download is the one action in the app that leaves no mark on the
     screen: the reader clicked, nothing moved, and the heading above it
     promises a list they could not see themselves in."""
-    return f"Saved as '{file_name}' in your Downloads folder."
+    return f"Saved as '{file_name}'."
 # A saved copy that will not open. ONE sentence, whatever is wrong with
 # it: the reader is a food scientist whose copy will not open, and the
 # stored field name, its shape and the programmer's quotation marks are
@@ -922,20 +940,6 @@ def best_tied_help(no, others):
             f"{', '.join(short_no(n) for n in others)}.")
 
 
-def suggestion_column(k):
-    """A suggestion not yet made: 'Suggestion 1'. Its formulation number
-    stays in the workbook and the records; the table does not show it, so a
-    new Round never reads like a sample's own numbers."""
-    return f"Suggestion {k}"
-
-
-# The key's "?" while the Round's suggestions are unmade. It lists no
-# numbers (owner, v3 final cleanup): on the pilot a live Round 7 mapped its
-# suggestions to F19–F21, the pilot's own numbers.
-SUGGESTION_NUMBERS_HELP = (f"Suggestions get {FORMULATION} numbers when their results are "
-                           "recorded.")
-
-
 # A suggestion's column label when the distance rule says it explores
 # (food_bo.FAR_FROM_TESTED); no label for the other two roles.
 LESS_TRIED = "Less-tried area"
@@ -1153,12 +1157,6 @@ def recorded_line_note(line, note):
 
 def formulation_heading(no):
     return f"**{FORMULATION_CAP} {no}**"
-
-
-def suggestion_heading(k):
-    """Make a round's record grid, for an app suggestion not yet made: the
-    table's own name, '**Suggestion 1**' (suggestion_column)."""
-    return f"**{suggestion_column(k)}**"
 
 
 def nothing_to_save(n):
@@ -3569,22 +3567,31 @@ _DISK_TROUBLE = {
 _DISK_OTHER = ("the file could not be written", "Try again.")
 
 
+def _disk_trouble(cause):
+    """_DISK_TROUBLE's (what, fix) for `cause`, naming the file manager of
+    the computer the reader is on."""
+    what, fix = _DISK_TROUBLE.get(cause, _DISK_OTHER)
+    if cause == 'read_only' and on_windows():
+        fix = fix.replace("Finder", "File Explorer")
+    return what, fix
+
+
 def not_saved(name, cause=None):
     """'Oat cookie was not saved: the disk is full. Free up space, then try
     again.' — the save banner's red line."""
-    what, fix = _DISK_TROUBLE.get(cause, _DISK_OTHER)
+    what, fix = _disk_trouble(cause)
     return f"{name} was not saved: {what}. {fix}"
 
 
 def nothing_changed(name, cause=None):
     """The copy taken before a change (or the rename that deletes or clears
     a project) was refused, so the change was never made."""
-    what, fix = _DISK_TROUBLE.get(cause, _DISK_OTHER)
+    what, fix = _disk_trouble(cause)
     return f"Nothing changed in {name}: {what}. {fix}"
 
 
 def copy_not_deleted(cause=None):
-    what, fix = _DISK_TROUBLE.get(cause, _DISK_OTHER)
+    what, fix = _disk_trouble(cause)
     if cause == 'in_use':
         what = "another program is using it"
     return f"An old copy could not be deleted: {what}. {fix}"
@@ -4568,8 +4575,9 @@ def sheet_navigation(premixes=True):
     Preparation only when the Round has pre-mixes and so has that sheet."""
     tabs = ((OVERVIEW_SHEET, PREPARATION_SHEET, RESULTS_SHEET) if premixes
             else (OVERVIEW_SHEET, RESULTS_SHEET))
-    return (f"Use the sheet tabs: {' → '.join(tabs)}. Tabs are at the bottom in "
-            "Excel and at the top in Numbers. ")
+    where = ("Excel" if on_windows()
+             else "Excel and at the top in Numbers")
+    return f"Use the sheet tabs: {' → '.join(tabs)}. Tabs are at the bottom in {where}. "
 
 
 PREPARATION_SHEET_TITLE = f"{PREPARATION_SHEET} — Pre-mixes for this Round"
@@ -4953,6 +4961,14 @@ REVIEW_ROUND_HELP = (f"Opens {TAB_INSIGHTS}: the best so far, how it compares wi
 # The tooltip's expert row title, and its lines.
 PLOT_BO = "BO term"
 PLOT_BO_MODEL_FREE = "model-free: the measured values"
+
+
+def plot_point_name(no, round_label, score_text):
+    """What a screen reader says for one dot on the score chart:
+    'Formulation 16, Round 6, Overall score 98.3'. Without it the chart
+    library reads every tooltip row, the BO term included."""
+    when = round_label if round_label == IMPORTED_NOTE else f"{ROUND_CAP} {round_label}"
+    return f"{FORMULATION_CAP} {no}, {when}, {OVERALL_SCORE_COLUMN} {score_text}"
 
 
 # --- review four ---

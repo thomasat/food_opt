@@ -29,6 +29,7 @@ from botorch.models import SingleTaskGP
 from botorch.models.transforms.input import Warp
 from botorch.models.transforms.outcome import Standardize
 from botorch.optim import optimize_acqf
+from botorch.optim.initializers import gen_batch_initial_conditions
 from botorch.sampling.normal import SobolQMCNormalSampler
 from botorch.utils.transforms import normalize, unnormalize
 from gpytorch.kernels import (
@@ -1516,6 +1517,23 @@ def _write_frame(sheet, frame, two_decimals=(), freeze=True, title=None,
     return sheet
 
 
+def _keep_text_cells(book):
+    """Every cell of a download stays the text the app wrote. openpyxl
+    makes any text that starts with = a formula, so a name, note or record
+    typed as "=1+1" or '=HYPERLINK("x")' would run in Excel (or show
+    #NAME?); and a Calculation such as "= rest" is the app's own notation,
+    never Excel's. The app writes no spreadsheet formulas of its own, so
+    every formula cell here is such a text: it is written as a string, its
+    visible text unchanged. Cells that are text already are left alone, so
+    a workbook with no such text is byte for byte what it was."""
+    for sheet in book.worksheets:
+        # The cells written, only: iter_rows() would add an empty cell (and
+        # an empty <row>) at every gap, changing the file.
+        for cell in list(sheet._cells.values()):
+            if cell.data_type == "f" and isinstance(cell.value, str):
+                cell.data_type = "s"
+
+
 def frame_workbook(sheets):
     """One workbook from {sheet name: DataFrame}. The ingredients template
     goes out this way, so the file a project starts from is the same kind of
@@ -1527,6 +1545,7 @@ def frame_workbook(sheets):
         sheet.title = name
         _write_frame(sheet, frame)
         first = False
+    _keep_text_cells(book)
     buffer = io.BytesIO()
     book.save(buffer)
     return buffer.getvalue()
@@ -1634,6 +1653,57 @@ def _build_covar(cfg, dim):
     else:
         base = MaternKernel(nu=2.5, ard_num_dims=dim)
     return ScaleKernel(base)
+
+
+# Two restarts of the acquisition optimiser whose values agree to this
+# relative tolerance are the same quality of suggestion. Which one is
+# suggested is decided by the candidates themselves, compared rounded to
+# ACQ_TIE_DECIMALS (normalised units), never by the last bits of a float:
+# Windows rounds those differently from the Mac (0.9.0).
+ACQ_TIE_RTOL = 1e-4
+ACQ_TIE_DECIMALS = 3
+
+
+def _escape_csv_text(cell):
+    """A text cell a spreadsheet would run as a formula (it starts with
+    = + - @ tab or CR) gets a leading '. A text that parses as a negative
+    number ("-1.5") is left alone, so it stays a number when imported back;
+    "+1" is escaped all the same (it is a formula to a spreadsheet)."""
+    if isinstance(cell, str) and cell[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        if cell[0] == "-":
+            try:
+                float(cell)
+                return cell
+            except ValueError:
+                pass
+        return "'" + cell
+    return cell
+
+
+def _pick_restart(candidates, values):
+    """The restart a suggestion is taken from: of those within ACQ_TIE_RTOL
+    of the best value (a floor of 1 in absolute terms, for log values near
+    zero), the lexicographically smallest candidate."""
+    # A NaN value is the worst a restart can be (never the best, never tied);
+    # a +inf is the best, and among several the candidates decide.
+    values = torch.nan_to_num(values.detach().reshape(-1), nan=-math.inf)
+    best = float(values.max())
+    if math.isinf(best):
+        tied = [j for j in range(len(values)) if float(values[j]) == best]
+        if not tied:
+            tied = [int(values.argmax())]
+    else:
+        floor = best - ACQ_TIE_RTOL * max(1.0, abs(best))
+        tied = [j for j in range(len(values)) if float(values[j]) >= floor]
+    return min(tied, key=lambda j: tuple(
+        round(float(x), ACQ_TIE_DECIMALS) for x in candidates[j].reshape(-1)))
+
+
+def _top_starts(*args, options=None, **kwargs):
+    """optimize_acqf's starting points: the best raw samples, not a
+    Boltzmann draw among them that a last-bit change could flip."""
+    return gen_batch_initial_conditions(
+        *args, options={**(options or {}), "topn": True}, **kwargs)
 
 
 def _generated_totals_from(raw):
@@ -4315,7 +4385,12 @@ class FoodOptimizer:
         backfilled to 0 in X_history for earlier rows, while recipe_history is
         never backfilled and would export a blank there.
         """
-        return self.history_export_frame().to_csv(index=False)
+        frame = self.history_export_frame().copy()
+        for column in frame.columns:
+            frame[column] = frame[column].map(_escape_csv_text)
+        # A header is a cell too: an ingredient named "=1+1" heads "=1+1 (g)".
+        frame.columns = [_escape_csv_text(c) for c in frame.columns]
+        return frame.to_csv(index=False)
 
     # ------------------------------------------------------------------ #
     #  The workbook
@@ -4426,6 +4501,7 @@ class FoodOptimizer:
         custom_records.append_workbook(book, self, rows, print_pack)
         workbook_flow.hide_metadata(book)
         book.active = 0
+        _keep_text_cells(book)
         buffer = io.BytesIO()
         book.save(buffer)
         return buffer.getvalue()
@@ -5768,6 +5844,7 @@ class FoodOptimizer:
                     if isinstance(cell.value, str):
                         cell.data_type = 's'
         self._write_setup_sheet(book.create_sheet(wording.SET_UP_SHEET))
+        _keep_text_cells(book)
         buffer = io.BytesIO()
         book.save(buffer)
         return buffer.getvalue()
@@ -8476,21 +8553,52 @@ class FoodOptimizer:
         # (and folds them into the linear constraints), so the candidate is the true
         # argmax over the restricted domain X_S rather than a full-space argmax with
         # coordinates zeroed after the fact.
-        candidate_norm, _ = optimize_acqf(
-            acq_function=acq_func,
-            bounds=torch.stack([torch.zeros(dim), torch.ones(dim)]).double(),
-            q=n_suggestions,
-            num_restarts=20,
-            raw_samples=1024,
-            sequential=True,
-            inequality_constraints=self._get_botorch_constraints(),
-            fixed_features=self._get_fixed_features() or None,
-        )
+        candidate_norm = self._optimize_reproducibly(acq_func, n_suggestions, dim)
 
         return [
             self._decode(unnormalize(candidate_norm[i], bounds_tensor).detach().numpy().flatten())
             for i in range(n_suggestions)
         ]
+
+    def _optimize_reproducibly(self, acq_func, q, dim):
+        """optimize_acqf(sequential=True), made so that a last-bit change in
+        the numbers cannot move a suggestion (0.9.0; on Windows they round
+        differently, and suggestions moved by up to 17 %):
+
+        * every restart is its own scipy problem. BoTorch otherwise sums all
+          twenty into one, whenever its batched fast path is off (always with
+          a Formulation total, and everywhere with the locked scipy), so one
+          restart's rounding moved every other's stopping point;
+        * the restarts start from the best raw samples (_top_starts);
+        * of restarts with near-equal values, the candidate decides
+          (_pick_restart).
+
+        One suggestion at a time, each optimised with the ones before it
+        pending, exactly as BoTorch's sequential loop does."""
+        options = dict(
+            bounds=torch.stack([torch.zeros(dim), torch.ones(dim)]).double(),
+            q=1,
+            num_restarts=20,
+            raw_samples=1024,
+            return_best_only=False,
+            inequality_constraints=self._get_botorch_constraints(),
+            fixed_features=self._get_fixed_features() or None,
+            options={"max_optimization_problem_aggregation_size": 1},
+            ic_generator=_top_starts,
+        )
+        base_pending = acq_func.X_pending
+        chosen = []
+        for _ in range(q):
+            if chosen:
+                pending = torch.cat(chosen, dim=-2)
+                if base_pending is not None:
+                    pending = torch.cat([base_pending, pending], dim=-2)
+                acq_func.set_X_pending(pending)
+            candidates, values = optimize_acqf(acq_function=acq_func, **options)
+            pick = _pick_restart(candidates, values)
+            chosen.append(candidates[pick].detach().reshape(1, -1))
+        acq_func.set_X_pending(base_pending)
+        return torch.cat(chosen, dim=-2)
 
     def tell(self, recipe_dict, results_dict, formulation_no=None,
              batch_no=None, note=None):

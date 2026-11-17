@@ -1,0 +1,47 @@
+# The test suite on Windows and macOS for every push and pull request.
+# Test-only: no secrets, no builds, no releases (Windows port phase 1).
+name: tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13.7"   # desktop/launcher.sh's pin
+
+      - uses: astral-sh/setup-uv@v6
+
+      # The versions the app ships, from the two committed locks:
+      # desktop/requirements-windows.lock.txt on Windows and
+      # desktop/requirements.lock.txt on macOS. desktop/update_lock.sh writes
+      # both, and tests/test_locks.py checks they agree.
+      - name: Install the locked dependencies
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            LOCK=desktop/requirements-windows.lock.txt
+          else
+            LOCK=desktop/requirements.lock.txt
+          fi
+          uv pip install --system --require-hashes -r "$LOCK"
+          uv pip install --system pytest matplotlib
+
+      # No PYTHONUTF8: Windows runs in its default encoding, so a text file
+      # opened without encoding="utf-8" fails here first.
+      - name: Run the tests
+        run: python -m pytest tests/ -q -p no:cacheprovider

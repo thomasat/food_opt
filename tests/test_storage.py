@@ -1,6 +1,7 @@
 import json
 import os
 import pickle
+import sys
 import time
 
 import pytest
@@ -22,7 +23,7 @@ class TestLocalStorage:
     def test_save_load_roundtrip(self, local):
         local.save("proj", {"a": 1})
         assert local.load("proj") == {"a": 1}
-        assert json.loads(open("proj.pkl").read()) == {"a": 1}  # JSON on disk
+        assert json.loads(open("proj.pkl", encoding="utf-8").read()) == {"a": 1}  # JSON on disk
 
     def test_load_missing_returns_none(self, local):
         assert local.load("nope") is None
@@ -92,7 +93,7 @@ def test_local_storage_refuses_to_overwrite_a_newer_file(tmp_path, monkeypatch):
     window_a.save("p", {"v": 2})
     with pytest.raises(StorageError, match="another window"):
         window_b.save("p", {"v": 3})
-    assert json.loads((tmp_path / "p.pkl").read_text())["v"] == 2
+    assert json.loads((tmp_path / "p.pkl").read_text(encoding="utf-8"))["v"] == 2
 
 
 def test_local_storage_save_after_own_save_is_fine(tmp_path, monkeypatch):
@@ -100,7 +101,7 @@ def test_local_storage_save_after_own_save_is_fine(tmp_path, monkeypatch):
     s = LocalStorage()
     s.save("p", {"v": 1})
     s.save("p", {"v": 2})
-    assert json.loads((tmp_path / "p.pkl").read_text())["v"] == 2
+    assert json.loads((tmp_path / "p.pkl").read_text(encoding="utf-8"))["v"] == 2
 
 
 def test_local_storage_reload_clears_conflict(tmp_path, monkeypatch):
@@ -112,7 +113,7 @@ def test_local_storage_reload_clears_conflict(tmp_path, monkeypatch):
     a.save("p", {"v": 2})
     b.load("p")              # user reloads
     b.save("p", {"v": 3})    # now allowed
-    assert json.loads((tmp_path / "p.pkl").read_text())["v"] == 3
+    assert json.loads((tmp_path / "p.pkl").read_text(encoding="utf-8"))["v"] == 3
 
 
 def test_is_stale_true_after_another_instance_saves_then_false_after_reload(tmp_path, monkeypatch):
@@ -167,6 +168,28 @@ def test_last_opened_is_the_project_opened_not_the_newest_file(tmp_path, monkeyp
     assert "Opened" not in s.list_projects()
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="M9: only Windows' Explorer lists dot files")
+def test_last_opened_is_hidden_on_windows(tmp_path, monkeypatch):
+    """M9: Explorer lists dot files, so on Windows the reopen note is a
+    hidden file beside the projects. Writing it again still works: Windows
+    refuses to overwrite a hidden file opened for writing."""
+    import ctypes
+    from ctypes import wintypes
+    get_attributes = ctypes.WinDLL("kernel32").GetFileAttributesW
+    get_attributes.argtypes = [wintypes.LPCWSTR]
+    get_attributes.restype = wintypes.DWORD          # INVALID_FILE_ATTRIBUTES reads as 0xFFFFFFFF
+    monkeypatch.chdir(tmp_path)
+    s = LocalStorage()
+    s.save("First", {"v": 1})
+    s.save("Second", {"v": 1})
+    s.remember_opened("First")
+    s.remember_opened("Second")
+    assert (tmp_path / ".last_opened").read_text(encoding="utf-8") == "Second"
+    attributes = get_attributes(str(tmp_path / ".last_opened"))
+    assert attributes != 0xFFFFFFFF and attributes & 0x2  # FILE_ATTRIBUTE_HIDDEN
+    assert LocalStorage().last_opened() == "Second"
+
+
 def test_no_file_written_on_init(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     from food_bo import FoodOptimizer
@@ -186,3 +209,137 @@ def test_saved_at_reads_the_file_time_and_is_none_without_a_file(tmp_path, monke
     assert isinstance(stamp, datetime)
     assert stamp.tzinfo is not None                     # aware, like last_saved_at
     assert abs(stamp - datetime.now().astimezone()) < timedelta(seconds=30)
+
+
+@pytest.mark.parametrize("name", ["con", "CON", "Con.backup", "nul", "aux", "prn",
+                                  "com1", "COM9", "lpt1 ", "LPT9.x"])
+def test_windows_reserved_names_are_reserved(name):
+    """Windows will not save CON.pkl (or con.backup.pkl): the part before the
+    first dot names a device, whatever the case or trailing spaces."""
+    from storage import is_reserved_name
+    assert is_reserved_name(name)
+
+
+@pytest.mark.parametrize("name", ["COM10", "console", "Oat cookie", "com", "lpt0"])
+def test_ordinary_names_are_not_reserved(name):
+    from storage import is_reserved_name
+    assert not is_reserved_name(name)
+
+
+def _sharing_violation():
+    """What Windows raises when another program (antivirus, OneDrive,
+    Excel) holds the file: PermissionError, errno EACCES, winerror 32."""
+    error = PermissionError(13, "The process cannot access the file")
+    error.winerror = 32
+    return error
+
+
+def _locked_twice(real, monkeypatch, name):
+    calls = {"n": 0}
+
+    def flaky(*args):
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            raise _sharing_violation()
+        return real(*args)
+    monkeypatch.setattr(f"storage.os.{name}", flaky)
+    monkeypatch.setattr("storage.time.sleep", lambda s: None)
+    return calls
+
+
+def test_save_retries_a_briefly_locked_file(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    calls = _locked_twice(os.replace, monkeypatch, "replace")
+    LocalStorage().save("p", {"v": 1})
+    assert calls["n"] == 3
+    assert json.loads((tmp_path / "p.pkl").read_text(encoding="utf-8")) == {"v": 1}
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_save_reports_a_file_that_stays_locked(tmp_path, monkeypatch):
+    import wording
+
+    def always(*args):
+        raise _sharing_violation()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("storage.os.replace", always)
+    monkeypatch.setattr("storage.time.sleep", lambda s: None)
+    with pytest.raises(StorageError) as caught:
+        LocalStorage().save("p", {"v": 1})
+    assert str(caught.value) == wording.not_saved("p", "in_use")
+
+
+def test_disk_cause_reads_windows_sharing_errors():
+    from storage import disk_cause
+    assert disk_cause(_sharing_violation()) == "in_use"
+    lock = PermissionError(13, "locked")
+    lock.winerror = 33
+    assert disk_cause(lock) == "in_use"
+
+
+def test_errno_names_missing_on_some_platforms_do_not_break_import():
+    import storage
+    assert None not in storage._DISK_CAUSES
+
+
+def test_archive_retries_a_briefly_locked_file(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    s = LocalStorage()
+    s.save("p", {"v": 1})
+    calls = _locked_twice(os.rename, monkeypatch, "rename")
+    assert s.archive("p", "pre_delete") == "p_pre_delete"
+    assert calls["n"] == 3
+    assert (tmp_path / "p_pre_delete.pkl").exists()
+
+
+def _held_by_another_program():
+    """What Windows raises when os.replace lands on a file another program
+    holds open without delete-sharing (OneDrive, antivirus, a second app
+    window): PermissionError, winerror 5."""
+    error = PermissionError(13, "Access is denied")
+    error.winerror = 5
+    return error
+
+
+def test_save_retries_a_project_file_another_program_holds(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    real, calls = os.replace, {"n": 0}
+
+    def held_twice(*args):
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            raise _held_by_another_program()
+        return real(*args)
+    monkeypatch.setattr("storage.os.replace", held_twice)
+    monkeypatch.setattr("storage.time.sleep", lambda s: None)
+    LocalStorage().save("p", {"v": 1})
+    assert calls["n"] == 3
+    assert json.loads((tmp_path / "p.pkl").read_text(encoding="utf-8")) == {"v": 1}
+
+
+def test_a_save_refused_at_the_replace_is_in_use_not_read_only(tmp_path, monkeypatch):
+    """The .tmp beside it was just written, so the folder is not read-only:
+    a refusal at the replace is another program holding the project file."""
+    import wording
+
+    def always(*args):
+        raise _held_by_another_program()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("storage.os.replace", always)
+    monkeypatch.setattr("storage.time.sleep", lambda s: None)
+    with pytest.raises(StorageError) as caught:
+        LocalStorage().save("p", {"v": 1})
+    assert str(caught.value) == wording.not_saved("p", "in_use")
+
+
+def test_saved_at_reads_a_file_dated_near_1970(tmp_path, monkeypatch):
+    """Windows cannot turn a naive time from 1970's first day into local
+    time (OSError 22), and files unpacked from some archives carry such
+    dates: the saved line must still have a time to show."""
+    monkeypatch.chdir(tmp_path)
+    s = LocalStorage()
+    s.save("p", {"v": 1})
+    os.utime("p.pkl", (1000, 1000))
+    when = s.saved_at("p")
+    assert when is not None and when.tzinfo is not None
+    assert abs(when.timestamp() - 1000) < 1

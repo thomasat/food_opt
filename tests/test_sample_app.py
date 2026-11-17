@@ -28,7 +28,7 @@ def _write_own(name="Mine"):
     kept the sample's name would still be the sample."""
     state = sp.shipped_state(sp.ALL10)
     state["project_name"] = name
-    Path(f"{name}.pkl").write_text(json.dumps(state))
+    Path(f"{name}.pkl").write_text(json.dumps(state), encoding="utf-8")
 
 
 def _open(app, name):
@@ -51,25 +51,25 @@ def test_try_sample_keeps_a_used_sample_as_it_is(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     state = sp.shipped_state(sp.ROUND6)
     state["tasting_noise"] = 2.0
-    Path(f"{sp.ROUND6}.pkl").write_text(json.dumps(state))
-    before = Path(f"{sp.ROUND6}.pkl").read_text()
+    Path(f"{sp.ROUND6}.pkl").write_text(json.dumps(state), encoding="utf-8")
+    before = Path(f"{sp.ROUND6}.pkl").read_text(encoding="utf-8")
     app = AppTest.from_file(APP, default_timeout=120); app.run()
     _click(app, wording.OPEN_YOGURT_LABEL)
     assert app.session_state["_loaded_project"] == sp.ROUND6
     assert Path(f"{sp.ALL10}.pkl").exists()          # written alongside
-    assert Path(f"{sp.ROUND6}.pkl").read_text() == before
-    assert json.loads(Path(f"{sp.ROUND6}.pkl").read_text())["tasting_noise"] == 2.0
+    assert Path(f"{sp.ROUND6}.pkl").read_text(encoding="utf-8") == before
+    assert json.loads(Path(f"{sp.ROUND6}.pkl").read_text(encoding="utf-8"))["tasting_noise"] == 2.0
 
 
 def test_start_this_sample_over_restores_and_archives(at):
     _click(at, wording.OPEN_YOGURT_LABEL)
-    st = json.loads(Path(f"{sp.ROUND6}.pkl").read_text())
+    st = json.loads(Path(f"{sp.ROUND6}.pkl").read_text(encoding="utf-8"))
     st["tasting_noise"] = 3.0
-    Path(f"{sp.ROUND6}.pkl").write_text(json.dumps(st))
+    Path(f"{sp.ROUND6}.pkl").write_text(json.dumps(st), encoding="utf-8")
     at.run()
     _click(at, wording.START_SAMPLE_OVER_LABEL)
     _click(at, wording.YES_START_SAMPLE_OVER)
-    assert "tasting_noise" not in json.loads(Path(f"{sp.ROUND6}.pkl").read_text())
+    assert "tasting_noise" not in json.loads(Path(f"{sp.ROUND6}.pkl").read_text(encoding="utf-8"))
     assert Path(f"{sp.ROUND6}_sample_reset.pkl").exists()
     assert at.session_state["main_tab"] == wording.TAB_INSIGHTS
     # One line: what happened and where the reader's version went.
@@ -169,7 +169,7 @@ def test_own_project_with_an_open_round_still_lands_on_make_a_round(at):
     _click(at, wording.OPEN_YOGURT_LABEL)
     state = sp.shipped_state(sp.ROUND6)           # Round 6 open, 5 recorded
     state["project_name"] = "Mine"
-    Path("Mine.pkl").write_text(json.dumps(state))
+    Path("Mine.pkl").write_text(json.dumps(state), encoding="utf-8")
     at.run()
     _open(at, "Mine")
     assert not at.exception
@@ -191,16 +191,16 @@ def test_try_sample_opens_round6_when_the_results_file_cannot_be_written(at, mon
 
 def test_start_this_sample_over_when_the_results_file_cannot_be_written(at):
     _click(at, wording.OPEN_YOGURT_LABEL)
-    st = json.loads(Path(f"{sp.ROUND6}.pkl").read_text())
+    st = json.loads(Path(f"{sp.ROUND6}.pkl").read_text(encoding="utf-8"))
     st["tasting_noise"] = 3.0
-    Path(f"{sp.ROUND6}.pkl").write_text(json.dumps(st))
+    Path(f"{sp.ROUND6}.pkl").write_text(json.dumps(st), encoding="utf-8")
     Path(sp.ROUND6_RESULTS_FILE_NAME).unlink()
     Path(sp.ROUND6_RESULTS_FILE_NAME).mkdir()
     at.run()
     _click(at, wording.START_SAMPLE_OVER_LABEL)
     _click(at, wording.YES_START_SAMPLE_OVER)
     assert not at.exception and not at.error
-    assert "tasting_noise" not in json.loads(Path(f"{sp.ROUND6}.pkl").read_text())
+    assert "tasting_noise" not in json.loads(Path(f"{sp.ROUND6}.pkl").read_text(encoding="utf-8"))
     assert [s.value for s in at.success] == [wording.sample_restored(sp.ROUND6)]
     assert at.session_state["main_tab"] == wording.TAB_INSIGHTS
 
@@ -211,17 +211,17 @@ def test_first_launch_brings_an_untouched_earlier_sample_up_to_date(tmp_path, mo
     own limits. A changed copy is left as it is."""
     from tests.test_sample_projects import _earlier_build
     monkeypatch.chdir(tmp_path)
-    Path(f"{sp.ROUND6}.pkl").write_text(json.dumps(_earlier_build(sp.ROUND6), indent=2))
+    Path(f"{sp.ROUND6}.pkl").write_text(json.dumps(_earlier_build(sp.ROUND6), indent=2), encoding="utf-8")
     changed = _earlier_build(sp.ALL10)
     changed["tasting_noise"] = 2.0
-    Path(f"{sp.ALL10}.pkl").write_text(json.dumps(changed, indent=2))
+    Path(f"{sp.ALL10}.pkl").write_text(json.dumps(changed, indent=2), encoding="utf-8")
     os.utime(f"{sp.ROUND6}.pkl", (1000, 1000))
     os.utime(f"{sp.ALL10}.pkl", (2000, 2000))   # the reader's last project
     app = AppTest.from_file(APP, default_timeout=120)
     app.run()
     assert not app.exception
-    assert json.loads(Path(f"{sp.ROUND6}.pkl").read_text()) == sp.shipped_state(sp.ROUND6)
-    assert json.loads(Path(f"{sp.ALL10}.pkl").read_text()) == changed
+    assert json.loads(Path(f"{sp.ROUND6}.pkl").read_text(encoding="utf-8")) == sp.shipped_state(sp.ROUND6)
+    assert json.loads(Path(f"{sp.ALL10}.pkl").read_text(encoding="utf-8")) == changed
     # The replaced copy is newer on disk now, but the project the reader
     # last worked in is the one that reopens.
     assert app.session_state["_loaded_project"] == sp.ALL10
@@ -236,14 +236,14 @@ def test_own_newest_project_reopens_after_an_earlier_sample_is_replaced(tmp_path
     time; the project the reader last worked in still reopens, not it."""
     from tests.test_sample_projects import _earlier_build
     monkeypatch.chdir(tmp_path)
-    Path(f"{sp.ROUND6}.pkl").write_text(json.dumps(_earlier_build(sp.ROUND6), indent=2))
+    Path(f"{sp.ROUND6}.pkl").write_text(json.dumps(_earlier_build(sp.ROUND6), indent=2), encoding="utf-8")
     _write_own("Mine")
     os.utime(f"{sp.ROUND6}.pkl", (1000, 1000))
     os.utime("Mine.pkl", (2000, 2000))
     app = AppTest.from_file(APP, default_timeout=120)
     app.run()
     assert not app.exception
-    assert json.loads(Path(f"{sp.ROUND6}.pkl").read_text()) == sp.shipped_state(sp.ROUND6)
+    assert json.loads(Path(f"{sp.ROUND6}.pkl").read_text(encoding="utf-8")) == sp.shipped_state(sp.ROUND6)
     assert app.session_state["_loaded_project"] == "Mine"
 
 
@@ -253,12 +253,12 @@ def test_a_damaged_shipped_sample_does_not_stop_launch(tmp_path, monkeypatch):
     from tests.test_sample_projects import _earlier_build
     monkeypatch.chdir(tmp_path)
     earlier = _earlier_build(sp.ROUND6)
-    Path(f"{sp.ROUND6}.pkl").write_text(json.dumps(earlier, indent=2))
+    Path(f"{sp.ROUND6}.pkl").write_text(json.dumps(earlier, indent=2), encoding="utf-8")
     damaged = tmp_path / "damaged.json"
-    damaged.write_text("{ not json")
+    damaged.write_text("{ not json", encoding="utf-8")
     monkeypatch.setattr(sp, "_shipped_path", lambda name: damaged)
     app = AppTest.from_file(APP, default_timeout=120)
     app.run()
     assert not app.exception
-    assert json.loads(Path(f"{sp.ROUND6}.pkl").read_text()) == earlier
+    assert json.loads(Path(f"{sp.ROUND6}.pkl").read_text(encoding="utf-8")) == earlier
     assert app.session_state["_loaded_project"] == sp.ROUND6

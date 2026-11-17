@@ -21,6 +21,7 @@ import ui_insights
 import wording
 import custom_records
 from food_bo import ROUND_FIELD, WORKBOOK_MIME
+from ui_helpers import read_uploaded_csv
 from ui_helpers import (
     COPY_KEPT, TAB_BATCH, TAB_SETUP, amount_range_placeholder, ask_tab,
     blank_amounts_message,
@@ -1847,7 +1848,7 @@ def _read_past_formulations(uploaded):
         frame = raw.iloc[header_row + 1:].reset_index(drop=True)
         frame.columns = [str(c) for c in raw.iloc[header_row]]
         return frame.dropna(how="all")
-    return pd.read_csv(uploaded)
+    return read_uploaded_csv(uploaded)
 
 
 def _import(opt):

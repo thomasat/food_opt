@@ -109,7 +109,7 @@ def test_the_score_sentence_matches_the_apps_formula(tmp_path, monkeypatch):
 # ------------------------------------------------------------------ #
 
 def _persona_strings():
-    src = open(wording.__file__).read().split("# --- persona fixes ---", 1)[1]
+    src = open(wording.__file__, encoding="utf-8").read().split("# --- persona fixes ---", 1)[1]
     return re.findall(r'"((?:[^"\\\n]|\\.)*)"', src)
 
 

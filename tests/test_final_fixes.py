@@ -123,7 +123,7 @@ def _reset_prefixes():
     """app.py's _PER_NAME_BOX_PREFIXES, read without running the app."""
     import ast
     import pathlib
-    tree = ast.parse((pathlib.Path(APP_PATH)).read_text())
+    tree = ast.parse((pathlib.Path(APP_PATH)).read_text(encoding="utf-8"))
     for node in tree.body:
         if (isinstance(node, ast.Assign)
                 and getattr(node.targets[0], "id", None) == "_PER_NAME_BOX_PREFIXES"):

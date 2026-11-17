@@ -197,7 +197,7 @@ def install(folder):
     from test_107_first_screen import install as install_demos
     install_demos(folder)
     os.chdir(folder)
-    state = json.loads((D.HERE / f"{D.TIMING}.json").read_text())
+    state = json.loads((D.HERE / f"{D.TIMING}.json").read_text(encoding="utf-8"))
 
     def copy(name):
         opt = FoodOptimizer(name)

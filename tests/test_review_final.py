@@ -19,7 +19,7 @@ def test_captions_and_labels_keep_to_their_word_budgets():
 
 
 def _round2_source():
-    src = pathlib.Path(wording.__file__).read_text()
+    src = pathlib.Path(wording.__file__).read_text(encoding="utf-8")
     return src[src.index("# --- round 2 fixes ---"):]
 
 

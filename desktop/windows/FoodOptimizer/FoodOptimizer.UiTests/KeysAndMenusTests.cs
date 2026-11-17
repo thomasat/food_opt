@@ -1,0 +1,336 @@
+using System.Globalization;
+using System.Windows.Automation;
+using FoodOptimizer.Core;
+using WinForms = System.Windows.Forms;
+
+namespace FoodOptimizer.UiTests;
+
+public class KeysAndMenusTests
+{
+    static readonly TimeSpan Three = TimeSpan.FromSeconds(3);
+    static readonly TimeSpan Ten = TimeSpan.FromSeconds(10);
+
+    static (ShellApp App, AutomationElement Edit) Loaded(ShellRun run)
+    {
+        var app = ShellApp.Launch(run);
+        var edit = app.WaitFor(ControlType.Edit, "Type here", ShellApp.Load);
+        return (app, edit);
+    }
+
+    /// <summary>The text box, looked up again each time (never a stale element).</summary>
+    static AutomationElement BoxElement(ShellApp app) => app.WaitFor(ControlType.Edit, "Type here", Three);
+
+    /// <summary>The text box's value now, or null when it is not there.</summary>
+    static string? Box(ShellApp app) => Uia.Find(app.Window, ControlType.Edit, "Type here") is { } e ? Uia.Value(e) : null;
+
+    /// <summary>Sends keys to the box while the app has the foreground and the box the focus.</summary>
+    static void SendToBox(ShellApp app, string keys) => app.Send(BoxElement(app), keys);
+
+    /// <summary>Waits for the box to read <paramref name="expected"/>;
+    /// fails naming what it reads and what has the foreground.</summary>
+    static void AssertBox(ShellApp app, string expected, string after)
+    {
+        string? seen = null;
+        Assert.True(Uia.WaitUntil(() => (seen = Box(app)) == expected, Three),
+            $"after {after} the box reads '{seen ?? "(no box)"}', not '{expected}'; {ShellApp.Foreground()} has the foreground");
+    }
+
+    /// <summary>Types into the box, while the app has the foreground and
+    /// the box has the focus, and waits until the box shows it.</summary>
+    static void TypeInto(ShellApp app, string text)
+    {
+        SendToBox(app, text);
+        AssertBox(app, text, "typing");
+    }
+
+    static void AssertZoom(ShellApp app, double expected) =>
+        Assert.True(Uia.WaitUntil(() => app.SavedZoom() is { } z && Math.Abs(z - expected) < 0.001, TimeSpan.FromSeconds(2)),
+            $"saved zoom {app.SavedZoom()} != {expected}; {ShellApp.Foreground()} has the foreground");
+
+    /// Each key is sent only while the app has the foreground and the box
+    /// the focus (a browser window an earlier test's link opened can take
+    /// them), and each step is waited for in the box or on the clipboard,
+    /// which is emptied first so a copy left by an earlier run cannot pass.
+    [Fact]
+    public void Editing_keys_work_in_a_text_box()
+    {
+        var (app, _) = Loaded(ShellRun.Fresh());
+        using var _app = app;
+        ShellApp.ClearClipboard();
+        TypeInto(app, "hello spike");
+        SendToBox(app, "^a");
+        SendToBox(app, "^c");
+        var copied = "";
+        Assert.True(Uia.WaitUntil(() => (copied = ShellApp.Clipboard()) == "hello spike", Three),
+            $"the clipboard holds '{copied}' after Ctrl+A, Ctrl+C; {ShellApp.Foreground()} has the foreground");
+        SendToBox(app, "{END}");
+        SendToBox(app, "^v");
+        AssertBox(app, "hello spikehello spike", "End, Ctrl+V");
+        SendToBox(app, "^z");
+        AssertBox(app, "hello spike", "Ctrl+Z");
+    }
+
+    /// Each key is sent while the app has the foreground and the box the
+    /// focus, and does nothing a browser would; the box keeps the focus and
+    /// a letter typed after them still reaches it.
+    [Fact]
+    public void Browser_keys_do_nothing()
+    {
+        var (app, _) = Loaded(ShellRun.Fresh());
+        using var _app = app;
+        TypeInto(app, "keep");
+        SendToBox(app, "{F5}");
+        Thread.Sleep(3000);
+        Assert.Equal("keep", Box(app));
+        SendToBox(app, "^p");
+        Assert.False(Uia.WaitUntil(() => Uia.TopWindow("Print") != null, Three));
+        SendToBox(app, "{F12}");
+        SendToBox(app, "^+i");
+        Assert.False(Uia.WaitUntil(() => Uia.TopWindow("DevTools") != null, Three));
+        Assert.True(app.PageHasFocus(BoxElement(app)), $"the browser keys took the focus from the box; {ShellApp.Foreground()} has the foreground");
+        SendToBox(app, "x");
+        AssertBox(app, "keepx", "F5, Ctrl+P, F12, Ctrl+Shift+I and x");
+    }
+
+    [Fact]
+    public void Zoom_keys_step_and_persist()
+    {
+        var (app, _) = Loaded(ShellRun.Fresh());
+        using var _app = app;
+        SendToBox(app, "^=");
+        AssertZoom(app, 1.1);
+        SendToBox(app, "^=");
+        AssertZoom(app, 1.2);
+        SendToBox(app, "^-");
+        AssertZoom(app, 1.1);
+        SendToBox(app, "^{ADD}");
+        AssertZoom(app, 1.2);
+        SendToBox(app, "^{SUBTRACT}");
+        AssertZoom(app, 1.1);
+        SendToBox(app, "^0");
+        AssertZoom(app, 1.0);
+    }
+
+    static int Logged(ShellApp app, string line) => app.Log().Count(l => l.TrimEnd().EndsWith(line, StringComparison.Ordinal));
+
+    /// 25 Ctrl+= that reach the app: 15 take it from 1 to 2.5, the other
+    /// 10 must not pass it. Each press is counted in shell.log; a press is
+    /// sent only while the app has the foreground, since one sent while a
+    /// browser window (opened by an earlier test's link) has it zooms the
+    /// browser instead.
+    [Fact]
+    public void Zoom_stops_at_two_and_a_half()
+    {
+        const int presses = 25;
+        const string bigger = " command.run " + MenuIds.Bigger;
+        var (app, _) = Loaded(ShellRun.Fresh());
+        using var _app = app;
+        app.Focus(BoxElement(app));
+        var deadline = DateTime.UtcNow.AddSeconds(60);
+        while (Logged(app, bigger) < presses && DateTime.UtcNow < deadline)
+        {
+            if (!app.EnsureForeground()) continue;
+            WinForms.SendKeys.SendWait("^=");
+            Thread.Sleep(100);
+        }
+        Assert.True(Uia.WaitUntil(() => Logged(app, bigger) >= presses, TimeSpan.FromSeconds(5)),
+            string.Join("\n", app.Log()));
+        AssertZoom(app, 2.5);
+    }
+
+    [Fact]
+    public async Task Ctrl_wheel_zoom_is_saved_and_used_next_time()
+    {
+        double saved;
+        using (var app = Loaded(ShellRun.Fresh()).App)
+        {
+            app.CtrlWheel(2);
+            Assert.True(Uia.WaitUntil(() => app.SavedZoom() > 1.0, TimeSpan.FromSeconds(3)), $"zoom {app.SavedZoom()}");
+            Thread.Sleep(500);
+            saved = app.SavedZoom()!.Value;
+            app.Close();
+            Assert.True(await app.WaitForExitAsync(Ten));
+        }
+        using var next = ShellApp.Launch(ShellRun.Same());
+        var want = "zoom.applied " + saved.ToString("0.##", CultureInfo.InvariantCulture);
+        Assert.True(Uia.WaitUntil(() => next.Log().Any(l => l.EndsWith(want)), Ten), string.Join("\n", next.Log()));
+    }
+
+    [Fact]
+    public void Menus_are_the_windows_layout()
+    {
+        using var app = ShellApp.Launch(ShellRun.Fresh());
+        Assert.Equal(["File", "View", "Help"], app.MenuBarItems());
+        Assert.Equal(["Open Projects Folder", "Exit"], app.OpenMenu("File").Select(Uia.NameOf));
+        app.CloseMenus();
+        var view = app.OpenMenu("View");
+        Assert.Equal(["Bigger Text", "Smaller Text", "Actual Size"], view.Select(Uia.NameOf));
+        Assert.Equal("Ctrl+=", view[0].Current.AcceleratorKey);
+        app.CloseMenus();
+        Assert.Equal(["Start Here", "Get Help", "Show Log File", "About Food Optimizer"], app.OpenMenu("Help").Select(Uia.NameOf));
+        app.CloseMenus();
+        Assert.Equal("Ctrl+O", app.OpenMenu("File")[0].Current.AcceleratorKey);
+        app.CloseMenus();
+    }
+
+    [Fact]
+    public void View_menu_zooms()
+    {
+        using var app = Loaded(ShellRun.Fresh()).App;
+        app.Menu("View", "Bigger Text");
+        AssertZoom(app, 1.1);
+    }
+
+    static void CloseDialogWithOk(AutomationElement dialog)
+    {
+        Uia.Invoke(Uia.WaitFor(dialog, ControlType.Button, "OK", Three));
+    }
+
+    [Fact]
+    public void Get_help_names_the_address()
+    {
+        using var app = ShellApp.Launch(ShellRun.Fresh());
+        app.Menu("Help", "Get Help");
+        var d = app.WaitForDialog(Ten);
+        Uia.WaitFor(d, ControlType.Text, "Food Optimizer support", Three);
+        Uia.WaitFor(d, ControlType.Text, "sohum.patnaik@fsi.org", Three);
+        CloseDialogWithOk(d);
+        Assert.True(Uia.WaitUntil(() => app.Dialog("Food Optimizer") == null, Three));
+    }
+
+    [Fact]
+    public void About_shows_the_version()
+    {
+        using var app = ShellApp.Launch(ShellRun.Fresh());
+        app.Menu("Help", "About Food Optimizer");
+        var d = app.WaitForDialog(Ten);
+        Uia.WaitFor(d, ControlType.Text, "Food Optimizer " + AppIdentity.Version, Three);
+        CloseDialogWithOk(d);
+    }
+
+    [Fact]
+    public void Show_log_file_without_a_log_says_so()
+    {
+        var run = ShellRun.Fresh() with { Env = new Dictionary<string, string> { ["FOODOPT_TEST_ARCH"] = "x86", ["FOODOPT_TEST_HOOKS"] = "1" } };
+        using var app = ShellApp.Launch(run);
+        app.WaitFor(ControlType.Text, "This PC is not supported", TimeSpan.FromSeconds(30));
+        Assert.False(File.Exists(Path.Combine(app.StateDir, "launcher.log")));
+        app.Menu("Help", "Show Log File");
+        var d = app.WaitForDialog(Ten);
+        Uia.WaitFor(d, ControlType.Text, "There is no log file yet", Three);
+        CloseDialogWithOk(d);
+    }
+
+    static void CloseWindow(AutomationElement w)
+    {
+        try { ((WindowPattern)w.GetCurrentPattern(WindowPattern.Pattern)).Close(); } catch (Exception) { }
+    }
+
+    [Fact]
+    public void Show_log_file_selects_the_log()
+    {
+        using var app = Loaded(ShellRun.Fresh()).App;
+        app.Menu("Help", "Show Log File");
+        AutomationElement? w = null;
+        var leaf = Path.GetFileName(app.StateDir);
+        Assert.True(Uia.WaitUntil(() => (w = Uia.TopWindow(leaf, "CabinetWClass")) != null, Ten));
+        CloseWindow(w!);
+    }
+
+    [Fact]
+    public void Open_projects_folder_opens_it()
+    {
+        using var app = ShellApp.Launch(ShellRun.Fresh());
+        app.Menu("File", "Open Projects Folder");
+        AutomationElement? w = null;
+        Assert.True(Uia.WaitUntil(() => (w = Uia.TopWindow("FoodOptimizer", "CabinetWClass")) != null, Ten));
+        Assert.True(Directory.Exists(app.ProjectsDir));
+        CloseWindow(w!);
+    }
+
+    /// A command that fails says so in our words, never Windows'; its
+    /// reason (type and message) goes to shell.log; the app keeps working.
+    [Fact]
+    public void Open_projects_folder_when_the_path_is_a_file_says_so()
+    {
+        var run = ShellRun.Fresh();
+        Directory.CreateDirectory(run.TempRoot);
+        var file = Path.Combine(run.TempRoot, "projects.txt");
+        File.WriteAllText(file, "not a folder");
+        using var app = ShellApp.Launch(run with { Env = new Dictionary<string, string> { ["FOODOPT_PROJECTS_DIR"] = file } });
+        app.Menu("File", "Open Projects Folder");
+        var d = app.WaitForDialog(Ten);
+        Uia.WaitFor(d, ControlType.Text, "Open Projects Folder did not work", Three);
+        Uia.WaitFor(d, ControlType.Text, "Try again, or email sohum.patnaik@fsi.org.", Three);
+        var shown = d.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Text))
+            .Cast<AutomationElement>().Select(e => e.Current.Name).ToList();
+        Assert.DoesNotContain(shown, t => t.Contains("Windows said", StringComparison.Ordinal) || t.Contains(file, StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(app.Log(), l => l.Contains(" command.failed menu.file.open_projects IOException: ", StringComparison.Ordinal));
+        CloseDialogWithOk(d);
+        Assert.True(Uia.WaitUntil(() => app.Dialog("Food Optimizer") == null, Three));
+        Assert.True(File.Exists(file));
+        app.Menu("Help", "About Food Optimizer");
+        var about = app.WaitForDialog(Ten);
+        Uia.WaitFor(about, ControlType.Text, "Food Optimizer " + AppIdentity.Version, Three);
+        CloseDialogWithOk(about);
+    }
+
+    [Fact]
+    public void Start_here_opens_the_text_file()
+    {
+        using var app = ShellApp.Launch(ShellRun.Fresh());
+        app.Menu("Help", "Start Here");
+        AutomationElement? w = null;
+        Assert.True(Uia.WaitUntil(() => (w = Uia.TopWindow("Start Here")) != null, Ten));
+        CloseWindow(w!);
+    }
+
+    /// M8: with Start Here.txt gone, Help › Start Here names that file. The
+    /// run's own stage holds the shell and its page, without the bundled
+    /// Python and app (the menu needs neither) and without Start Here.txt.
+    [Fact]
+    public void Start_here_missing_says_so()
+    {
+        var run = ShellRun.Fresh();
+        var stage = Path.Combine(run.TempRoot, "stage");
+        CopyShell(Uia.Stage, stage);
+        File.Delete(Path.Combine(stage, "Start Here.txt"));
+        using var app = ShellApp.Launch(run with { Stage = stage });
+        app.Menu("Help", "Start Here");
+        var d = app.WaitForDialog(Ten);
+        Uia.WaitFor(d, ControlType.Text, "Start Here is missing", Three);
+        Uia.WaitFor(d, ControlType.Text, "Reinstall Food Optimizer to get it back.", Three);
+        CloseDialogWithOk(d);
+        Assert.True(Uia.WaitUntil(() => app.Dialog("Food Optimizer") == null, Three));
+        Assert.False(Uia.WaitUntil(() => Uia.TopWindow("Start Here") != null, Three));
+        Assert.True(File.Exists(Path.Combine(Uia.Stage, "Start Here.txt")));
+    }
+
+    /// The stage without its python and app folders.
+    static void CopyShell(string from, string to)
+    {
+        Directory.CreateDirectory(to);
+        foreach (var file in Directory.GetFiles(from))
+            File.Copy(file, Path.Combine(to, Path.GetFileName(file)), true);
+        foreach (var dir in Directory.GetDirectories(from))
+        {
+            var name = Path.GetFileName(dir);
+            if (name is "python" or "app") continue;
+            foreach (var file in Directory.GetFiles(dir, "*", SearchOption.AllDirectories))
+            {
+                var dest = Path.Combine(to, Path.GetRelativePath(from, file));
+                Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+                File.Copy(file, dest, true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task Exit_quits()
+    {
+        using var app = Loaded(ShellRun.Fresh()).App;
+        app.Menu("File", "Exit");
+        Assert.True(await app.WaitForExitAsync(TimeSpan.FromSeconds(5)));
+        Assert.True(Uia.WaitUntil(() => app.StagePythons().Count == 0, TimeSpan.FromSeconds(5)));
+    }
+}

@@ -48,7 +48,7 @@ from food_bo import (                         # noqa: E402
     ingredients_template_workbook,
 )
 from ui_helpers import (                      # noqa: E402
-    ARMED_KEY, INSIGHTS_OPENED_KEY, REVIEW_DOT_STYLE, REVIEW_DUE_KEY, SCROLL_KEY,
+    A11Y_SCRIPT, ARMED_KEY, INSIGHTS_OPENED_KEY, REVIEW_DOT_STYLE, REVIEW_DUE_KEY, SCROLL_KEY,
     TAB_BATCH, TAB_RESULTS, TAB_SETUP,
     clear_selection, scroll_script,
     confirm_action, confirmation_open, drain_clears,
@@ -762,6 +762,8 @@ with st.sidebar:
                     st.error(wording.NAME_EMPTY)
                 elif not _NAME_RE.fullmatch(name):
                     st.error(wording.name_not_allowed(name))
+                elif storage_backend.is_reserved_name(name):
+                    st.error(wording.name_reserved(name))
                 elif name in existing_projects:
                     st.error(wording.name_taken(name))
                 elif storage_backend.is_archive_name(name) or STORAGE.exists(name):
@@ -964,6 +966,10 @@ with st.sidebar:
                 type=("secondary" if confirmation_open() else "primary"),
             ):
                 _open_project(selected)
+
+    # Last in the sidebar, on every run (the welcome screen stops before the
+    # tabs): hides the folds' icon text from screen readers.
+    st.html(A11Y_SCRIPT, unsafe_allow_javascript=True)
 
 
 # Anything the sidebar queued belongs on THIS run, above the tabs.

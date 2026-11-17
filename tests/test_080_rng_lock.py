@@ -4,7 +4,8 @@ torch has one global RNG. One process-wide lock, insights.RNG_LOCK, is held
 around the one ask() call site (ui_batch.ask_alone), so a suggestion made in
 one tab is exactly the fixture's whatever another tab holding the lock is
 doing with the RNG. The fixture is tests/fixtures/ask_unchanged.json, never
-regenerated."""
+regenerated; bit-identical on the Mac; within 0.1% on Windows
+(tests.golden.same)."""
 import threading
 import time
 
@@ -13,7 +14,8 @@ import torch
 
 import insights
 import ui_batch
-from tests.test_ask_unchanged import CASES, _spy, fixture, same
+from tests.golden import same
+from tests.test_ask_unchanged import CASES, _spy, fixture
 
 
 @pytest.fixture(autouse=True)
@@ -95,7 +97,7 @@ def test_generate_asks_through_the_lock():
     for path in sorted(root.glob("*.py")):
         if path.name in ("food_bo.py", "benchmark.py", "theory.py"):
             continue
-        tree = ast.parse(path.read_text())
+        tree = ast.parse(path.read_text(encoding="utf-8"))
         asks = {id(n) for n in ast.walk(tree) if isinstance(n, ast.Call)
                 and isinstance(n.func, ast.Attribute) and n.func.attr == "ask"}
         placed = set()

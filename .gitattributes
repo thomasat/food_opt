@@ -1,0 +1,18 @@
+# The bundle and the Mac lock are compared byte for byte (launcher.sh hashes the lock), so text checks out LF on every OS.
+* text=auto eol=lf
+*.py text eol=lf
+*.json text eol=lf
+*.txt text eol=lf
+*.md text eol=lf
+*.sh text eol=lf
+*.swift text eol=lf
+*.plist text eol=lf
+*.csv text eol=lf
+*.toml text eol=lf
+*.yml text eol=lf
+desktop/VERSION text eol=lf
+*.xlsx binary
+*.icns binary
+*.png binary
+*.pkl binary
+data/usda_nutrition_data.csv -text
