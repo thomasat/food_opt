@@ -359,7 +359,7 @@ uninstall a Food Optimizer it did not install.
 
 ## Testing an unsigned build (internal only)
 
-An unsigned build is never sent to a recipient; signing is phase 6.
+0.9.0 ships unsigned; signing comes in a later release.
 Opening one shows SmartScreen's "Windows protected your PC" with
 "Unknown publisher": click More info, then Run anyway.
 
@@ -467,7 +467,7 @@ Steps 6 and 7 of the combined ritual ("Publishing a release" in
    powershell -NoProfile -ExecutionPolicy Bypass -File desktop\windows\build_installer.ps1
    ```
 
-   PENDING(signing step)
+   No signing step while releases are unsigned (0.9.0).
 3. pytest under the image's Python at the tag, as in "Test" above: 0
    failed, apart from a list stated in the release PR.
 4. Level 2 with the three installers and `-Cleanup` (`run_level2.ps1`, as

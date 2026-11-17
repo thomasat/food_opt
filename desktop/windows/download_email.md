@@ -2,9 +2,8 @@ Food Optimizer for Windows: https://github.com/thomasat/food_opt/releases/downlo
 
 If Edge warns about the download, choose Keep.
 
-Windows may not recognize the app yet. Click More info. Check the publisher is Food System Innovations, then click Run anyway.
+Windows may say "Unknown publisher." Click More info, then Run anyway.
 
 Questions: sohum.patnaik@fsi.org
 
-<!-- PENDING(exact SmartScreen words on a signed build) -->
 <!-- PENDING(Edge download warning words, from checklist W1) -->

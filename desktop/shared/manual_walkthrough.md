@@ -45,7 +45,7 @@ ingredient does not close "Preparation and records" under you. Go to "2 · Make 
 round", generate one, check every row of the round table totals the
 batch size and that Water's column is headed "Water · calculated (g)",
 change "Batch size (g)" to 250 and watch every amount
-in the round table follow it, download the round sheets (Excel) and
+in the round table follow it, download the Round workbook (Excel) and
 open it: the sheets
 are protected, only the cells the instruction line names take a value,
 and a printed greyscale copy makes clear which they are — every one of
