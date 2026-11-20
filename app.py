@@ -8,6 +8,15 @@ import pandas as pd
 
 from food_bo import CONSTRAINT_BASES, DEFAULT_BO_CONFIG, FoodOptimizer, limit_per_batch
 
+
+def batch_size_text(opt):
+    """'one 1002 g batch' once a balance ingredient fixes the batch size."""
+    bal = getattr(opt, 'balance', None)
+    return f"one {bal['total']:g} g batch" if bal else "one batch"
+
+
+PROPERTY_UNITS = {"sodium": "mg", "cost": "\\$"}  # units the CSV uses for these
+
 st.set_page_config(page_title="Food Optimizer", layout="wide")
 st.title("Formulation Assistant")
 
@@ -133,6 +142,24 @@ with st.sidebar:
 tab_setup, tab_optimize = st.tabs(["1. Setup & Config", "2. Optimization Loop"])
 
 with tab_setup:
+    _opt_u = st.session_state.optimizer
+    _bal_u = getattr(_opt_u, 'balance', None)
+    st.info(
+        "**Units used throughout the app**\n\n"
+        "- **Ingredient amounts are grams in one batch**: the ranges in A, the sums in "
+        "D, and the recipes in the Optimization Loop. "
+        + (f"Each batch is **{_bal_u['total']:g} g**, because the balance ingredient "
+           f"(**{_bal_u['name']}**, section F) fills every recipe up to that weight.\n"
+           if _bal_u else
+           "The batch size is fixed once you set a **balance ingredient** (e.g. water) "
+           "in section F. **Not set yet.**\n")
+        + "- **Sodium and cost in the ingredients CSV** (A): **mg per g** and "
+        "**\\$ per g** of ingredient (spec-sheet mg/100 g ÷ 100; \\$/kg ÷ 1000).\n"
+        "- **Sodium and cost limits** (C): per batch, per 100 g, or per kg of product, "
+        "as you choose. They are always applied as a total for the batch.\n"
+        "- **Process parameters** (A2): in the units you choose (e.g. °C, minutes).\n"
+        "- **Panel scores** (B): on the scale you set, e.g. 0–15."
+    )
     col_a, col_b = st.columns(2)
 
     # -------------------------------------------------------------- #
@@ -141,7 +168,8 @@ with tab_setup:
     with col_a:
         # --- A1. Ingredients ---
         st.subheader("A. Ingredients (CSV)")
-        st.info("Upload CSV with columns: Name, Min, Max (grams per batch). Optional "
+        st.info("Upload CSV with columns: Name, Min, Max (grams of the ingredient in "
+                f"{batch_size_text(st.session_state.optimizer)}). Optional "
                 "property columns are **per gram of ingredient**: Sodium in mg per g "
                 "(spec-sheet mg/100 g ÷ 100) and Cost in \\$ per g (\\$/kg ÷ 1000). "
                 "Check the table below: it converts back to mg/100 g and \\$/kg, which "
@@ -163,12 +191,13 @@ with tab_setup:
             if v.get('category', 'ingredient') == 'ingredient'
         ]
         if ingredient_vars:
-            st.caption("Current ingredients:")
+            st.caption("Current ingredients (Min/Max = grams in "
+                       f"{batch_size_text(st.session_state.optimizer)}):")
             ing_df = pd.DataFrame([
                 {
                     "Name": v['name'],
-                    "Min": v['bounds'][0],
-                    "Max": v['bounds'][1],
+                    "Min (g)": v['bounds'][0],
+                    "Max (g)": v['bounds'][1],
                     "Status": "active" if v.get('active', True) else "pruned",
                 }
                 for v in ingredient_vars
@@ -197,7 +226,9 @@ with tab_setup:
         st.subheader("A2. Process Parameters")
         st.caption(
             "Add processing variables (e.g., baking temperature, mixing time) "
-            "that the optimizer will also explore."
+            "that the optimizer will also explore. Use any units, but keep them the "
+            "same for the whole campaign and put them in the name (e.g. Cook_temp_C, "
+            "Cook_time_min)."
         )
 
         with st.form("process_param_form"):
@@ -250,7 +281,9 @@ with tab_setup:
 
         # --- B. Objectives ---
         st.subheader("B. Objectives (Normalized)")
-        st.caption("Define the valid range for each metric to normalize scores (0-1).")
+        st.caption("Range Min/Max is the panel's score scale for this attribute "
+                   "(e.g. 0 to 15). Scores are rescaled to 0–1 using it, then combined "
+                   "with the weights.")
 
         with st.form("obj_form"):
             col_name, col_w = st.columns([2, 1])
@@ -316,8 +349,13 @@ with tab_setup:
             c_metric = st.selectbox("Constraint Metric", sorted(available_props))
             c_basis = st.radio("Limit is", list(CONSTRAINT_BASES), horizontal=True,
                                key="prop_c_basis")
-            c_min = st.number_input("Min Value", value=0.0, key="prop_c_min")
-            c_max = st.number_input("Max Value", value=100.0, key="prop_c_max")
+            _cu = PROPERTY_UNITS.get(c_metric.lower(), "CSV units")
+            _cb = (f"per batch, i.e. in {batch_size_text(st.session_state.optimizer)}"
+                   if c_basis == "per batch" else f"{c_basis} of product")
+            c_min = st.number_input(f"Min value ({_cu} {c_metric}, {_cb})", value=0.0,
+                                    key="prop_c_min")
+            c_max = st.number_input(f"Max value ({_cu} {c_metric}, {_cb})", value=100.0,
+                                    key="prop_c_max")
             if c_basis != "per batch":
                 if _batch_total:
                     st.caption(f"= {limit_per_batch(c_min, c_basis, _batch_total):g} to "
@@ -378,7 +416,8 @@ with tab_setup:
                     "Metric": c['metric'],
                     "Limit": (f"{_rng(c.get('entered_min'), c.get('entered_max'))} {_b}"
                               if _b != 'per batch' else "per batch"),
-                    "Per batch": _rng(c['min'], c['max']),
+                    f"Per batch ({_batch_total:g} g)" if _batch_total else "Per batch":
+                        _rng(c['min'], c['max']),
                 })
             st.dataframe(pd.DataFrame(_rows), hide_index=True)
             for i, constr in enumerate(st.session_state.optimizer.constraints):
@@ -391,9 +430,9 @@ with tab_setup:
         # --- D. Ingredient Quantity Constraints ---
         st.subheader("D. Ingredient Quantity Constraints")
         st.caption(
-            "Set upper/lower limits on the **sum of ingredient quantities**. "
-            "Useful for synergistic effects (e.g., Sugar + Honey <= 50g) "
-            "or constraining total recipe mass."
+            "Limits on the **combined grams** of the selected ingredients **in "
+            f"{batch_size_text(st.session_state.optimizer)}** (always grams per batch, "
+            "not per 100 g). E.g. Coconut oil + Tapioca starch ≤ 350 g per batch."
         )
 
         ingredient_names = [
@@ -411,12 +450,12 @@ with tab_setup:
                 qc_cols = st.columns(2)
                 with qc_cols[0]:
                     qc_min = st.number_input(
-                        "Min Sum", value=0.0, key="qc_min",
+                        "Min sum (g per batch)", value=0.0, key="qc_min",
                         help="Leave at 0 for no lower bound",
                     )
                 with qc_cols[1]:
                     qc_max = st.number_input(
-                        "Max Sum", value=100.0, key="qc_max",
+                        "Max sum (g per batch)", value=100.0, key="qc_max",
                         help="Upper limit for the sum",
                     )
                 qc_use_min = st.checkbox("Apply minimum bound", value=False, key="qc_use_min")
@@ -434,12 +473,19 @@ with tab_setup:
                         st.error("Select at least 1 ingredient.")
 
             # Total mass shortcut
-            st.caption("Or quickly add a total mass constraint:")
+            _bal_d = getattr(st.session_state.optimizer, 'balance', None)
+            if _bal_d:
+                st.caption(f"Total mass is already fixed at {_bal_d['total']:g} g by the "
+                           f"balance ingredient ({_bal_d['name']}), so you don't need a "
+                           f"total mass limit. One added here would apply to everything "
+                           f"except {_bal_d['name']}.")
+            else:
+                st.caption("Or quickly add a total mass limit (grams per batch):")
             tm_cols = st.columns(3)
             with tm_cols[0]:
-                tm_min = st.number_input("Total Mass Min", value=0.0, key="tm_min")
+                tm_min = st.number_input("Total mass min (g)", value=0.0, key="tm_min")
             with tm_cols[1]:
-                tm_max = st.number_input("Total Mass Max", value=100.0, key="tm_max")
+                tm_max = st.number_input("Total mass max (g)", value=100.0, key="tm_max")
             with tm_cols[2]:
                 if st.button("Add Total Mass Constraint"):
                     st.session_state.optimizer.add_total_mass_constraint(
@@ -455,12 +501,12 @@ with tab_setup:
                     label = " + ".join(qc['ingredients'])
                     bounds = []
                     if qc['min'] is not None:
-                        bounds.append(f"min={qc['min']}")
+                        bounds.append(f"≥ {qc['min']:g} g")
                     if qc['max'] is not None:
-                        bounds.append(f"max={qc['max']}")
+                        bounds.append(f"≤ {qc['max']:g} g")
                     qc_c1, qc_c2 = st.columns([4, 1])
                     with qc_c1:
-                        st.text(f"[{i}] {label}: {', '.join(bounds)}")
+                        st.text(f"[{i}] {label}: {', '.join(bounds)} per batch")
                     with qc_c2:
                         if st.button("Remove", key=f"rm_qc_{i}"):
                             st.session_state.optimizer.remove_quantity_constraint(i)
@@ -539,10 +585,12 @@ with tab_setup:
             st.success("Saved.")
 
         st.markdown("**Balance ingredient** (e.g. water): not searched over, but filled "
-                    "up to the batch total, so the batch size stays fixed.")
+                    "up to the batch total, so **every recipe weighs the same** (the batch "
+                    "total, in grams). All per-batch amounts and limits refer to this "
+                    "batch.")
         _bal = _opt.balance
         if _bal:
-            st.info(f"Balance: **{_bal['name']}** fills the batch to {_bal['total']:g} "
+            st.info(f"Balance: **{_bal['name']}** fills the batch to {_bal['total']:g} g "
                     f"(kept between {_bal['min']:g} and "
                     f"{'no limit' if _bal['max'] is None else format(_bal['max'], 'g')}).")
         if not _opt.X_history:
@@ -551,11 +599,11 @@ with tab_setup:
                 with bl1:
                     _bn = st.text_input("Ingredient", value=_bal['name'] if _bal else "Tap water")
                 with bl2:
-                    _bt = st.number_input("Batch total", value=float(_bal['total']) if _bal else 1000.0)
+                    _bt = st.number_input("Batch total (g)", value=float(_bal['total']) if _bal else 1000.0)
                 with bl3:
-                    _bmin = st.number_input("Min amount", value=float(_bal['min']) if _bal else 0.0)
+                    _bmin = st.number_input("Min amount (g)", value=float(_bal['min']) if _bal else 0.0)
                 with bl4:
-                    _bmax = st.number_input("Max amount (0 = none)",
+                    _bmax = st.number_input("Max amount (g, 0 = none)",
                                             value=float(_bal['max'] or 0.0) if _bal else 0.0)
                 bc1, bc2 = st.columns(2)
                 with bc1:
@@ -679,7 +727,7 @@ with tab_optimize:
 
             ing_cols = [c for c in df_batch.columns if c not in _proc_names]
             if ing_cols:
-                st.caption("Ingredients:")
+                st.caption(f"Ingredients (grams in {batch_size_text(_opt)}):")
                 st.dataframe(df_batch[ing_cols].style.format("{:.3g}"))
 
             proc_cols = [c for c in df_batch.columns if c in _proc_names]
@@ -1020,7 +1068,10 @@ with tab_optimize:
     with st.expander("Import Historical Experiments (CSV)"):
         st.markdown(
             "Upload a CSV to bulk-import past experiments. "
-            "Columns must match your **ingredient names** and **objective names** exactly."
+            "Columns must match your **ingredient names** and **objective names** exactly. "
+            "Ingredient amounts are **grams in "
+            f"{batch_size_text(st.session_state.optimizer)}**, as everywhere else; "
+            "scores are on the scale set in B."
         )
         st.caption(
             "Example: if you have ingredients `flour, sugar, butter` and objectives "
@@ -1088,6 +1139,8 @@ with tab_optimize:
     # -------------------------------------------------------------- #
     if st.session_state.optimizer.X_history:
         st.subheader("Experiment History")
+        st.caption(f"Ingredient amounts are grams in "
+                   f"{batch_size_text(st.session_state.optimizer)}.")
         st.session_state.optimizer._sync_meta()
 
         hist = []

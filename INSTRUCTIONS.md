@@ -14,6 +14,20 @@ data is usually gone**. Expect this between most rounds.
 Restoring checks the file first. A broken file is refused and changes nothing,
 so try the next most recent one.
 
+## Units (used everywhere in the app)
+
+- **Ingredient amounts are grams in one batch.** With water as the balance
+  ingredient, every recipe weighs the batch total, e.g. **1,002 g**. This
+  applies to ingredient ranges (A), quantity limits (D), the recipes the app
+  proposes, and imported experiments.
+- **Sodium and cost in the ingredients CSV:** per gram of ingredient, i.e.
+  **mg per g** and **$ per g** (spec-sheet mg/100 g ÷ 100; $/kg ÷ 1000).
+- **Sodium and cost limits (C):** choose per batch, per 100 g, or per kg of
+  product. The app converts them to a total for the 1,002 g batch and shows it.
+- **Quantity limits (D):** always grams per batch, never per 100 g.
+- **Process parameters (A2):** your units (°C, minutes); keep them fixed.
+- **Panel scores (B):** on the 0–15 scale.
+
 ## Before round 1 (once)
 
 **Dry run** (about 15 minutes, in a throwaway project, e.g. `dryrun`)
