@@ -25,8 +25,14 @@ so try the next most recent one.
 
 **Real project setup** (Setup tab)
 - [ ] **Ingredients** (A): upload a CSV with **every** ingredient of the starting
-      recipe, including water, with columns `Name, Min, Max, Sodium, Cost`
-      (sodium and cost per gram). Ranges are in grams and must be makeable.
+      recipe, including water, with columns `Name, Min, Max, Sodium, Cost`.
+      Ranges are in grams per batch and must be makeable. Sodium and cost are
+      **per gram of ingredient**:
+      - Sodium in **mg per g** = spec-sheet mg/100 g ÷ 100 (salt: 39,300 → 393)
+      - Cost in **$ per g** = $/kg ÷ 1000 (coconut oil: $3.50/kg → 0.0035)
+
+      After loading, the ingredients table converts these back to mg/100 g and
+      $/kg: check they match the spec sheets.
 - [ ] **Balance ingredient** (F): set **Tap water** as the balance, with the batch
       total (e.g. 1002 g) and a min/max amount of water. Water is then filled up
       to the batch total instead of being searched over.

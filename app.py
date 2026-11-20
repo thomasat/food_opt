@@ -141,7 +141,11 @@ with tab_setup:
     with col_a:
         # --- A1. Ingredients ---
         st.subheader("A. Ingredients (CSV)")
-        st.info("Upload CSV with columns: Name, Min, Max. Optional: Cost, Protein, etc.")
+        st.info("Upload CSV with columns: Name, Min, Max (grams per batch). Optional "
+                "property columns are **per gram of ingredient**: Sodium in mg per g "
+                "(spec-sheet mg/100 g ÷ 100) and Cost in \\$ per g (\\$/kg ÷ 1000). "
+                "Check the table below: it converts back to mg/100 g and \\$/kg, which "
+                "should match the spec sheets.")
 
         uploaded_csv = st.file_uploader("Upload Ingredients CSV", type=["csv"])
         if uploaded_csv:
@@ -170,6 +174,22 @@ with tab_setup:
                 for v in ingredient_vars
             ])
             st.dataframe(ing_df, hide_index=True, height=150)
+            _props = st.session_state.optimizer.ingredient_properties
+            _spec = []
+            for n, pr in _props.items():
+                p = {k.lower(): val for k, val in pr.items()}
+                row = {"Name": n}
+                if 'sodium' in p:
+                    row["Na mg/100g"] = round(p['sodium'] * 100, 2)
+                if 'cost' in p:
+                    row["$/kg"] = round(p['cost'] * 1000, 2)
+                if len(row) > 1:
+                    _spec.append(row)
+            if _spec:
+                st.caption("Spec-sheet check: the CSV's per-gram values converted back "
+                           "to sodium (Na) in mg/100 g and cost in \\$/kg. These should match "
+                           "the spec sheets.")
+                st.dataframe(pd.DataFrame(_spec), hide_index=True, height=150)
 
         st.divider()
 
@@ -283,7 +303,7 @@ with tab_setup:
             "Limits on computed properties (e.g., total sodium, total cost), using the "
             "per-gram values in your ingredient CSV. Enter a limit per batch, or per "
             "100 g / per kg of product (needs a balance ingredient, section F, so the "
-            "batch size is fixed). Use the same units as the CSV (e.g. mg, $)."
+            "batch size is fixed). Use the same units as the CSV (e.g. mg, \\$)."
         )
 
         available_props = set()
@@ -321,6 +341,24 @@ with tab_setup:
                     st.success("Property constraint added!")
         else:
             st.write("No properties found in CSV.")
+
+        _o_c = st.session_state.optimizer
+        _hist = getattr(_o_c, 'recipe_history', None) or []
+        if _batch_total and _hist and available_props:
+            _first = _hist[0]
+            _parts = []
+            for _m in sorted(available_props):
+                if _m.lower() not in ('sodium', 'cost'):
+                    continue
+                _tot = sum(float(_first.get(n, 0.0) or 0.0) * pr.get(_m, 0.0)
+                           for n, pr in _o_c.ingredient_properties.items())
+                _parts.append(f"{_tot / _batch_total * 100:,.0f} mg {_m}/100 g"
+                              if _m.lower() == 'sodium'
+                              else f"\\${_tot / _batch_total * 1000:,.2f}/kg {_m}")
+            if _parts:
+                st.caption("Check: the first recipe on record works out to "
+                           + ", ".join(_parts) + ". If that looks wrong, check the "
+                           "units in the ingredients CSV.")
 
         if st.session_state.optimizer.constraints:
             st.caption("Active property constraints:")
