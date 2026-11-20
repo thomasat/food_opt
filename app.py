@@ -149,10 +149,10 @@ with tab_setup:
         "- **Ingredient amounts are grams in one batch**: the ranges in A, the sums in "
         "D, and the recipes in the Optimization Loop. "
         + (f"Each batch is **{_bal_u['total']:g} g**, because the balance ingredient "
-           f"(**{_bal_u['name']}**, section F) fills every recipe up to that weight.\n"
+           f"(**{_bal_u['name']}**, section A1) fills every recipe up to that weight.\n"
            if _bal_u else
            "The batch size is fixed once you set a **balance ingredient** (e.g. water) "
-           "in section F. **Not set yet.**\n")
+           "in section A1. **Not set yet.**\n")
         + "- **Sodium and cost in the ingredients CSV** (A): **mg per g** and "
         "**\\$ per g** of ingredient (spec-sheet mg/100 g ÷ 100; \\$/kg ÷ 1000).\n"
         "- **Sodium and cost limits** (C): per batch, per 100 g, or per kg of product, "
@@ -219,6 +219,55 @@ with tab_setup:
                            "to sodium (Na) in mg/100 g and cost in \\$/kg. These should match "
                            "the spec sheets.")
                 st.dataframe(pd.DataFrame(_spec), hide_index=True, height=150)
+
+        st.divider()
+
+        # --- A1. Batch size (balance ingredient) ---
+        st.subheader("A1. Batch size (balance ingredient)")
+        _opt_b = st.session_state.optimizer
+        st.markdown("Set this **right after loading the ingredients, before round 1**. "
+                    "The balance ingredient (e.g. water) is not searched over: it is "
+                    "filled up to the batch total, so **every recipe weighs the same** "
+                    "(the batch total, in grams). All per-batch amounts and limits (A, C, "
+                    "D) refer to this batch, and per-100 g / per-kg limits in C need it. "
+                    "It can't be changed once the first result is saved.")
+        _bal = _opt_b.balance
+        if _bal:
+            st.info(f"Balance: **{_bal['name']}** fills every recipe to **{_bal['total']:g} g** "
+                    f"(water kept between {_bal['min']:g} and "
+                    f"{'no limit' if _bal['max'] is None else format(_bal['max'], 'g') + ' g'}).")
+        else:
+            st.warning("No balance ingredient set yet: the batch size is not fixed.")
+        if not _opt_b.X_history:
+            with st.form("balance_form"):
+                bl1, bl2 = st.columns(2)
+                with bl1:
+                    _bn = st.text_input("Ingredient", value=_bal['name'] if _bal else "Tap water")
+                with bl2:
+                    _bt = st.number_input("Batch total (g)", value=float(_bal['total']) if _bal else 1000.0)
+                bl3, bl4 = st.columns(2)
+                with bl3:
+                    _bmin = st.number_input("Min amount (g)", value=float(_bal['min']) if _bal else 0.0)
+                with bl4:
+                    _bmax = st.number_input("Max amount (g, 0 = none)",
+                                            value=float(_bal['max'] or 0.0) if _bal else 0.0)
+                bc1, bc2 = st.columns(2)
+                with bc1:
+                    _set_bal = st.form_submit_button("Set balance ingredient")
+                with bc2:
+                    _clr_bal = st.form_submit_button("Clear", disabled=not _bal)
+                if _set_bal:
+                    try:
+                        _opt_b.set_balance(_bn.strip(), _bt, _bmin, _bmax or None)
+                        st.rerun()
+                    except ValueError as e:
+                        st.error(str(e))
+                if _clr_bal:
+                    try:
+                        _opt_b.set_balance(None, 0)
+                        st.rerun()
+                    except ValueError as e:
+                        st.error(str(e))
 
         st.divider()
 
@@ -335,7 +384,7 @@ with tab_setup:
         st.caption(
             "Limits on computed properties (e.g., total sodium, total cost), using the "
             "per-gram values in your ingredient CSV. Enter a limit per batch, or per "
-            "100 g / per kg of product (needs a balance ingredient, section F, so the "
+            "100 g / per kg of product (needs a balance ingredient, section A1, so the "
             "batch size is fixed). Use the same units as the CSV (e.g. mg, \\$)."
         )
 
@@ -362,7 +411,7 @@ with tab_setup:
                                f"{limit_per_batch(c_max, c_basis, _batch_total):g} per "
                                f"{_batch_total:g} g batch")
                 else:
-                    st.warning("Set the balance ingredient (section F) first: limits "
+                    st.warning("Set the balance ingredient (section A1) first: limits "
                                f"{c_basis} need a fixed batch size.")
             if st.button("Add Property Constraint"):
                 try:
@@ -565,7 +614,7 @@ with tab_setup:
             st.info(f"Current: {_cur_cfg if _cur_cfg else 'Standard (library defaults)'}")
 
         st.divider()
-        st.subheader("F. Adaptive EGBO campaign settings")
+        st.subheader("F. Adaptive EGBO campaign settings (expert checks)")
         _ce = st.number_input(
             "Expert check every N rounds (0 = no scheduled checks)",
             min_value=0, max_value=20, value=int(_opt.check_every), step=1, key="check_every_in",
@@ -583,45 +632,6 @@ with tab_setup:
         if st.button("Save candidate list"):
             _opt.set_candidate_pool(_pool)
             st.success("Saved.")
-
-        st.markdown("**Balance ingredient** (e.g. water): not searched over, but filled "
-                    "up to the batch total, so **every recipe weighs the same** (the batch "
-                    "total, in grams). All per-batch amounts and limits refer to this "
-                    "batch.")
-        _bal = _opt.balance
-        if _bal:
-            st.info(f"Balance: **{_bal['name']}** fills the batch to {_bal['total']:g} g "
-                    f"(kept between {_bal['min']:g} and "
-                    f"{'no limit' if _bal['max'] is None else format(_bal['max'], 'g')}).")
-        if not _opt.X_history:
-            with st.form("balance_form"):
-                bl1, bl2, bl3, bl4 = st.columns(4)
-                with bl1:
-                    _bn = st.text_input("Ingredient", value=_bal['name'] if _bal else "Tap water")
-                with bl2:
-                    _bt = st.number_input("Batch total (g)", value=float(_bal['total']) if _bal else 1000.0)
-                with bl3:
-                    _bmin = st.number_input("Min amount (g)", value=float(_bal['min']) if _bal else 0.0)
-                with bl4:
-                    _bmax = st.number_input("Max amount (g, 0 = none)",
-                                            value=float(_bal['max'] or 0.0) if _bal else 0.0)
-                bc1, bc2 = st.columns(2)
-                with bc1:
-                    _set_bal = st.form_submit_button("Set balance ingredient")
-                with bc2:
-                    _clr_bal = st.form_submit_button("Clear", disabled=not _bal)
-                if _set_bal:
-                    try:
-                        _opt.set_balance(_bn.strip(), _bt, _bmin, _bmax or None)
-                        st.rerun()
-                    except ValueError as e:
-                        st.error(str(e))
-                if _clr_bal:
-                    try:
-                        _opt.set_balance(None, 0)
-                        st.rerun()
-                    except ValueError as e:
-                        st.error(str(e))
 
 
 # ================================================================== #

@@ -17,13 +17,15 @@ so try the next most recent one.
 ## Units (used everywhere in the app)
 
 - **Ingredient amounts are grams in one batch.** With water as the balance
-  ingredient, every recipe weighs the batch total, e.g. **1,002 g**. This
+  ingredient (set in **A1**), every recipe weighs the batch total you enter
+  there, e.g. **1,002 g** for the current recipe. This
   applies to ingredient ranges (A), quantity limits (D), the recipes the app
   proposes, and imported experiments.
 - **Sodium and cost in the ingredients CSV:** per gram of ingredient, i.e.
   **mg per g** and **$ per g** (spec-sheet mg/100 g ÷ 100; $/kg ÷ 1000).
 - **Sodium and cost limits (C):** choose per batch, per 100 g, or per kg of
-  product. The app converts them to a total for the 1,002 g batch and shows it.
+  product. The app converts them to a total for the batch (the batch total
+  set in A1, e.g. 1,002 g) and shows the result.
 - **Quantity limits (D):** always grams per batch, never per 100 g.
 - **Process parameters (A2):** your units (°C, minutes); keep them fixed.
 - **Panel scores (B):** on the 0–15 scale.
@@ -47,7 +49,8 @@ so try the next most recent one.
 
       After loading, the ingredients table converts these back to mg/100 g and
       $/kg: check they match the spec sheets.
-- [ ] **Balance ingredient** (F): set **Tap water** as the balance, with the batch
+- [ ] **Batch size / balance ingredient** (A1, right after loading the
+      ingredients): set **Tap water** as the balance, with the batch
       total (e.g. 1002 g) and a min/max amount of water. Water is then filled up
       to the batch total instead of being searched over.
 - [ ] **Process parameters** (A2): cook temperature (78–92 °C) and cook time
