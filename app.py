@@ -6,7 +6,7 @@ import shutil
 import streamlit as st
 import pandas as pd
 
-from food_bo import DEFAULT_BO_CONFIG, FoodOptimizer
+from food_bo import CONSTRAINT_BASES, DEFAULT_BO_CONFIG, FoodOptimizer, limit_per_batch
 
 st.set_page_config(page_title="Food Optimizer", layout="wide")
 st.title("Formulation Assistant")
@@ -280,27 +280,69 @@ with tab_setup:
         # --- C. Property Constraints ---
         st.subheader("C. Property Constraints")
         st.caption(
-            "Constraints on computed properties (e.g., total cost, total protein) "
-            "based on ingredient properties from your CSV."
+            "Limits on computed properties (e.g., total sodium, total cost), using the "
+            "per-gram values in your ingredient CSV. Enter a limit per batch, or per "
+            "100 g / per kg of product (needs a balance ingredient, section F, so the "
+            "batch size is fixed). Use the same units as the CSV (e.g. mg, $)."
         )
 
         available_props = set()
         for p in st.session_state.optimizer.ingredient_properties.values():
             available_props.update(p.keys())
+        _bal_c = getattr(st.session_state.optimizer, 'balance', None)
+        _batch_total = _bal_c['total'] if _bal_c else None
 
         if available_props:
             c_metric = st.selectbox("Constraint Metric", sorted(available_props))
+            c_basis = st.radio("Limit is", list(CONSTRAINT_BASES), horizontal=True,
+                               key="prop_c_basis")
             c_min = st.number_input("Min Value", value=0.0, key="prop_c_min")
             c_max = st.number_input("Max Value", value=100.0, key="prop_c_max")
+            if c_basis != "per batch":
+                if _batch_total:
+                    st.caption(f"= {limit_per_batch(c_min, c_basis, _batch_total):g} to "
+                               f"{limit_per_batch(c_max, c_basis, _batch_total):g} per "
+                               f"{_batch_total:g} g batch")
+                else:
+                    st.warning("Set the balance ingredient (section F) first: limits "
+                               f"{c_basis} need a fixed batch size.")
             if st.button("Add Property Constraint"):
-                st.session_state.optimizer.add_constraint(c_metric, min_val=c_min, max_val=c_max)
-                st.success("Property constraint added!")
+                try:
+                    lo = limit_per_batch(c_min, c_basis, _batch_total)
+                    hi = limit_per_batch(c_max, c_basis, _batch_total)
+                except ValueError as e:
+                    st.error(str(e))
+                else:
+                    _o = st.session_state.optimizer
+                    _o.add_constraint(c_metric, min_val=lo, max_val=hi)
+                    _o.constraints[-1].update(basis=c_basis, entered_min=float(c_min),
+                                              entered_max=float(c_max))
+                    _o.save()
+                    st.success("Property constraint added!")
         else:
             st.write("No properties found in CSV.")
 
         if st.session_state.optimizer.constraints:
             st.caption("Active property constraints:")
-            st.dataframe(pd.DataFrame(st.session_state.optimizer.constraints))
+            def _rng(lo, hi):
+                lo = None if not lo else lo  # a min of 0 is no limit
+                if lo is None and hi is None:
+                    return "–"
+                if lo is None:
+                    return f"≤ {hi:g}"
+                if hi is None:
+                    return f"≥ {lo:g}"
+                return f"{lo:g}–{hi:g}"
+            _rows = []
+            for c in st.session_state.optimizer.constraints:
+                _b = c.get('basis', 'per batch')
+                _rows.append({
+                    "Metric": c['metric'],
+                    "Limit": (f"{_rng(c.get('entered_min'), c.get('entered_max'))} {_b}"
+                              if _b != 'per batch' else "per batch"),
+                    "Per batch": _rng(c['min'], c['max']),
+                })
+            st.dataframe(pd.DataFrame(_rows), hide_index=True)
             for i, constr in enumerate(st.session_state.optimizer.constraints):
                 if st.button(f"Remove {constr['metric']}", key=f"rm_constr_{i}"):
                     st.session_state.optimizer.remove_constraint(i)
@@ -489,8 +531,11 @@ with tab_setup:
                     except ValueError as e:
                         st.error(str(e))
                 if _clr_bal:
-                    _opt.set_balance(None, 0)
-                    st.rerun()
+                    try:
+                        _opt.set_balance(None, 0)
+                        st.rerun()
+                    except ValueError as e:
+                        st.error(str(e))
 
 
 # ================================================================== #

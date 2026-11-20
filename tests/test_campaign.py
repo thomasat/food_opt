@@ -7,7 +7,7 @@ import os
 import numpy as np
 import pytest
 
-from food_bo import DEFAULT_BO_CONFIG, FoodOptimizer
+from food_bo import DEFAULT_BO_CONFIG, FoodOptimizer, limit_per_batch
 
 ATTRS = ("Stretch", "Flavor", "Melt")
 
@@ -459,3 +459,71 @@ class TestOldSessionObjects:
         assert isinstance(o.__dict__["design_log"], list) and len(o.design_log) == 1
         assert FoodOptimizer.meta_history == () and FoodOptimizer.design_log == ()
         json.dumps(o.export_json())
+
+
+class TestConstraintBasis:
+    """Sodium/cost limits entered per 100 g or per kg of product."""
+
+    def test_conversion(self):
+        assert limit_per_batch(600, "per 100 g", 1002) == pytest.approx(6012)
+        assert limit_per_batch(4, "per kg", 1002) == pytest.approx(4.008)
+        assert limit_per_batch(6000, "per batch", None) == 6000
+        assert limit_per_batch(None, "per 100 g", 1002) is None
+        with pytest.raises(ValueError, match="balance ingredient"):
+            limit_per_batch(600, "per 100 g", None)
+
+    def _per_100g(self, o, metric, value):
+        # Same steps as the app's "Add Property Constraint" button.
+        o.add_constraint(metric, min_val=0.0,
+                         max_val=limit_per_batch(value, "per 100 g", o.balance["total"]))
+        o.constraints[-1].update(basis="per 100 g", entered_min=0.0, entered_max=value)
+        o.save()
+
+    def test_per_100g_equals_batch_limit(self, mozz):
+        mozz.constraints = []
+        self._per_100g(mozz, "sodium", 6000 / 10.02)   # = 6000 mg per 1002 g batch
+        mozz.add_constraint("cost", max_val=3.2)
+        assert mozz.constraints[0]["max"] == pytest.approx(6000)
+        rng = np.random.default_rng(30)
+        for _ in range(2):
+            recipes = mozz.ask(n_suggestions=5)
+            assert all(feasible(mozz, r) for r in recipes)
+            for r in recipes:
+                mozz.tell(r, mozz_score(r, rng))
+            mozz.clear_pending_batch()
+
+    def test_batch_total_change_rescales_before_start(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        o = FoodOptimizer("rescale")
+        o.load_ingredients_from_csv(pd.DataFrame(
+            [{"Name": "Salt", "Min": 0, "Max": 20, "Sodium": 393.0, "Cost": 0.0005},
+             {"Name": "Water", "Min": 0, "Max": 2000, "Sodium": 0.0, "Cost": 0.0}]))
+        o.set_balance("Water", total=1000, min_amount=0)
+        self._per_100g(o, "sodium", 600)
+        assert o.constraints[0]["max"] == pytest.approx(6000)
+        o.set_balance("Water", total=2000, min_amount=0)
+        assert o.constraints[0]["max"] == pytest.approx(12000)
+        with pytest.raises(ValueError, match="per 100 g"):
+            o.set_balance(None, 0)
+
+    def test_running_campaign_unaffected(self, mozz):
+        """A campaign started before this change (limits per batch, no 'basis'
+        key) restores and continues exactly as before, and a per-100 g limit
+        can still be added mid-campaign."""
+        rng = np.random.default_rng(31)
+        for r in mozz.ask(n_suggestions=5):
+            mozz.tell(r, mozz_score(r, rng))
+        mozz.clear_pending_batch()
+        blob = json.loads(json.dumps(mozz.export_json()))
+        assert all("basis" not in c for c in blob["constraints"])
+        blob["project_name"] = "proxy_mozz_restored"
+        fresh = FoodOptimizer(project_name="proxy_mozz_restored")
+        fresh.import_json(blob)
+        assert fresh.constraints == mozz.constraints
+        assert all(feasible(fresh, r) for r in fresh.ask(n_suggestions=3))
+        fresh.clear_pending_batch()
+        self._per_100g(fresh, "sodium", 550)
+        recipes = fresh.ask(n_suggestions=3)
+        assert all(sum(r[n] * MOZZ[n][3] for n in MOZZ) <= 5511 + 1e-6 for r in recipes)
+        again = FoodOptimizer(project_name="proxy_mozz_restored")
+        assert again.constraints[-1]["basis"] == "per 100 g"

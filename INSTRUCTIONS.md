@@ -36,7 +36,9 @@ so try the next most recent one.
       lecithin): in the *Adaptive EGBO* panel, **Deactivate** each one and **hold it
       at its current amount**. It stays in every recipe at that amount and can be
       reactivated at a check.
-- [ ] **Property constraints** (C): sodium and cost **maximums** per batch.
+- [ ] **Property constraints** (C): sodium and cost **maximums**. Choose whether each
+      limit is *per batch*, *per 100 g* or *per kg* of product (per 100 g / per kg
+      need the balance ingredient set first). Use the same units as the CSV.
 - [ ] **Objectives** (B): every attribute, with weight, scale **0–15** (the app
       defaults to 0–10, so change it), and goal (max / min / target value).
       Don't change these during the campaign. If an attribute has to be added

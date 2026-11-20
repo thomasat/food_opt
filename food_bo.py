@@ -103,6 +103,25 @@ def _json_default(obj):
     return obj
 
 
+CONSTRAINT_BASES = {"per batch": None, "per 100 g": 100.0, "per kg": 1000.0}
+
+
+def limit_per_batch(value, basis, batch_total):
+    """Convert a property limit entered per 100 g or per kg of product into the
+    per-batch total the optimizer uses. Ingredient amounts are in grams, so
+    with a fixed batch of `batch_total` g, 600 mg sodium per 100 g is
+    600 * batch_total / 100 mg per batch. `basis` is a key of CONSTRAINT_BASES."""
+    if value is None:
+        return None
+    per = CONSTRAINT_BASES[basis]
+    if per is None:
+        return float(value)
+    if not batch_total:
+        raise ValueError("Set a balance ingredient (fixed batch total) before "
+                         f"entering limits {basis}.")
+    return float(value) * float(batch_total) / per
+
+
 class FoodOptimizer:
     CLASS_VERSION = 7  # bump when adding methods/attrs to force session refresh
 
@@ -691,6 +710,9 @@ class FoodOptimizer:
         if self.X_history:
             raise ValueError("The balance ingredient is fixed once experiments exist.")
         if name is None:
+            if any(c.get('basis', 'per batch') != 'per batch' for c in self.constraints):
+                raise ValueError("Remove the limits entered per 100 g / per kg "
+                                 "before clearing the balance ingredient.")
             self.balance = None
             self.save()
             return
@@ -699,6 +721,13 @@ class FoodOptimizer:
         hi = None if max_amount is None else float(max_amount)
         if total <= 0 or lo < 0 or (hi is not None and hi < lo):
             raise ValueError("Check the batch total and the balance range.")
+        # Limits entered per 100 g / per kg depend on the batch total: keep them
+        # in step with it (only possible before the first experiment).
+        for c in self.constraints:
+            basis = c.get('basis', 'per batch')
+            if basis != 'per batch':
+                c['min'] = limit_per_batch(c.get('entered_min'), basis, total)
+                c['max'] = limit_per_batch(c.get('entered_max'), basis, total)
         self.variables = [v for v in self.variables if v['name'] != name]
         for qc in self.quantity_constraints:
             qc['ingredients'] = [n for n in qc['ingredients'] if n != name]
