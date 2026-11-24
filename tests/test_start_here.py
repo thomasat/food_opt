@@ -69,10 +69,16 @@ def test_windows_start_here_says_what_the_spec_requires():
                    "First opening takes longer. Keep the app's window open.",
                    "Quick access",
                    "Enable Editing",
-                   'Windows may say "Unknown publisher." Click More info, then Run anyway.',
                    "Download the Round workbook (Excel).",
-                   "If Edge warns about the download, click \u2026 then Keep. "
-                   "Then click the arrow beside Delete, then Keep anyway.",
+                   # The three download warnings (tests/test_release_texts.py),
+                   # lettered under INSTALL step 1.
+                   "1. Open the Food Optimizer installer you downloaded. "
+                   "Windows warns about new apps it doesn't know yet. This is expected. "
+                   "To continue: "
+                   "a. \"isn't commonly downloaded\": point at the file, click \u2026, then Keep. "
+                   "b. Next box: click the arrow beside Delete, then Keep anyway. "
+                   "c. \"Windows protected your PC\": click More info, then Run anyway. "
+                   "2. Click Install.",
                    wording.SUPPORT_EMAIL,
                    "AppData\\Local\\FoodOptimizer\\launcher.log"):
         assert needed in text, needed

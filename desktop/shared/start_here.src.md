@@ -20,9 +20,11 @@ projects are stored separately and are retained.
 <!-- windows -->
 INSTALL
 1. Open the Food Optimizer installer you downloaded.
-   If Edge warns about the download, click … then Keep.
-   Then click the arrow beside Delete, then Keep anyway.
-   Windows may say "Unknown publisher." Click More info, then Run anyway.
+   Windows warns about new apps it doesn't know yet. This is expected.
+   To continue:
+   a. "isn't commonly downloaded": point at the file, click …, then Keep.
+   b. Next box: click the arrow beside Delete, then Keep anyway.
+   c. "Windows protected your PC": click More info, then Run anyway.
 2. Click Install. No admin rights needed.
 3. Type Food Optimizer in Start. Open it from the results.
    First opening takes longer. Keep the app's window open.
