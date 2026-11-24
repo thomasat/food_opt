@@ -51,13 +51,14 @@ def _section(text, heading):
 # these words. Recorded on WIN11-VM (Edge, Windows 11, unsigned installer)
 # 2026-11-24; owner-approved. "…" is Edge's own More actions button.
 WARNINGS_INTRO = "Windows warns about new apps it doesn't know yet. This is expected. To continue:"
-WARNINGS = ('"isn\'t commonly downloaded": point at the file, click …, then Keep.',
-            "Next box: click the arrow beside Delete, then Keep anyway.",
-            '"Windows protected your PC": click More info, then Run anyway.')
-# The release page's markdown of the same steps, as on the release.
-NOTES_WARNINGS = ('1. *"isn\'t commonly downloaded"*: point at the file, click **…**, then **Keep**.',
-                  "2. Next box: click the **arrow beside Delete**, then **Keep anyway**.",
-                  '3. *"Windows protected your PC"*: click **More info**, then **Run anyway**.')
+WARNINGS = ("In Edge's download list: point at the file, click \u2026, then Keep.",
+            "In the box that opens: click the arrow beside Delete, then Keep anyway.",
+            'On the blue "Windows protected your PC" screen: click More info, then Run anyway.')
+# The release page's markdown of the same steps, as on the draft release.
+NOTES_WARNINGS = ("1. **In Edge's download list:** point at the file, click **\u2026**, then **Keep**.",
+                  "2. **In the box that opens:** click the **arrow beside Delete**, then **Keep anyway**.",
+                  '3. **On the blue "Windows protected your PC" screen:** click **More info**, '
+                  "then **Run anyway**.")
 # Until the build is signed, no sent text may promise a publisher.
 SENT_TEXTS = (NOTES, EMAIL, README, WINDOWS / "start_here.txt",
               REPO / "desktop" / "shared" / "start_here.src.md")
@@ -68,15 +69,21 @@ def _numbered(labels):
     return [f"{label}. {step}" for label, step in zip(labels, WARNINGS)]
 
 
-def _start_here_warnings():
-    """Start Here's intro (wrapped over lines under INSTALL step 1) and its
-    three steps, labels a./b./c. taken off."""
-    lines = [line.strip() for line in read_lf(WINDOWS / "start_here.txt").splitlines()]
+def _install_step_one():
+    """The lines under Start Here's INSTALL step 1, up to step 2."""
+    lines = read_lf(WINDOWS / "start_here.txt").splitlines()
     first = lines.index("1. Open the Food Optimizer installer you downloaded.") + 1
-    a = next(i for i in range(first, len(lines)) if lines[i].startswith("a. "))
-    steps = lines[a:a + 3]
-    assert [s[:3] for s in steps] == ["a. ", "b. ", "c. "], steps
-    return " ".join(lines[first:a]), tuple(s[3:] for s in steps)
+    last = next(i for i in range(first, len(lines)) if lines[i].startswith("2. "))
+    return lines[first:last]
+
+
+def _start_here_warnings():
+    """Start Here's intro and its three steps, labels a./b./c. taken off;
+    lines wrapped at 80 columns are joined."""
+    text = " ".join(line.strip() for line in _install_step_one())
+    m = re.fullmatch(r"(.*?) a\. (.*?) b\. (.*?) c\. (.*)", text)
+    assert m, text
+    return m.group(1), m.groups()[1:]
 
 
 def _requirements():
@@ -107,10 +114,12 @@ def _url(role):
 
 # ---------- the release page ----------
 
-# Under the Mac link (owner, 2026-10-25): who can install it. The Mac
-# launcher refuses anything else (arm64, macOS 13+; desktop/README.md's
-# requirements block says the same).
-MAC_NEEDS = "Needs a Mac with Apple silicon, macOS 13 or later."
+# Under the Mac link (owner, 2026-10-25; reworded on the draft release
+# 2026-11-24): how to install, then who can. The Mac launcher refuses
+# anything else (arm64, macOS 13+; desktop/README.md's requirements block
+# and Mac Start Here say the same).
+MAC_NEEDS = ("Open it, then drag Food Optimizer into Applications. Needs a Mac with an "
+             "M1 chip or newer and macOS 13 or later. The first opening needs internet.")
 
 
 def test_mac_requirement_line_is_what_the_mac_app_enforces():
@@ -118,17 +127,22 @@ def test_mac_requirement_line_is_what_the_mac_app_enforces():
     assert "Apple silicon" in readme and "macOS 13" in readme
     launcher = (REPO / "desktop" / "launcher.sh").read_text(encoding="utf-8")
     assert '"arm64"' in launcher and "-lt 13" in launcher
+    mac_start_here = flowed(read_lf(REPO / "desktop" / "start_here.txt"))
+    assert "Drag Food Optimizer into Applications." in mac_start_here
+    assert "M1 chip or newer, macOS 13 Ventura or newer," in mac_start_here
+    assert "internet for first-time setup" in mac_start_here
 
 def test_start_here_warnings_are_the_owners_steps():
     """Under INSTALL step 1, indented to match it, lettered so they do not
     read as steps 1-3 again; step 2 follows."""
     assert _start_here_warnings() == (WARNINGS_INTRO, WARNINGS)
-    lines = read_lf(WINDOWS / "start_here.txt").splitlines()
-    at = lines.index("1. Open the Food Optimizer installer you downloaded.")
-    a = lines.index("   " + _numbered("abc")[0])
-    assert all(line.startswith("   ") and not line.startswith("    ") for line in lines[at + 1:a])
-    assert lines[a:a + 3] == ["   " + s for s in _numbered("abc")]
-    assert lines[a + 3].startswith("2. Click Install.")
+    lines = _install_step_one()
+    labelled = [i for i, line in enumerate(lines) if re.match(r"   [abc]\. ", line)]
+    assert [lines[i][3:5] for i in labelled] == ["a.", "b.", "c."], lines
+    for i, line in enumerate(lines):
+        indent = len(line) - len(line.lstrip())
+        # The intro and the labels at step 1's text; a wrapped step under its own text.
+        assert indent == (3 if i < labelled[0] or i in labelled else 6), line
 
 
 def test_notes_warnings_are_the_same_steps_in_markdown():
@@ -149,10 +163,10 @@ def test_notes_are_the_owners_five_parts():
         assert gone not in text, gone
 
 
-def test_notes_say_what_changed_in_three_lines():
+def test_notes_say_what_changed_in_four_lines():
     section = _section(_visible(NOTES.read_text(encoding="utf-8")), "## What is new in")
     bullets = [line[2:] for line in section.splitlines() if line.startswith("- ")]
-    assert len(bullets) == 3, bullets
+    assert len(bullets) == 4, bullets
     for bullet in bullets:
         for sentence in _sentences(bullet):
             assert len(sentence.split()) <= 15, sentence
@@ -189,11 +203,11 @@ def test_it_unsigned_line_matches_the_readme():
     assert "allow it by hash or path, not by publisher" in allow
 
 
-def test_notes_bullet_three_names_csv_and_get_help():
+def test_notes_bullets_three_and_four_name_csv_and_get_help():
     section = _section(_visible(NOTES.read_text(encoding="utf-8")), "## What is new in")
     bullets = [line[2:] for line in section.splitlines() if line.startswith("- ")]
-    assert bullets[2] == ("CSV files from Excel in other languages upload correctly. "
-                          "Get Help now gives an email address.")
+    assert bullets[2:] == ["CSV files saved from Excel in other languages now upload correctly.",
+                           "Get Help now gives an email address."]
 
 
 def test_it_exit_line_names_the_documented_codes():
