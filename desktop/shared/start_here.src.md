@@ -9,26 +9,29 @@ INSTALL
    software (about 1 GB). Progress appears in the window.
    Setup time depends on your connection and computer.
 
-You need a Mac with Apple silicon (M1 or newer), macOS 13 Ventura or newer,
+You need a Mac with an M1 chip or newer, macOS 13 Ventura or newer,
 about 6 GB of free space, and internet for first-time setup. Check your chip
 in Apple menu → About This Mac. You can use the app offline after setup;
 an app update may need another software download.
 
 Updating? Quit the old app, then replace it in Applications. Your saved
-projects are stored separately and are retained.
+projects are stored separately and are kept.
 <!-- end -->
 <!-- windows -->
 INSTALL
 1. Open the Food Optimizer installer you downloaded.
-   If Edge warns about the download, click … then Keep.
-   Then click the arrow beside Delete, then Keep anyway.
-   Windows may say "Unknown publisher." Click More info, then Run anyway.
-2. Click Install. No admin rights needed.
+   Windows warns about new apps it doesn't know yet. This is expected.
+   To continue:
+   a. In Edge's download list: point at the file, click …, then Keep.
+   b. In the box that opens: click the arrow beside Delete, then Keep anyway.
+   c. On the blue "Windows protected your PC" screen: click More info,
+      then Run anyway.
+2. Click Install. No administrator password needed.
 3. Type Food Optimizer in Start. Open it from the results.
    First opening takes longer. Keep the app's window open.
 
-You need a 64-bit PC with Windows 10 (22H2) or Windows 11 and 2 GB free.
-The app works offline and never needs the internet. If your IT
+You need a PC with Windows 11, or Windows 10 kept up to date, and 2 GB of
+free space. The app works offline and never needs the internet. If your IT
 department installs software for you, ask IT to install Food Optimizer.
 
 Updating? Close Food Optimizer. Run the new installer. Your projects are
@@ -116,14 +119,14 @@ app or on the workbook’s Results tab. These records do not affect scores.
 Use Measurements and targets for outcomes you want scored. Ingredient
 limits are optional restrictions such as a maximum fat content; the sample
 limits its ingredient total. An empty minimum or maximum adds no
-restriction on that side. Missing ingredient property values must be
-filled in before generating with a property limit.
+restriction on that side. If you set a limit on an ingredient property,
+such as fat, fill in that property for every ingredient first.
 
 For a fermentation study, add numeric process settings such as temperature
 and time. A project containing only process settings uses trials and does
-not need a batch size. Named categories such as strain are not varied by
-this version. Different time points can be separate measurements, such as
-pH at 6 h and pH at 24 h.
+not need a batch size. The app cannot vary named options, such as strain,
+yet. Different time points can be separate measurements, such as pH at 6 h
+and pH at 24 h.
 
 You can edit an unrecorded formulation in the round table before making it.
 Use actual amounts/settings to record what you made if it differs from the
@@ -131,20 +134,20 @@ plan. New projects start with optional records turned off.
 
 <!-- mac -->
 YOUR FILES AND HELP
-Projects are saved on your Mac in ~/FoodOptimizer. File → Open Projects
-Folder opens that folder. Use “Save a copy of this project” before a major
-change. “Clear project contents,” under Manage project, empties the project
-while keeping its name and saving a copy first; it is not needed to start
-a new round.
+Projects are saved on your Mac in the FoodOptimizer folder in your home
+folder. File → Open Projects Folder opens that folder. Use “Save a copy of
+this project” before a major change. “Clear project contents,” under
+Manage project, empties the project while keeping its name and saving a
+copy first; it is not needed to start a new round.
 
 Open the app again from Applications. Close its window to quit.
 View → Bigger Text increases the text size.
 
 For help: email sohum.patnaik@fsi.org
 Describe what happened and what you expected. Help → Show Log File opens
-the startup log; attach it to your email. If the app cannot open, find
-the log at:
-~/Library/Application Support/FoodOptimizer/launcher.log
+the startup log; attach it to your email. If the app cannot open, in
+Finder choose Go → Go to Folder, paste
+~/Library/Application Support/FoodOptimizer and attach launcher.log.
 <!-- end -->
 <!-- windows -->
 YOUR FILES AND HELP
@@ -161,9 +164,9 @@ quit. View → Bigger Text increases the text size.
 
 For help: email sohum.patnaik@fsi.org
 Describe what happened and what you expected. Help → Show Log File opens
-the startup log; attach it to your email. If the app cannot open, find
-the log at:
-C:\Users\<your name>\AppData\Local\FoodOptimizer\launcher.log
+the startup log; attach it to your email. If the app cannot open, paste
+%LOCALAPPDATA%\FoodOptimizer into File Explorer's address bar and attach
+launcher.log.
 <!-- end -->
 
 REVIEWING RESULTS
@@ -171,14 +174,15 @@ Results opens on the last Round's results: Overall scores and ratings
 against their targets: orange above a target, purple below. How the score is
 worked out shows one formulation's points. Use View formulation to inspect
 another recorded formulation, including one without a score. Amount and % of
-formulation appear together. Percentages exclude process settings and are
-unavailable for ingredients in different units. All formulations compares
-results in the app; Show amounts adds ingredient amounts to that table.
+formulation appear together. Percentages do not include process settings
+and are not shown when ingredients use different units.
+All formulations compares results in the app; Show amounts adds ingredient
+amounts to that table.
 
 EDITING CALCULATIONS
 Calculation sits beside the ingredient name. Type directly in the cell,
 or select Edit calculation for a larger editor with ingredient suggestions.
 Choose Vary between limits, Fill to total, or Calculate an amount.
 Batch size is the total ingredient amount for one formulation. Fill to total
-adds the remaining amount. Use the chosen calculation,
-then select Save changes. Examples explain arithmetic, not recommended ratios.
+adds the remaining amount. Then select Save changes. The examples show how
+the arithmetic works; they are not recommended amounts.
