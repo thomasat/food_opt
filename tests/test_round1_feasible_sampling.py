@@ -17,6 +17,8 @@ seed measured, every row of the five within 3 % of its own range
 import os
 
 import pytest
+
+import wording
 import torch
 
 import sample_projects as sp
@@ -136,12 +138,15 @@ def test_no_sobol_point_meets_the_tight_limits(here):
 
 
 def test_without_the_sampler_round_1_fails_as_before(here, monkeypatch):
-    """What origin/main does with this setup (the sampler switched off)."""
+    """With the sampler switched off, round 1 is refused: the total is
+    reachable, so the sentence blames the limits. Tap water has no range
+    of its own typed, so it is not named."""
     opt = tight()
     monkeypatch.setattr(FoodOptimizer, "_sample_feasible",
                         lambda self, *a, **k: [])
-    with pytest.raises(ValueError, match="1002 g"):
+    with pytest.raises(ValueError) as err:
         opt.ask(5)
+    assert str(err.value) == wording.no_formulation_meets_limits("1002 g")
 
 
 def test_tight_limits_get_a_full_round_inside_every_limit(here):
@@ -214,14 +219,14 @@ def test_a_regenerate_samples_new_formulations(here):
 def test_a_truly_infeasible_setup_still_gets_the_clear_error(here):
     """Each window can be met on its own, but the four together cannot:
     the first two put those four rows at 390-392 g and the fourth asks for
-    400 g. Nothing meets every limit, and the refusal is the one Generate
-    always gave."""
+    400 g. Nothing meets every limit, and the refusal says so at the
+    total, which the amounts do reach."""
     four = ("Coconut oil", "Tapioca starch", "Soy protein isolate",
             "Potato starch")
     opt = tight("infeasible mozz", windows=WINDOWS + ((four, 400.0, 401.0),))
     with pytest.raises(ValueError) as err:
         opt.ask(5)
-    assert "1002 g" in str(err.value)
+    assert str(err.value) == wording.no_formulation_meets_limits("1002 g")
     assert not opt.pending_batch
 
 
@@ -276,9 +281,21 @@ def fill_tight(name="fill tight", water=FILL_RANGE, salt=None):
     opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
     opt.set_formulation_total(100)
     opt.set_formula("Water", "= rest")
+    type_fill_range(opt, "Water", *water)
     opt.add_quantity_constraint(["Flour", "Sugar"], min_val=FLOUR_SUGAR[0],
                                 max_val=FLOUR_SUGAR[1])
     return opt
+
+
+def type_fill_range(opt, name, low, high):
+    """Type the Fill to total row's range into its own two grid cells and
+    Save, as the reader does: only a typed range holds."""
+    frame = opt.ingredient_grid_frame()
+    at = int(frame.index[frame[wording.NAME_LABEL] == name][0])
+    frame.at[at, wording.LOWEST_LABEL] = str(low)
+    frame.at[at, wording.HIGHEST_LABEL] = str(high)
+    errors, _ = opt.apply_ingredient_grid(frame)
+    assert errors == [], errors
 
 
 def assert_fill_inside_its_range(recipe, low=FILL_RANGE[0], high=FILL_RANGE[1]):
@@ -360,13 +377,15 @@ def test_limits_that_shut_out_the_fill_range_name_it(here, monkeypatch):
 
 
 def test_a_fill_range_that_cannot_bind_is_not_blamed(here, monkeypatch):
-    """The tight mozzarella's Tap water keeps its 0-1002 g, which the other
-    rows never take it past (they leave it 423-730 g). When the windows
-    together cannot be met, the refusal blames the limits, not a range
-    that was never in play."""
+    """The tight mozzarella's Tap water given a 0-1002 g range, which the
+    other rows never take it past (they leave it 423-730 g). When the
+    windows together cannot be met, the refusal blames the limits, not a
+    range that was never in play."""
     four = ("Coconut oil", "Tapioca starch", "Soy protein isolate",
             "Potato starch")
     opt = tight("infeasible mozz", windows=WINDOWS + ((four, 400.0, 401.0),))
+    assert opt._fill_range() is None          # none typed: none held
+    type_fill_range(opt, "Tap water", 0, TOTAL)
     assert opt._fill_range() == ("Tap water", 0.0, TOTAL)
     calls = _spy_sampler(monkeypatch)
     with pytest.raises(ValueError) as refused:

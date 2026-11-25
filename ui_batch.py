@@ -551,6 +551,14 @@ def _add_own(opt):
     cautions = ([] if _prefilled_unchanged(opt) else
                 [c for c in (bounds_caution(opt, v['name'], recipe[v['name']])
                              for v in opt.varying_variables()) if c])
+    # The Fill to total row is not typed but is held inside its own range:
+    # what it filled to is cautioned the same way.
+    filler = opt.balance_row_name()
+    if not _prefilled_unchanged(opt) and filler is not None:
+        filled = (opt.pending_batch or [{}])[-1].get('recipe', {})
+        caution = bounds_caution(opt, filler, filled.get(filler))
+        if caution:
+            cautions.append(caution)
     _clear_own(opt)
     flash("success", wording.own_formulation_added(number, opt.pending_batch_no))
     for caution in cautions:

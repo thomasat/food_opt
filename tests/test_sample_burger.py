@@ -477,7 +477,13 @@ def _unitless_build():
     text = json.dumps(sp.shipped_state(sp.BURGER))
     for new, old in _OLD_NAMES.items():
         text = text.replace(f'"{new}"', f'"{old}"')
-    return json.loads(text)
+    state = json.loads(text)
+    # ...and Remaining water's two cells still 0 and 100, as every build
+    # before 0.9.1 shipped them.
+    for var in state["variables"]:
+        if var["name"] == "Remaining water":
+            var["bounds"] = [0.0, 100.0]
+    return state
 
 
 def test_the_burger_properties_say_their_units(store):

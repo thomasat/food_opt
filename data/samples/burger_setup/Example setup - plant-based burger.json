@@ -48,7 +48,7 @@
       "type": "continuous",
       "bounds": [
         0.0,
-        100.0
+        0.0
       ],
       "category": "ingredient",
       "vendor": "",

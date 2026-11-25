@@ -57,7 +57,11 @@ _SUPERSEDED = {
     # The example setup before its property names carried their units (S11:
     # "Fat per 100 g" is now "Fat (g per 100 g)"): 3b18307, and e06f3b2.
     BURGER: {"cb7c801bfed30aa06efead6223b8b1dfa916655b2b202942005264521041f925",
-             "9e5c90a949bd2416ccdd47a7e816f01020a88ebd82fd28663394d07f5b0c918c"},
+             "9e5c90a949bd2416ccdd47a7e816f01020a88ebd82fd28663394d07f5b0c918c",
+             # 0.9.0: Remaining water's two cells held 0 and 100. They are
+             # blank now — a Fill to total row's numbers are its range, and
+             # the example has none.
+             "fbddc3b1fe81563142ba148b6e369093af6ba84e4ea043a43ed25f5441e57cc1"},
 }
 
 
