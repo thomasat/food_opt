@@ -353,3 +353,85 @@ def at_total(variables, recipe, total) -> dict:
         value = float(recipe.get(var.name, 0.0))
         out[var.name] = value * factor if var.kind == "ingredient" else value
     return out
+
+
+def _limited_total_reach(variables, quantity_limits, property_limits,
+                         properties):
+    """(lowest, highest) the ingredients can add up to once the limits hold
+    too (one small linear programme each way), or None when no limit
+    narrows anything or no formulation meets them all. The formulation
+    total's own limit is left out: the total is what is being asked about."""
+    limits = [ql for ql in quantity_limits
+              if ql.source != "formulation_total"
+              and (ql.min_val is not None or ql.max_val is not None)]
+    props = [pl for pl in property_limits
+             if (pl.min_val is not None or pl.max_val is not None)
+             and not missing_property_values(variables, properties, pl.metric)]
+    if not limits and not props:
+        return None
+    from scipy.optimize import linprog
+    index = {v.name: i for i, v in enumerate(variables)}
+
+    def row(terms):
+        coeffs = [0.0] * len(variables)
+        for name, coeff in terms.items():
+            if name in index:
+                coeffs[index[name]] += coeff
+        return coeffs
+
+    a_ub, b_ub = [], []
+
+    def at_least(terms, value):
+        a_ub.append([-c for c in row(terms)])
+        b_ub.append(-float(value))
+
+    def at_most(terms, value):
+        a_ub.append(row(terms))
+        b_ub.append(float(value))
+
+    for ql in limits:
+        members = set(ql.ingredients)
+        terms = _property_terms(variables,
+                                lambda name: 1.0 if name in members else 0.0)
+        if ql.min_val is not None:
+            at_least(terms, ql.min_val)
+        if ql.max_val is not None:
+            at_most(terms, ql.max_val)
+    for pl in props:
+        if pl.min_val is not None:
+            at_least(_property_terms(variables, _property_coeff(
+                variables, properties, pl.metric, pl.min_val)), 0.0)
+        if pl.max_val is not None:
+            at_most(_property_terms(variables, _property_coeff(
+                variables, properties, pl.metric, pl.max_val)), 0.0)
+    names = {v.name for v in variables if v.kind == "ingredient"}
+    objective = row(_property_terms(
+        variables, lambda name: 1.0 if name in names else 0.0))
+    bounds = [(float(v.low), float(v.high)) for v in variables]
+    ends = []
+    for sign in (1.0, -1.0):
+        try:
+            answer = linprog([sign * c for c in objective],
+                             A_ub=a_ub or None, b_ub=b_ub or None,
+                             bounds=bounds, method="highs")
+        except ValueError:
+            return None
+        if answer.status != 0:
+            return None
+        ends.append(round(sign * float(answer.fun), 9))
+    return ends[0], ends[1]
+
+
+def limited_total_reach(variables, quantity_limits, property_limits,
+                        properties) -> tuple[float, float] | None:
+    """total_reach narrowed by the limits, or None when they narrow nothing
+    (a port of food_bo.py limited_total_reach, no formula rows)."""
+    limited = _limited_total_reach(variables, quantity_limits,
+                                   property_limits, properties)
+    if limited is None:
+        return None
+    plain = total_reach(variables)
+    low, high = max(plain[0], limited[0]), min(plain[1], limited[1])
+    if abs(low - plain[0]) < 1e-9 and abs(high - plain[1]) < 1e-9:
+        return None
+    return low, high
