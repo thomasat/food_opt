@@ -8262,18 +8262,16 @@ class FoodOptimizer:
         if len(results) + len(repeats) >= n_suggestions:
             return results + self._fill_from_repeats(
                 repeats, chosen, n_suggestions - len(results))
+        # Fewer new points of the sequence met every limit than the Round
+        # asks for (and the model, if there is one, picked nothing): tight
+        # limits leave a sliver the space-filling design rarely lands in.
+        # The Round is topped up with points sampled inside that sliver
+        # (_sample_feasible), as the web app's round 1 is (e2752b7). Every
+        # Round the paths above fill is exactly what it was.
+        results = results + self._sample_feasible(
+            n_suggestions - len(results), bounds_tensor, dim, issued, chosen)
         if results:
             return results
-        # No new point of the sequence met every limit (and the model, if
-        # there is one, picked nothing): tight limits leave a sliver the
-        # space-filling design never lands in. Sample inside
-        # that sliver instead (_sample_feasible). Reached only where the
-        # Round would otherwise fail, so every project that generates today
-        # generates exactly what it did.
-        sampled = self._sample_feasible(n_suggestions, bounds_tensor, dim,
-                                        issued)
-        if sampled:
-            return sampled
 
         if self.has_formulation_total():
             # The total is one number the user typed, and it is what nothing
@@ -8465,15 +8463,14 @@ class FoodOptimizer:
                    for rec in candidates)
         return [rec for rec in snapped if rec is not None]
 
-    # The feasible sampler's chain (_sample_feasible). The burn-in is the
-    # web app's round 1 (e2752b7). The thinning is four times its 64, and
-    # 16 points are drawn per formulation asked for: limits tight enough to
-    # need this sampler leave a thin region the chain crosses slowly, and
-    # the Round is picked spread out across what it visited. About a second
-    # for a Round of five, paid only by a project that would fail without.
+    # The feasible sampler's chain, as the web app's `_sample_feasible`
+    # runs it (e2752b7): 2000 steps of burn-in, then every 64th point.
     FEASIBLE_BURNIN = 2000
-    FEASIBLE_THINNING = 256
-    FEASIBLE_DRAWS_PER_SUGGESTION = 16
+    FEASIBLE_THINNING = 64
+    # How many more stretches of the same chain, each as long as the first,
+    # may be read when points the desktop's checks pass over leave the
+    # Round short. The first stretch is the web app's whole draw.
+    FEASIBLE_EXTRA_DRAWS = 7
 
     def _feasible_seed(self):
         """The chain's seed: this project's Sobol scramble and the next
@@ -8504,81 +8501,93 @@ class FoodOptimizer:
             highs[col] = min(max(high, lows[col]), 1.0)
         return torch.tensor([lows, highs], dtype=torch.double)
 
-    def _sample_feasible(self, n_suggestions, bounds_tensor, dim, issued=None):
-        """Round 1's last resort, when no point of the space-filling
-        sequence meets every limit (the web app's `_sample_feasible`,
-        e2752b7): points sampled uniformly INSIDE the region the limits
-        leave, by a seeded hit-and-run chain over the same linear limits the
-        model is handed — the total's band, every amount limit, every
-        per-100 g limit, every calculated row's floor — with each fixed row
-        pinned where it is fixed.
+    def _sample_feasible(self, n, bounds_tensor, dim, issued=None, chosen=None):
+        """Up to `n` formulations sampled inside the region every limit
+        leaves: round 1's top-up when the space-filling sequence has too few
+        points that meet them (the web app's `_sample_feasible`, e2752b7).
 
-        Each point is then treated as a model pick is: brought onto the
-        total when that keeps every limit, its settings moved onto their
-        steps, checked by _check_constraints, and passed over when the
-        project already has it. The Round is the points that pass, picked
-        spread out (farthest first). [] when the limits leave no region at
-        all, so the caller's refusal stands.
+        The web app's chain exactly — botorch's hit-and-run sampler, 2000
+        steps of burn-in, every 64th point, `n` points, taken in chain order
+        — run over the desktop's own limits: the same linear limits the
+        model is handed (the total's band, every amount limit, every per-100
+        g limit, every calculated row's floor), each fixed row pinned where
+        it is fixed, and each row kept to its own Lowest and Highest.
 
-        The chain draws from torch's global generator inside botorch's own
-        fork of it, restored afterwards, so nothing else's draws move; as
-        every other step of ask() it runs under insights.RNG_LOCK."""
-        from botorch.utils.sampling import get_polytope_samples
+        What the desktop adds is what keeps a point correct: it is brought
+        onto the total when that keeps every limit, its settings moved onto
+        their steps, checked by _check_constraints, and passed over when the
+        project already has it (`issued`) or this Round does (`chosen`).
+        When that leaves the Round short, the same chain is read on, up to
+        FEASIBLE_EXTRA_DRAWS more stretches. [] when the limits leave no
+        region at all, so the caller's refusal stands.
 
+        Seeded per project and per Round (_feasible_seed). The chain draws
+        from torch's global generator inside botorch's own fork of it,
+        restored afterwards, so nothing else's draws move; as every other
+        step of ask() it runs under insights.RNG_LOCK."""
+        from botorch.utils.sampling import (HitAndRunPolytopeSampler,
+                                            sparse_to_dense_constraints)
+
+        n = int(n)
+        if n <= 0:
+            return []
         try:
-            inequality = self._get_botorch_constraints() or None
+            inequality = self._get_botorch_constraints()
         except ValueError:
             return []
-        equality = [(torch.tensor([col], dtype=torch.long),
-                     torch.tensor([1.0], dtype=torch.double), float(z))
-                    for col, z in sorted(self._get_fixed_features().items())] or None
+        fixed = sorted(self._get_fixed_features().items())
         try:
-            points = get_polytope_samples(
-                n=self.FEASIBLE_DRAWS_PER_SUGGESTION * max(1, int(n_suggestions)),
+            # get_polytope_samples, opened up so the same chain can be read
+            # on: the dense form, with A x >= b turned round to A x <= b.
+            dense_inequality = None
+            if inequality:
+                A, b = sparse_to_dense_constraints(d=dim,
+                                                   constraints=inequality)
+                dense_inequality = (-A, -b)
+            dense_equality = None
+            if fixed:
+                dense_equality = sparse_to_dense_constraints(
+                    d=dim, constraints=[
+                        (torch.tensor([col], dtype=torch.long),
+                         torch.tensor([1.0], dtype=torch.double), float(z))
+                        for col, z in fixed])
+            sampler = HitAndRunPolytopeSampler(
                 bounds=self._feasible_box(bounds_tensor),
-                inequality_constraints=inequality,
-                equality_constraints=equality,
-                seed=self._feasible_seed(),
+                inequality_constraints=dense_inequality,
+                equality_constraints=dense_equality,
                 n_burnin=self.FEASIBLE_BURNIN,
                 n_thinning=self.FEASIBLE_THINNING,
+                seed=self._feasible_seed(),
             )
         except Exception:
             # No interior to the limits (or a degenerate one): nothing to
             # sample, and the caller says why in the project's own words.
             return []
 
-        # Every point that passes, in chain order, with where it sits in
-        # the [0, 1] frame.
-        valid, spots, kept = [], [], []
-        for point in points:
-            if not bool(torch.isfinite(point).all()):
-                continue
-            recipe = self._decode(unnormalize(point, bounds_tensor).numpy().flatten())
-            if self.has_formulation_total():
-                recipe = self._snapped_if_it_still_fits(recipe)
-            if not self._check_constraints(self._settings_on_their_step(recipe)):
-                continue
-            vector = self._as_issued(recipe)
-            if self._repeats(vector, issued) or self._repeats(vector, kept):
-                continue
-            valid.append(recipe)
-            kept.append(vector)
-            spots.append(point.numpy())
-        if not valid:
-            return []
-        # A chain's neighbouring points sit close together, so the Round is
-        # picked spread out across what the chain visited rather than read
-        # off its first few: the first point, then each time the one
-        # farthest from every point already picked (ties to the earliest).
-        spots = np.asarray(spots, dtype=float)
-        picked = [0]
-        nearest = np.linalg.norm(spots - spots[0], axis=1)
-        while len(picked) < min(n_suggestions, len(valid)):
-            best = int(np.argmax(nearest))
-            picked.append(best)
-            nearest = np.minimum(nearest,
-                                 np.linalg.norm(spots - spots[best], axis=1))
-        return [valid[i] for i in picked]
+        results, kept = [], list(chosen or [])
+        for _ in range(1 + self.FEASIBLE_EXTRA_DRAWS):
+            try:
+                points = sampler.draw(n=n)
+            except Exception:
+                break
+            for point in points:
+                if not bool(torch.isfinite(point).all()):
+                    continue
+                recipe = self._decode(
+                    unnormalize(point, bounds_tensor).numpy().flatten())
+                if self.has_formulation_total():
+                    recipe = self._snapped_if_it_still_fits(recipe)
+                if not self._check_constraints(
+                        self._settings_on_their_step(recipe)):
+                    continue
+                vector = self._as_issued(recipe)
+                if self._repeats(vector, issued) or self._repeats(vector, kept):
+                    continue
+                results.append(recipe)
+                kept.append(vector)
+                if len(results) >= n:
+                    return results
+        return results
 
     # ------------------------------------------------------------------ #
     #  0.8.0 BO views (spec 2026-09-30-bo-views §1; review B1, M2): what

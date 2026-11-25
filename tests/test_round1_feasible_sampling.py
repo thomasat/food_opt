@@ -1,11 +1,19 @@
-"""Round 1 under limits so tight that no point of the space-filling sequence
-meets them (the web app's round-1 fallback, e2752b7 `_sample_feasible`).
+"""Round 1 under limits so tight that too few points of the space-filling
+sequence meet them (the web app's round-1 fallback, e2752b7
+`_sample_feasible`).
 
 The opening Round tries 2048 then 8192 Sobol points, each projected onto the
-Formulation total; under tight amount and per-100 g limits none of them
-passes, and Generate used to stop with an error. It now samples inside the
-region the limits leave (FoodOptimizer._sample_feasible) — and ONLY then:
-every project that generates today generates exactly what it did."""
+Formulation total; under tight amount and per-100 g limits too few of them
+pass, and Generate used to stop with an error (none passed) or hand back a
+short Round (some did). The Round is now topped up with points sampled
+inside the region the limits leave (FoodOptimizer._sample_feasible), by the
+web app's own chain. A Round the sequence fills is exactly what it was.
+
+The chain is the web app's exactly (2000 steps of burn-in, every 64th
+point, in chain order), and under limits this tight it moves slowly: the
+points are valid and distinct, but can sit close together — in the second
+seed measured, every row of the five within 3 % of its own range
+(project name "other name"; "tight mozz" spreads up to 17 %)."""
 import os
 
 import pytest
@@ -84,7 +92,7 @@ def _per_100(recipe, column):
     return sum(recipe[n] * f for n, f in figures.items()) / mass
 
 
-def assert_meets_every_limit(recipe):
+def assert_meets_every_limit(recipe, windows=WINDOWS):
     """Checked by hand, not through the app's own _check_constraints."""
     eps = 1e-6
     ingredients = list(MOZZ) + [FIXED[0], "Flavour mix", "Tap water"]
@@ -95,7 +103,7 @@ def assert_meets_every_limit(recipe):
     assert 1 - eps <= recipe["Flavour mix"] <= 5 + eps
     assert recipe[FIXED[0]] == pytest.approx(FIXED[1], abs=1e-9)
     assert recipe["Tap water"] >= -eps
-    for names, lo, hi in WINDOWS:
+    for names, lo, hi in windows:
         assert lo - eps <= sum(recipe[n] for n in names) <= hi + eps
     assert _per_100(recipe, 2) <= SODIUM_MAX + eps
     assert _per_100(recipe, 3) <= COST_MAX + eps
@@ -147,6 +155,33 @@ def test_tight_limits_get_a_full_round_inside_every_limit(here):
     assert sum(abs(sum(v for k, v in r.items() if k not in
                        ("Cook temperature", "Cook time")) - TOTAL) < 1e-6
                for r in recipes) >= 1
+
+
+PARTIAL = ((("Coconut oil", "Tapioca starch"), 330.0, 332.0),
+           (("Soy protein isolate", "Potato starch"), 60.0, 61.0))
+
+
+def test_a_short_round_is_topped_up_and_keeps_its_sobol_points(
+        tmp_path, monkeypatch):
+    """With two windows of 2 g and 1 g, one point of the 8192 pool meets
+    every limit: origin/main handed back a Round of 1 when 5 were asked
+    for. That one stays first, exactly as it was, and four sampled points
+    follow."""
+    rounds = {}
+    for sub, off in (("before", True), ("after", False)):
+        os.makedirs(tmp_path / sub)
+        monkeypatch.chdir(tmp_path / sub)
+        with monkeypatch.context() as m:
+            if off:
+                m.setattr(FoodOptimizer, "_sample_feasible",
+                          lambda self, *a, **k: [])
+            rounds[sub] = tight("partial mozz", windows=PARTIAL).ask(5)
+    assert len(rounds["before"]) == 1
+    assert len(rounds["after"]) == 5
+    assert rounds["after"][:1] == rounds["before"]
+    assert len({_key(r) for r in rounds["after"]}) == 5
+    for recipe in rounds["after"]:
+        assert_meets_every_limit(recipe, windows=PARTIAL)
 
 
 def test_the_round_is_reproducible(tmp_path, monkeypatch):
