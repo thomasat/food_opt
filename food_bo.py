@@ -8393,9 +8393,11 @@ class FoodOptimizer:
                     self.batch_total_text(fixed_sum),
                     self.batch_total_text(self.formulation_total)))
             held = self._fill_range()
-            if held is not None:
+            if held is not None and self._fill_range_binds():
                 # The Fill to total row's own range is a limit the reader
-                # may not know is in play: it is said by name.
+                # may not know is in play: it is said by name. Only while
+                # it can bind: a range the other rows always keep is not
+                # what nothing met, and the limits are blamed below.
                 raise ValueError(wording.no_formulation_with_fill_range(
                     self.batch_total_text(self.formulation_total), held[0],
                     self._fill_range_text()))
@@ -9805,6 +9807,25 @@ class FoodOptimizer:
         low, high = self._form_reach(self._linear_form(name),
                                      self._batch_size())
         return max(low, 0.0), max(high, 0.0)
+
+    def _fill_range_binds(self):
+        """True while an end of the Fill to total row's own range lies inside
+        what the other rows' allowed amounts leave it: the same ends
+        _get_botorch_constraints hands the model. A range those amounts
+        always keep (a 0–1002 g water the others leave at 423–730 g) is no
+        limit in play, and a refusal that named it would blame a limit
+        nothing ever reached."""
+        held = self._fill_range()
+        if held is None:
+            return False
+        name, low, high = held
+        try:
+            reach = self._form_reach(self._linear_form(name),
+                                     self._batch_size())
+        except (FormulaError, ValueError):
+            return True
+        return (low > 0.0 and reach[0] < low) or (
+            high is not None and reach[1] > high)
 
     def _fill_range_refusal(self):
         """Why no formulation can keep the Fill to total row inside its own
