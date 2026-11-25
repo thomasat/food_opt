@@ -3472,6 +3472,15 @@ def ingredient_was_used(name, numbers_text, many=False):
             "information.")
 
 
+def setting_took_several_values(name, count):
+    """Why a process setting cannot simply be removed: formulations that
+    differed only in it would become identical, and what the model learned
+    about it is lost. Fixing it keeps the data."""
+    return (f"{name} took {count} values, so it cannot be deleted. Set "
+            f"{LOWEST_LABEL} = {HIGHEST_LABEL}, or tick "
+            f"{DELETE_EVEN_IF_USED}.")
+
+
 def limit_unreachable_above(what, most_text):
     """'Fixing these would make the limit on Fat impossible to meet: the
     ingredients that can still vary only reach 10 per 100 g at most. Loosen

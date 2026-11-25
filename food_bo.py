@@ -2552,17 +2552,19 @@ class FoodOptimizer:
         self._drop_pending_batch()
         self.save()
 
-    def remove_process_parameter(self, name):
+    def remove_process_parameter(self, name, force=False):
         """Remove a process parameter by name.
 
         Refused while another row's formula reads it: a cook temperature
         can be half of what a row is worked out from, and deleting it would
-        leave that formula naming nothing."""
-        if any(v['name'] == name and v.get('category') == 'process'
-               for v in self.variables):
-            trouble = self._formula_reads_refusal(name)
-            if trouble:
-                raise ValueError(trouble)
+        leave that formula naming nothing. Refused too, unless forced, when
+        it took more than one value across the recorded formulations:
+        formulations that differed only in it would become identical model
+        inputs, and what was learned about it is lost. Fixing it
+        (Lowest = Highest) keeps the data."""
+        trouble = self._setting_remove_refusal(name, force)
+        if trouble:
+            raise ValueError(trouble)
         self.variables = [
             v for v in self.variables
             if not (v['name'] == name and v.get('category') == 'process')
@@ -2570,6 +2572,29 @@ class FoodOptimizer:
         self._reencode_history()
         self._drop_pending_batch()
         self.save()
+
+    def _setting_remove_refusal(self, name, force):
+        """Why this process setting cannot be removed, or None: a rule
+        reads it, or (unless forced) it took more than one value."""
+        var = next((v for v in self.variables if v['name'] == name
+                    and v.get('category') == 'process'), None)
+        if var is None:
+            return None
+        trouble = self._formula_reads_refusal(name)
+        if trouble:
+            return trouble
+        if force or var['type'] != 'continuous':
+            return None
+        absent = float(var.get('_absent_value', 0.0))
+        seen = []
+        for r in self.recipe_history:
+            value = float(r.get(name, absent))
+            if not any(abs(value - s) <= self.REPEAT_TOLERANCE
+                       for s in seen):
+                seen.append(value)
+        if len(seen) > 1:
+            return wording.setting_took_several_values(name, len(seen))
+        return None
 
     def load_screening_model(self, model_obj):
         self.screening_model = model_obj
@@ -12536,6 +12561,9 @@ class FoodOptimizer:
         for name in deleted:
             if self._var_by_name(name).get('category',
                                            'ingredient') != 'ingredient':
+                trouble = self._setting_remove_refusal(name, name in force)
+                if trouble:
+                    errors.append((None, trouble))
                 continue
             trouble = self._ingredient_delete_refusal(name, name in force)
             if trouble:
@@ -12699,7 +12727,7 @@ class FoodOptimizer:
                     removed += self.remove_ingredient(
                         name, force=name in force) or []
                 else:
-                    self.remove_process_parameter(name)
+                    self.remove_process_parameter(name, force=name in force)
             for row_no in plan['rename_order']:
                 spec = by_row[row_no]
                 moved = self._write_ingredient_row(spec)
