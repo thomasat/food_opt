@@ -2058,7 +2058,7 @@ class FoodOptimizer:
         for var in self.variables:
             if var['name'] == name:
                 self._check_fixed_feasible(name, min_val, max_val, 'ingredient')
-                var['bounds'] = (min_val, max_val)
+                self._write_bounds(var, min_val, max_val)
                 if unit is not None:
                     var['unit'] = str(unit).strip()
                 removed = self.prune_amount_limits()
@@ -2482,7 +2482,7 @@ class FoodOptimizer:
                     raise ValueError(_baseline_outside_message(
                         carried, min_val, max_val))
                 self._check_fixed_feasible(name, min_val, max_val, 'process')
-                var['bounds'] = (min_val, max_val)
+                self._write_bounds(var, min_val, max_val)
                 var['unit'] = unit
                 var['step'] = None if step is None else float(step)
                 if carried is not None and float(carried) != float(stored):
@@ -7768,9 +7768,15 @@ class FoodOptimizer:
     def _search_bounds(self):
         """[(low, high)] per column of the [0,1]^d frame the search runs in.
 
-        A FIXED row is one point, and a point has no frame: normalizing by a
+        A FIXED row that varied before it was fixed keeps the range it
+        varied over (`search_range`, see _write_bounds) as its frame, widened
+        to reach its fixed amount: the formulations made while it varied are
+        seen on the scale they were learned on, as in the web app.
+
+        A FIXED row with no such memory is one point, and a point has no
+        frame: normalizing by a
         zero span is a division by zero, and it is the encoded history that
-        is handed through that normalization to the GP. So a fixed column is
+        is handed through that normalization to the GP. So that column is
         widened — to whatever the recorded formulations already span, so the
         history still lands inside [0, 1], and to one unit when they span
         nothing at all. The row itself does not move: _get_fixed_features
@@ -7805,6 +7811,13 @@ class FoodOptimizer:
                 if absent is not None and any(var['name'] not in recipe
                                               for recipe in self.recipe_history):
                     lo, hi = min(lo, float(absent)), max(hi, float(absent))
+                # A row fixed after it varied: normalized on the range it
+                # varied over (see _write_bounds), widened to reach the
+                # amount it is fixed at if that lies outside it.
+                remembered = (self._remembered_range(var)
+                              if self.is_fixed(var) else None)
+                if remembered is not None:
+                    lo, hi = min(lo, remembered[0]), max(hi, remembered[1])
                 if hi <= lo:
                     # The rows as the models learn them (review B1): a
                     # formulation made to another batch size is placed at
@@ -9297,6 +9310,45 @@ class FoodOptimizer:
         return float(var['bounds'][0]) == float(var['bounds'][1])
 
     @staticmethod
+    def _write_bounds(var, low, high):
+        """Set a row's Lowest and Highest, remembering the range it was
+        searched over when this save fixes it.
+
+        A row fixed after it varied keeps the range it varied over as
+        `search_range`, and _search_bounds normalizes its column on that
+        range — the web app's way: a deactivated variable keeps its own
+        bounds for the GP and is only pinned inside them, so the
+        formulations made while it varied are seen on the same scale as
+        before. Moving a fixed row to another amount keeps the memory; giving
+        it a range again drops it. Every write of a stored row's bounds goes
+        through here."""
+        low, high = float(low), float(high)
+        old = var.get('bounds')
+        if low == high:
+            if (old is not None and var.get('type', 'continuous') == 'continuous'
+                    and float(old[0]) < float(old[1])):
+                var['search_range'] = [float(old[0]), float(old[1])]
+        else:
+            var.pop('search_range', None)
+        var['bounds'] = (low, high)
+
+    @staticmethod
+    def _remembered_range(var):
+        """The (low, high) a fixed row was searched over before it was fixed,
+        or None: it never varied, it was fixed by a version that kept no
+        memory (0.9.0 and earlier), or the value is not a usable range."""
+        memory = var.get('search_range')
+        if not isinstance(memory, (list, tuple)) or len(memory) != 2:
+            return None
+        try:
+            low, high = float(memory[0]), float(memory[1])
+        except (TypeError, ValueError):
+            return None
+        if not (math.isfinite(low) and math.isfinite(high) and low < high):
+            return None
+        return low, high
+
+    @staticmethod
     def has_formula(var):
         """True for a row that is worked out rather than searched: it holds
         a formula, or it is the balance of the batch size.
@@ -9336,7 +9388,9 @@ class FoodOptimizer:
                       else (lo if var.get('category') == 'process'
                             else min(max(0.0, lo), hi)))
         value = float(frozen)
-        var['bounds'] = (value, value)
+        # The web app kept the held row's own bounds as its scale; the
+        # memory carries them, so the GP sees this project as it did there.
+        FoodOptimizer._write_bounds(var, value, value)
 
     def varying_variables(self):
         """Variables the search may move: everything neither worked out from
@@ -10779,12 +10833,14 @@ class FoodOptimizer:
             # Only a row with nothing said about it yet: a part that was
             # already a row of its own keeps the amounts its reader typed.
             if var is not None and tuple(var['bounds']) == (0.0, 0.0):
-                var['bounds'] = (round(float(low), 2), round(float(high), 2))
+                self._write_bounds(var, round(float(low), 2),
+                                   round(float(high), 2))
         if 'row' in bands:
             var = rows.get(name)
             if var is not None and tuple(var['bounds']) == (0.0, 0.0):
                 low, high = bands['row']
-                var['bounds'] = (round(float(low), 2), round(float(high), 2))
+                self._write_bounds(var, round(float(low), 2),
+                                   round(float(high), 2))
             # Only when there is no make-up to keep. A pre-mix that was
             # portioned before still carries the shares the reader typed,
             # and Task 2 files the shares each recorded round implies; what
@@ -13784,6 +13840,14 @@ class FoodOptimizer:
                 var['bounds'] = tuple(var['bounds'])
             var.setdefault('category', 'ingredient')
             self._migrate_fixed(var)
+            # The range a fixed row varied over is read only while the row
+            # is still fixed at a usable range. Anything else — a row given a
+            # range again by a version that kept no memory, or a damaged
+            # value — is dropped here, so it is never mistaken for one later.
+            if 'search_range' in var and (
+                    not self.is_fixed(var)
+                    or self._remembered_range(var) is None):
+                var.pop('search_range')
             if var['category'] == 'process':
                 # A 0.2.x setting was stored before settings could carry a
                 # unit; blank is what it had, and blank is what it keeps.
