@@ -7851,6 +7851,7 @@ class FoodOptimizer:
         fixed rows feed has always taken."""
         constraints_list = []
         columns = self._search_columns()
+        frame = self._search_frame()
         known = {var['name'] for var in self.variables
                  if var['type'] == 'continuous'}
 
@@ -7866,8 +7867,8 @@ class FoodOptimizer:
                     continue
                 form = self._weighted_form(
                     self._property_coeff(metric, constr[bound]))
-                indices, coeffs, offset = self._form_over_columns(form,
-                                                                  columns)
+                indices, coeffs, offset = self._form_over_columns(
+                    form, columns, frame=frame)
                 if not indices:
                     # Every ingredient carrying this property is FIXED or
                     # worked out, so the average is one number and there is
@@ -7891,7 +7892,8 @@ class FoodOptimizer:
             for ing_name in qc['ingredients']:
                 if ing_name in known:
                     form = form + self._linear_form(ing_name)
-            indices, coeffs, offset = self._form_over_columns(form, columns)
+            indices, coeffs, offset = self._form_over_columns(
+                form, columns, frame=frame)
 
             if not indices:
                 # The sum is the constant `offset`: every row this limit
@@ -7914,7 +7916,7 @@ class FoodOptimizer:
         # afterwards.
         for var in self._formula_rows():
             indices, coeffs, offset = self._form_over_columns(
-                self._linear_form(var['name']), columns)
+                self._linear_form(var['name']), columns, frame=frame)
             if not indices:
                 if offset < 0:
                     self._refuse_unreachable_limit(wording.formula_below_zero(
@@ -7925,6 +7927,30 @@ class FoodOptimizer:
                 torch.tensor(coeffs, dtype=torch.double),
                 -offset,
             ))
+
+        # A row's own Lowest and Highest, where its frame is wider than them
+        # (_search_bounds widens an ingredient added mid-run with its Lowest
+        # kept above 0, so the past rows at 0 stay inside [0, 1]). The box
+        # optimize_acqf searches is the whole frame, so without these two
+        # rows a suggestion could come back anywhere down to 0.
+        for var in self.variables:
+            name = var['name']
+            if var['type'] != 'continuous' or name not in columns:
+                continue
+            low, high = float(var['bounds'][0]), float(var['bounds'][1])
+            f_low, f_high = frame[name]
+            if high == low or (f_low, f_high) == (low, high):
+                continue
+            idx = torch.tensor([columns[name]], dtype=torch.long)
+            span = f_high - f_low
+            if low > f_low:
+                constraints_list.append((
+                    idx, torch.tensor([1.0], dtype=torch.double),
+                    (low - f_low) / span))
+            if high < f_high:
+                constraints_list.append((
+                    idx, torch.tensor([-1.0], dtype=torch.double),
+                    -(high - f_low) / span))
 
         return constraints_list
 
@@ -8428,6 +8454,22 @@ class FoodOptimizer:
             self._decode(unnormalize(pool_norm[i], bounds_tensor).numpy().flatten())
             for i in range(size)
         ]
+        # A row whose frame is wider than its own Lowest and Highest (see
+        # _search_bounds) decodes anywhere in the frame; a point outside the
+        # row's own amounts is not a formulation it may be given. Only those
+        # rows are read, so a project without one keeps every point.
+        frame = self._search_frame()
+        widened = [(var['name'], float(var['bounds'][0]), float(var['bounds'][1]))
+                   for var in self.variables
+                   if var['name'] in frame and var['type'] == 'continuous'
+                   and frame[var['name']] != tuple(map(float, var['bounds']))
+                   and not self.is_fixed(var)]
+        if widened:
+            slack = 1e-9
+            candidates = [rec for rec in candidates
+                          if all(low - slack * (1 + abs(low)) <= float(rec[name])
+                                 <= high + slack * (1 + abs(high))
+                                 for name, low, high in widened)]
         if not self.has_formulation_total():
             return candidates
         snapped = (self._snap_to_total(rec, self.formulation_total)
@@ -9775,12 +9817,19 @@ class FoodOptimizer:
             hi += max(a, b)
         return lo, hi
 
-    def _form_over_columns(self, form, columns, by_name=None):
+    def _form_over_columns(self, form, columns, by_name=None, frame=None):
         """(columns, coefficients, offset) — one linear form as the model
         is handed it, in the [0, 1] frame the search runs in. A fixed row
         is the same number at both ends, so it moves the offset rather than
-        riding in the form; so do the constant and the batch size."""
+        riding in the form; so do the constant and the batch size.
+
+        `frame` is {name: (low, high)} of that frame (_search_frame). A row
+        the frame widened (added mid-run with its Lowest kept above 0) is
+        decoded as low + u × (high − low) over the WIDENED span, so its
+        coefficients are written over that span too. Over its own Lowest and
+        Highest, "D ≥ 8" on D in 4..10 widened to 0..10 came out as D ≥ 6.67."""
         by_name = self._by_name() if by_name is None else by_name
+        frame = self._search_frame() if frame is None else frame
         indices, coeffs = [], []
         offset = form.const + form.batch * self._batch_size()
         for name, coeff in form.terms.items():
@@ -9792,10 +9841,19 @@ class FoodOptimizer:
             v_min = float(var['bounds'][0])
             v_max = float(var['bounds'][1])
             if v_max != v_min and name in columns:
+                f_min, f_max = frame.get(name, (v_min, v_max))
                 indices.append(columns[name])
-                coeffs.append(coeff * (v_max - v_min))
-            offset += coeff * v_min
+                coeffs.append(coeff * (f_max - f_min))
+                offset += coeff * f_min
+            else:
+                offset += coeff * v_min
         return indices, coeffs, offset
+
+    def _search_frame(self):
+        """{name: (low, high)} of the frame each continuous search column
+        runs in: _search_bounds, by name instead of by column."""
+        spans = self._search_bounds()
+        return {name: spans[col] for name, col in self._search_columns().items()}
 
     def _refuse_without_amounts(self):
         """A project whose recorded formulations have lost their amounts
