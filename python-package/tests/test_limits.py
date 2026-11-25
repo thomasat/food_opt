@@ -66,7 +66,7 @@ def test_snapped_kept_only_if_limits_hold():
     recipe = {"Pea": 10.0, "Gluten": 10.0, "Water": 79.68}
     # projecting to 100 would add 0.32 g, spread over all three
     out = snapped_if_it_still_fits(v, qls, [], {}, recipe, 100)
-    assert out["Pea"] + out["Gluten"] <= 20 + 1e-6
+    assert out == recipe
     free = {"Pea": 5.0, "Gluten": 5.0, "Water": 89.68}
     out = snapped_if_it_still_fits(v, qls, [], {}, free, 100)
     assert sum(out.values()) == pytest.approx(100)
