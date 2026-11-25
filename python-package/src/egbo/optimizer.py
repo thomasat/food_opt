@@ -28,6 +28,7 @@ from egbo._limits import (
     total_reach,
 )
 from egbo._model import suggest, validate_bo_config
+from egbo import _state
 from egbo._score import Objective, score
 from egbo._space import (
     Variable,
@@ -615,3 +616,19 @@ class Optimizer:
                  "score": s}
                 for no, r, res, s in zip(self.formulation_ids, self.recipes,
                                          self.results, self.scores)]
+
+    # ------------------------------------------------------------ save/load
+
+    def to_dict(self) -> dict:
+        return _state.to_dict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Optimizer":
+        return _state.from_dict(cls, d)
+
+    def save(self, path) -> None:
+        _state.save(self, path)
+
+    @classmethod
+    def load(cls, path) -> "Optimizer":
+        return _state.load(cls, path)
