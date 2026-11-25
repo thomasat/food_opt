@@ -369,16 +369,16 @@ Sunflower oil,Fats and oils,,2,5,,,g,100.0
     assert columns[-1] == wording.FORMULA_LABEL, columns
 
     # Remaining water takes the rest of the batch size, so its amount is not
-    # typed: the Calculation cell says Fill to total, the two range cells are
-    # blank beside it, and one caption under the grid says what it fills to
-    # and what that comes to in numbers.
+    # typed: the Calculation cell says Fill to total, the two range cells
+    # beside it show the range it is held inside, and one caption under the
+    # grid says what it fills to and what that comes to in numbers.
     water = grid[grid[wording.NAME_LABEL] == "Remaining water"]
     assert len(water) == 1, list(grid[wording.NAME_LABEL])
     assert water.iloc[0][wording.FORMULA_LABEL] == wording.FILL_TO_TOTAL, \
         water.iloc[0][wording.FORMULA_LABEL]
-    assert water.iloc[0][wording.LOWEST_LABEL] == "", \
+    assert water.iloc[0][wording.LOWEST_LABEL] == "0.00", \
         water.iloc[0][wording.LOWEST_LABEL]
-    assert water.iloc[0][wording.HIGHEST_LABEL] == "", \
+    assert water.iloc[0][wording.HIGHEST_LABEL] == "100.00", \
         water.iloc[0][wording.HIGHEST_LABEL]
     captions = [c.value for c in at.caption]
     assert any(c.startswith("Remaining water fills to the 100 g ")

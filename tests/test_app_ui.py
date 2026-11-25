@@ -10609,8 +10609,10 @@ def test_the_grid_says_worked_out_and_the_caption_says_what_it_comes_to(
     at.run()
     grid = _grid_frame(at, 0)
     row = grid[grid[wording.NAME_LABEL] == "Water"].iloc[0]
+    # The Fill to total row shows the range it is held inside (0–100 g,
+    # what the row had before it filled to the total).
     assert (row[wording.LOWEST_LABEL], row[wording.HIGHEST_LABEL]) == (
-        "", "")
+        "0.00", "100.00")
     assert row[wording.FORMULA_LABEL] == "Fill to total"
     assert any(c.value.startswith("Water fills to "
                                   "the 50 g default batch size: ")

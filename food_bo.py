@@ -9569,8 +9569,11 @@ class FoodOptimizer:
         reads."""
         limits = var.get('fill_limits')
         if isinstance(limits, (list, tuple)) and len(limits) == 2:
-            return tuple(None if b is None else float(b) for b in limits)
-        low, high = float(var['bounds'][0]), float(var['bounds'][1])
+            low, high = (None if b is None else float(b) for b in limits)
+        else:
+            low, high = float(var['bounds'][0]), float(var['bounds'][1])
+        # 0 and 0 is a row given no range of its own, wherever it came
+        # from: a filler held at nothing is not a range anybody means.
         if low == 0.0 and high == 0.0:
             return None, None
         return low, high
