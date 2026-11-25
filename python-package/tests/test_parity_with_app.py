@@ -1,0 +1,144 @@
+"""Parity with the app: egbo.Optimizer and food_bo.FoodOptimizer, driven
+through the same seeded rounds, must suggest the same formulations."""
+
+import sys
+from pathlib import Path
+
+import pytest
+
+from egbo import Optimizer
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+food_bo = pytest.importorskip("food_bo")
+
+SEED = 12345
+PROTEIN = {"A": 20.0, "B": 2.0, "C": 0.0}
+
+
+def toy(recipe):
+    """One deterministic tasting result for any suggestion."""
+    taste = 10 - (recipe["A"] - 30) ** 2 / 50 - (recipe["B"] - 20) ** 2 / 80
+    return {"Taste": max(0.0, min(10.0, taste))}
+
+
+@pytest.fixture
+def pair(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    app = food_bo.FoodOptimizer("parity")
+    app.sobol_seed = SEED
+    return app, Optimizer(seed=SEED)
+
+
+def build(pair, *, quantity_limit=False, total=False, protein=False):
+    app, opt = pair
+    for o in (app, opt):
+        o.add_ingredient("A", 0, 60)
+        o.add_ingredient("B", 0, 50)
+        o.add_ingredient("C", 0, 40)
+        o.add_objective("Taste", 1)
+        if quantity_limit:
+            o.add_quantity_constraint(["A", "B"], max_val=70)
+        if total:
+            o.set_formulation_total(100)
+    if protein:
+        app.add_property("Protein")
+        for name, value in PROTEIN.items():
+            app.set_property_value(name, "Protein", value)
+        opt.set_property_values("Protein", PROTEIN)
+        for o in (app, opt):
+            o.add_constraint("Protein", min_val=8)
+    return app, opt
+
+
+def assert_same_rows(app_rows, pkg_rows):
+    assert len(app_rows) == len(pkg_rows)
+    for a, b in zip(app_rows, pkg_rows):
+        assert set(a) == set(b)
+        for key in a:
+            assert b[key] == pytest.approx(a[key], abs=1e-8), key
+
+
+def ask_both(app, opt, n):
+    """Ask both for n; assert the rows and their numbers match."""
+    app.set_pending_batch(None)
+    app_rows = app.ask(n)
+    pkg_rows = opt.ask(n)
+    assert_same_rows(app_rows, pkg_rows)
+    assert ([r["formulation"] for r in app.pending_batch]
+            == [r["formulation"] for r in opt.pending()])
+    return app_rows, pkg_rows
+
+
+def tell_both(app, opt, app_rows, pkg_rows):
+    for i, (a, b) in enumerate(zip(app_rows, pkg_rows)):
+        app.tell(a, toy(a), formulation_no=app.pending_batch[i]["formulation"])
+        opt.tell(b, toy(b))
+
+
+def round_both(app, opt, n):
+    app_rows, pkg_rows = ask_both(app, opt, n)
+    tell_both(app, opt, app_rows, pkg_rows)
+
+
+def six_results(app, opt):
+    round_both(app, opt, 3)
+    round_both(app, opt, 3)
+    assert len(opt.history()) == 6
+
+
+def test_parity_cold_start(pair):
+    app, opt = build(pair)
+    ask_both(app, opt, 3)
+    ask_both(app, opt, 2)
+
+
+def test_parity_warm(pair):
+    app, opt = build(pair)
+    six_results(app, opt)
+    ask_both(app, opt, 3)
+
+
+def test_parity_fixed_variable(pair):
+    app, opt = build(pair)
+    six_results(app, opt)
+    app.add_ingredient("C", 10, 10)
+    opt.fix("C", 10)
+    ask_both(app, opt, 2)
+
+
+def test_parity_quantity_limit_and_total(pair):
+    app, opt = build(pair, quantity_limit=True, total=True)
+    six_results(app, opt)
+    ask_both(app, opt, 2)
+
+
+def test_parity_property_limit(pair):
+    app, opt = build(pair, protein=True)
+    six_results(app, opt)
+    ask_both(app, opt, 2)
+
+
+def test_parity_regenerate_after_discard(pair):
+    """A batch asked again, unrecorded, retires its rows in both."""
+    app, opt = build(pair)
+    ask_both(app, opt, 3)
+    ask_both(app, opt, 3)
+    round_both(app, opt, 3)
+    round_both(app, opt, 3)
+    ask_both(app, opt, 2)
+
+
+def test_parity_mid_run_variables_and_own_formulation(pair):
+    app, opt = build(pair)
+    round_both(app, opt, 5)
+    for o in (app, opt):
+        o.add_ingredient("D", 0, 10)
+        o.add_process_parameter("Bake", 8, 14, baseline=10, step=1)
+    own = {"A": 31.23, "B": 18.5, "C": 3.0, "D": 1.0, "Bake": 11.0}
+    app.tell(own, toy(own))
+    opt.tell(own, toy(own))
+    for o in (app, opt):
+        o.add_objective("Taste", 2, goal="target", target=8)
+    ask_both(app, opt, 3)
