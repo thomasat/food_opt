@@ -281,9 +281,21 @@ def fill_tight(name="fill tight", water=FILL_RANGE, salt=None):
     opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
     opt.set_formulation_total(100)
     opt.set_formula("Water", "= rest")
+    type_fill_range(opt, "Water", *water)
     opt.add_quantity_constraint(["Flour", "Sugar"], min_val=FLOUR_SUGAR[0],
                                 max_val=FLOUR_SUGAR[1])
     return opt
+
+
+def type_fill_range(opt, name, low, high):
+    """Type the Fill to total row's range into its own two grid cells and
+    Save, as the reader does: only a typed range holds."""
+    frame = opt.ingredient_grid_frame()
+    at = int(frame.index[frame[wording.NAME_LABEL] == name][0])
+    frame.at[at, wording.LOWEST_LABEL] = str(low)
+    frame.at[at, wording.HIGHEST_LABEL] = str(high)
+    errors, _ = opt.apply_ingredient_grid(frame)
+    assert errors == [], errors
 
 
 def assert_fill_inside_its_range(recipe, low=FILL_RANGE[0], high=FILL_RANGE[1]):
@@ -365,13 +377,15 @@ def test_limits_that_shut_out_the_fill_range_name_it(here, monkeypatch):
 
 
 def test_a_fill_range_that_cannot_bind_is_not_blamed(here, monkeypatch):
-    """The tight mozzarella's Tap water keeps its 0-1002 g, which the other
-    rows never take it past (they leave it 423-730 g). When the windows
-    together cannot be met, the refusal blames the limits, not a range
-    that was never in play."""
+    """The tight mozzarella's Tap water given a 0-1002 g range, which the
+    other rows never take it past (they leave it 423-730 g). When the
+    windows together cannot be met, the refusal blames the limits, not a
+    range that was never in play."""
     four = ("Coconut oil", "Tapioca starch", "Soy protein isolate",
             "Potato starch")
     opt = tight("infeasible mozz", windows=WINDOWS + ((four, 400.0, 401.0),))
+    assert opt._fill_range() is None          # none typed: none held
+    type_fill_range(opt, "Tap water", 0, TOTAL)
     assert opt._fill_range() == ("Tap water", 0.0, TOTAL)
     calls = _spy_sampler(monkeypatch)
     with pytest.raises(ValueError) as refused:
