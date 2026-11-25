@@ -1,0 +1,24 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "egbo"
+version = "0.1.0"
+description = "Batch Bayesian optimization of formulation recipes."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+dependencies = [
+    "torch>=2.10,<2.11",
+    "botorch>=0.17.2,<0.18",
+    "gpytorch>=1.15.2,<1.16",
+    "numpy>=2,<3",
+    "scipy>=1.13",
+]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/egbo"]
