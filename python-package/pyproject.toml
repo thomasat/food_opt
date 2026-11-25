@@ -22,3 +22,6 @@ test = ["pytest"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/egbo"]
+
+[tool.pytest.ini_options]
+filterwarnings = ["ignore:.*torch.jit.script.* is deprecated:DeprecationWarning"]
