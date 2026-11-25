@@ -7550,7 +7550,10 @@ def rest_round(burger):
     """A round on the bench in a project whose Water row is = rest."""
     burger.add_ingredient("Pea protein", 10, 25)
     burger.add_ingredient("Methylcellulose", 1, 3)
-    burger.add_ingredient("Water", 20, 60)
+    # Water's own range is enforced once it is = rest, so it is wide enough
+    # for every size these tests move the batch to (72–89 g at 100 g,
+    # 222–239 g at 250 g).
+    burger.add_ingredient("Water", 20, 300)
     burger.set_formulation_total(80)
     burger.set_formula("Water", "= rest")
     burger.set_formulation_total(100)
@@ -10606,8 +10609,10 @@ def test_the_grid_says_worked_out_and_the_caption_says_what_it_comes_to(
     at.run()
     grid = _grid_frame(at, 0)
     row = grid[grid[wording.NAME_LABEL] == "Water"].iloc[0]
+    # The Fill to total row shows the range it is held inside (0–100 g,
+    # what the row had before it filled to the total).
     assert (row[wording.LOWEST_LABEL], row[wording.HIGHEST_LABEL]) == (
-        "", "")
+        "0.00", "100.00")
     assert row[wording.FORMULA_LABEL] == "Fill to total"
     assert any(c.value.startswith("Water fills to "
                                   "the 50 g default batch size: ")

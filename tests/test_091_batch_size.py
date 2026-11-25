@@ -255,20 +255,22 @@ def test_a_new_formulation_total_moves_every_row_to_it():
     what was made; Generate still gives rows at the new total."""
     opt = _record(_project("new_total"))
     made = [dict(r) for r in opt.recipe_history]
-    opt.set_formulation_total(120)
+    # 110 g: Water fills to the total inside its own 0–100 g, and Pea and Oil
+    # take up at most 14 g, so 114 g is as large as this project goes.
+    opt.set_formulation_total(110)
     for i in range(9):
         learned = opt.model_recipe(i)
-        assert opt.ingredient_total(learned) == pytest.approx(120.0)
+        assert opt.ingredient_total(learned) == pytest.approx(110.0)
         assert learned["Pea"] / learned["Oil"] == pytest.approx(made[i]["Pea"] / made[i]["Oil"])
     assert opt.recipe_history == made
-    # What the models learn is these amounts (at 120 g a row can sit past a
+    # What the models learn is these amounts (at 110 g a row can sit past a
     # Highest set for 100 g: the model is then told where it really was).
     X, _ = insights.xy(opt, insights.SCORE, list(range(9)))
     want = insights.normalize(torch.tensor([opt._encode(opt.model_recipe(i)) for i in range(9)],
                                            dtype=torch.double), opt._get_bounds())
     assert torch.allclose(X, want)
     for r in opt.ask(2):
-        assert opt.ingredient_total(r) == pytest.approx(120.0, rel=0.006)
+        assert opt.ingredient_total(r) == pytest.approx(110.0, rel=0.006)
 
 
 def test_an_own_formulation_typed_at_the_rounds_batch_size_is_learned_at_the_total():

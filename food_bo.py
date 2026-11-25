@@ -673,6 +673,12 @@ def entry_label(name, unit):
     return f"{name} ({unit})" if unit else str(name)
 
 
+def _fmt_g(value):
+    """'20', '57.7' — a number the way the refusals write a size
+    (batch_total_text): no trailing zeros."""
+    return f"{float(value):g}"
+
+
 def fmt_amount(value, unit="", decimals=2):
     """An amount as prose: '12.50 g', '0.30 g', '' for a missing value.
 
@@ -719,9 +725,13 @@ def outside_message(name, value, low, high, unit, what, tail=""):
     in the same words. `what` names the bounds, `tail` is any sentence that
     follows. A "/"-style unit stays off the numbers, as it does everywhere."""
     unit = unit_after_number(unit)
-    # A fixed row has one allowed amount, and "0 to 0" said it twice.
-    reach = (f"{float(low):g}" if float(low) == float(high)
-             else f"{float(low):g} to {float(high):g}")
+    # A fixed row has one allowed amount, and "0 to 0" said it twice. A
+    # Fill to total row may have a Lowest and no Highest.
+    if math.isinf(float(high)):
+        reach = wording.at_least_text(f"{float(low):g}")
+    else:
+        reach = (f"{float(low):g}" if float(low) == float(high)
+                 else f"{float(low):g} to {float(high):g}")
     return (join_unit(f"{name} {float(value):g}", unit)
             + f" is outside {what} of "
             + join_unit(reach, unit)
@@ -884,14 +894,38 @@ def _refuse_file_limits(name, row):
 def _file_range(row):
     """(Lowest, Highest) for a row of an ingredient file that carries a
     formula: the two cells when both hold numbers, and (0, 0) when either is
-    blank. Dormant either way — a worked-out row's range is not enforced —
-    so a cell that cannot be read is not worth a refusal here."""
+    blank. Dormant on a calculated row, and on the Fill to total row the
+    range it is held inside (_held_range) — where (0, 0) means no range of
+    its own — so a cell that cannot be read is not worth a refusal here."""
     out = []
     for column in ('Min', 'Max'):
         try:
             out.append(float(_file_text(row, column)))
         except (TypeError, ValueError):
             return 0.0, 0.0
+    return out[0], out[1]
+
+
+def _file_fill_limits(name, row):
+    """(Lowest, Highest) of the Fill to total row of an ingredient file,
+    None for a blank cell (or the app's own word for a calculated row)."""
+    out, typed = [], []
+    for column, label in (('Min', wording.LOWEST_LABEL),
+                          ('Max', wording.HIGHEST_LABEL)):
+        text = _file_text(row, column)
+        if not text or text in _APP_RANGE_WORDS:
+            out.append(None)
+            continue
+        try:
+            out.append(float(text))
+        except (TypeError, ValueError):
+            typed.append((label, text))
+            out.append(None)
+    if typed:
+        raise ValueError(wording.file_amounts_not_numbers(name, typed))
+    if out[0] is not None and out[1] is not None and out[0] > out[1]:
+        raise ValueError(wording.file_lowest_above_highest(name, out[0],
+                                                           out[1]))
     return out[0], out[1]
 
 
@@ -1068,6 +1102,8 @@ def _proposed_variable(spec):
     # asked against, and the cell the reader just edited is the answer.
     var['formula'] = spec['formula']
     var['balance'] = spec['balance']
+    if spec['balance'] and spec.get('fill') is not None:
+        var['fill_limits'] = list(spec['fill'])
     return var
 
 
@@ -1217,8 +1253,8 @@ def _what_moved(before, after):
         moved.add('unit')
     if before[4:6] != after[4:6]:
         moved.add('supplier')
-    if (before[1], before[2], before[6:9]) != (after[1], after[2],
-                                              after[6:9]):
+    if (before[1], before[2], before[6:]) != (after[1], after[2],
+                                             after[6:]):
         moved.add('other')
     return moved
 
@@ -2351,8 +2387,9 @@ class FoodOptimizer:
         it."""
         row, name, formula = record['cells'], record['name'], record['formula']
         if formula:
-            # A worked-out row may still carry a range, dormant: the grid
-            # shows the word instead of it, and rubbing the formula out
+            # A worked-out row may still carry a range — dormant, except on
+            # the Fill to total row, which is held inside it (_held_range):
+            # the grid shows the word instead of it, and rubbing the formula out
             # gives the row its amounts back rather than a row pinned at
             # nothing. A file that leaves the two cells blank leaves the
             # row with none.
@@ -2388,6 +2425,15 @@ class FoodOptimizer:
             # rest row half the app could not see.
             'balance': formula_is_rest(formula),
         }
+        if var['balance']:
+            # The Fill to total row's own range is enforced, so its two
+            # cells are read as the grid reads them: a blank is no limit on
+            # that side, anything else must be a number. Stored only where
+            # the kept range alone would not say it (one blank cell), so a
+            # file of two numbers builds the project it always built.
+            fill = _file_fill_limits(name, row)
+            if fill != FoodOptimizer._fill_limits(var):
+                var['fill_limits'] = list(fill)
         # A blank Unit cell means "the project's default", not a blank
         # unit: a file listing ml against the water alone should leave
         # every other row in whatever the project is set to.
@@ -6010,10 +6056,18 @@ class FoodOptimizer:
             # kinds and an empty cell for the other. A line with no row of
             # its own — a pre-mix's part, or a pre-mix weighed into each
             # formulation — has no two numbers at all.
-            _write_cell(sheet, r, 3, None if worked_out or var is None
-                        else float(var['bounds'][0]))
-            _write_cell(sheet, r, 4, None if worked_out or var is None
-                        else float(var['bounds'][1]))
+            if var is not None and var.get('balance'):
+                # The Fill to total row's own range is enforced, so the
+                # sheet carries it as the grid shows it (blank: no limit),
+                # and a file read back from this sheet keeps it.
+                fill_low, fill_high = self._fill_limits(var)
+                _write_cell(sheet, r, 3, fill_low)
+                _write_cell(sheet, r, 4, fill_high)
+            else:
+                _write_cell(sheet, r, 3, None if worked_out or var is None
+                            else float(var['bounds'][0]))
+                _write_cell(sheet, r, 4, None if worked_out or var is None
+                            else float(var['bounds'][1]))
             unit = (self.unit_of(var['name']) if var is not None
                     else (part or {}).get('unit'))
             _write_cell(sheet, r, 5, unit or None)
@@ -6290,6 +6344,16 @@ class FoodOptimizer:
         if var.get('category', 'ingredient') == 'process':
             scale = 1.0
         low, high = (float(b) * scale for b in var['bounds'])
+        if var.get('balance'):
+            # The Fill to total row is held to the range it is enforced at
+            # (_held_range). One that never had a range of its own, (0, 0),
+            # has nothing for an amount to be outside of: "outside its
+            # allowed amounts of 0 g" was said of every amount it filled to.
+            floor, top = self._held_range(var)
+            if floor <= 0.0 and top is None:
+                return ""
+            low = floor * scale
+            high = float('inf') if top is None else top * scale
         # The same relative slack _check_constraints allows a sum reached
         # the long way round. A row fixed at 2.2 g per 100 g is 5.5 g in a
         # 250 g round, and scale_round reaches it as 5.499999999999999: one
@@ -6323,7 +6387,9 @@ class FoodOptimizer:
         if not scaled:
             return ""
         # A worked-out row takes no part. Its Lowest and Highest are
-        # dormant — the rule decides the amount, and the grid shows the word
+        # dormant (the Fill to total row's are enforced at generation, and
+        # scale with the round, so it lands inside them here too) — the rule
+        # decides the amount, and the grid shows the word
         # where those two numbers were — so a caution telling the bench to
         # widen them names two numbers that are not on the screen and are
         # not what is being enforced. The rule's own caption under the grid
@@ -6864,8 +6930,11 @@ class FoodOptimizer:
             if c.get('max') is not None:
                 at_most(self._weighted_form(
                     self._property_coeff(c['metric'], c['max'])), 0.0)
-        for form in self._resolved_forms().values():
-            at_least(form, 0.0)
+        for name, form in self._resolved_forms().items():
+            low, high = self._held_range(self._var_by_name(name))
+            at_least(form, low)
+            if high is not None:
+                at_most(form, high)
         objective, const = row(self._weighted_form(
             lambda name: 1.0 if name in names else 0.0))
         bounds = [(float(v['bounds'][0]), float(v['bounds'][1]))
@@ -7166,11 +7235,20 @@ class FoodOptimizer:
             least = self._form_reach(
                 self._weighted_form(
                     lambda name: 1.0 if name in others else 0.0), value)[0]
-            if value < least - 1e-9:
+            # The balance's own Lowest is enforced (_held_range), so the
+            # size has to leave it at least that. Its Highest is not asked
+            # here: a rest row still has no largest batch size the box
+            # refuses — a size past what the other rows can take up is
+            # refused by Generate, and said under the grid, in the row's
+            # own name and range (_fill_range_refusal).
+            floor, _top = self._held_range(balance)
+            unit = self._unit_of(balance)
+            if value < least + floor - 1e-9:
                 raise ValueError(wording.balance_would_go_negative(
                     balance['name'], self.batch_total_text(value),
-                    self.batch_total_text(least),
-                    unit=self._unit_of(balance)))
+                    self.batch_total_text(least + floor), unit=unit,
+                    floor_text=(join_unit(_fmt_g(floor), unit) if floor > 0
+                                else None)))
         # A project every one of whose amounts can be 0 reaches 0, so the
         # sentence above lets a total of nothing through. It is refused in
         # the same shape rather than as the band's own "At least must be less
@@ -7932,20 +8010,38 @@ class FoodOptimizer:
         # The floor every formula row carries. An amount worked out from the
         # others is still an amount: below zero it is nothing anybody can
         # weigh, and the search has to be told so rather than shown it
-        # afterwards.
+        # afterwards. The Fill to total row also carries its own Lowest and
+        # Highest (_held_range): batch size − every other ingredient held
+        # between them, as two limits on the rows it is worked out from.
         for var in self._formula_rows():
+            low, high = self._held_range(var)
             indices, coeffs, offset = self._form_over_columns(
                 self._linear_form(var['name']), columns)
             if not indices:
                 if offset < 0:
                     self._refuse_unreachable_limit(wording.formula_below_zero(
                         var['name'], self._unit_of(var)))
+                if offset < low - limit_slack(low) or (
+                        high is not None
+                        and offset > high + limit_slack(high)):
+                    self._refuse_unreachable_limit(self._fill_range_refusal())
                 continue
-            constraints_list.append((
-                torch.tensor(indices, dtype=torch.long),
-                torch.tensor(coeffs, dtype=torch.double),
-                -offset,
-            ))
+            # Only an end the allowed amounts can pass is handed over: an
+            # end they never reach is a limit that cannot bind, and leaving
+            # it out keeps the model's problem exactly what it was for every
+            # project whose range was always going to hold.
+            if low > 0.0 or high is not None:
+                reach = self._form_reach(self._linear_form(var['name']),
+                                         self._batch_size())
+                if reach[0] >= low:
+                    low = 0.0
+                if high is not None and reach[1] <= high:
+                    high = None
+            t_idx = torch.tensor(indices, dtype=torch.long)
+            t_coeffs = torch.tensor(coeffs, dtype=torch.double)
+            constraints_list.append((t_idx, t_coeffs, low - offset))
+            if high is not None:
+                constraints_list.append((t_idx, -t_coeffs, offset - high))
 
         return constraints_list
 
@@ -8031,10 +8127,16 @@ class FoodOptimizer:
         # The floor every formula row carries, checked the way the model was
         # told it. An amount worked out from the others is still an amount,
         # and a formulation that asks the bench for less than none of
-        # something is not one.
-        for form in self._resolved_forms().values():
+        # something is not one. The Fill to total row is held inside its
+        # own Lowest and Highest as well (_held_range).
+        for name, form in self._resolved_forms().items():
             value = self._form_value(form, recipe_dict)
             if value < -1e-6 * (1.0 + abs(value)):
+                return False
+            low, high = self._held_range(self._var_by_name(name))
+            if low > 0.0 and value < low - limit_slack(low):
+                return False
+            if high is not None and value > high + limit_slack(high):
                 return False
 
         return True
@@ -8077,6 +8179,12 @@ class FoodOptimizer:
             raise ValueError(missing)
         if not self.varying_variables():
             raise ValueError(wording.EVERYTHING_IS_FIXED)
+        # The Fill to total row's own range, out of reach of every allowed
+        # amount of the other rows: refused in that row's name, before any
+        # search is asked to find what cannot exist.
+        refusal = self._fill_range_refusal()
+        if refusal:
+            raise ValueError(refusal)
         with self._premixes_for_generation(batch_no) as makeups:
             bounds_tensor = self._get_bounds()
             dim = bounds_tensor.shape[1]
@@ -8283,6 +8391,21 @@ class FoodOptimizer:
                 # and nothing to move: two numbers is the whole answer.
                 raise ValueError(wording.fixed_amounts_do_not_add_up(
                     self.batch_total_text(fixed_sum),
+                    self.batch_total_text(self.formulation_total)))
+            held = self._fill_range()
+            if held is not None:
+                # The Fill to total row's own range is a limit the reader
+                # may not know is in play: it is said by name.
+                raise ValueError(wording.no_formulation_with_fill_range(
+                    self.batch_total_text(self.formulation_total), held[0],
+                    self._fill_range_text()))
+            # A total the allowed amounts do add up to: it is the limits
+            # that nothing met, and the sentence says so rather than
+            # blaming the size.
+            lowest, highest = self.total_reach()
+            total = float(self.formulation_total)
+            if lowest - limit_slack(lowest) <= total <= highest + limit_slack(highest):
+                raise ValueError(wording.no_formulation_meets_limits(
                     self.batch_total_text(self.formulation_total)))
             raise ValueError(wording.no_formulation_reaches_total(
                 self.batch_total_text(self.formulation_total)))
@@ -9610,6 +9733,103 @@ class FoodOptimizer:
         None. One row at a time: set_balance is what enforces that."""
         return next((v for v in self.variables if v.get('balance')), None)
 
+    @staticmethod
+    def _held_range(var):
+        """(lowest, highest) a worked-out row is held to — `highest` None
+        for no top.
+
+        Every calculated row is held at or above nothing. The Fill to total
+        row is also held inside its own Lowest and Highest (the web app's
+        balance ingredient, kept within a min and a max): batch size − every
+        other ingredient must land between them, which is a limit on the
+        rows it is worked out from. A row with no range of its own — one
+        that arrived already worked out, (0, 0) — keeps only the floor of
+        nothing. Every other calculated row's two numbers stay dormant: the
+        calculation decides its amount."""
+        if not var.get('balance'):
+            return 0.0, None
+        low, high = FoodOptimizer._fill_limits(var)
+        return (0.0 if low is None else max(0.0, low)), high
+
+    @staticmethod
+    def _fill_limits(var):
+        """(Lowest, Highest) the Fill to total row's own two cells hold,
+        None for a side with no limit.
+
+        `fill_limits` is what the grid or an ingredient file wrote, a blank
+        cell as None. A row saved before there was such a key reads its
+        kept range instead, (0, 0) — a row that arrived already worked
+        out — as no range at all, so older files load meaning what they
+        did. `bounds` itself is left as it was: it is what rubbing the
+        calculation out gives the row back, and what an older version
+        reads."""
+        limits = var.get('fill_limits')
+        if isinstance(limits, (list, tuple)) and len(limits) == 2:
+            low, high = (None if b is None else float(b) for b in limits)
+        else:
+            low, high = float(var['bounds'][0]), float(var['bounds'][1])
+        # 0 and 0 is a row given no range of its own, wherever it came
+        # from: a filler held at nothing is not a range anybody means.
+        if low == 0.0 and high == 0.0:
+            return None, None
+        return low, high
+
+    def _fill_range(self):
+        """(name, lowest, highest) of the Fill to total row while it has a
+        limit on either side, else None. `highest` is None for no top."""
+        row = self._balance_row()
+        if row is None:
+            return None
+        low, high = self._held_range(row)
+        if low <= 0.0 and high is None:
+            return None
+        return row['name'], low, high
+
+    def _fill_range_text(self):
+        """'20–40 g', 'at least 20 g', 'at most 40 g' — the Fill to total
+        row's own range as the refusals write it; "" while it has none."""
+        held = self._fill_range()
+        if held is None:
+            return ""
+        name, low, high = held
+        unit = self._unit_of(self._var_by_name(name))
+        return wording.fill_range_text(
+            None if low <= 0.0 and high is not None else _fmt_g(low),
+            None if high is None else _fmt_g(high), unit)
+
+    def _fill_reach(self):
+        """(lowest, highest) the Fill to total row comes to while every
+        other row ranges over its allowed amounts, floored at nothing — the
+        same two numbers its caption under the grid starts from."""
+        name = self._balance_row()['name']
+        low, high = self._form_reach(self._linear_form(name),
+                                     self._batch_size())
+        return max(low, 0.0), max(high, 0.0)
+
+    def _fill_range_refusal(self):
+        """Why no formulation can keep the Fill to total row inside its own
+        Lowest and Highest, or "" while the other rows' allowed amounts
+        reach that range. Only the plain reach is asked here: a range the
+        limits put out of reach is said by Generate, in the same row's
+        name (_ask_cold_start)."""
+        held = self._fill_range()
+        if held is None or not self.has_formulation_total():
+            return ""
+        name, low, high = held
+        try:
+            reach = self._fill_reach()
+        except (FormulaError, ValueError):
+            return ""
+        unit = self._unit_of(self._var_by_name(name))
+        if reach[1] < low - limit_slack(low):
+            side = wording.at_most_text(join_unit(_fmt_g(reach[1]), unit))
+        elif high is not None and reach[0] > high + limit_slack(high):
+            side = wording.at_least_text(join_unit(_fmt_g(reach[0]), unit))
+        else:
+            return ""
+        return wording.fill_outside_its_range(name, self._fill_range_text(),
+                                              side)
+
     def _formula_names(self, skip=None):
         """The names a formula on row `skip` may read: every other row of
         the project, ingredient or process setting."""
@@ -9772,8 +9992,11 @@ class FoodOptimizer:
         suggest one of those numbers, and a negative gram is not a
         consequence anybody can act on.
 
-        And where the rule takes the row past the Lowest and Highest it was
-        given, the line says so. Those two are dormant on a worked-out row
+        The Fill to total row is held inside its own Lowest and Highest
+        (_held_range), so its line is read inside them.
+
+        And where the rule takes any other row past the Lowest and Highest
+        it was given, the line says so. Those two are dormant on such a row
         — the rule decides the amount — but a rule that put Salt at 16 g
         over its own 3 g cap landed with nothing on screen but "Salt
         saved.", and the two numbers it overrode were replaced by a word.
@@ -9793,6 +10016,17 @@ class FoodOptimizer:
             except (FormulaError, ValueError):
                 continue
             low = max(low, 0.0)
+            floor, top = self._held_range(var)
+            if floor > 0.0 or top is not None:
+                # The Fill to total row's own range is enforced: the line
+                # says what the row can come to inside it, or why nothing
+                # can.
+                refusal = self._fill_range_refusal()
+                if refusal:
+                    lines.append(refusal)
+                    continue
+                low = max(low, floor)
+                high = high if top is None else min(high, top)
             unit = self._unit_of(var)
             lines.append(wording.worked_out_caption(
                 name, self._formula_text(var), f"{low:.2f}",
@@ -9807,7 +10041,11 @@ class FoodOptimizer:
         allowed amounts its own two cells still hold, else "".
 
         A row that never had a range of its own — one that arrived already
-        worked out — has nothing to be outside of, and says nothing."""
+        worked out — has nothing to be outside of, and says nothing. Nor
+        does the Fill to total row: its range is enforced (_held_range), so
+        the line already reads inside it."""
+        if var.get('balance'):
+            return ""
         kept = tuple(float(b) for b in var['bounds'])
         if kept[0] == kept[1] == 0.0:
             return ""
@@ -10012,6 +10250,9 @@ class FoodOptimizer:
             wanted = name is not None and var['name'] == name
             if wanted or var.get('balance'):
                 var['balance'] = wanted
+            if not wanted:
+                # Its own range belonged to it as the Fill to total row.
+                var.pop('fill_limits', None)
 
     def set_formula(self, name, text):
         """Work this row's amount out from the others instead of searching
@@ -10089,6 +10330,8 @@ class FoodOptimizer:
             except ValueError:
                 put_back()
                 raise
+        if not rest:
+            var.pop('fill_limits', None)
         return self._after_formula_written()
 
     def clear_formula(self, name):
@@ -10103,6 +10346,7 @@ class FoodOptimizer:
             self._refuse_without_amounts()
         var['formula'] = ""
         var['balance'] = False
+        var.pop('fill_limits', None)
         return self._after_formula_written()
 
     def _after_formula_written(self):
@@ -11562,6 +11806,11 @@ class FoodOptimizer:
         Stored bounds are retained: clearing the rule restores them. Legacy
         text markers remain readable by the grid parser.
         """
+        if var.get('balance'):
+            # The Fill to total row shows the range it is held inside; a
+            # side with no limit is blank.
+            return tuple("" if b is None else f"{b:.2f}"
+                         for b in self._fill_limits(var))
         if self.has_formula(var):
             return "", ""
         return (f"{float(var['bounds'][0]):.2f}",
@@ -12329,6 +12578,17 @@ class FoodOptimizer:
                 row[wording.UNIT_LABEL] = self.amount_unit
         low, high, range_ok = _range_from_cells(row)
         kept = None if var is None else tuple(float(b) for b in var['bounds'])
+        fill = None
+        if form is not None and form.rest:
+            # The Fill to total row's own two cells ARE read: the range it
+            # is held inside (_held_range). A blank cell is no limit on
+            # that side.
+            if not range_ok:
+                return None, _number_cells_refusal(row, _RANGE_CELLS,
+                                                   (low, high))
+            if low is not None and high is not None and low > high:
+                return None, wording.lowest_above_highest(low, high)
+            fill = (low, high)
         if formula:
             # Not read at all, whatever they hold: the row's amount is its
             # formula, and the two cells are rewritten to the word on the
@@ -12402,6 +12662,7 @@ class FoodOptimizer:
             # history is not rebuilt for a spelling.
             'formula_typed': typed,
             'balance': bool(form is not None and form.rest),
+            'fill': fill,
             'made_as': made_as, 'made_as_was': made_as_was, 'is_row': True,
         }, None
 
@@ -12599,6 +12860,8 @@ class FoodOptimizer:
             worked_out, dropped = self._write_grid_formulas(
                 [pair for pair in rows if pair[1]['is_row']])
             removed += dropped
+            self._write_grid_fill_limits(
+                [spec for _, spec in rows if spec['is_row']])
             # Last of all, because a pre-mix adopts the row the lines above
             # have just written — and because a switch reads the history
             # those lines may have rebuilt.
@@ -12645,6 +12908,23 @@ class FoodOptimizer:
             else:
                 removed += self.clear_formula(spec['name']) or []
         return new, removed
+
+    def _write_grid_fill_limits(self, specs):
+        """The Fill to total row's own Lowest and Highest, as its two cells
+        hold them — written after the formulas, because the row may have
+        become the Fill to total row in this same save. A change retires
+        the open round, as any changed range does."""
+        for spec in specs:
+            if not spec.get('balance') or spec.get('fill') is None:
+                continue
+            var = self._by_name().get(spec['name'])
+            if var is None or not var.get('balance'):
+                continue
+            if self._fill_limits(var) == tuple(spec['fill']):
+                continue          # the range it already had: nothing moves
+            var['fill_limits'] = list(spec['fill'])
+            self._drop_pending_batch()
+            self.save()
 
     def _write_ingredient_row(self, spec):
         """One row's answers, through the narrowest door that carries them.
@@ -12714,7 +12994,8 @@ class FoodOptimizer:
         return (spec['name'], spec['category'],
                 (float(spec['low']), float(spec['high'])), spec['unit'],
                 spec['vendor'], spec['sku'], baseline,
-                spec.get('formula_typed', spec['formula']), spec['balance'])
+                spec.get('formula_typed', spec['formula']), spec['balance'],
+                spec.get('fill') if spec['balance'] else None)
 
     def _row_state(self, var):
         """Everything one row of the grid says about a variable, as one
@@ -12725,7 +13006,8 @@ class FoodOptimizer:
                 tuple(float(b) for b in var['bounds']), self._unit_of(var),
                 str(var.get('vendor', "")), str(var.get('sku', "")),
                 var.get('_absent_value'), str(var.get('formula') or ""),
-                bool(var.get('balance')))
+                bool(var.get('balance')),
+                self._fill_limits(var) if var.get('balance') else None)
 
     def _ingredient_grid_messages(self, added, changed, deleted, units,
                                   removed, round_before, worked_out=(),
@@ -13568,6 +13850,14 @@ class FoodOptimizer:
             if not isinstance(item.get('formula', ""), str):
                 raise _damaged("'variables' section has the wrong shape")
             if not isinstance(item.get('balance', False), bool):
+                raise _damaged("'variables' section has the wrong shape")
+            limits = item.get('fill_limits')
+            if limits is not None and not (
+                    isinstance(limits, list) and len(limits) == 2
+                    and all(b is None or (isinstance(b, (int, float))
+                                          and not isinstance(b, bool)
+                                          and math.isfinite(b))
+                            for b in limits)):
                 raise _damaged("'variables' section has the wrong shape")
             if item.get('balance'):
                 balanced.append(item['name'])
