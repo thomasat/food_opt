@@ -71,3 +71,10 @@ def test_active_names_and_total():
          Variable("T", 1, 2, kind="setting")]
     assert active_names(v) == ["B", "T"]
     assert ingredient_total(v, {"A": 1, "B": 2, "T": 150}) == 3.0
+
+
+def test_bare_ingredient_absent_defaults_to_zero_and_widens():
+    v = [Variable("Gum", 2, 5)]
+    assert v[0].absent == 0.0
+    assert search_bounds(v, [{"Gum": 3}, {}], [[3.0], [0.0]]) == [(0.0, 5.0)]
+    assert Variable("Temp", 100, 120, kind="setting").absent is None

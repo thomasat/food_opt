@@ -21,6 +21,11 @@ class Variable:
     # the baseline for a setting (None when no baseline was given).
     absent: float | None = None
 
+    def __post_init__(self):
+        # An ingredient missing from a recipe is at 0 (food_bo.py 7768).
+        if self.kind == "ingredient" and self.absent is None:
+            self.absent = 0.0
+
     @property
     def fixed(self) -> bool:
         return float(self.low) == float(self.high)
