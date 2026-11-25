@@ -1,5 +1,6 @@
 # The versions the desktop app ships (desktop/requirements.lock.txt).
 # Use with: pip install -c egbo-pins.txt ...  for app-identical suggestions.
+# Needs Python 3.12 or newer (scipy 1.18.0).
 torch==2.10.0
 botorch==0.17.2
 gpytorch==1.15.2

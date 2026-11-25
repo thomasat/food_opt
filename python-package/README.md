@@ -10,7 +10,7 @@ Python 3.11 or newer:
 pip install "git+https://github.com/thomasat/food_opt#subdirectory=python-package"
 ```
 
-To match the desktop app's suggestions exactly, use its library versions:
+To match the desktop app's suggestions exactly (needs Python 3.12 or newer):
 
 ```
 pip install -c https://raw.githubusercontent.com/thomasat/food_opt/main/python-package/egbo-pins.txt "git+https://github.com/thomasat/food_opt#subdirectory=python-package"
