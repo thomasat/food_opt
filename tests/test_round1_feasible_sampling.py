@@ -23,6 +23,7 @@ import torch
 
 import sample_projects as sp
 import storage
+import wording
 from food_bo import FoodOptimizer
 
 # name: (Lowest g, Highest g, sodium mg per 100 g, cost $ per 100 g)
@@ -252,3 +253,210 @@ def test_ordinary_setups_never_reach_the_sampler(tmp_path, monkeypatch):
     plain.set_formulation_total(100)
     plain.set_formula("Water", "= rest")
     assert len(plain.ask(5)) == 5
+
+
+# ------------------------------------------------------------------ #
+#  The 0.9.1 units together: the round-1 sampler with the Fill to total
+#  row's enforced range (algo-balance-range) and a row fixed after it
+#  varied (algo-fixed-scale).
+# ------------------------------------------------------------------ #
+
+FILL_RANGE = (40.0, 40.1)
+FLOUR_SUGAR = (30.0, 30.5)
+
+
+def fill_tight(name="fill tight", water=FILL_RANGE, salt=None):
+    """Water fills a 100 g formulation and is held inside 40-40.1 g, and
+    Flour + Sugar sit inside a 0.5 g window. The other rows leave Water
+    anywhere from 0 to 80 g (0 to 76 g with Salt), so both ends of its range
+    bind. `salt` adds a Salt row of that (Lowest, Highest)."""
+    opt = FoodOptimizer(name)
+    opt.set_amount_unit("g")
+    opt.add_ingredient("Water", *water)
+    opt.add_ingredient("Flour", 10, 40)
+    opt.add_ingredient("Sugar", 5, 40)
+    opt.add_ingredient("Fat", 5, 40)
+    if salt is not None:
+        opt.add_ingredient("Salt", *salt)
+    opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+    opt.set_formulation_total(100)
+    opt.set_formula("Water", "= rest")
+    opt.add_quantity_constraint(["Flour", "Sugar"], min_val=FLOUR_SUGAR[0],
+                                max_val=FLOUR_SUGAR[1])
+    return opt
+
+
+def assert_fill_inside_its_range(recipe, low=FILL_RANGE[0], high=FILL_RANGE[1]):
+    """Checked by hand: Water is what the other rows leave of 100 g, and
+    that lands inside its own Lowest and Highest."""
+    eps = 1e-6
+    others = sum(v for k, v in recipe.items() if k != "Water")
+    assert recipe["Water"] == pytest.approx(100.0 - others, abs=1e-6)
+    assert low - eps <= recipe["Water"] <= high + eps, recipe["Water"]
+    assert abs(sum(recipe.values()) - 100.0) <= 0.5 + eps
+    assert (FLOUR_SUGAR[0] - eps <= recipe["Flour"] + recipe["Sugar"]
+            <= FLOUR_SUGAR[1] + eps)
+    assert 10 - eps <= recipe["Flour"] <= 40 + eps
+    assert 5 - eps <= recipe["Sugar"] <= 40 + eps
+    assert 5 - eps <= recipe["Fat"] <= 40 + eps
+
+
+def _spy_sampler(monkeypatch):
+    """[(asked for, handed back)] per call of _sample_feasible."""
+    calls = []
+    real = FoodOptimizer._sample_feasible
+
+    def spy(self, n, *args, **kwargs):
+        out = real(self, n, *args, **kwargs)
+        calls.append((n, len(out)))
+        return out
+
+    monkeypatch.setattr(FoodOptimizer, "_sample_feasible", spy)
+    return calls
+
+
+def test_round_1_samples_inside_an_enforced_fill_range(here, monkeypatch):
+    """No point of either Sobol pool keeps Water inside 40-40.1 g with the
+    window met, so the whole Round is the sampler's, and every point keeps
+    the Fill to total row inside its own range."""
+    opt = fill_tight()
+    bounds = opt._get_bounds()
+    for size in opt.COLD_START_POOLS:
+        pool = opt._cold_start_pool(size, bounds, bounds.shape[1])
+        assert not any(opt._check_constraints(rec) for rec in pool)
+    calls = _spy_sampler(monkeypatch)
+    recipes = opt.ask(5)
+    assert calls == [(5, 5)]
+    assert len(recipes) == 5
+    assert len({_key(r) for r in recipes}) == 5
+    for recipe in recipes:
+        assert opt._check_constraints(recipe)
+        assert_fill_inside_its_range(recipe)
+
+
+def test_without_its_range_the_sampler_leaves_the_fill_row_anywhere(
+        here, monkeypatch):
+    """The range really is what holds Water in the test above: given its
+    default 0-100 g instead, the same sampler under the same window puts
+    Water outside 40-40.1 g."""
+    opt = fill_tight("fill wide", water=(0, 100))
+    bounds = opt._get_bounds()
+    recipes = opt._sample_feasible(5, bounds, bounds.shape[1])
+    assert len(recipes) == 5
+    assert any(not FILL_RANGE[0] <= r["Water"] <= FILL_RANGE[1]
+               for r in recipes)
+
+
+def test_limits_that_shut_out_the_fill_range_name_it(here, monkeypatch):
+    """Fat at least 35 g leaves Water at most 35 g once the window is met.
+    The other rows on their own still reach 40-40.1 g, so Generate gets as
+    far as the sampler, which finds nothing, and the refusal names the
+    Fill to total row's range."""
+    opt = fill_tight("fill shut")
+    opt.add_quantity_constraint(["Fat"], min_val=35.0, max_val=40.0)
+    assert opt._fill_range_refusal() == ""
+    calls = _spy_sampler(monkeypatch)
+    with pytest.raises(ValueError) as refused:
+        opt.ask(5)
+    assert calls == [(5, 0)]
+    assert str(refused.value) == wording.no_formulation_with_fill_range(
+        "100 g", "Water", "40–40.1 g")
+    assert not opt.pending_batch
+
+
+def test_a_fill_range_that_cannot_bind_is_not_blamed(here, monkeypatch):
+    """The tight mozzarella's Tap water keeps its 0-1002 g, which the other
+    rows never take it past (they leave it 423-730 g). When the windows
+    together cannot be met, the refusal blames the limits, not a range
+    that was never in play."""
+    four = ("Coconut oil", "Tapioca starch", "Soy protein isolate",
+            "Potato starch")
+    opt = tight("infeasible mozz", windows=WINDOWS + ((four, 400.0, 401.0),))
+    assert opt._fill_range() == ("Tap water", 0.0, TOTAL)
+    calls = _spy_sampler(monkeypatch)
+    with pytest.raises(ValueError) as refused:
+        opt.ask(5)
+    assert calls == [(5, 0)]
+    assert str(refused.value) == wording.no_formulation_meets_limits("1002 g")
+
+
+def test_limits_nothing_meets_without_a_fill_row_are_said_as_limits(
+        here, monkeypatch):
+    """No Fill to total row, a total the allowed amounts reach (15-140 g),
+    and limits that leave at most 85 g (Flour 79.9-80 g, Sugar at most
+    5 g): the sampler finds nothing and the sentence blames the limits."""
+    opt = FoodOptimizer("limits only")
+    opt.set_amount_unit("g")
+    opt.add_ingredient("Flour", 10, 80)
+    opt.add_ingredient("Sugar", 5, 60)
+    opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+    opt.set_formulation_total(100)
+    opt.add_quantity_constraint(["Flour"], min_val=79.9, max_val=80.0)
+    opt.add_quantity_constraint(["Sugar"], max_val=5.0)
+    calls = _spy_sampler(monkeypatch)
+    with pytest.raises(ValueError) as refused:
+        opt.ask(3)
+    assert calls == [(3, 0)]
+    assert str(refused.value) == wording.no_formulation_meets_limits("100 g")
+
+
+def test_a_total_out_of_reach_still_gets_the_adds_up_to_sentence(
+        here, monkeypatch):
+    """A stored project whose amounts no longer reach its 25 g total (Flour
+    1-2 g and Sugar 5-10 g make 6-12 g): the sampler finds nothing, and the
+    refusal is the old one about the size."""
+    opt = FoodOptimizer("out of reach")
+    opt.set_amount_unit("g")
+    opt.add_ingredient("Flour", 10, 20)
+    opt.add_ingredient("Sugar", 5, 10)
+    opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
+    opt.set_formulation_total(25)
+    opt._var_by_name("Flour")['bounds'] = (1.0, 2.0)
+    assert opt.total_reach() == (6.0, 12.0)
+    calls = _spy_sampler(monkeypatch)
+    with pytest.raises(ValueError) as refused:
+        opt.ask(3)
+    assert calls == [(3, 0)]
+    assert str(refused.value) == wording.no_formulation_reaches_total("25 g")
+    assert "adds up to 25 g" in str(refused.value)
+
+
+@pytest.mark.parametrize("fixed_at, frame", [(1.5, (0.0, 4.0)),
+                                             (6.0, (0.0, 6.0))])
+def test_a_row_fixed_after_it_varied_samples_with_the_fill_range(
+        here, monkeypatch, fixed_at, frame):
+    """Salt varies over 0-4 g in Round 1, then is fixed on the grid (inside
+    and outside the range it varied over). Round 2 is still a cold start;
+    no Sobol point meets the limits and the model is made to pick nothing,
+    so the sampler fills the Round: in the frame Salt varied over (widened
+    to its fixed amount), Salt pinned where it is fixed, and Water inside
+    its own range."""
+    opt = fill_tight("fixed fill", salt=(0, 4))
+    first = opt.ask(3)
+    for i, recipe in enumerate(first):
+        assert_fill_inside_its_range(recipe)
+        opt.tell(recipe, {"Taste": 3.0 + i})
+    frame_grid = opt.ingredient_grid_frame()
+    row = next(i for i in frame_grid.index
+               if frame_grid.loc[i, wording.NAME_LABEL] == "Salt")
+    frame_grid.loc[row, wording.LOWEST_LABEL] = fixed_at
+    frame_grid.loc[row, wording.HIGHEST_LABEL] = fixed_at
+    errors, _ = opt.apply_ingredient_grid(frame_grid)
+    assert errors == [], errors
+    salt = opt._var_by_name("Salt")
+    assert salt['search_range'] == [0.0, 4.0]
+    assert opt._search_bounds()[opt._search_columns()["Salt"]] == frame
+    bounds = opt._get_bounds()
+    for size in opt.COLD_START_POOLS:
+        pool = opt._cold_start_pool(size, bounds, bounds.shape[1])
+        assert not any(opt._check_constraints(rec) for rec in pool)
+    monkeypatch.setattr(FoodOptimizer, "_ask_optimize",
+                        lambda self, *a, **k: [])
+    calls = _spy_sampler(monkeypatch)
+    recipes = opt.ask(3)
+    assert calls == [(3, 3)]
+    assert len({_key(r) for r in recipes}) == 3
+    for recipe in recipes:
+        assert recipe["Salt"] == pytest.approx(fixed_at, abs=1e-9)
+        assert opt._check_constraints(recipe)
+        assert_fill_inside_its_range(recipe)

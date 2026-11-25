@@ -10,10 +10,15 @@ rows inside the ±0.5 % band or exactly on it, one row type each, plus one
 project with no total whose Round was re-sized (not rescaled in this wave).
 
 tests/fixtures/ask_total_unchanged.json was written on insights-080 @
-0bf00ba (before any batch-size code), and re-recorded once, with the
-owner's approval, for 0.9.0's suggestion-stability change (windows-port-p1,
-on 834dc1b; tests/test_suggestion_stability.py), under the locked
-dependency versions of desktop/requirements.lock.txt, by
+0bf00ba (before any batch-size code), and re-recorded once, with the owner's
+approval, for 0.9.0's suggestion-stability change (windows-port-p1, on
+834dc1b; tests/test_suggestion_stability.py), and re-recorded a second time,
+with the owner's approval, for 0.9.1's alignment with the web app's
+algorithm (2026-11-25, release-091: the acquisition optimizer's 10 restarts
+x 512 raw samples; the round-1 feasible sampler; the Fill to total row's
+enforced range; a fixed row scaled on the range it varied over) — of those,
+only the 10 x 512 effort moves a recorded number here, each time under the
+locked dependency versions of desktop/requirements.lock.txt, by
 
     python -m tests.test_ask_total_unchanged
 
