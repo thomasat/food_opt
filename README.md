@@ -87,6 +87,10 @@ Projects are saved locally. Use **Save a copy of this project** before major cha
 
 Email sohum.patnaik@fsi.org, describing what happened and what you expected.
 
+## Use from Python
+
+The same optimizer as a Python package, for scripts and notebooks: [python-package/README.md](python-package/README.md).
+
 ## Run from source
 
 ```sh
