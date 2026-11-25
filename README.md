@@ -89,7 +89,7 @@ Email sohum.patnaik@fsi.org, describing what happened and what you expected.
 
 ## Use from Python
 
-The same optimizer as a Python package, for scripts and notebooks: [python-package/README.md](python-package/README.md).
+Food Optimizer is also available as a Python package, for scripts and notebooks: [python-package/README.md](python-package/README.md).
 
 ## Run from source
 
