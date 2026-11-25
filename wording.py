@@ -3772,7 +3772,8 @@ def worked_out_caption(name, formula_text, low_text, high_text, size_text,
     `outside_text` is the row's own Lowest and Highest when the calculation takes
     it past them. They are dormant on a worked-out row — the calculation decides
     the amount, not the range — but a calculation that puts Salt at 16 g over a
-    cap of 3 g was landing with nothing said at all.
+    cap of 3 g was landing with nothing said at all. The rest row's own two
+    hold, so its amounts arrive already clipped to them and this is blank.
     """
     text = str(formula_text).strip()
     if rest:

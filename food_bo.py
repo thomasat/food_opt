@@ -2343,7 +2343,8 @@ class FoodOptimizer:
         it."""
         row, name, formula = record['cells'], record['name'], record['formula']
         if formula:
-            # A worked-out row may still carry a range, dormant: the grid
+            # A worked-out row may still carry a range, dormant (the rest
+            # row's is held where it can be: _held_rest_range): the grid
             # shows the word instead of it, and rubbing the formula out
             # gives the row its amounts back rather than a row pinned at
             # nothing. A file that leaves the two cells blank leaves the
@@ -6319,7 +6320,8 @@ class FoodOptimizer:
         # where those two numbers were — so a caution telling the bench to
         # widen them names two numbers that are not on the screen and are
         # not what is being enforced. The rule's own caption under the grid
-        # is where that row's range is said.
+        # is where that row's range is said — for the rest row too, whose
+        # range is held at the default batch size (_held_rest_range).
         ingredients = [var['name'] for var in self._ingredients()
                        if not self.has_formula(var)]
         # The allowed amounts, at the size these rows were made to: a
@@ -7841,7 +7843,8 @@ class FoodOptimizer:
 
     def _get_botorch_constraints(self):
         """Build BoTorch inequality constraints from property + quantity
-        constraints, and the floor every formula row carries.
+        constraints, the floor every formula row carries, and the rest row's
+        own Lowest and Highest where they bind.
 
         Every limit is written out through _linear_form before it meets a
         column, so a limit that names a row which is worked out becomes
@@ -7914,6 +7917,15 @@ class FoodOptimizer:
         # others is still an amount: below zero it is nothing anybody can
         # weigh, and the search has to be told so rather than shown it
         # afterwards.
+        #
+        # The rest row also keeps its own Lowest and Highest (stable
+        # e2752b7): Water 450..700 g in a 1000 g formulation is a limit on
+        # what the others leave it. Each side is written only where it
+        # binds — where the others' allowed amounts reach past it — because
+        # a redundant row still moves BoTorch's starting points and every
+        # suggestion after them. A Lowest that binds replaces the floor: it
+        # is the same row, set higher. A range no formulation can meet adds
+        # nothing (_held_rest_range).
         for var in self._formula_rows():
             indices, coeffs, offset = self._form_over_columns(
                 self._linear_form(var['name']), columns, frame=frame)
@@ -7922,11 +7934,16 @@ class FoodOptimizer:
                     self._refuse_unreachable_limit(wording.formula_below_zero(
                         var['name'], self._unit_of(var)))
                 continue
-            constraints_list.append((
-                torch.tensor(indices, dtype=torch.long),
-                torch.tensor(coeffs, dtype=torch.double),
-                -offset,
-            ))
+            held = self._held_rest_range(var)
+            own, reach = (None, None) if held is None else held
+            t_idx = torch.tensor(indices, dtype=torch.long)
+            t_coeffs = torch.tensor(coeffs, dtype=torch.double)
+            if own is not None and own[0] > 0 and reach[0] < own[0]:
+                constraints_list.append((t_idx, t_coeffs, own[0] - offset))
+            else:
+                constraints_list.append((t_idx, t_coeffs, -offset))
+            if own is not None and reach[1] > own[1]:
+                constraints_list.append((t_idx, -t_coeffs, -(own[1] - offset)))
 
         # A row's own Lowest and Highest, where its frame is wider than them
         # (_search_bounds widens an ingredient added mid-run with its Lowest
@@ -8036,10 +8053,18 @@ class FoodOptimizer:
         # The floor every formula row carries, checked the way the model was
         # told it. An amount worked out from the others is still an amount,
         # and a formulation that asks the bench for less than none of
-        # something is not one.
-        for form in self._resolved_forms().values():
+        # something is not one. The rest row also keeps its own Lowest and
+        # Highest, with the same slack, wherever the search was told to.
+        rest = self._balance_row()
+        held = None if rest is None else self._held_rest_range(rest)
+        own = None if held is None else held[0]
+        for name, form in self._resolved_forms().items():
             value = self._form_value(form, recipe_dict)
-            if value < -1e-6 * (1.0 + abs(value)):
+            slack = 1e-6 * (1.0 + abs(value))
+            if value < -slack:
+                return False
+            if (own is not None and name == rest['name']
+                    and not own[0] - slack <= value <= own[1] + slack):
                 return False
 
         return True
@@ -9456,6 +9481,38 @@ class FoodOptimizer:
         None. One row at a time: set_balance is what enforces that."""
         return next((v for v in self.variables if v.get('balance')), None)
 
+    def _rest_row_range(self, var):
+        """(Lowest, Highest) the rest row is kept inside, or None.
+
+        None for every other row, whose range stays dormant under its
+        formula, and for a rest row whose two cells are (0, 0): it arrived
+        already worked out and never had a range, so holding it there would
+        pin it at nothing."""
+        if not var.get('balance'):
+            return None
+        low, high = (float(b) for b in var['bounds'])
+        if low == high == 0.0:
+            return None
+        return low, high
+
+    def _held_rest_range(self, var):
+        """((Lowest, Highest), (reach low, reach high)) when the rest row's
+        own range holds, else None.
+
+        It holds only where it overlaps what the others' allowed amounts
+        leave the row. A range wholly outside that reach — Water 0..100 g
+        once the batch size is raised to 120 g and Water can only be
+        106..114 g — cannot be met by any formulation, so it stays dormant
+        as it always was, and the caption names it instead."""
+        own = self._rest_row_range(var)
+        if own is None:
+            return None
+        reach = self._form_reach(self._linear_form(var['name']),
+                                 self._batch_size())
+        if max(own[0], reach[0]) > min(own[1], reach[1]):
+            return None
+        return own, reach
+
     def _formula_names(self, skip=None):
         """The names a formula on row `skip` may read: every other row of
         the project, ingredient or process setting."""
@@ -9624,6 +9681,11 @@ class FoodOptimizer:
         over its own 3 g cap landed with nothing on screen but "Salt
         saved.", and the two numbers it overrode were replaced by a word.
         Information, not enforcement: nothing here refuses the save.
+
+        The rest row is the exception: its own Lowest and Highest hold
+        (_held_rest_range), so its line gives the amounts clipped to them.
+        Only where the two overlap the reach at all; a range nothing can
+        meet keeps the reach and names the range.
         """
         lines = []
         for var in self._formula_rows():
@@ -9639,6 +9701,10 @@ class FoodOptimizer:
             except (FormulaError, ValueError):
                 continue
             low = max(low, 0.0)
+            held = self._held_rest_range(var)
+            if held is not None:
+                own = held[0]
+                low, high = max(low, own[0]), min(high, own[1])
             unit = self._unit_of(var)
             lines.append(wording.worked_out_caption(
                 name, self._formula_text(var), f"{low:.2f}",
@@ -9653,7 +9719,9 @@ class FoodOptimizer:
         allowed amounts its own two cells still hold, else "".
 
         A row that never had a range of its own — one that arrived already
-        worked out — has nothing to be outside of, and says nothing."""
+        worked out — has nothing to be outside of, and says nothing. Nor
+        does the rest row in reach of its range: that range holds, and the
+        caption's amounts are already clipped to it."""
         kept = tuple(float(b) for b in var['bounds'])
         if kept[0] == kept[1] == 0.0:
             return ""

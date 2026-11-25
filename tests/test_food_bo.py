@@ -9979,11 +9979,11 @@ class TestTheFormulaColumn:
             opt.ingredient_grid_frame(), 1, "= rest"))
         # The head names the number it fills to AND where that number is
         # set, so the line is read the same on a round made to another size.
+        # The rest row's own Lowest and Highest hold (stable e2752b7), so
+        # its amounts are clipped to its own 60.00 g Highest.
         assert opt.worked_out_captions() == [
             "Water fills to the 100 g default "
-            "batch size: between 40.00 and 62.00 g. "
-            "Its own Lowest and Highest (20.00 to 60.00 g) do not apply "
-            "while the calculation does."]
+            "batch size: between 40.00 and 60.00 g."]
 
     def test_the_caption_never_offers_an_amount_below_nothing(
             self, tmp_path, monkeypatch):
