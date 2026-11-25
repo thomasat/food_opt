@@ -163,10 +163,10 @@ def test_notes_are_the_owners_five_parts():
         assert gone not in text, gone
 
 
-def test_notes_say_what_changed_in_five_lines():
+def test_notes_say_what_changed_in_four_lines():
     section = _section(_visible(NOTES.read_text(encoding="utf-8")), "## What is new in")
     bullets = [line[2:] for line in section.splitlines() if line.startswith("- ")]
-    assert len(bullets) == 5, bullets
+    assert len(bullets) == 4, bullets
     for bullet in bullets:
         for sentence in _sentences(bullet):
             assert len(sentence.split()) <= 15, sentence
