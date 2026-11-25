@@ -436,6 +436,9 @@ def test_the_cold_start_fallback_needs_a_complete_formulation(monkeypatch):
     calls = []
     monkeypatch.setattr(opt, "_cold_start_pool", lambda *a: [])
     monkeypatch.setattr(opt, "_ask_optimize", lambda *a: calls.append(1) or [])
+    # The last resort after the model (round 1's feasible sampler) is
+    # switched off too: this test is about when the model is asked.
+    monkeypatch.setattr(opt, "_sample_feasible", lambda *a, **k: [])
     with pytest.raises(ValueError):
         opt.ask(1)
     assert calls == []
