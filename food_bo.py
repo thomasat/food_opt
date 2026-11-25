@@ -31,6 +31,7 @@ from botorch.models.transforms.outcome import Standardize
 from botorch.optim import optimize_acqf
 from botorch.optim.initializers import gen_batch_initial_conditions
 from botorch.sampling.normal import SobolQMCNormalSampler
+from botorch.utils.sampling import get_polytope_samples
 from botorch.utils.transforms import normalize, unnormalize
 from gpytorch.kernels import (
     LinearKernel,
@@ -8292,6 +8293,12 @@ class FoodOptimizer:
         if len(results) + len(repeats) >= n_suggestions:
             return results + self._fill_from_repeats(
                 repeats, chosen, n_suggestions - len(results))
+        # The limits are too thin for any pool to land in often enough (A + B
+        # between 30 and 30.001): sample inside them instead (stable
+        # e2752b7). Only here, where the Round would otherwise come back
+        # short or be refused, so a Round the pool fills is untouched.
+        results = results + self._sample_feasible(
+            n_suggestions - len(results), bounds_tensor, dim, chosen=chosen)
         if results:
             return results
 
@@ -8312,6 +8319,69 @@ class FoodOptimizer:
         # screen used to show this one or wording.GENERATE_FAILED depending
         # on which internal step gave up, in two registers.
         raise ValueError(wording.GENERATE_FAILED)
+
+    # How many points the feasible sampler draws for each one it is asked
+    # for: some can fail the projection onto the total or match a
+    # formulation the project already has.
+    FEASIBLE_SAMPLE_DRAWS = 4
+
+    def _sample_feasible(self, n, bounds_tensor, dim, chosen=None):
+        """Up to `n` new formulations drawn from inside the limits themselves
+        (stable e2752b7): a hit-and-run chain over the [0, 1] search frame,
+        held by the same inequalities the model is (_get_botorch_constraints)
+        and with every fixed row pinned where _get_fixed_features puts it.
+
+        Each point is decoded as a pool point is, brought onto the total
+        when there is one (_snapped_if_it_still_fits), and kept only if it
+        passes _check_constraints and matches neither a formulation the
+        project already has, nor `chosen` (this Round's picks, encoded), nor
+        a point kept before it.
+
+        Seeded on _ask_seed, so a regenerate draws a different chain, and run
+        inside its own torch random state, so nothing drawn after it moves.
+        Any failure is an empty list: the caller's refusal still stands."""
+        if n <= 0:
+            return []
+        try:
+            inequalities = self._get_botorch_constraints() or None
+            equalities = [
+                (torch.tensor([col], dtype=torch.long),
+                 torch.tensor([1.0], dtype=torch.double), float(z))
+                for col, z in self._get_fixed_features().items()] or None
+            with torch.random.fork_rng():
+                points = get_polytope_samples(
+                    n=self.FEASIBLE_SAMPLE_DRAWS * n,
+                    bounds=torch.stack([torch.zeros(dim),
+                                        torch.ones(dim)]).double(),
+                    inequality_constraints=inequalities,
+                    equality_constraints=equalities,
+                    seed=int(self._ask_seed()), n_burnin=2000, n_thinning=64)
+            issued = self._issued_matrix()
+            seen = list(chosen or [])
+            out = []
+            for i in range(points.shape[0]):
+                rec = self._decode(
+                    unnormalize(points[i], bounds_tensor).numpy().flatten())
+                # Chosen inside every limit already, so it is brought onto
+                # the total only where that keeps them all, as the model's
+                # picks are: projecting first and checking after pushed every
+                # point out of a thin A + B limit.
+                if self.has_formulation_total():
+                    rec = self._snapped_if_it_still_fits(rec)
+                if not self._check_constraints(rec):
+                    continue
+                vector = self._as_issued(rec)
+                if self._repeats(vector, issued) or self._repeats(vector, seen):
+                    continue
+                out.append(rec)
+                seen.append(vector)
+                if len(out) >= n:
+                    break
+            return out
+        except Exception:
+            # For the log only: the screen gets the caller's refusal.
+            _log.warning("_sample_feasible", exc_info=True)
+            return []
 
     # Two amounts closer than this are the same point of the sequence: a
     # repeat is the same Sobol point decoded (and projected) the same way,

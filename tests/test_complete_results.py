@@ -435,6 +435,7 @@ def test_the_cold_start_fallback_needs_a_complete_formulation(monkeypatch):
     _tell(opt, 1, 1, drop=("Cook loss",))
     calls = []
     monkeypatch.setattr(opt, "_cold_start_pool", lambda *a: [])
+    monkeypatch.setattr(opt, "_sample_feasible", lambda *a, **k: [])
     monkeypatch.setattr(opt, "_ask_optimize", lambda *a: calls.append(1) or [])
     with pytest.raises(ValueError):
         opt.ask(1)
