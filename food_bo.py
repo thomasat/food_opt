@@ -1663,6 +1663,14 @@ def _build_covar(cfg, dim):
 ACQ_TIE_RTOL = 1e-4
 ACQ_TIE_DECIMALS = 3
 
+# The acquisition optimiser's effort for every suggestion: restarts, and the
+# raw samples the restarts start from (_top_starts takes the best
+# ACQ_RESTARTS of them, so ACQ_RAW_SAMPLES must be at least ACQ_RESTARTS).
+# The NeurIPS paper's EGBO runs used 10 x 512, and the web app adopted it in
+# ce28d02 (the 20 x 1024 before it was ~2.6x slower with no tested benefit).
+ACQ_RESTARTS = 10
+ACQ_RAW_SAMPLES = 512
+
 
 def _escape_csv_text(cell):
     """A text cell a spreadsheet would run as a formula (it starts with
@@ -8566,7 +8574,7 @@ class FoodOptimizer:
         differently, and suggestions moved by up to 17 %):
 
         * every restart is its own scipy problem. BoTorch otherwise sums all
-          twenty into one, whenever its batched fast path is off (always with
+          of them into one, whenever its batched fast path is off (always with
           a Formulation total, and everywhere with the locked scipy), so one
           restart's rounding moved every other's stopping point;
         * the restarts start from the best raw samples (_top_starts);
@@ -8578,8 +8586,8 @@ class FoodOptimizer:
         options = dict(
             bounds=torch.stack([torch.zeros(dim), torch.ones(dim)]).double(),
             q=1,
-            num_restarts=20,
-            raw_samples=1024,
+            num_restarts=ACQ_RESTARTS,
+            raw_samples=ACQ_RAW_SAMPLES,
             return_best_only=False,
             inequality_constraints=self._get_botorch_constraints(),
             fixed_features=self._get_fixed_features() or None,

@@ -134,3 +134,24 @@ def test_candidates_are_compared_at_three_decimals():
     vals = torch.tensor([1.0, 1.0], dtype=torch.double)
     assert food_bo.ACQ_TIE_DECIMALS == 3
     assert food_bo._pick_restart(cands, vals) == 1
+
+
+# ---------------------------------------------------------------------------
+# The optimiser's effort: the web app's and the NeurIPS paper's (ce28d02)
+# ---------------------------------------------------------------------------
+
+def test_every_restart_problem_runs_at_ten_restarts_from_512_raw_samples(
+        monkeypatch):
+    assert (food_bo.ACQ_RESTARTS, food_bo.ACQ_RAW_SAMPLES) == (10, 512)
+    seen = []
+    real = food_bo.optimize_acqf
+
+    def recording(**kwargs):
+        seen.append((kwargs["num_restarts"], kwargs["raw_samples"]))
+        return real(**kwargs)
+
+    monkeypatch.setattr(food_bo, "optimize_acqf", recording)
+    suggestions = _band()
+    assert len(suggestions) == 3
+    # One optimize_acqf call per suggestion, each at the shared effort.
+    assert seen and set(seen) == {(10, 512)}
