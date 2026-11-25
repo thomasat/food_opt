@@ -163,10 +163,10 @@ def test_notes_are_the_owners_five_parts():
         assert gone not in text, gone
 
 
-def test_notes_say_what_changed_in_four_lines():
+def test_notes_say_what_changed_in_five_lines():
     section = _section(_visible(NOTES.read_text(encoding="utf-8")), "## What is new in")
     bullets = [line[2:] for line in section.splitlines() if line.startswith("- ")]
-    assert len(bullets) == 4, bullets
+    assert len(bullets) == 5, bullets
     for bullet in bullets:
         for sentence in _sentences(bullet):
             assert len(sentence.split()) <= 15, sentence
@@ -203,11 +203,11 @@ def test_it_unsigned_line_matches_the_readme():
     assert "allow it by hash or path, not by publisher" in allow
 
 
-def test_notes_bullets_three_and_four_name_csv_and_get_help():
+def test_notes_last_two_bullets_name_csv_and_get_help():
     section = _section(_visible(NOTES.read_text(encoding="utf-8")), "## What is new in")
     bullets = [line[2:] for line in section.splitlines() if line.startswith("- ")]
-    assert bullets[2:] == ["CSV files saved from Excel in other languages now upload correctly.",
-                           "Get Help now gives an email address."]
+    assert bullets[-2:] == ["CSV files saved from Excel in other languages now upload correctly.",
+                            "Get Help now gives an email address."]
 
 
 def test_it_exit_line_names_the_documented_codes():

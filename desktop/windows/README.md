@@ -2,7 +2,7 @@
 
 ## Status
 
-Windows build: 0.9.0 ships unsigned; signing comes in a later release.
+Windows build: 0.9.1 ships unsigned; signing comes in a later release.
 
 The design is `docs/superpowers/specs/2026-10-23-windows-port-design.md`.
 Releasing: "Release (Windows half)" below, inside the combined ritual in
@@ -275,7 +275,7 @@ FoodOptimizer.exe                        the window (.NET, WebView2)
 
 ### Allow-listing
 
-0.9.0 is unsigned: allow it by hash or path, not by publisher. Publisher
+0.9.1 is unsigned: allow it by hash or path, not by publisher. Publisher
 rules become possible once releases are signed. What the files carry:
 
 - No signature: the installer, the uninstaller, `FoodOptimizer.exe` and
@@ -363,7 +363,7 @@ uninstall a Food Optimizer it did not install.
 
 ## Opening an unsigned build
 
-0.9.0 ships unsigned; signing comes in a later release.
+0.9.1 ships unsigned; signing comes in a later release.
 Opening one shows SmartScreen's "Windows protected your PC": click More
 info, then Run anyway; it shows "Unknown publisher" until signing.
 
@@ -471,7 +471,7 @@ Steps 6 and 7 of the combined ritual ("Publishing a release" in
    powershell -NoProfile -ExecutionPolicy Bypass -File desktop\windows\build_installer.ps1
    ```
 
-   No signing step while releases are unsigned (0.9.0).
+   No signing step while releases are unsigned (0.9.1).
 3. pytest under the image's Python at the tag, as in "Test" above: 0
    failed, apart from a list stated in the release PR.
 4. Level 2 with the three installers and `-Cleanup` (`run_level2.ps1`, as

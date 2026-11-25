@@ -1,6 +1,6 @@
 # Food Optimizer
 
-[**Download Food Optimizer 0.9.0 for Mac**](https://github.com/thomasat/food_opt/releases/download/v0.9.0/FoodOptimizer-0.9.0.dmg) · [**Download Food Optimizer 0.9.0 for Windows**](https://github.com/thomasat/food_opt/releases/download/v0.9.0/FoodOptimizer-0.9.0-Windows.exe)
+[**Download Food Optimizer 0.9.1 for Mac**](https://github.com/thomasat/food_opt/releases/download/v0.9.1/FoodOptimizer-0.9.1.dmg) · [**Download Food Optimizer 0.9.1 for Windows**](https://github.com/thomasat/food_opt/releases/download/v0.9.1/FoodOptimizer-0.9.1-Windows.exe)
 
 Food Optimizer helps food scientists explore ingredient compositions and process settings. Define what can vary, choose measurements and targets, then generate formulations to prepare and evaluate. The app uses recorded results to suggest what to try next.
 
@@ -8,7 +8,7 @@ Food Optimizer helps food scientists explore ingredient compositions and process
 
 Requires **Apple silicon (M1 or newer)** and **macOS 13 Ventura or newer**. Check your Mac in **Apple menu → About This Mac**.
 
-1. Download and open **FoodOptimizer-0.9.0.dmg**.
+1. Download and open **FoodOptimizer-0.9.1.dmg**.
 2. Drag **Food Optimizer** onto **Applications** in the window that opens.
 3. Open **Applications**, then double-click **Food Optimizer**.
 4. Keep the app open and stay connected to the internet while setup completes. The window shows progress.
@@ -21,7 +21,7 @@ In Numbers, select the sheet tabs if workbook links do not open.
 
 ## Install on Windows
 
-[**Download FoodOptimizer-0.9.0-Windows.exe**](https://github.com/thomasat/food_opt/releases/download/v0.9.0/FoodOptimizer-0.9.0-Windows.exe)
+[**Download FoodOptimizer-0.9.1-Windows.exe**](https://github.com/thomasat/food_opt/releases/download/v0.9.1/FoodOptimizer-0.9.1-Windows.exe)
 
 Needs 64-bit Windows 10 (22H2) or Windows 11 and 2 GB free. Works offline.
 

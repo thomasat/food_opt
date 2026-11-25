@@ -218,10 +218,10 @@ def test_allow_listing_is_scoped_to_the_product():
 
 
 def test_allow_listing_works_for_an_unsigned_release():
-    """0.9.0 ships unsigned (owner, 2026-11-16): hash or path rules now, a
+    """0.9.1 ships unsigned (owner, 2026-11-16, for 0.9.0): hash or path rules now, a
     publisher rule only once releases are signed."""
     section = _flat(_section("Allow-listing"))
-    for needle in ("0.9.0 is unsigned: allow it by hash or path, not by publisher.",
+    for needle in ("0.9.1 is unsigned: allow it by hash or path, not by publisher.",
                    "Publisher rules become possible once releases are signed.",
                    "No signature: the installer, the uninstaller, `FoodOptimizer.exe`",
                    "The release page shows each download's sha256",
