@@ -2,9 +2,11 @@
 
 Ported from the web app's balance ingredient (e2752b7): the amount is the
 batch size less every other ingredient, kept within a min and a max. In the
-desktop that row is written '= rest'; its range is the two numbers it keeps
-(var['bounds']), and (0, 0) — a row that arrived already worked out — is no
-range of its own, only the floor of nothing every calculated row has.
+desktop that row is written '= rest'; its range is what was typed into its
+own Lowest and Highest cells (or given it by an ingredient file), stored as
+`fill_limits`, a blank cell no limit on that side. A row with none typed —
+every file saved before 0.9.1 — has no range, only the floor of nothing
+every calculated row has.
 """
 import random
 
@@ -27,7 +29,20 @@ def _project(tmp_path, monkeypatch, water=(20, 40), name="fill_range"):
     opt.add_objective("Taste", 1.0, goal="max", min_val=0, max_val=10)
     opt.set_formulation_total(100)
     opt.set_formula("Water", "= rest")
+    _type_range(opt, *water)
     return opt
+
+
+def _type_range(opt, low, high):
+    """Type Water's range into its own two grid cells and Save, as the
+    reader does: 0 and 0 is the two cells left blank."""
+    blank = low == 0 and high == 0
+    frame = opt.ingredient_grid_frame()
+    at = int(frame.index[frame[wording.NAME_LABEL] == "Water"][0])
+    frame.at[at, wording.LOWEST_LABEL] = "" if blank else str(low)
+    frame.at[at, wording.HIGHEST_LABEL] = "" if blank else str(high)
+    errors, _ = opt.apply_ingredient_grid(frame)
+    assert errors == []
 
 
 def _score(opt, recipes, seed=0):
@@ -44,9 +59,13 @@ def test_held_range_reads_the_fill_rows_own_two_numbers(tmp_path, monkeypatch):
     opt = _project(tmp_path, monkeypatch)
     water = opt._var_by_name("Water")
     assert opt._held_range(water) == (20.0, 40.0)
-    # A row with no range of its own keeps only the floor of nothing.
-    water['bounds'] = (0.0, 0.0)
+    # A row with no range typed keeps only the floor of nothing, whatever
+    # its kept bounds say; so does one typed 0 and 0.
+    water.pop('fill_limits')
+    assert water['bounds'] == (20.0, 40.0)
     assert opt._held_range(water) == (0.0, None)
+    assert opt._fill_range() is None
+    water['fill_limits'] = [0.0, 0.0]
     assert opt._fill_range() is None
     # Every other calculated row's range stays dormant.
     assert opt._held_range({'bounds': (3.0, 5.0), 'formula': '= 4'}) == (0.0, None)
@@ -199,7 +218,7 @@ def test_bounds_caution_follows_the_held_range(tmp_path, monkeypatch):
     assert opt.bounds_caution("Water", 45) != ""
     # A 200 g round of a 100 g formulation: 20–40 g is 40–80 g.
     assert opt.bounds_caution("Water", 70, 2.0) == ""
-    opt._var_by_name("Water")['bounds'] = (0.0, 0.0)
+    opt._var_by_name("Water").pop('fill_limits')
     assert opt.bounds_caution("Water", 45) == ""
 
 
@@ -300,17 +319,20 @@ def test_a_row_that_stops_filling_drops_its_fill_range(tmp_path, monkeypatch):
     assert 'fill_limits' not in water and water['bounds'] == (20.0, 40.0)
 
 
-def test_an_older_project_reads_its_kept_range(tmp_path, monkeypatch):
-    """A file saved before fill_limits existed: its kept range is the
-    range, (0, 0) is none, and saving it unchanged writes no new key."""
+def test_an_older_project_has_no_fill_range(tmp_path, monkeypatch):
+    """A file saved before fill_limits existed behaves as 0.9.0 did: no
+    range, whatever its kept bounds say, blank cells on the grid, and a
+    save that changes nothing writes no new key."""
     opt = _project(tmp_path, monkeypatch)
     state = opt.export_json()
-    assert 'fill_limits' not in state['variables'][0]
+    state['variables'][0].pop('fill_limits')
+    assert tuple(state['variables'][0]['bounds']) == (20.0, 40.0)
     FoodOptimizer.validate_state(state)
     back = FoodOptimizer("older", robust=False)
     back.import_json(state)
-    assert back._held_range(back._var_by_name("Water")) == (20.0, 40.0)
-    frame, _ = _water_row(back)
+    assert back._held_range(back._var_by_name("Water")) == (0.0, None)
+    frame, at = _water_row(back)
+    assert (frame.at[at, L], frame.at[at, H]) == ("", "")
     assert back.apply_ingredient_grid(frame)[0] == []
     assert 'fill_limits' not in back._var_by_name("Water")
 
@@ -338,13 +360,14 @@ def test_an_ingredient_file_gives_the_fill_row_a_one_sided_range(
     water = opt._var_by_name("Water")
     assert water['fill_limits'] == [25.0, None]
     assert opt._held_range(water) == (25.0, None)
-    # Two numbers are what the kept range already says: no new key.
     opt2 = FoodOptimizer("file_fill2", robust=False)
     opt2.set_amount_unit("g")
     opt2.load_ingredients_from_csv(pd.DataFrame({
         "Name": ["Flour", "Water"], "Lowest": [10, 0], "Highest": [60, 100],
         "Unit": ["g", "g"], "Rule": [None, "= rest"]}))
-    assert 'fill_limits' not in opt2._var_by_name("Water")
+    # Numbers a file gives the '= rest' row are its range; a Lowest of 0
+    # says no more than the floor does.
+    assert opt2._var_by_name("Water")['fill_limits'] == [None, 100.0]
     assert opt2._held_range(opt2._var_by_name("Water")) == (0.0, 100.0)
 
 
@@ -381,3 +404,152 @@ def test_the_set_up_sheet_carries_the_fill_range(tmp_path, monkeypatch):
             if row and row[0] == "Water" and len(row) > 4
             and row[1] == wording.KIND_INGREDIENT]
     assert rows and rows[0][2:4] == (20.0, None)
+
+
+# ------------------------------------------------------------------ #
+# Review fixes: a pinned filler, the message only a binding range earns,
+# edits of the open Round, a no-op save, rows that are not the filler, and
+# files with words in the filler's cells.
+# ------------------------------------------------------------------ #
+
+def test_a_pinned_fill_row_gets_full_rounds_at_its_one_amount(tmp_path, monkeypatch):
+    """Lowest equal to Highest is an equality: round 1 and the model both
+    give every formulation asked for, each with Water at exactly 30 g."""
+    opt = _project(tmp_path, monkeypatch, water=(30, 30))
+    assert opt._fill_pinned_at(opt._var_by_name("Water")) == 30.0
+    assert len(opt._get_botorch_equalities()) == 1
+    first = opt.ask(5)
+    assert len(first) == 5
+    assert len({round(r["Flour"], 6) for r in first}) == 5
+    for recipe in first:
+        assert recipe["Water"] == pytest.approx(30.0, abs=1e-6)
+        assert opt._check_constraints(recipe)
+    _score(opt, first)
+    warm = opt.ask(3)
+    assert len(warm) == 3
+    for recipe in warm:
+        assert recipe["Water"] == pytest.approx(30.0, abs=1e-4)
+        assert sum(recipe.values()) == pytest.approx(100.0, abs=1e-4)
+
+
+def test_a_pinned_fill_row_out_of_reach_is_refused_clearly(tmp_path, monkeypatch):
+    opt = _project(tmp_path, monkeypatch, water=(30, 30))
+    _type_range(opt, 90, 90)
+    with pytest.raises(ValueError) as refused:
+        opt.ask(3)
+    assert str(refused.value) == wording.fill_outside_its_range(
+        "Water", "90–90 g", wording.at_most_text("85 g"))
+    assert not opt.pending_batch
+
+
+def test_projects_without_a_pinned_filler_get_no_equality(tmp_path, monkeypatch):
+    opt = _project(tmp_path, monkeypatch)
+    assert opt._get_botorch_equalities() == []
+    plain = _project(tmp_path / "b", monkeypatch, water=(0, 0), name="b")
+    assert plain._get_botorch_equalities() == []
+
+
+def test_a_range_that_cannot_bind_is_not_named_when_nothing_is_found(
+        tmp_path, monkeypatch):
+    """Generate finds nothing because of an amount limit; Water's 0–100 g
+    never binds (the others leave it 0–85 g), so it is not named."""
+    opt = _project(tmp_path, monkeypatch, water=(0, 100))
+    opt.quantity_constraints.append({"ingredients": ["Flour"], "min": 79.9,
+                                     "max": 80.0})
+    opt.quantity_constraints.append({"ingredients": ["Sugar"], "min": None,
+                                     "max": 5.0})
+    monkeypatch.setattr(FoodOptimizer, "_sample_feasible",
+                        lambda self, *a, **k: [])
+    with pytest.raises(ValueError) as refused:
+        opt._ask_cold_start(3, opt._get_bounds(), 2)
+    assert str(refused.value) == wording.no_formulation_meets_limits("100 g")
+    # A range that can bind is named.
+    _type_range(opt, 20, 40)
+    with pytest.raises(ValueError) as refused:
+        opt._ask_cold_start(3, opt._get_bounds(), 2)
+    assert str(refused.value) == wording.no_formulation_with_fill_range(
+        "100 g", "Water", "20–40 g")
+
+
+def test_an_edit_that_takes_the_fill_row_out_of_its_range_is_refused(
+        tmp_path, monkeypatch):
+    opt = _project(tmp_path, monkeypatch)
+    opt.ask(2)
+    row = opt.pending_batch[0]
+    before = dict(row['recipe'])
+    with pytest.raises(ValueError) as refused:
+        opt.edit_pending_formulations({row['formulation']: {"Flour": 10,
+                                                            "Sugar": 5}})
+    assert str(refused.value) == wording.edit_formulation_error(
+        row['formulation'], opt.bounds_caution("Water", 85.0))
+    assert opt.pending_batch[0]['recipe'] == before
+    # Inside the range it is accepted, and Water fills to the rest.
+    assert opt.edit_pending_formulations({row['formulation']: {"Flour": 40,
+                                                               "Sugar": 30}})
+    assert opt.pending_batch[0]['recipe']["Water"] == pytest.approx(30.0)
+
+
+def test_an_own_formulation_keeps_the_caution_rule(tmp_path, monkeypatch):
+    """A formulation of the reader's own is never refused for an amount
+    outside the allowed ones (ui_batch._add_own cautions instead); the Fill
+    to total row's caution is the same sentence."""
+    opt = _project(tmp_path, monkeypatch)
+    number = opt.add_to_pending_batch({"Flour": 10, "Sugar": 5})
+    added = next(r for r in opt.pending_batch if r['formulation'] == number)
+    assert added['recipe']["Water"] == pytest.approx(85.0)
+    assert opt.bounds_caution("Water", added['recipe']["Water"]) != ""
+
+
+def test_typing_zero_in_lowest_of_a_no_range_filler_moves_nothing(
+        tmp_path, monkeypatch):
+    opt = _project(tmp_path, monkeypatch, water=(0, 0))
+    opt.ask(2)
+    frame, at = _water_row(opt)
+    frame.at[at, L] = "0"
+    assert opt.ingredient_grid_retires_round(frame) is None
+    opt.apply_ingredient_grid(frame)
+    assert opt.pending_batch_no is not None
+    assert 'fill_limits' not in opt._var_by_name("Water")
+
+
+def test_a_fill_range_on_another_row_is_dropped_on_load(tmp_path, monkeypatch):
+    opt = _project(tmp_path, monkeypatch)
+    state = opt.export_json()
+    flour = next(v for v in state['variables'] if v['name'] == "Flour")
+    flour['fill_limits'] = [1.0, 2.0]
+    back = FoodOptimizer("stray", robust=False)
+    back.import_json(state)
+    assert 'fill_limits' not in back._var_by_name("Flour")
+    assert back._var_by_name("Water")['fill_limits'] == [20.0, 40.0]
+
+
+def test_a_file_with_words_in_the_fill_rows_cells_still_loads(
+        tmp_path, monkeypatch):
+    import pandas as pd
+    monkeypatch.chdir(tmp_path)
+    opt = FoodOptimizer("words", robust=False)
+    opt.set_amount_unit("g")
+    opt.load_ingredients_from_csv(pd.DataFrame({
+        "Name": ["Flour", "Water"], "Lowest": [10, "n/a"],
+        "Highest": [60, "calculated"], "Unit": ["g", "g"],
+        "Rule": [None, "= rest"]}))
+    water = opt._var_by_name("Water")
+    assert water['balance'] and 'fill_limits' not in water
+    assert opt._fill_range() is None
+
+
+def test_the_burger_example_generates_at_200_and_500_g(tmp_path, monkeypatch):
+    """As 0.9.0 does: the example's Remaining water has no range typed."""
+    import sample_projects as sp
+    import storage
+    monkeypatch.chdir(tmp_path)
+    store = storage.LocalStorage()
+    sp.ensure(store, (sp.BURGER,))
+    burger = FoodOptimizer(sp.BURGER, storage=store)
+    assert burger._fill_range() is None
+    frame = burger.ingredient_grid_frame()
+    water = frame[frame[wording.NAME_LABEL] == "Remaining water"].iloc[0]
+    assert (water[L], water[H]) == ("", "")
+    for size in (200, 500):
+        burger.set_formulation_total(size)
+        assert len(burger.ask(3)) == 3

@@ -10710,12 +10710,15 @@ class TestTheFormulaColumnFixes:
         assert water['bounds'] == (0.0, 100.0)
         frame = opt.ingredient_grid_frame()
         row = frame[frame[wording.NAME_LABEL] == "Remaining water"].iloc[0]
-        assert row[wording.LOWEST_LABEL] == "0.00"
+        # The file gave the '= rest' row 0 and 100: its range is at most
+        # 100 g (a Lowest of 0 is the floor every calculated row keeps).
+        assert row[wording.LOWEST_LABEL] == ""
         assert row[wording.HIGHEST_LABEL] == "100.00"
         at = int(frame.index[frame[wording.NAME_LABEL] == "Remaining water"][0])
         errors, _ = opt.apply_ingredient_grid(_edit(
             frame, at, **{wording.FORMULA_LABEL: ""}))
         assert errors == []
+        # The blank Lowest cell is the row's own 0 again (its kept range).
         back = opt.ingredient_grid_frame()
         row = back[back[wording.NAME_LABEL] == "Remaining water"].iloc[0]
         assert (row[wording.LOWEST_LABEL], row[wording.HIGHEST_LABEL]) == \

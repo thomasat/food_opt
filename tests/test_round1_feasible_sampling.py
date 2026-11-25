@@ -17,6 +17,8 @@ seed measured, every row of the five within 3 % of its own range
 import os
 
 import pytest
+
+import wording
 import torch
 
 import sample_projects as sp
@@ -135,12 +137,15 @@ def test_no_sobol_point_meets_the_tight_limits(here):
 
 
 def test_without_the_sampler_round_1_fails_as_before(here, monkeypatch):
-    """What origin/main does with this setup (the sampler switched off)."""
+    """With the sampler switched off, round 1 is refused: the total is
+    reachable, so the sentence blames the limits. Tap water has no range
+    of its own typed, so it is not named."""
     opt = tight()
     monkeypatch.setattr(FoodOptimizer, "_sample_feasible",
                         lambda self, *a, **k: [])
-    with pytest.raises(ValueError, match="1002 g"):
+    with pytest.raises(ValueError) as err:
         opt.ask(5)
+    assert str(err.value) == wording.no_formulation_meets_limits("1002 g")
 
 
 def test_tight_limits_get_a_full_round_inside_every_limit(here):
@@ -213,14 +218,14 @@ def test_a_regenerate_samples_new_formulations(here):
 def test_a_truly_infeasible_setup_still_gets_the_clear_error(here):
     """Each window can be met on its own, but the four together cannot:
     the first two put those four rows at 390-392 g and the fourth asks for
-    400 g. Nothing meets every limit, and the refusal is the one Generate
-    always gave."""
+    400 g. Nothing meets every limit, and the refusal says so at the
+    total, which the amounts do reach."""
     four = ("Coconut oil", "Tapioca starch", "Soy protein isolate",
             "Potato starch")
     opt = tight("infeasible mozz", windows=WINDOWS + ((four, 400.0, 401.0),))
     with pytest.raises(ValueError) as err:
         opt.ask(5)
-    assert "1002 g" in str(err.value)
+    assert str(err.value) == wording.no_formulation_meets_limits("1002 g")
     assert not opt.pending_batch
 
 

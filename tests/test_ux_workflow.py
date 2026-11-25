@@ -331,10 +331,8 @@ def test_workbook_separates_formulations_and_has_internal_navigation(project, mo
 def test_calculated_range_marker_can_be_saved_without_changing_rule(project):
     frame = project.ingredient_grid_frame()
     row = frame.loc[frame[wording.NAME_LABEL].eq('Water')].iloc[0]
-    # The Fill to total row shows its own range; a blank Highest is no top.
-    assert row[wording.HIGHEST_LABEL] == "100.00"
-    row[wording.HIGHEST_LABEL] = ""
-    frame.loc[frame[wording.NAME_LABEL].eq('Water'), wording.HIGHEST_LABEL] = ""
+    # No range typed for the Fill to total row: its cells are blank.
+    assert row[wording.HIGHEST_LABEL] == ""
     from food_bo import _range_from_cells
     for marker in (wording.CALCULATED_RANGE, wording.WORKED_OUT, wording.OLD_CALCULATED_RANGE):
         legacy = row.copy()

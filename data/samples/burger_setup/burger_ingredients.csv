@@ -2,7 +2,7 @@ Name,Part of,Preparation,Lowest,Highest,Composition (%),Calculation,Unit,Fat (g 
 Textured pea protein,,,4,6,,,g,6.0,30,8,0.38
 Textured soy protein,,,4,6,,,g,6.0,20,8,0.22
 Hydration water,,,0,100,,= 2.2 * (Textured pea protein + Textured soy protein),g,0.0,0,100,0.00
-Remaining water,,,0,100,,= rest,g,0.0,0,100,0.00
+Remaining water,,,,,,= rest,g,0.0,0,100,0.00
 Dry blend,,Pre-mix: keep proportions fixed,15,18,,,g,,,,
 Pea protein isolate,Dry blend,,,,66,,g,8.0,900,6,0.48
 Potato starch,Dry blend,,,,26,,g,0.1,10,18,0.11
