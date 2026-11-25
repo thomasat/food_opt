@@ -1374,8 +1374,9 @@ BASELINE_LABEL = "Baseline"
 # The column arrives on its own, in the grid the reader sets their rules
 # in, the moment the first round is recorded — so its one tooltip has to
 # say what the number is as well as what it is for.
-BASELINE_HELP = ("Only for a process setting added after results exist: enter the value "
-                 "used in all earlier formulations. This is not an ingredient amount.")
+BASELINE_HELP = ("For a row added after results exist: the value every earlier "
+                 "formulation used. A process setting needs one. An ingredient "
+                 "left blank was in none of them.")
 def saved(name):
     """Subject first, like added() above it and every other flash on the
     tab."""
@@ -1557,6 +1558,12 @@ def formulations_contain_none_of(names_text):
     already recorded formulations: those formulations are encoded as
     containing none of it, whatever Lowest the new row carries."""
     return f"Formulations already made contain no {names_text}."
+
+
+def formulations_contain_baseline(name, amount_text):
+    """The same line for a new ingredient given a Baseline: those
+    formulations are encoded at that amount of it, not at none."""
+    return f"Formulations already made contain {amount_text} {name}."
 
 
 # The properties grid: one row per ingredient, one column per property, and

@@ -178,13 +178,15 @@ def premix_named_by(source):
     return text[len(PREMIX_LIMIT_SOURCE):]
 
 
-def _amount_of(recipe, name):
+def _amount_of(recipe, name, absent=0.0):
     """How much of one row a recorded formulation holds: what is on file,
-    or nothing at all for a row that formulation never had. A recorded
-    amount written by an older file can be a string or a blank, and a
-    rewritten history must not turn either into a traceback."""
+    or `absent` for a row that formulation never had — nothing, or the
+    baseline of an ingredient added later at the amount it was always
+    used at (FoodOptimizer._absent_amount). A recorded amount written by
+    an older file can be a string or a blank, and a rewritten history must
+    not turn either into a traceback."""
     try:
-        return float(recipe.get(name, 0.0) or 0.0)
+        return float(recipe.get(name, absent) or 0.0)
     except (TypeError, ValueError):
         return 0.0
 
@@ -2031,10 +2033,11 @@ class FoodOptimizer:
         return name
 
     def add_ingredient(self, name, min_val, max_val, unit=None,
-                       keep_lowest=False):
+                       keep_lowest=False, baseline=None):
         """Add a single ingredient. Safe to call mid-run (adaptive EGBO): the
-        ingredient is treated as absent (=0) in every prior recipe, and the
-        encoded history is rebuilt so the GP stays dimensionally consistent.
+        ingredient is treated as absent (=0, or `baseline`) in every prior
+        recipe, and the encoded history is rebuilt so the GP stays
+        dimensionally consistent.
 
         `keep_lowest` keeps the Lowest the caller typed even mid-run. The old
         add form disabled that box and this method forced it to 0, because
@@ -2053,15 +2056,37 @@ class FoodOptimizer:
         prune_amount_limits), as every other unit edit does: adding an
         ingredient that already exists is one of the ways a unit changes, and
         a limit that then adds grams to millilitres is a number of nothing.
+
+        `baseline` is the amount every formulation already made used (stable
+        e2752b7): an ingredient that was in the base formulation all along,
+        held at 0.8 g rather than varied, and only now searched. Those
+        formulations are then read at that amount rather than at none, and
+        the Lowest the caller typed is kept, as `keep_lowest` keeps it. It
+        must lie within the allowed amounts, it means something only once
+        results exist, and it lives on the row (`_absent_value`) and in the
+        encoding: the amounts on file are never rewritten. None is the
+        ingredient that was not there at all, exactly as before.
+
+        On a row that already carries one, `baseline` corrects it and the
+        history is read again, as a process setting's is.
         """
         name = self._check_new_variable(name, min_val, max_val, 'ingredient')
         min_val, max_val = float(min_val), float(max_val)
         for var in self.variables:
             if var['name'] == name:
+                stored = var.get('_absent_value')
+                moved = (baseline is not None and stored is not None
+                         and float(baseline) != float(stored))
+                if moved and not min_val <= float(baseline) <= max_val:
+                    raise ValueError(_baseline_outside_message(
+                        baseline, min_val, max_val))
                 self._check_fixed_feasible(name, min_val, max_val, 'ingredient')
                 var['bounds'] = (min_val, max_val)
                 if unit is not None:
                     var['unit'] = str(unit).strip()
+                if moved:
+                    var['_absent_value'] = float(baseline)
+                    self._reencode_history()
                 removed = self.prune_amount_limits()
                 self._drop_pending_batch()
                 self.save()
@@ -2069,8 +2094,15 @@ class FoodOptimizer:
         if self.X_history:
             if len(self.recipe_history) != len(self.X_history):
                 raise ValueError(wording.CANNOT_ADD_WITHOUT_AMOUNTS)
-            if not keep_lowest:
+            if baseline is not None:
+                baseline = float(baseline)
+                if not min_val <= baseline <= max_val:
+                    raise ValueError(_baseline_outside_message(
+                        baseline, min_val, max_val))
+            elif not keep_lowest:
                 min_val = 0.0   # absent-in-past encodes as 0
+        else:
+            baseline = None     # nothing made yet, so nothing read at it
         self._check_fixed_feasible(name, min_val, max_val, 'ingredient')
         var = {
             'name': name,
@@ -2092,6 +2124,8 @@ class FoodOptimizer:
         }
         if unit is not None:
             var['unit'] = str(unit).strip()
+        if baseline is not None:
+            var['_absent_value'] = baseline
         self.variables.append(var)
         if self.X_history:
             self._reencode_history()
@@ -3680,8 +3714,11 @@ class FoodOptimizer:
         return prefix + wording.compared_with_cell(kind, changes)
 
     def ingredient_total(self, recipe):
-        """The formulation total: process settings are not amounts and are excluded."""
-        return sum(float(recipe.get(v['name'], 0.0)) for v in self.variables
+        """The formulation total: process settings are not amounts and are
+        excluded. A formulation made before an ingredient was added counts
+        it at its baseline (`_absent_value`), the amount it was made with."""
+        return sum(float(recipe.get(v['name'], v.get('_absent_value', 0.0)))
+                   for v in self.variables
                    if v.get('category', 'ingredient') == 'ingredient')
 
     def scaled_recipe(self, recipe, scale_to=None):
@@ -3716,10 +3753,13 @@ class FoodOptimizer:
         for var in self.variables:
             if self.has_formula(var):
                 continue
-            value = float(recipe.get(var['name'], 0.0))
-            out[var['name']] = (value * factor
-                                if var.get('category', 'ingredient') == 'ingredient'
-                                else value)
+            ingredient = var.get('category', 'ingredient') == 'ingredient'
+            # An ingredient this formulation predates was in it at its
+            # baseline, and scales with the rest.
+            value = float(recipe.get(var['name'],
+                                     var.get('_absent_value', 0.0)
+                                     if ingredient else 0.0))
+            out[var['name']] = value * factor if ingredient else value
         return self.fill_formulas(out, batch=scale_to)
 
     def _scale_factor(self, recipe, scale_to, total):
@@ -3747,7 +3787,8 @@ class FoodOptimizer:
         by_name = self._by_name()
         for name, coeff in form.terms.items():
             var = by_name.get(name)
-            value = _amount(recipe.get(name))
+            value = (_amount(recipe[name]) if name in recipe
+                     else self._absent_amount(name))
             if var is not None and var.get('category',
                                            'ingredient') != 'ingredient':
                 # A cook temperature is not an amount of anything and is
@@ -9400,6 +9441,19 @@ class FoodOptimizer:
         if self.recipe_history:
             self.X_history = [self._encode(r) for r in self.recipe_history]
 
+    def _absent_amount(self, name):
+        """How much of ingredient `name` a formulation that has no amount
+        on file for it holds: its baseline (`_absent_value`) when it was
+        added after results at the amount every earlier formulation used,
+        and nothing otherwise. A process setting reads 0 here, as it always
+        has: its baseline paths are _encode's and _recorded_recipe's."""
+        for var in self.variables:
+            if var['name'] == name:
+                if var.get('category', 'ingredient') != 'ingredient':
+                    return 0.0
+                return float(var.get('_absent_value', 0.0))
+        return 0.0
+
     # ------------------------------------------------------------------ #
     #  Non-monotone active set: a row is FIXED when Lowest equals Highest
     #
@@ -9702,7 +9756,11 @@ class FoodOptimizer:
         size = self._batch_size() if batch is None else float(batch)
         value = form.const + form.batch * size
         for name, coeff in form.terms.items():
-            value += coeff * _amount(recipe.get(name))
+            # A row this formulation never had reads as its baseline: the
+            # rest row of a formulation made before Sorbate was added is
+            # what is left after the 0.8 g it really held.
+            value += coeff * (_amount(recipe[name]) if name in recipe
+                              else self._absent_amount(name))
         return value
 
     def fill_formulas(self, recipe, batch=None):
@@ -11129,13 +11187,16 @@ class FoodOptimizer:
                         if i < len(self.batch_history) else None)
             parts = self.premix_parts(name, round_no)
             if mode == PREMIX_WEIGHED:
-                whole = _amount_of(recipe, name)
+                whole = _amount_of(recipe, name, self._absent_amount(name))
                 rewritten.append(
-                    {p['name']: _amount_of(recipe, p['name'])
+                    {p['name']: _amount_of(recipe, p['name'],
+                                           self._absent_amount(p['name']))
                      + whole * float(p['share']) / 100.0
                      for p in parts})
                 continue
-            weighed = {p['name']: _amount_of(recipe, p['name']) for p in parts}
+            weighed = {p['name']: _amount_of(recipe, p['name'],
+                                             self._absent_amount(p['name']))
+                       for p in parts}
             whole = sum(weighed.values())
             rewritten.append({name: whole})
             if round_no is None or whole <= 0 or int(round_no) in stamped:
@@ -12371,7 +12432,15 @@ class FoodOptimizer:
         baseline, baseline_ok = _number_cell(row, wording.BASELINE_LABEL)
         if not baseline_ok:
             return None, _number_cells_refusal(row, (wording.BASELINE_LABEL,))
-        if baseline is not None and category == 'ingredient':
+        stored = None if var is None else var.get('_absent_value')
+        # An ingredient takes a Baseline in two places: a row added after
+        # results, at the amount every formulation already made used
+        # (stable e2752b7), and a row that already carries one, which can be
+        # corrected. Anywhere else it reads nothing — a row that was in
+        # every formulation at its own recorded amounts has no absent value.
+        if (baseline is not None and category == 'ingredient'
+                and not (self.X_history and (var is None
+                                             or stored is not None))):
             return None, wording.only_a_setting_has(wording.BASELINE_LABEL)
         if (var is not None and self.X_history
                 and var.get('category', 'ingredient') != category):
@@ -12385,10 +12454,9 @@ class FoodOptimizer:
         # 190 is a decision about the next round, and refusing it because a
         # past bake ran at 175 refuses something they are entitled to ask
         # for (see add_process_parameter).
-        stored = None if var is None else var.get('_absent_value')
         moved = (baseline is not None
                  and (stored is None or float(stored) != baseline))
-        if moved and category == 'process' and not (low <= baseline <= high):
+        if moved and not (low <= baseline <= high):
             return None, _baseline_outside_message(baseline, low, high)
         return {
             'var': var, 'id': row_id if (var is not None or premix_was is not None) else None,
@@ -12439,8 +12507,9 @@ class FoodOptimizer:
         trouble = self._formula_reads_refusal(name)
         if trouble:
             return trouble
+        absent = self._absent_amount(name)
         used = [i for i, r in enumerate(self.recipe_history)
-                if float(r.get(name, 0.0)) != 0.0]
+                if float(r.get(name, absent)) != 0.0]
         if used and not force:
             # Name the formulations, not row indexes: a formulation number is
             # what the reader wrote on the sheet, and #0 is not theirs.
@@ -12696,7 +12765,8 @@ class FoodOptimizer:
             return
         spec['_removed'] = self.add_ingredient(
             name, spec['low'], spec['high'], unit=spec['unit'],
-            keep_lowest=True) or []
+            keep_lowest=True,
+            baseline=spec['baseline'] if spec['baseline_moved'] else None) or []
         var = self._var_by_name(name)
         if (str(var.get('vendor', "")), str(var.get('sku', ""))) != (
                 spec['vendor'], spec['sku']):
@@ -12751,8 +12821,19 @@ class FoodOptimizer:
         if deleted:
             messages.append(("success", wording.deleted(number_list(deleted))))
         if new_ingredients and self.recipe_history:
-            messages.append(("info", wording.formulations_contain_none_of(
-                number_list(new_ingredients))))
+            # Said of each new ingredient as it was made: none of it, or
+            # the amount every formulation already made used.
+            absent = [n for n in new_ingredients
+                      if '_absent_value' not in self._var_by_name(n)]
+            if absent:
+                messages.append(("info", wording.formulations_contain_none_of(
+                    number_list(absent))))
+            for name in new_ingredients:
+                var = self._var_by_name(name)
+                if '_absent_value' in var:
+                    messages.append(("info", wording.formulations_contain_baseline(
+                        name, join_unit(f"{float(var['_absent_value']):g}",
+                                        self._unit_of(var)))))
         if worked_out and self.recipe_history:
             # What was weighed is what was weighed: a formula arriving today
             # answers for the row from the next round on, and nothing it
