@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import copy
 import json
+import os
+import tempfile
 from dataclasses import asdict
 
 from egbo._limits import PropertyLimit, QuantityLimit
@@ -11,6 +13,10 @@ from egbo._space import Variable
 
 FORMAT = "egbo"
 FORMAT_VERSION = 1
+_KEYS = ("sobol_seed", "robust", "bo_config", "n_init", "variables",
+         "objectives", "quantity_limits", "property_limits", "properties",
+         "formulation_total", "next_formulation_no", "recipes", "results",
+         "scores", "formulation_ids", "open_rows", "retired")
 
 
 def to_dict(opt) -> dict:
@@ -41,9 +47,13 @@ def from_dict(cls, d: dict):
     if not isinstance(d, dict) or d.get("format") != FORMAT:
         raise ValueError("This is not an egbo file")
     version = d.get("format_version")
-    if not isinstance(version, int) or version > FORMAT_VERSION:
-        raise ValueError(f"This egbo file is version {version}; this egbo "
-                         f"reads up to version {FORMAT_VERSION}")
+    if (not isinstance(version, int) or isinstance(version, bool)
+            or version < 1 or version > FORMAT_VERSION):
+        raise ValueError(f"This egbo file is version {version!r}; this egbo "
+                         f"reads versions 1 to {FORMAT_VERSION}")
+    for key in _KEYS:
+        if key not in d:
+            raise ValueError(f"egbo file is missing '{key}'")
     opt = cls(seed=d["sobol_seed"], robust=d["robust"],
               bo_config=copy.deepcopy(d["bo_config"]), n_init=d["n_init"])
     opt.variables = [Variable(**v) for v in d["variables"]]
@@ -63,8 +73,19 @@ def from_dict(cls, d: dict):
 
 
 def save(opt, path) -> None:
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(to_dict(opt), fh, indent=2)
+    """Write beside the target, then replace it: a failed save leaves the
+    old file whole."""
+    path = os.fspath(path)
+    fd, temp = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(path)),
+                                prefix=".egbo-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(to_dict(opt), fh, indent=2)
+        os.replace(temp, path)
+    except BaseException:
+        if os.path.exists(temp):
+            os.remove(temp)
+        raise
 
 
 def load(cls, path):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import numbers
+import dataclasses
 import os
 
 import numpy as np
@@ -27,7 +28,7 @@ from egbo._limits import (
     total_band,
     total_reach,
 )
-from egbo._model import suggest, validate_bo_config
+from egbo._model import check_bo_config, suggest, validate_bo_config
 from egbo import _state
 from egbo._score import Objective, score
 from egbo._space import (
@@ -63,7 +64,12 @@ class Optimizer:
         self.sobol_seed = (int.from_bytes(os.urandom(4), "big") if seed is None
                            else int(seed))
         self.robust = bool(robust)
+        check_bo_config(bo_config)
         self.bo_config = validate_bo_config(bo_config)
+        if (isinstance(n_init, bool) or not isinstance(n_init, numbers.Real)
+                or n_init != int(n_init) or int(n_init) < 1):
+            raise ValueError(f"n_init must be a whole number of at least 1, "
+                             f"not {n_init!r}")
         self.n_init = int(n_init)
         self.variables: list[Variable] = []
         self.objectives: list[Objective] = []
@@ -147,11 +153,17 @@ class Optimizer:
         low, high = float(min_val), float(max_val)
         var = self._var(name)
         if var is not None:
+            self._check_total_stays_reachable(
+                [dataclasses.replace(v, low=low, high=high) if v is var else v
+                 for v in self.variables], name, low, high)
             self._check_fixed_feasible(name, low, high, "ingredient")
             var.low, var.high = low, high
         else:
             if self.recipes and not keep_lowest:
                 low = 0.0                  # absent from past recipes is 0
+            self._check_total_stays_reachable(
+                self.variables + [Variable(name, low, high, "ingredient")],
+                name, low, high)
             self._check_fixed_feasible(name, low, high, "ingredient")
             self.variables.append(Variable(name, low, high, "ingredient"))
         self._sync_formulation_total()
@@ -255,6 +267,9 @@ class Optimizer:
         return replaced
 
     def remove_objective(self, name) -> None:
+        """Drop a measurement; the remaining weights are rescaled to sum to 100."""
+        if not any(obj.name == name for obj in self.objectives):
+            raise ValueError(f"No measurement named '{name}'")
         self.objectives = [obj for obj in self.objectives if obj.name != name]
         # _shares_to_100 3200: what is left shares the whole 100.
         total = sum(float(obj.weight) for obj in self.objectives)
@@ -354,19 +369,28 @@ class Optimizer:
         self.formulation_total = None
         self.discard_pending()
 
+    def _check_total_stays_reachable(self, variables, name, low, high):
+        """Refuse, before anything changes, a range the formulation total
+        could no longer be reached with (the app would drop the total)."""
+        if self.formulation_total is None:
+            return
+        lowest, highest = total_reach(variables)
+        if not lowest <= self.formulation_total <= highest:
+            raise ValueError(
+                f"{name}: {_num(low)} to {_num(high)} makes the ingredients add "
+                f"up to {_num(lowest)} to {_num(highest)}, which cannot reach "
+                f"the formulation total {_num(self.formulation_total)}; call "
+                "clear_formulation_total() first")
+
     def _sync_formulation_total(self):
         """_sync_formulation_total 7294: the total's limit follows the
-        ingredient list; a total the ranges no longer reach is dropped."""
+        ingredient list (the range check has already passed)."""
         index = self._total_index()
         if index is not None:
             self.quantity_limits.pop(index)
         if self.formulation_total is None:
             return
         names = self._ingredient_names()
-        lowest, highest = total_reach(self.variables)
-        if not names or not lowest <= self.formulation_total <= highest:
-            self.formulation_total = None
-            return
         self._add_quantity_limit(names, *total_band(self.formulation_total), _TOTAL)
         self._keep_limit_position(index)
 
@@ -377,8 +401,11 @@ class Optimizer:
         for name, value in values.items():
             if name not in known:
                 raise ValueError(f"No ingredient named '{name}'")
-            if value is not None and not isinstance(value, numbers.Real):
-                raise ValueError(f"{name}: {metric} value {value!r} is not a number")
+            if value is not None and (not isinstance(value, numbers.Real)
+                                      or isinstance(value, bool)
+                                      or not math.isfinite(value)):
+                raise ValueError(f"{name}: {metric} value {value!r} is not a "
+                                 "finite number")
         wanted = str(metric).strip().lower()
         for name, value in values.items():
             props = self.properties.setdefault(name, {})
@@ -393,9 +420,9 @@ class Optimizer:
             raise ValueError(f"{metric}: min {_num(min_val)} must be below max "
                              f"{_num(max_val)}")
         wanted = str(metric).strip().lower()
+        kept = list(self.property_limits)
         self.property_limits = [pl for pl in self.property_limits
                                 if str(pl.metric).strip().lower() != wanted]
-        kept = list(self.property_limits)
         entry = PropertyLimit(metric,
                               None if min_val is None else float(min_val),
                               None if max_val is None else float(max_val))
@@ -519,9 +546,11 @@ class Optimizer:
         raise ValueError(NO_FORMULATION)
 
     def ask(self, n: int = 1) -> list[dict[str, float]]:
+        if (isinstance(n, bool) or not isinstance(n, numbers.Real)
+                or not math.isfinite(n) or n != int(n) or int(n) < 1):
+            raise ValueError(f"Ask for a whole number of formulations, at "
+                             f"least 1, not {n!r}")
         n = int(n)
-        if n < 1:
-            raise ValueError(f"Ask for at least 1 formulation, not {n}")
         for pl in self.property_limits:
             if pl.min_val is None and pl.max_val is None:
                 continue
@@ -594,7 +623,13 @@ class Optimizer:
                                  f"{value!r}")
             if math.isnan(value):
                 raise ValueError(f"Missing result for '{obj.name}'")
+            if not math.isfinite(value):
+                raise ValueError(f"Result for '{obj.name}' is not finite: "
+                                 f"{value!r}")
             values[obj.name] = float(value)
+        for v in self.variables:
+            if v.absent is None and v.name not in amounts:
+                raise ValueError(f"Missing value for '{v.name}'")
         vector = encode(self.variables, amounts)
         number = None
         for k, row in enumerate(self.open_rows):

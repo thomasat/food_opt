@@ -43,6 +43,24 @@ ACQ_TIE_RTOL = 1e-4
 ACQ_TIE_DECIMALS = 3
 
 
+def check_bo_config(spec):
+    """Refuse an unknown key or value (validate_bo_config would silently
+    replace it with the default)."""
+    if not spec:
+        return
+    if not isinstance(spec, dict):
+        raise ValueError(f"bo_config must be a dict, not {spec!r}")
+    allowed = {"kernel": _KERNELS, "lengthscale_prior": _LENGTHSCALE,
+               "noise": _NOISE, "acquisition": _ACQ}
+    for key, value in spec.items():
+        if key not in allowed:
+            raise ValueError(f"bo_config: unknown setting '{key}'; use "
+                             f"{', '.join(sorted(allowed))}")
+        if str(value).strip().lower() not in allowed[key]:
+            raise ValueError(f"bo_config: {key} {value!r} is not one of "
+                             f"{', '.join(sorted(allowed[key]))}")
+
+
 def validate_bo_config(spec):
     """Coerce a raw config dict to valid values. Returns None for an empty/None
     spec (None => library defaults, identical to the standard arm)."""
@@ -185,15 +203,17 @@ def suggest(train_X, train_Y, bounds, q, seed, *, robust=False, bo_config=None,
     """q suggestions in raw units, shape (q, d): the model half of
     _ask_optimize. bounds is (2, d) raw; the constraints and fixed features
     are over the normalised [0, 1] frame."""
-    torch.manual_seed(seed)
-    dim = train_X.shape[-1]
-    train_X_norm = normalize(train_X, bounds)
-    gp = build_gp(train_X_norm, train_Y, dim, robust, bo_config)
-    mll = ExactMarginalLogLikelihood(gp.likelihood, gp)
-    fit_gpytorch_mll(mll)
-    acq_func = build_acqf(gp, train_X_norm, train_Y, bo_config)
-    candidate_norm = optimize_reproducibly(
-        acq_func, q, dim,
-        [] if inequality_constraints is None else inequality_constraints,
-        fixed_features)
-    return unnormalize(candidate_norm, bounds).detach()
+    # The seeding is local: the caller's global torch RNG is left as it was.
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(seed)
+        dim = train_X.shape[-1]
+        train_X_norm = normalize(train_X, bounds)
+        gp = build_gp(train_X_norm, train_Y, dim, robust, bo_config)
+        mll = ExactMarginalLogLikelihood(gp.likelihood, gp)
+        fit_gpytorch_mll(mll)
+        acq_func = build_acqf(gp, train_X_norm, train_Y, bo_config)
+        candidate_norm = optimize_reproducibly(
+            acq_func, q, dim,
+            [] if inequality_constraints is None else inequality_constraints,
+            fixed_features)
+        return unnormalize(candidate_norm, bounds).detach()
