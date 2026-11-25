@@ -1099,20 +1099,35 @@ class TestActiveSet:
         assert opt_configured._get_fixed_features() == {1: 0.0}
         assert [v["name"] for v in opt_configured.fixed_variables()] == ["Flour"]
 
-    def test_a_fixed_column_is_pinned_inside_a_frame_that_has_a_width(
+    def test_a_fixed_column_is_pinned_inside_the_range_it_varied_over(
+            self, opt_configured):
+        """As in the web app: a row fixed after it varied keeps the range it
+        varied over as its frame, and is pinned inside it."""
+        opt_configured.add_ingredient("Flour", 12.5, 12.5)  # was (0, 50)
+        assert opt_configured._var_by_name("Flour")["search_range"] == [0.0, 50.0]
+        assert opt_configured._get_fixed_features() == {1: 0.25}
+        bounds = opt_configured._get_bounds()
+        assert bounds[0][1].item() == 0.0 and bounds[1][1].item() == 50.0
+
+    def test_a_never_varied_fixed_column_is_pinned_inside_a_frame_that_has_a_width(
             self, opt_configured):
         """A point has no frame of its own: normalizing by a zero span is a
         division by zero, and it is the history that goes through it."""
-        opt_configured.add_ingredient("Flour", 12.5, 12.5)  # was (0, 50)
-        assert opt_configured._get_fixed_features() == {1: 0.0}
+        opt_configured.add_ingredient("Salt", 12.5, 12.5)  # new, never varied
+        assert "search_range" not in opt_configured._var_by_name("Salt")
+        assert opt_configured._get_fixed_features() == {3: 0.0}
         bounds = opt_configured._get_bounds()
-        assert bounds[0][1].item() == 12.5 and bounds[1][1].item() == 13.5
+        assert bounds[0][3].item() == 12.5 and bounds[1][3].item() == 13.5
 
     def test_the_frame_stretches_to_cover_what_was_already_recorded(
             self, opt_configured):
+        """A row fixed by 0.9.0 or earlier carries no memory of its range:
+        its frame is still the span of what was recorded, so its suggestions
+        do not move."""
         opt_configured.tell({"Water": 50.0, "Flour": 40.0, "Sugar": 5.0},
                             {"Taste": 7.0})
         opt_configured.add_ingredient("Flour", 10, 10)
+        opt_configured._var_by_name("Flour").pop("search_range")
         bounds = opt_configured._get_bounds()
         assert bounds[0][1].item() == 10.0 and bounds[1][1].item() == 40.0
         # ...and the fixed value still lands on its own amount.
@@ -1205,7 +1220,7 @@ class TestActiveSet:
         clone = FoodOptimizer(project_name="clone_project")
         clone.import_json(state)
         assert [v["name"] for v in clone.fixed_variables()] == ["Flour"]
-        assert clone._get_fixed_features() == {1: 0.0}
+        assert clone._get_fixed_features() == {1: 0.25}
 
     def test_legacy_variables_default_to_varying(self, opt_configured):
         """Projects saved before pruning existed must load fully in play."""
@@ -8452,6 +8467,10 @@ def test_a_fixed_columns_frame_survives_a_history_that_barely_moved(
     for i in range(5):
         opt.tell({"Water": 40.0 + i, "Salt": 2.0 + i * 1e-13}, {"Taste": 5.0})
     opt.add_ingredient("Salt", 2.0, 2.0)
+    # The floor is for a row with no remembered range (fixed by 0.9.0 or
+    # earlier); one remembered is the range itself.
+    assert opt._search_bounds()[1] == (0.0, 10.0)
+    opt._var_by_name("Salt").pop("search_range")
     low, high = opt._search_bounds()[1]
     assert high - low == pytest.approx(1.0)
     assert all(row["Salt"] == pytest.approx(2.0)
