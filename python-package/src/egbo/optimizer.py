@@ -581,6 +581,21 @@ class Optimizer:
         spans = search_bounds(self.variables, self.recipes,
                               [self._model_row(i) for i in range(len(self.recipes))])
         bounds = bounds_tensor(spans)
+        try:
+            rows = self._generate(n, spans, bounds)
+        except ValueError as exc:
+            # The app shows why on its Limits screen; a script only has this.
+            reasons = list(self._limit_refusals().values())
+            if str(exc).startswith(NO_FORMULATION) and reasons:
+                raise ValueError(f"{exc}. {reasons[0]}") from exc
+            raise
+        for rec in rows:
+            self.open_rows.append({"formulation": int(self.next_formulation_no),
+                                   "recipe": dict(rec)})
+            self.next_formulation_no += 1
+        return [dict(rec) for rec in rows]
+
+    def _generate(self, n, spans, bounds):
         if len(self.recipes) < self.n_init:
             rows = self._ask_cold_start(n, spans, bounds)
         else:
@@ -592,12 +607,7 @@ class Optimizer:
                 raise ValueError(NO_FORMULATION) from exc
             if self.formulation_total is not None:
                 rows = [self._snap_to_total(rec) for rec in rows]
-        rows = [snap_settings(self.variables, rec) for rec in rows]
-        for rec in rows:
-            self.open_rows.append({"formulation": int(self.next_formulation_no),
-                                   "recipe": dict(rec)})
-            self.next_formulation_no += 1
-        return [dict(rec) for rec in rows]
+        return [snap_settings(self.variables, rec) for rec in rows]
 
     def pending(self) -> list[dict]:
         """The open (suggested, not yet recorded) formulations."""

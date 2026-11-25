@@ -200,3 +200,26 @@ def test_limits_leave_the_open_batch_alone():
     assert opt.pending() == before
     opt.add_constraint("Protein", min_val=1)
     assert opt.pending() == before
+
+
+def test_impossible_property_limit_says_why_at_cold_start():
+    opt = _two()
+    opt.set_property_values("Protein", {"Pea protein": 0.8, "Oil": 0})
+    opt.add_constraint("Protein", min_val=3)
+    with pytest.raises(ValueError) as err:
+        opt.ask(2)
+    assert str(err.value) == (
+        "No formulation meets all the limits. The limit on Protein cannot be "
+        "met: the amounts allowed only reach 0.8 per 100 g at most")
+
+
+def test_impossible_quantity_limit_says_why_after_the_first_rounds():
+    opt = _two()
+    for recipe in opt.ask(5):
+        opt.tell(recipe, _taste(recipe))
+    opt.add_quantity_constraint(["Pea protein", "Oil"], min_val=20)
+    with pytest.raises(ValueError) as err:
+        opt.ask(1)
+    message = str(err.value)
+    assert message.startswith("No formulation meets all the limits. ")
+    assert len(message) > len("No formulation meets all the limits. ")
