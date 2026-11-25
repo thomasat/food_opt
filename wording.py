@@ -3679,7 +3679,7 @@ def formula_below_zero(name, unit):
 
 
 def balance_would_go_negative(name, size_text, least_text, unit="",
-                              noun=None):
+                              noun=None, floor_text=None):
     """'A default batch size of 60 g leaves Water below 0 g. The other
     ingredients need at least 70 g.' — the = rest row is whatever is left
     of the batch size, and there is nothing left.
@@ -3688,10 +3688,39 @@ def balance_would_go_negative(name, size_text, least_text, unit="",
     one going without. And the noun is the box that asked — the Default
     batch size box on Set up, the Batch size box on Make a round — because
     wave 1 settled those as two names for two things."""
-    zero = f"0 {unit}".strip()
+    zero = f"0 {unit}".strip() if floor_text is None else floor_text
     return (f"{(noun or FORMULATION_TOTAL_NOUN).capitalize()} {size_text} "
             f"leaves {name} below {zero}; enter at least "
             f"{least_text}.")
+
+
+def at_most_text(amount_text):
+    return f"at most {amount_text}"
+
+
+def at_least_text(amount_text):
+    return f"at least {amount_text}"
+
+
+def fill_outside_its_range(name, range_text, reach_text):
+    """'Water must stay within 0.00 to 60.00 g; the other ingredients leave
+    it at least 70.00 g. Widen an amount, or change the default batch
+    size.' — the Fill to total row held to its own Lowest and Highest, and
+    no allowed amounts of the other rows put it there. `reach_text` is
+    at_most_text / at_least_text. PROPOSED (balance range unit): new
+    sentence, awaiting the owner's OK."""
+    return (f"{name} must stay within {range_text}; the other {INGREDIENT}s "
+            f"leave it {reach_text}. Widen an amount, or change "
+            f"{FORMULATION_TOTAL_LOWER}.")
+
+
+def no_formulation_with_fill_range(total_text, name, range_text):
+    """Generate found nothing at the default batch size with the Fill to
+    total row inside its own range. PROPOSED (balance range unit): new
+    sentence, awaiting the owner's OK."""
+    return (f"No {FORMULATION} adds up to {total_text} with {name} within "
+            f"{range_text}. Widen the amounts, or change "
+            f"{FORMULATION_TOTAL_LOWER}.")
 
 
 def formula_reads_this_row(name, row):

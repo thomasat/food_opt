@@ -9491,10 +9491,12 @@ class TestFormulaRows:
             **{wording.LOWEST_LABEL: 20.0, wording.HIGHEST_LABEL: 25.0}))
         assert opt.total_reach() == (20.0, float('inf'))
         assert opt.balance_row_name() == "Water"
+        # Water's own Lowest (30 g in the file) is enforced on the rest row,
+        # so the floor is the 20 g the others need plus those 30 g.
         with pytest.raises(ValueError) as caught:
             opt.set_formulation_total(15.0)
         assert str(caught.value) == wording.balance_would_go_negative(
-            "Water", "15 g", "20 g", unit="g")
+            "Water", "15 g", "50 g", unit="g", floor_text="30.00 g")
 
     def test_changing_the_default_says_what_the_rest_row_now_takes(
             self, tmp_path, monkeypatch):
@@ -9979,11 +9981,11 @@ class TestTheFormulaColumn:
             opt.ingredient_grid_frame(), 1, "= rest"))
         # The head names the number it fills to AND where that number is
         # set, so the line is read the same on a round made to another size.
+        # Its own 20–60 g is enforced on the Fill to total row, so the line
+        # reads inside it and says nothing about not applying.
         assert opt.worked_out_captions() == [
             "Water fills to the 100 g default "
-            "batch size: between 40.00 and 62.00 g. "
-            "Its own Lowest and Highest (20.00 to 60.00 g) do not apply "
-            "while the calculation does."]
+            "batch size: between 40.00 and 60.00 g."]
 
     def test_the_caption_never_offers_an_amount_below_nothing(
             self, tmp_path, monkeypatch):
