@@ -2583,14 +2583,22 @@ class FoodOptimizer:
         trouble = self._formula_reads_refusal(name)
         if trouble:
             return trouble
-        if force or var['type'] != 'continuous':
+        if force:
             return None
-        absent = float(var.get('_absent_value', 0.0))
+        # A categorical is one-hot columns, so what it took is the option
+        # chosen (a missing key reads its baseline if it has one, else None).
+        continuous = var['type'] == 'continuous'
+        absent = var.get('_absent_value', 0.0 if continuous else None)
         seen = []
         for r in self.recipe_history:
-            value = float(r.get(name, absent))
-            if not any(abs(value - s) <= self.REPEAT_TOLERANCE
-                       for s in seen):
+            value = r.get(name, absent)
+            if continuous:
+                value = float(value)
+                new = not any(abs(value - s) <= self.REPEAT_TOLERANCE
+                              for s in seen)
+            else:
+                new = value not in seen
+            if new:
                 seen.append(value)
         if len(seen) > 1:
             return wording.setting_took_several_values(name, len(seen))

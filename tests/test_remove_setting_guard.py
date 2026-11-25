@@ -73,3 +73,31 @@ def test_grid_delete_of_varied_setting_refused(opt):
 def test_sentence_is_short_and_in_vocabulary():
     text = wording.setting_took_several_values("T", 2)
     assert "2 values" in text and "Lowest = Highest" in text
+
+
+def _with_choice(tmp_path, monkeypatch, picks):
+    monkeypatch.chdir(tmp_path)
+    o = FoodOptimizer(project_name="guard3", robust=False)
+    o.add_ingredient("A", 0, 10)
+    o.add_objective("Taste", 1.0, goal="max")
+    o.variables.append({'name': "Pan", 'type': 'categorical',
+                        'options': ["steel", "iron"], 'category': 'process'})
+    for i, pick in enumerate(picks):
+        o.tell({"A": 1.0 + i, "Pan": pick}, {"Taste": 5.0 + i})
+    return o
+
+
+def test_varied_categorical_refused_then_forced(tmp_path, monkeypatch):
+    o = _with_choice(tmp_path, monkeypatch, ["steel", "iron"])
+    with pytest.raises(ValueError) as caught:
+        o.remove_process_parameter("Pan")
+    assert str(caught.value) == wording.setting_took_several_values("Pan", 2)
+    assert "Pan" in _names(o)
+    o.remove_process_parameter("Pan", force=True)
+    assert _names(o) == ["A"]
+
+
+def test_constant_categorical_removes_without_force(tmp_path, monkeypatch):
+    o = _with_choice(tmp_path, monkeypatch, ["steel", "steel"])
+    o.remove_process_parameter("Pan")
+    assert _names(o) == ["A"]
