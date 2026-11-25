@@ -4034,6 +4034,60 @@ class FoodOptimizer:
             return None
         return int(max(pool, key=lambda i: self.Y_history[i]))
 
+    def predicted_utilities(self):
+        """The model's (mean, sd) of the Overall score at every recorded
+        formulation, in history order, on the score scale; None when it
+        cannot be fitted: fewer than COLD_START_RUNS formulations with all
+        their results, or a fit that fails (stable 940a0ce, A7).
+
+        An observed score carries the panel's noise, so the highest one
+        may be a lucky session; the model's mean pools the evidence of
+        similar formulations. It trains on the rows _ask_optimize does,
+        and runs on a forked RNG: it never moves the global torch state,
+        and nothing in ask() reads it."""
+        waiting = set(self.waiting_rows())
+        keep = [i for i in range(len(self.X_history)) if i not in waiting]
+        if len(keep) < COLD_START_RUNS:
+            return None
+        try:
+            with torch.random.fork_rng():
+                torch.manual_seed(0)
+                bounds_tensor = self._get_bounds()
+                dim = bounds_tensor.shape[1]
+                train_X_norm = normalize(
+                    torch.tensor(self.model_X(keep), dtype=torch.double),
+                    bounds_tensor)
+                train_Y = torch.tensor([self.Y_history[i] for i in keep],
+                                       dtype=torch.double).unsqueeze(-1)
+                input_tf = (Warp(d=dim, indices=list(range(dim)))
+                            if self.robust else None)
+                gp = self._build_gp(train_X_norm, train_Y, dim, input_tf)
+                fit_gpytorch_mll(ExactMarginalLogLikelihood(gp.likelihood, gp))
+                X = normalize(
+                    torch.tensor(self.model_X(range(len(self.X_history))),
+                                 dtype=torch.double), bounds_tensor)
+                with torch.no_grad():
+                    post = gp.posterior(X)
+                mean = post.mean.squeeze(-1).tolist()
+                sd = post.variance.clamp_min(0).sqrt().squeeze(-1).tolist()
+            return [(float(m), float(d)) for m, d in zip(mean, sd)]
+        except Exception:  # never block the kitchen on a model fit
+            return None
+
+    def finalists(self, k=3):
+        """0-based positions of the k formulations the model predicts
+        highest, among those with all their results and not set aside.
+        Ties, and a project the model cannot be fitted on, fall back to the
+        observed score. best_index() is unchanged: it stays observed."""
+        pool = [i for i in range(len(self.Y_history))
+                if self.fully_measured(i) and not self.is_set_aside(i)]
+        pred = self.predicted_utilities()
+        if pred is None:
+            key = lambda i: (self.Y_history[i],)
+        else:
+            key = lambda i: (pred[i][0], self.Y_history[i])
+        return sorted(pool, key=key, reverse=True)[:k]
+
     def best_scored_without(self):
         """The measurements Best so far is scored without: [] unless no
         formulation has every measurement yet (see best_candidates)."""
