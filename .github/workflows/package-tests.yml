@@ -3,9 +3,9 @@ name: package-tests
 
 on:
   push:
-    paths: ["python-package/**", "food_bo.py", ".github/workflows/package-tests.yml"]
+    paths: ["python-package/**", "food_bo.py", "wording.py", "storage.py", "custom_records.py", "desktop/requirements.lock.txt", "desktop/requirements-windows.lock.txt", ".github/workflows/package-tests.yml"]
   pull_request:
-    paths: ["python-package/**", "food_bo.py", ".github/workflows/package-tests.yml"]
+    paths: ["python-package/**", "food_bo.py", "wording.py", "storage.py", "custom_records.py", "desktop/requirements.lock.txt", "desktop/requirements-windows.lock.txt", ".github/workflows/package-tests.yml"]
 
 permissions:
   contents: read

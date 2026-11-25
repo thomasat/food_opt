@@ -53,15 +53,38 @@ A runnable version is in `examples/quickstart.py`.
 ## The open batch
 
 - `ask()` holds its rows as the open batch until you `tell` them.
-- A second `ask()` discards the rows still open and returns a different batch.
+- A second `ask()` discards the rows still open and gives a new batch; once the
+  model is fitted, it can be close to the previous one.
 - Re-running a notebook cell that calls `ask()` therefore gives a new batch.
 - Round the amounts and `tell` the rounded recipe: it matches no open row, so it
   counts as your own formulation.
 
 ## Seeding
 
-`seed` sets the opening (first, Sobol) batch only. Later suggestions depend on
-the data, not on `seed`. With `seed=None` a random one is drawn and saved.
+`seed` sets the opening (first, Sobol) batch only. Later rounds are seeded by
+the formulation number, so two optimizers with the same data give the same warm
+suggestions whatever `seed` is. With `seed=None` a random one is drawn and saved.
+
+## Limits
+
+- Quantity limits (`add_quantity_constraint`, `add_total_mass_constraint`)
+  bound the summed amount of the ingredients you name.
+- `set_formulation_total` fixes the sum of all ingredients. It is enforced as a
+  band of +-0.5 %, and a suggestion is snapped to the exact total when it still
+  meets every limit. A range change that would make the total unreachable is
+  refused; call `clear_formulation_total()` first.
+- Property values (`set_property_values`) are per 100 g of the ingredient, and
+  `add_constraint` limits the mass-weighted average of that property.
+
+## Process settings
+
+`add_process_parameter(..., step=)` snaps suggestions to the step. A setting
+added after recipes exist needs a `baseline`, the value those recipes used.
+
+## Recording results
+
+`tell()` is permanent in v0.1.0; there is no undo. Re-running a notebook cell
+that calls `tell()` records the rows again under new numbers.
 
 ## Not included
 

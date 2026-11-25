@@ -58,6 +58,8 @@ def _num(value) -> str:
 
 
 class Optimizer:
+    """Expert-guided batch Bayesian optimizer: you choose the variables, `ask` suggests a batch, `tell` records a result."""
+
     def __init__(self, seed: int | None = None, *, robust: bool = False,
                  bo_config: dict | None = None, n_init: int = COLD_START_RUNS):
         # seed is the Sobol scramble only; warm rounds seed on the counter.
@@ -149,6 +151,7 @@ class Optimizer:
             raise ValueError(f"{newly[0]} (with {name} fixed at {_num(low)})")
 
     def add_ingredient(self, name, min_val, max_val, keep_lowest=False) -> None:
+        """Add an ingredient or change its range. Mid-run, a new ingredient's min resets to 0 (past recipes lacked it) unless `keep_lowest`. Drops the open batch."""
         name = self._check_new_variable(name, min_val, max_val, "ingredient")
         low, high = float(min_val), float(max_val)
         var = self._var(name)
@@ -171,6 +174,7 @@ class Optimizer:
 
     def add_process_parameter(self, name, min_val, max_val, baseline=None,
                               step=None) -> None:
+        """Add a process setting; once recipes exist it needs a `baseline` (the value past runs used). Results are snapped to `step`. Drops the open batch."""
         name = self._check_new_variable(name, min_val, max_val, "setting")
         low, high = float(min_val), float(max_val)
         step = None if step is None else float(step)
@@ -207,6 +211,7 @@ class Optimizer:
         self.discard_pending()
 
     def set_range(self, name, min_val, max_val) -> None:
+        """Change the range of an ingredient or setting. Drops the open batch."""
         var = self._var(name)
         if var is None:
             raise ValueError(f"No variable named '{name}'")
@@ -216,9 +221,11 @@ class Optimizer:
             self.add_process_parameter(name, min_val, max_val, step=var.step)
 
     def fix(self, name, value) -> None:
+        """Hold a variable at one value: it leaves the search, its history stays."""
         self.set_range(name, value, value)
 
     def active_variables(self) -> list[str]:
+        """Names of the variables still searched (not fixed)."""
         return active_names(self.variables)
 
     # ----------------------------------------------------------- objectives
@@ -228,6 +235,7 @@ class Optimizer:
 
     def add_objective(self, name, weight, goal="max", target=None,
                       min_val=None, max_val=None) -> bool:
+        """Add or replace a measurement. Weights are relative; the scale `min_val`..`max_val` defaults to 0..10. Not allowed once results exist, except to replace one."""
         name = str(name).strip()
         if not name:
             raise ValueError("A measurement needs a name")
@@ -312,6 +320,7 @@ class Optimizer:
 
     def add_quantity_constraint(self, ingredients, min_val=None,
                                 max_val=None) -> None:
+        """Limit the summed amount of some ingredients. Does not drop the open batch."""
         names = list(ingredients)
         if not names:
             raise ValueError("A quantity limit needs at least one ingredient")
@@ -322,6 +331,7 @@ class Optimizer:
         self._add_quantity_limit(names, min_val, max_val, None)
 
     def add_total_mass_constraint(self, min_val=None, max_val=None) -> None:
+        """Limit the summed amount of all ingredients."""
         self.add_quantity_constraint(self._ingredient_names(), min_val, max_val)
 
     def _total_index(self):
@@ -334,6 +344,7 @@ class Optimizer:
         self.quantity_limits.insert(index, self.quantity_limits.pop())
 
     def set_formulation_total(self, total) -> None:
+        """Fix the total of all ingredients. It is enforced as a +-0.5 % band, and suggestions are snapped to the exact total when that still meets every limit. Refused if the ranges or limits cannot reach it."""
         value = float(total)
         lowest, highest = total_reach(self.variables)
         if value > highest or value < lowest:
@@ -361,6 +372,7 @@ class Optimizer:
         self.discard_pending()
 
     def clear_formulation_total(self) -> None:
+        """Remove the formulation total."""
         index = self._total_index()
         if index is None and self.formulation_total is None:
             return
@@ -395,6 +407,7 @@ class Optimizer:
         self._keep_limit_position(index)
 
     def set_property_values(self, metric, values: dict[str, float]) -> None:
+        """Set an ingredient property, per 100 g of that ingredient (for example protein in g per 100 g). `None` clears a value."""
         if not str(metric).strip():
             raise ValueError("A property needs a name")
         known = set(self._ingredient_names())
@@ -415,6 +428,7 @@ class Optimizer:
                 props[metric] = float(value)
 
     def add_constraint(self, metric, min_val=None, max_val=None) -> None:
+        """Limit a property of the whole formulation: its mass-weighted average over the ingredients, using the per-100 g values. Replaces a limit on the same metric; a refused replacement keeps the old one."""
         if (min_val is not None and max_val is not None
                 and float(min_val) >= float(max_val)):
             raise ValueError(f"{metric}: min {_num(min_val)} must be below max "
@@ -546,6 +560,7 @@ class Optimizer:
         raise ValueError(NO_FORMULATION)
 
     def ask(self, n: int = 1) -> list[dict[str, float]]:
+        """Suggest `n` formulations and hold them as the open batch. A second `ask` discards the open rows still unrecorded. The first rounds (`n_init` recorded) are a Sobol design; later ones come from a fitted model. Does not change the global torch RNG."""
         if (isinstance(n, bool) or not isinstance(n, numbers.Real)
                 or not math.isfinite(n) or n != int(n) or int(n) < 1):
             raise ValueError(f"Ask for a whole number of formulations, at "
@@ -585,12 +600,12 @@ class Optimizer:
         return [dict(rec) for rec in rows]
 
     def pending(self) -> list[dict]:
+        """The open (suggested, not yet recorded) formulations."""
         return [{"formulation": row["formulation"], "recipe": dict(row["recipe"])}
                 for row in self.open_rows]
 
     def discard_pending(self) -> None:
-        """_retire_open_round 8299: open rows without a record are kept so
-        the cold start never hands them back."""
+        """Drop the open batch. Unrecorded rows are remembered so the opening design never suggests them again."""
         recorded = set(self.formulation_ids)
         for row in self.open_rows:
             if row["formulation"] not in recorded:
@@ -598,6 +613,7 @@ class Optimizer:
         self.open_rows = []
 
     def tell(self, recipe: dict, results: dict) -> int:
+        """Record a result. If the recipe equals an open row exactly (same amounts) that row is closed; otherwise it is recorded as your own formulation under a new number. Permanent in this version. Returns the formulation number."""
         if not self.objectives:
             raise ValueError("Add a measurement before recording results")
         names = {v.name for v in self.variables}
@@ -647,6 +663,7 @@ class Optimizer:
         return number
 
     def history(self) -> list[dict]:
+        """Every recorded formulation: number, recipe, results and score."""
         return [{"formulation": no, "recipe": dict(r), "results": dict(res),
                  "score": s}
                 for no, r, res, s in zip(self.formulation_ids, self.recipes,
@@ -655,15 +672,19 @@ class Optimizer:
     # ------------------------------------------------------------ save/load
 
     def to_dict(self) -> dict:
+        """The full state as plain JSON-ready data."""
         return _state.to_dict(self)
 
     @classmethod
     def from_dict(cls, d: dict) -> "Optimizer":
+        """Rebuild an Optimizer from `to_dict` output."""
         return _state.from_dict(cls, d)
 
     def save(self, path) -> None:
+        """Write the state to a JSON file (replaced atomically)."""
         _state.save(self, path)
 
     @classmethod
     def load(cls, path) -> "Optimizer":
+        """Read an Optimizer saved with `save`."""
         return _state.load(cls, path)
