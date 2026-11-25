@@ -2039,6 +2039,14 @@ def total_not_reachable_at_all(total_text, noun=FORMULATION_TOTAL_NOUN):
     return f"Enter a {noun} above 0."
 
 
+def no_formulation_meets_limits(total_text):
+    """'No formulation meets every limit at 100 g. Widen a limit or the
+    amounts.' — Generate found nothing at a default batch size the allowed
+    amounts do reach: the limits are what cannot be met."""
+    return (f"No {FORMULATION} meets every {LIMIT} at {total_text}. Widen a "
+            f"{LIMIT} or the amounts.")
+
+
 def no_formulation_reaches_total(total_text):
     """Generate found nothing that adds up to the default batch size. It is
     that size that is impossible, so the sentence names it and the two ways
@@ -2866,8 +2874,8 @@ FORMULA_IN_RANGE = "calculation"
 WORKED_OUT = "calculated"
 CALCULATED_RANGE = "Calculated"
 RULE_GUIDE_LABEL = "Calculation help"
-INGREDIENT_MIN_HELP = "Minimum amount the app may suggest. For a calculation-based ingredient, its calculation determines the amount."
-INGREDIENT_MAX_HELP = "Maximum amount the app may suggest for an ingredient without a calculation. Calculated amounts follow their calculation."
+INGREDIENT_MIN_HELP = "Minimum amount the app may suggest. Fill to total also keeps this minimum."
+INGREDIENT_MAX_HELP = "Maximum amount the app may suggest. Fill to total also keeps this maximum."
 MEASUREMENT_MIN_HELP = "Lower end of the measurement scale used to score and check results. This is not a target."
 MEASUREMENT_MAX_HELP = "Upper end of the measurement scale used to score and check results. Widen the scale if a genuine result falls outside it; scores will be recalculated."
 OLD_VARIABLE_BLEND_MODE = "ingredients varied separately"
@@ -3702,25 +3710,41 @@ def at_least_text(amount_text):
     return f"at least {amount_text}"
 
 
+def fill_range_text(low_text, high_text, unit=""):
+    """'20–40 g', 'at least 20 g', 'at most 40 g' — the Fill to total row's
+    own range. None for a side with no limit."""
+    if low_text is None:
+        return at_most_text(f"{high_text} {unit}".strip())
+    if high_text is None:
+        return at_least_text(f"{low_text} {unit}".strip())
+    return f"{low_text}–{high_text} {unit}".strip()
+
+
+def _fill_range_phrase(range_text):
+    """'within 20–40 g', or a one-sided range as it is ('at least 20 g')."""
+    if range_text.startswith(("at least ", "at most ")):
+        return range_text
+    return f"within {range_text}"
+
+
 def fill_outside_its_range(name, range_text, reach_text):
-    """'Water must stay within 0.00 to 60.00 g; the other ingredients leave
-    it at least 70.00 g. Widen an amount, or change the default batch
-    size.' — the Fill to total row held to its own Lowest and Highest, and
-    no allowed amounts of the other rows put it there. `reach_text` is
-    at_most_text / at_least_text. PROPOSED (balance range unit): new
-    sentence, awaiting the owner's OK."""
-    return (f"{name} must stay within {range_text}; the other {INGREDIENT}s "
-            f"leave it {reach_text}. Widen an amount, or change "
-            f"{FORMULATION_TOTAL_LOWER}.")
+    """'Water must stay within 20–40 g; the other ingredients leave it at
+    least 60 g. Widen an amount or change the batch size.' — the Fill to
+    total row held to its own Lowest and Highest, and no allowed amounts of
+    the other rows put it there. `range_text` is fill_range_text;
+    `reach_text` is at_most_text / at_least_text."""
+    return (f"{name} must stay {_fill_range_phrase(range_text)}; the other "
+            f"{INGREDIENT}s leave it {reach_text}. Widen an amount or change "
+            f"the {BATCH_SIZE_NOUN}.")
 
 
 def no_formulation_with_fill_range(total_text, name, range_text):
-    """Generate found nothing at the default batch size with the Fill to
-    total row inside its own range. PROPOSED (balance range unit): new
-    sentence, awaiting the owner's OK."""
-    return (f"No {FORMULATION} adds up to {total_text} with {name} within "
-            f"{range_text}. Widen the amounts, or change "
-            f"{FORMULATION_TOTAL_LOWER}.")
+    """'No formulation reaches 100 g with Water within 20–40 g. Widen the
+    amounts or change the batch size.' — Generate found nothing at the
+    default batch size with the Fill to total row inside its own range."""
+    return (f"No {FORMULATION} reaches {total_text} with {name} "
+            f"{_fill_range_phrase(range_text)}. Widen the amounts or change "
+            f"the {BATCH_SIZE_NOUN}.")
 
 
 def formula_reads_this_row(name, row):

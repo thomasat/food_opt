@@ -9496,7 +9496,7 @@ class TestFormulaRows:
         with pytest.raises(ValueError) as caught:
             opt.set_formulation_total(15.0)
         assert str(caught.value) == wording.balance_would_go_negative(
-            "Water", "15 g", "50 g", unit="g", floor_text="30.00 g")
+            "Water", "15 g", "50 g", unit="g", floor_text="30 g")
 
     def test_changing_the_default_says_what_the_rest_row_now_takes(
             self, tmp_path, monkeypatch):
@@ -9886,13 +9886,16 @@ class TestTheFormulaColumn:
         """One word doing one job twice on two cells side by side. Lowest
         is left blank and Highest carries the mark, so the pair reads as
         one fact about the row."""
+        # A calculation other than Fill to total: that row's own range is
+        # enforced and shown (tests/test_balance_range.py).
         opt = self._opt(tmp_path, monkeypatch)
         opt.apply_ingredient_grid(self._formula(
-            opt.ingredient_grid_frame(), 1, "= rest"))
+            opt.ingredient_grid_frame(), 1,
+            "= batch size − Pea protein − Salt"))
         frame = opt.ingredient_grid_frame()
         assert list(frame.columns)[-1] == wording.FORMULA_LABEL
         row = frame.loc[1]
-        assert row[wording.FORMULA_LABEL] == "= rest"
+        assert row[wording.FORMULA_LABEL] == "= batch size − Pea protein − Salt"
         assert row[wording.LOWEST_LABEL] == ""
         assert row[wording.HIGHEST_LABEL] == ""
         # Every other row carries the two-decimal text a number column used
@@ -9981,11 +9984,12 @@ class TestTheFormulaColumn:
             opt.ingredient_grid_frame(), 1, "= rest"))
         # The head names the number it fills to AND where that number is
         # set, so the line is read the same on a round made to another size.
-        # Its own 20–60 g is enforced on the Fill to total row, so the line
-        # reads inside it and says nothing about not applying.
+        # The Fill to total row's own range is what its two cells hold, and
+        # they were blank under the calculation it replaced: no limit, and
+        # nothing said about a range not applying.
         assert opt.worked_out_captions() == [
             "Water fills to the 100 g default "
-            "batch size: between 40.00 and 60.00 g."]
+            "batch size: between 40.00 and 62.00 g."]
 
     def test_the_caption_never_offers_an_amount_below_nothing(
             self, tmp_path, monkeypatch):
@@ -10580,8 +10584,9 @@ class TestTheFormulaColumnFixes:
             self, tmp_path, monkeypatch):
         """Ignored means ignored: the row's amount is its formula, so a
         word left in the cell beside it is not a number the reader owes."""
+        # A calculation other than Fill to total, whose cells ARE read.
         opt = self._opt(tmp_path, monkeypatch)
-        opt.set_formula("Water", "= rest")
+        opt.set_formula("Water", "= batch size − Pea protein − Salt")
         errors, _ = opt.apply_ingredient_grid(_edit(
             opt.ingredient_grid_frame(), 1,
             **{wording.LOWEST_LABEL: "about a cup",
@@ -10671,9 +10676,9 @@ class TestTheFormulaColumnFixes:
 
     def test_a_rest_rows_water_keeps_the_range_its_formula_covers(
             self, tmp_path, monkeypatch):
-        """A worked-out row may carry a dormant range: the grid shows the
-        word, and rubbing the formula out gives the row its amounts back
-        rather than a row pinned at nothing."""
+        """The Fill to total row shows the range it is held inside, and
+        rubbing the formula out gives the row its amounts back rather than a
+        row pinned at nothing."""
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer("sample_range", robust=False)
         opt.set_amount_unit("g")
@@ -10686,8 +10691,8 @@ class TestTheFormulaColumnFixes:
         assert water['bounds'] == (0.0, 100.0)
         frame = opt.ingredient_grid_frame()
         row = frame[frame[wording.NAME_LABEL] == "Remaining water"].iloc[0]
-        assert row[wording.LOWEST_LABEL] == ""
-        assert row[wording.HIGHEST_LABEL] == ""
+        assert row[wording.LOWEST_LABEL] == "0.00"
+        assert row[wording.HIGHEST_LABEL] == "100.00"
         at = int(frame.index[frame[wording.NAME_LABEL] == "Remaining water"][0])
         errors, _ = opt.apply_ingredient_grid(_edit(
             frame, at, **{wording.FORMULA_LABEL: ""}))
