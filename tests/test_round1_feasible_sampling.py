@@ -256,7 +256,7 @@ def test_ordinary_setups_never_reach_the_sampler(tmp_path, monkeypatch):
 
 
 # ------------------------------------------------------------------ #
-#  The 0.9.1 units together: the round-1 sampler with the Fill to total
+#  The 0.9.0 units together: the round-1 sampler with the Fill to total
 #  row's enforced range (algo-balance-range) and a row fixed after it
 #  varied (algo-fixed-scale).
 # ------------------------------------------------------------------ #

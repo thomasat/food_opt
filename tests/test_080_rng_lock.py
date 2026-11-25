@@ -5,7 +5,7 @@ around the one ask() call site (ui_batch.ask_alone), so a suggestion made in
 one tab is exactly the fixture's whatever another tab holding the lock is
 doing with the RNG. The fixture is tests/fixtures/ask_unchanged.json, never
 regenerated but for the owner-approved re-recordings its own docstring lists
-(0.9.0 suggestion stability; 0.9.1 web-app alignment, 2026-11-25);
+(0.9.0: suggestion stability, and alignment with the web app on 2026-11-25);
 bit-identical on the Mac; within 0.1% on Windows (tests.golden.same)."""
 import threading
 import time

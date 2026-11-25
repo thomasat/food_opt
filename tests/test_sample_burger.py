@@ -479,7 +479,7 @@ def _unitless_build():
         text = text.replace(f'"{new}"', f'"{old}"')
     state = json.loads(text)
     # ...and Remaining water's two cells still 0 and 100, as every build
-    # before 0.9.1 shipped them.
+    # before 0.9.0 shipped them.
     for var in state["variables"]:
         if var["name"] == "Remaining water":
             var["bounds"] = [0.0, 100.0]

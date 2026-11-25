@@ -5,7 +5,7 @@ batch size less every other ingredient, kept within a min and a max. In the
 desktop that row is written '= rest'; its range is what was typed into its
 own Lowest and Highest cells (or given it by an ingredient file), stored as
 `fill_limits`, a blank cell no limit on that side. A row with none typed —
-every file saved before 0.9.1 — has no range, only the floor of nothing
+every file saved before 0.9.0 — has no range, only the floor of nothing
 every calculated row has.
 """
 import random

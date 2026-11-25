@@ -921,7 +921,7 @@ def _normal_fill(low, high):
 def _file_fill_limits(name, row):
     """(Lowest, Highest) of the Fill to total row of an ingredient file,
     None for a blank cell. A cell holding a word ('n/a', the app's own word
-    for a calculated row) is read as blank too: before 0.9.1 the two cells
+    for a calculated row) is read as blank too: before 0.9.0 the two cells
     of this row were never read, and a file that loaded then still does."""
     out = []
     for column in ('Min', 'Max'):
@@ -9817,7 +9817,7 @@ class FoodOptimizer:
 
         `fill_limits` is what the grid or an ingredient file wrote, a blank
         cell as None. Without it there is no range: nothing is held that
-        the reader did not type, and a file saved before 0.9.1 behaves as
+        the reader did not type, and a file saved before 0.9.0 behaves as
         0.9.0 did. `bounds` is not read here: it is what rubbing the
         calculation out gives the row back, and what an older version
         reads."""
