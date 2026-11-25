@@ -364,8 +364,8 @@ uninstall a Food Optimizer it did not install.
 ## Opening an unsigned build
 
 0.9.0 ships unsigned; signing comes in a later release.
-Opening one shows SmartScreen's "Windows protected your PC" with
-"Unknown publisher": click More info, then Run anyway.
+Opening one shows SmartScreen's "Windows protected your PC": click More
+info, then Run anyway; it shows "Unknown publisher" until signing.
 
 ## Manual checklist (every release)
 
