@@ -1,6 +1,8 @@
 """Parity with the app: egbo.Optimizer and food_bo.FoodOptimizer, driven
 through the same seeded rounds, must suggest the same formulations."""
 
+import importlib
+import os
 import sys
 from pathlib import Path
 
@@ -11,7 +13,21 @@ from egbo import Optimizer
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
-food_bo = pytest.importorskip("food_bo")
+
+
+def load_app_module():
+    """food_bo, or a skip; a failure when EGBO_REQUIRE_PARITY=1 (CI)."""
+    if os.environ.get("EGBO_REQUIRE_PARITY") == "1":
+        try:
+            return importlib.import_module("food_bo")
+        except ImportError as exc:
+            raise RuntimeError(
+                f"EGBO_REQUIRE_PARITY=1 but food_bo cannot be imported: {exc}"
+            ) from exc
+    return pytest.importorskip("food_bo")
+
+
+food_bo = load_app_module()
 
 SEED = 12345
 PROTEIN = {"A": 20.0, "B": 2.0, "C": 0.0}
