@@ -93,7 +93,7 @@ def test_caption_gives_the_enforced_range(tmp_path, monkeypatch):
     app = _project(tmp_path, monkeypatch)
     assert app.worked_out_captions() == [
         "Water fills to the 1000 g default batch size: "
-        "between 450.00 and 700.00 g (its own Lowest and Highest)."]
+        "between 450.00 and 700.00 g."]
 
 
 def test_rest_range_out_of_reach_stays_dormant(tmp_path, monkeypatch):

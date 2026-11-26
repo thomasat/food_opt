@@ -762,17 +762,6 @@ GENERATE_FAILED = ("Could not make formulations. Ask for fewer, or widen a "
                    f"{LIMIT} in Set up.")
 
 
-def limits_leave_no_formulation(count):
-    """'No formulation meets all 3 limits at once. Widen one in Set up.' —
-    the model's search found the limits leave no room at all (BoTorch's
-    empty polytope). With fewer than two limits there is no "at once" to
-    name, and the general sentence says it."""
-    if count < 2:
-        return GENERATE_FAILED
-    return (f"No {FORMULATION} meets all {count} {LIMIT}s at once. Widen one "
-            "in Set up.")
-
-
 def repeat_of_formulation(no):
     return f"Repeat of {FORMULATION_CAP} {no}"
 
@@ -3814,8 +3803,7 @@ def one_balance_only(names_text, many=False):
 
 
 def worked_out_caption(name, formula_text, low_text, high_text, size_text,
-                       rest=False, outside_text="", clipped_text="",
-                       limited_text=""):
+                       rest=False, outside_text=""):
     """'Water is calculated as batch size − Pea protein − Salt: between
     40.00 and 62.00 g in a 100 g formulation.' — one line under the grid per
     row that is calculated rather than typed, so the calculation shows its
@@ -3838,12 +3826,6 @@ def worked_out_caption(name, formula_text, low_text, high_text, size_text,
     the amount, not the range — but a calculation that puts Salt at 16 g over a
     cap of 3 g was landing with nothing said at all. The rest row's own two
     hold, so its amounts arrive already clipped to them and this is blank.
-
-    `clipped_text` names which of the rest row's own two clip its amounts
-    ("its own Highest"), from rest_range_clips. `limited_text` is what the
-    limits leave a rest row whose own range they rule out ("300.00 to
-    400.00 g"): the range is dormant for them, not for the amounts, and the
-    line says so in the limits' own numbers.
     """
     text = str(formula_text).strip()
     if rest:
@@ -3857,24 +3839,10 @@ def worked_out_caption(name, formula_text, low_text, high_text, size_text,
             else f"{head}: between {low_text} and {high_text}")
     if size_text and not rest:
         span = f"{span} in a {size_text} {FORMULATION}"
-    if clipped_text:
-        span = f"{span} ({clipped_text})"
-    if outside_text and limited_text:
-        return (f"{span}. Its own {LOWEST_LABEL} and {HIGHEST_LABEL} "
-                f"({outside_text}) do not apply: the {LIMIT}s leave it "
-                f"{limited_text}.")
     if outside_text:
         return (f"{span}. Its own {LOWEST_LABEL} and {HIGHEST_LABEL} "
                 f"({outside_text}) do not apply while the calculation does.")
     return f"{span}."
-
-
-def rest_range_clips(low, high):
-    """'its own Lowest and Highest' — which of the rest row's own two the
-    amounts under the grid are clipped to, or "" when neither."""
-    ends = [label for label, clips in ((LOWEST_LABEL, low),
-                                       (HIGHEST_LABEL, high)) if clips]
-    return f"its own {' and '.join(ends)}" if ends else ""
 
 
 def rest_row_keeps_the_others(size_text):
