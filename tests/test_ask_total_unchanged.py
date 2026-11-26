@@ -22,6 +22,8 @@ locked dependency versions of desktop/requirements.lock.txt, by
 
     python -m tests.test_ask_total_unchanged
 
+re-recorded 2026-11-25 for stable ce28d02 (10 × 512), owner-approved.
+
 It is not regenerated otherwise: every later commit keeps it green — the
 suggestions and the rows handed to the model, bit-identical on the Mac;
 within 0.1% on Windows (tests.golden.same)."""

@@ -1199,14 +1199,14 @@ class TestActiveSet:
             opt.add_ingredient("a", 0, 0)
         assert opt._var_by_name("a")["bounds"] == (0.0, 10.0)
 
-    def test_a_narrowed_range_that_strands_a_limit_is_still_allowed(
+    def test_a_narrowed_range_that_strands_a_limit_is_refused(
             self, opt_configured):
-        """Only a save that FIXES a row is guarded. Narrowing one has always
-        been the user's own business, and the guard must not quietly become
-        a rule about every edit."""
+        """Narrowing a row is guarded too now (stable 940a0ce): let through,
+        the next Generate died on an empty search space."""
         opt_configured.add_quantity_constraint(["Water", "Flour"], min_val=120.0)
-        opt_configured.add_ingredient("Flour", 0, 1)
-        assert opt_configured._var_by_name("Flour")["bounds"] == (0.0, 1.0)
+        with pytest.raises(ValueError, match="^Changing Flour breaks the limit"):
+            opt_configured.add_ingredient("Flour", 0, 1)
+        assert opt_configured._var_by_name("Flour")["bounds"] == (0.0, 50.0)
 
     def test_a_fixed_row_survives_a_reload(self, opt_configured, monkeypatch):
         opt_configured.add_ingredient("Flour", 2.5, 2.5)
@@ -3571,8 +3571,9 @@ class TestTheIngredientsGrid:
 
     def test_a_limit_already_impossible_is_not_blamed_on_this_save(
             self, tmp_path, monkeypatch):
-        """A range narrowed before this edit can strand a limit, and always
-        could. Refusing the next save for it would leave no way back out."""
+        """A limit already out of reach before this edit (a file, an older
+        version) is not this save's doing. Refusing the next save for it
+        would leave no way back out."""
         opt = self._opt(tmp_path, monkeypatch)
         opt.add_quantity_constraint(["Water"], min_val=200)
         errors, _ = opt.apply_ingredient_grid(
@@ -8367,9 +8368,10 @@ class TestALimitOnlyFixedRowsFeed:
 
 
 class TestFeasibilityBlamesOnlyWhatThisSaveBroke:
-    """Fix round 1, finding 3. A limit stranded last week — by a narrowing,
-    which has always been allowed — is not this save's doing, and refusing
-    for it leaves the reader with no way to edit their way back out."""
+    """Fix round 1, finding 3. A limit stranded last week — by a file or an
+    older version, since a narrowing is refused now — is not this save's
+    doing, and refusing for it leaves the reader with no way to edit their
+    way back out."""
 
     def _opt(self, tmp_path, monkeypatch, name="blame"):
         monkeypatch.chdir(tmp_path)
@@ -8385,7 +8387,8 @@ class TestFeasibilityBlamesOnlyWhatThisSaveBroke:
             self, tmp_path, monkeypatch):
         opt = self._opt(tmp_path, monkeypatch)
         opt.add_quantity_constraint(["Pea protein"], min_val=50.0)
-        opt.add_ingredient("Pea protein", 0, 20)      # narrowing: allowed
+        # Stranded before this edit, through the state: the door refuses it.
+        opt._var_by_name("Pea protein")['bounds'] = (0.0, 20.0)
         assert opt._limit_refusals()                  # the limit is stranded
         opt.add_process_parameter("Cook temperature", 175, 175, unit="°C")
         assert opt._var_by_name("Cook temperature")['bounds'] == (175.0, 175.0)
@@ -8406,7 +8409,8 @@ class TestFeasibilityBlamesOnlyWhatThisSaveBroke:
         opt = self._opt(tmp_path, monkeypatch)
         opt.add_quantity_constraint(["Pea protein"], min_val=50.0)
         opt.add_quantity_constraint(["Salt"], max_val=10.0)
-        opt.add_ingredient("Pea protein", 0, 20)      # strands the first
+        # Strands the first, through the state: the door refuses it.
+        opt._var_by_name("Pea protein")['bounds'] = (0.0, 20.0)
         with pytest.raises(ValueError) as refused:
             opt.add_ingredient("Salt", 20.0, 20.0)
         assert "limit on Salt" in str(refused.value)

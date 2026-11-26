@@ -22,6 +22,9 @@ ALLOWED_CHANGES = {
     # alignment with the web app, owner-approved wording 2026-11-24).
     "INGREDIENT_MIN_HELP",
     "INGREDIENT_MAX_HELP",
+    # An ingredient added after results can take a Baseline too, the amount
+    # every earlier formulation used (stable e2752b7 port, 2026-11-25).
+    "BASELINE_HELP",
 }
 
 

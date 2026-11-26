@@ -5,7 +5,7 @@ formulations scored without a measurement added later, one imported
 without a value, and one still waiting for results.
 
 tests/fixtures/ask_unchanged.json was written on insights-080 @ ce205c9
-(before any review fix), and re-recorded once, with the owner's approval,
+(before any review fix), and re-recorded, with the owner's approval,
 for 0.9.0's suggestion-stability change (windows-port-p1, on 834dc1b;
 tests/test_suggestion_stability.py), and re-recorded a second time, with the
 owner's approval, for 0.9.0's alignment with the web app's algorithm
@@ -16,6 +16,8 @@ range; a fixed row scaled on the range it varied over) — of those, only the
 dependency versions of desktop/requirements.lock.txt, by
 
     python -m tests.test_ask_unchanged
+
+re-recorded 2026-11-25 for stable ce28d02 (10 × 512), owner-approved.
 
 It is not regenerated otherwise. Every later commit keeps it green:
 the same suggestions and the same rows handed to the model — bit-identical
