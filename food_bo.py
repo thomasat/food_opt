@@ -8490,8 +8490,9 @@ class FoodOptimizer:
         if len(results) + len(repeats) >= n_suggestions:
             return results + self._fill_from_repeats(
                 repeats, chosen, n_suggestions - len(results))
-        # The limits are too thin for any pool to land in often enough (A + B
-        # between 30 and 30.001): sample inside them instead (stable
+        # The limits are too thin for any pool to land in often enough (a
+        # limit whose two ends sit a hair apart leaves a slab the pool all
+        # but misses): sample inside them instead (stable
         # e2752b7). Only here, where the Round would otherwise come back
         # short or be refused, so a Round the pool fills is untouched.
         results = results + self._sample_feasible(

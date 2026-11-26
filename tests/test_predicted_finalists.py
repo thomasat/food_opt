@@ -28,24 +28,29 @@ def _project(rows):
     return opt
 
 
-# One lone formulation far from the rest scores 90 (the highest observed);
-# three at one point score about 87; the low ones disagree with each other,
-# so the model learns the panel is noisy and pulls the lone score back.
+# One lone formulation far from the rest scores 90, the one highest observed
+# score; six at one point score 87 to 89; the low ones disagree with each
+# other, so the model learns the panel is noisy and pulls the lone score
+# back below the six it has corroborated (by about 3 points of the score).
+CLUSTER = range(1, 7)
 LUCKY = (
     [(7.8, 5.8, 9.0)]
-    + [(5.0, 3.0, v) for v in (8.6, 8.7, 8.8)]
-    + [(4.2, 2.2, v) for v in (0.0, 9.0, 1.0, 8.0)]
+    + [(5.0, 3.0, v) for v in (8.7, 8.8, 8.9, 8.8, 8.7, 8.8)]
+    + [(4.2, 2.2, v) for v in (0.0, 8.9, 1.0, 8.0)]
     + [(6.6, 4.4, v) for v in (0.5, 8.5)]
 )
 
 
 def test_finalists_prefer_consistent_over_lucky():
     opt = _project(LUCKY)
+    # The lone row is the best observed by a clear point, not by a tie.
     assert opt.best_index() == 0
+    assert opt.Y_history[0] - max(opt.Y_history[1:]) >= 1.0 - 1e-9
     top = opt.finalists(3)
     assert top[0] != 0
-    assert top[0] in (1, 2, 3)
-    assert 0 in opt.finalists(10)
+    assert top[0] in CLUSTER
+    pred = opt.predicted_utilities()
+    assert pred[top[0]][0] - pred[0][0] >= 2.0
 
 
 def test_too_few_rows_gives_none():
@@ -83,6 +88,7 @@ def test_waiting_rows_excluded():
         opt.tell({"Pea": pea, "Oil": oil}, done,
                  formulation_no=k + 1, batch_no=1)
     assert opt.waiting_rows() == [1]
-    assert 1 not in opt.finalists(10)
-    assert len(opt.finalists(10)) == 9
-    assert len(opt.predicted_utilities()) == 10
+    every = opt.finalists(len(LUCKY))
+    assert 1 not in every
+    assert len(every) == len(LUCKY) - 1
+    assert len(opt.predicted_utilities()) == len(LUCKY)
