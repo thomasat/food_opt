@@ -107,3 +107,33 @@ def test_sampler_returns_nothing_when_it_fails(monkeypatch):
 
     monkeypatch.setattr(opt, "_get_botorch_constraints", _broken)
     assert opt._sample_feasible(3, bounds, bounds.shape[1]) == []
+
+
+def _unreachable_protein(name="unreachable"):
+    """Protein at least 3 per 100 g, from ingredients that reach 0.8 at most.
+    The only point the limit's linear form lets through is the empty
+    formulation: 0 × (0.8 − 3) + 0 × (0 − 3) ≥ 0."""
+    opt = FoodOptimizer(name, storage=LocalStorage())
+    opt.add_ingredient("Pea protein", 0, 5)
+    opt.add_ingredient("Oil", 0, 5)
+    opt.add_objective("Taste", 1.0)
+    opt.add_property("Protein")
+    opt.set_property_value("Pea protein", "Protein", 0.8)
+    opt.set_property_value("Oil", "Protein", 0)
+    opt.add_constraint("Protein", min_val=3)
+    return opt
+
+
+def test_an_unreachable_property_limit_is_refused_not_met_by_nothing():
+    opt = _unreachable_protein()
+    with pytest.raises(ValueError):
+        opt.ask(2)
+
+
+def test_an_empty_formulation_does_not_meet_a_property_limit():
+    opt = _unreachable_protein("empty")
+    assert not opt._check_constraints({"Pea protein": 0.0, "Oil": 0.0})
+    assert opt._check_constraints({"Pea protein": 5.0, "Oil": 0.0}) is False
+    opt.constraints[0]['min'] = 0.5
+    assert opt._check_constraints({"Pea protein": 5.0, "Oil": 0.0})
+    assert not opt._check_constraints({"Pea protein": 0.0, "Oil": 0.0})
