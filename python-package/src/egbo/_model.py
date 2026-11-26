@@ -175,8 +175,9 @@ def optimize_reproducibly(acq_func, q, dim, inequality_constraints, fixed_featur
     options = dict(
         bounds=torch.stack([torch.zeros(dim), torch.ones(dim)]).double(),
         q=1,
-        num_restarts=20,
-        raw_samples=1024,
+        # The NeurIPS paper's EGBO effort, as in food_bo.py.
+        num_restarts=10,
+        raw_samples=512,
         return_best_only=False,
         inequality_constraints=inequality_constraints,
         fixed_features=fixed_features or None,
