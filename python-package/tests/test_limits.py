@@ -43,6 +43,20 @@ def test_widened_frame_writes_limits_over_it_and_keeps_own_range():
     assert coeffs.tolist() == [6.0] and rhs == 8 - 4
 
 
+def test_empty_formulation_fails_a_property_limit_only():
+    """No ingredients is no amount per 100 g: it meets no property limit
+    (min or max), though the linear form reads it as 0 >= 0."""
+    v = two(0, 100)
+    props = {"A": {"protein": 80.0}, "B": {"protein": 0.0}}
+    empty = {"A": 0.0, "B": 0.0}
+    for pl in (PropertyLimit("Protein", min_val=5),
+               PropertyLimit("Protein", max_val=50)):
+        assert not check(v, [], [pl], props, empty)
+    assert check(v, [], [PropertyLimit("Protein")], props, empty)
+    assert check(v, [], [], props, empty)
+    assert check(v, [QuantityLimit(["A", "B"], max_val=10)], [], props, empty)
+
+
 def test_property_limit_per_100g():
     v = two(0, 100)
     props = {"A": {"protein": 80.0}, "B": {"protein": 0.0}}

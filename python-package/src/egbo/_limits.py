@@ -269,14 +269,19 @@ def linear_constraints(variables, quantity_limits, property_limits, properties,
 
 
 def check(variables, quantity_limits, property_limits, properties, recipe) -> bool:
+    # The tolerance rides on the amounts as given, as the app's does.
+    scale = 1.0 + sum(abs(float(a or 0.0)) for a in recipe.values())
+    # No ingredients is no amount per 100 g, so it meets no property limit;
+    # the linear form would read it as 0 >= 0 and let it through.
+    empty = ingredient_total(variables, recipe) <= 1e-9 * scale
     # A recipe made before an ingredient was added holds its baseline.
     recipe = {**{v.name: v.absent for v in variables
                  if v.kind == "ingredient" and v.name not in recipe
                  and v.absent}, **recipe}
-    scale = 1.0 + sum(abs(float(a or 0.0)) for a in recipe.values())
     for pl in property_limits:
-        if ((pl.min_val is not None or pl.max_val is not None)
-                and missing_property_values(variables, properties, pl.metric)):
+        if pl.min_val is None and pl.max_val is None:
+            continue
+        if empty or missing_property_values(variables, properties, pl.metric):
             return False
         coeff_of = None
         for bound, sign in ((pl.min_val, -1), (pl.max_val, 1)):

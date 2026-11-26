@@ -213,8 +213,8 @@ def test_parity_thin_limit_fills_the_opening_round(pair, low, total):
 
 def test_parity_unreachable_property_limit_opening_round(pair):
     """Protein >= 25 when no ingredient has more than 20: the pool finds
-    nothing, and both samplers land on the same point(s) (today the
-    all-zero formulation, which meets the limit only vacuously)."""
+    nothing, and the empty formulation, which the linear form reads as
+    meeting it, is not a formulation. Both refuse the Round."""
     app, opt = build(pair)
     app.add_property("Protein")
     for name, value in PROTEIN.items():
@@ -222,7 +222,13 @@ def test_parity_unreachable_property_limit_opening_round(pair):
     opt.set_property_values("Protein", PROTEIN)
     for o in (app, opt):
         o.add_constraint("Protein", min_val=25)
-    ask_both(app, opt, 2)
+    app.set_pending_batch(None)
+    with pytest.raises(ValueError):
+        app.ask(2)
+    with pytest.raises(ValueError, match="No formulation meets all the "
+                                         "limits. The limit on Protein"):
+        opt.ask(2)
+    assert opt.pending() == []
 
 
 @pytest.mark.parametrize("total", [False, True])
