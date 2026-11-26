@@ -10,7 +10,9 @@ import os
 import numpy as np
 import torch
 from botorch.exceptions.errors import BotorchError
-from botorch.utils.transforms import unnormalize
+from botorch.fit import fit_gpytorch_mll
+from botorch.utils.transforms import normalize, unnormalize
+from gpytorch.mlls import ExactMarginalLogLikelihood
 
 from egbo._limits import (
     PropertyLimit,
@@ -29,7 +31,12 @@ from egbo._limits import (
     total_reach,
     widened,
 )
-from egbo._model import check_bo_config, suggest, validate_bo_config
+from egbo._model import (
+    build_gp,
+    check_bo_config,
+    suggest,
+    validate_bo_config,
+)
 from egbo import _state
 from egbo._score import Objective, score
 from egbo._space import (
@@ -753,6 +760,44 @@ class Optimizer:
                  "score": s}
                 for no, r, res, s in zip(self.formulation_ids, self.recipes,
                                          self.results, self.scores)]
+
+    # ------------------------------------------------------- model readings
+
+    def predicted_utilities(self) -> list[tuple[float, float]] | None:
+        """The model's (mean, sd) of the score at every recorded formulation, in history order; None below 5 recorded or when the fit fails. An observed score carries the panel's noise; the mean pools similar formulations. Does not change the global torch RNG."""
+        if len(self.recipes) < COLD_START_RUNS:
+            return None
+        try:
+            with torch.random.fork_rng(devices=[]):
+                torch.manual_seed(0)
+                rows = [self._model_row(i) for i in range(len(self.recipes))]
+                spans = search_bounds(self.variables, self.recipes, rows)
+                bounds = bounds_tensor(spans)
+                dim = bounds.shape[1]
+                train_X = normalize(torch.tensor(rows, dtype=torch.double),
+                                    bounds)
+                train_Y = torch.tensor(self.scores,
+                                       dtype=torch.double).unsqueeze(-1)
+                gp = build_gp(train_X, train_Y, dim, self.robust,
+                              self.bo_config)
+                fit_gpytorch_mll(ExactMarginalLogLikelihood(gp.likelihood, gp))
+                with torch.no_grad():
+                    post = gp.posterior(train_X)
+                mean = post.mean.squeeze(-1).tolist()
+                sd = post.variance.clamp_min(0).sqrt().squeeze(-1).tolist()
+            return [(float(m), float(d)) for m, d in zip(mean, sd)]
+        except Exception:
+            return None
+
+    def finalists(self, k: int = 3) -> list[int]:
+        """Positions in `history()` of the `k` formulations the model predicts highest (ties, and fewer than 5 recorded, fall back to the observed score)."""
+        pool = list(range(len(self.scores)))
+        pred = self.predicted_utilities()
+        if pred is None:
+            key = lambda i: (self.scores[i],)
+        else:
+            key = lambda i: (pred[i][0], self.scores[i])
+        return sorted(pool, key=key, reverse=True)[:k]
 
     # ------------------------------------------------------------ save/load
 

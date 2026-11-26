@@ -54,6 +54,7 @@ batch = opt.ask(3)
 | `add_constraint(metric, min_val=, max_val=)` | Limit a property of the formulation |
 | `ask(n)` / `tell(recipe, results)` | Get a batch / record one result |
 | `history()` / `pending()` | Recorded rows / suggestions not yet recorded |
+| `finalists(k=3)` | The k recorded rows the model predicts best |
 | `save(path)` / `Optimizer.load(path)` | Keep the project in a JSON file |
 
 ## Good to know

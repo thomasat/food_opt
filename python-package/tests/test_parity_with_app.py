@@ -234,3 +234,53 @@ def test_parity_ingredient_baseline(pair, total):
     for o in (app, opt):
         o.add_ingredient("Sorbate", 0.5, 1.2, baseline=0.8)
     ask_both(app, opt, 3)
+
+
+def assert_same_predictions(app, opt):
+    app_pred, pkg_pred = app.predicted_utilities(), opt.predicted_utilities()
+    if app_pred is None:
+        assert pkg_pred is None
+    else:
+        assert len(pkg_pred) == len(app_pred)
+        for (am, asd), (pm, psd) in zip(app_pred, pkg_pred):
+            assert pm == pytest.approx(am, abs=1e-8)
+            assert psd == pytest.approx(asd, abs=1e-8)
+    for k in (1, 3, 10):
+        assert opt.finalists(k) == app.finalists(k)
+
+
+def test_parity_predicted_utilities_and_finalists(pair):
+    app, opt = build(pair)
+    round_both(app, opt, 3)
+    assert_same_predictions(app, opt)          # 3 rows: no model, observed
+    round_both(app, opt, 3)
+    assert_same_predictions(app, opt)
+    round_both(app, opt, 2)
+    assert_same_predictions(app, opt)
+
+
+# One lone formulation scores highest; six at one point score a little
+# less and agree, so the model ranks one of the six first.
+LUCKY = ([(55.0, 45.0, 9.0)]
+         + [(30.0, 20.0, v) for v in (8.7, 8.8, 8.9, 8.8, 8.7, 8.8)]
+         + [(10.0, 5.0, v) for v in (0.0, 8.9, 1.0, 8.0)])
+
+
+@pytest.mark.parametrize("robust, bo_config", [
+    (False, None), (True, None), (False, {"kernel": "rbf", "noise": "low"})])
+def test_parity_finalists_prefer_corroborated(tmp_path, monkeypatch, robust,
+                                              bo_config):
+    monkeypatch.chdir(tmp_path)
+    app = food_bo.FoodOptimizer("parity_finalists", robust=robust)
+    app.set_bo_config(bo_config)
+    opt = Optimizer(seed=SEED, robust=robust, bo_config=bo_config)
+    for o in (app, opt):
+        o.add_ingredient("A", 0, 60)
+        o.add_ingredient("B", 0, 50)
+        o.add_objective("Taste", 1)
+    for a, b, taste in LUCKY:
+        app.tell({"A": a, "B": b}, {"Taste": taste})
+        opt.tell({"A": a, "B": b}, {"Taste": taste})
+    assert_same_predictions(app, opt)
+    if not robust and bo_config is None:
+        assert opt.finalists(1)[0] in range(1, 7)

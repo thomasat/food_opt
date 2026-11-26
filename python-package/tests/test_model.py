@@ -48,3 +48,32 @@ def test_suggest_respects_fixed_and_constraints():
 def test_validate_bo_config_falls_back():
     assert validate_bo_config({"kernel": "nonsense"})["kernel"] == "matern52"
     assert validate_bo_config(None) is None
+
+
+def _scored(rows, **kwargs):
+    from egbo import Optimizer
+    opt = Optimizer(seed=0, **kwargs)
+    opt.add_ingredient("A", 0, 10)
+    opt.add_ingredient("B", 0, 10)
+    opt.add_objective("Taste", 1)
+    for a, b, taste in rows:
+        opt.tell({"A": a, "B": b}, {"Taste": taste})
+    return opt
+
+
+def test_predicted_utilities_none_below_five_rows():
+    opt = _scored([(1, 1, 2.0), (5, 5, 7.0), (9, 9, 5.0), (2, 8, 4.0)])
+    assert opt.predicted_utilities() is None
+    assert opt.finalists(3) == [1, 2, 3]       # observed order
+
+
+def test_predicted_utilities_mean_and_sd_and_rng_untouched():
+    rows = [(1, 1, 2.0), (5, 5, 7.0), (9, 9, 5.0), (2, 8, 4.0), (8, 2, 6.0),
+            (5, 6, 7.5)]
+    opt = _scored(rows)
+    before = torch.random.get_rng_state().clone()
+    pred = opt.predicted_utilities()
+    assert torch.equal(torch.random.get_rng_state(), before)
+    assert len(pred) == 6 and all(sd >= 0 for _, sd in pred)
+    assert sorted(opt.finalists(10)) == list(range(6))
+    assert len(opt.finalists()) == 3
