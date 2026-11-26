@@ -223,3 +223,14 @@ def test_parity_unreachable_property_limit_opening_round(pair):
     for o in (app, opt):
         o.add_constraint("Protein", min_val=25)
     ask_both(app, opt, 2)
+
+
+@pytest.mark.parametrize("total", [False, True])
+def test_parity_ingredient_baseline(pair, total):
+    """Sorbate held at 0.8 in every formulation made, then searched at
+    0.5..1.2: the past rows are read at 0.8 in both."""
+    app, opt = build(pair, total=total)
+    round_both(app, opt, 5)
+    for o in (app, opt):
+        o.add_ingredient("Sorbate", 0.5, 1.2, baseline=0.8)
+    ask_both(app, opt, 3)

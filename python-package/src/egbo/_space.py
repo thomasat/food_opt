@@ -90,6 +90,11 @@ def snap_settings(variables: list[Variable], recipe: dict) -> dict:
     return out
 
 
+def amount(var: Variable, recipe: dict) -> float:
+    """`var` in `recipe`; a recipe made before it existed holds its absent
+    value (an ingredient's baseline, or 0)."""
+    return float(recipe.get(var.name, 0.0 if var.absent is None else var.absent))
+
+
 def ingredient_total(variables: list[Variable], recipe: dict) -> float:
-    return sum(float(recipe.get(v.name, 0.0)) for v in variables
-               if v.kind == "ingredient")
+    return sum(amount(v, recipe) for v in variables if v.kind == "ingredient")

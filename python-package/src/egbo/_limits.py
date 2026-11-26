@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 import torch
 
-from egbo._space import Variable, ingredient_total
+from egbo._space import Variable, amount, ingredient_total
 
 FORMULATION_TOTAL_TOLERANCE = 0.005
 MODEL_TOTAL_MARGIN = 0.01
@@ -267,6 +267,10 @@ def linear_constraints(variables, quantity_limits, property_limits, properties,
 
 
 def check(variables, quantity_limits, property_limits, properties, recipe) -> bool:
+    # A recipe made before an ingredient was added holds its baseline.
+    recipe = {**{v.name: v.absent for v in variables
+                 if v.kind == "ingredient" and v.name not in recipe
+                 and v.absent}, **recipe}
     scale = 1.0 + sum(abs(float(a or 0.0)) for a in recipe.values())
     for pl in property_limits:
         if ((pl.min_val is not None or pl.max_val is not None)
@@ -331,7 +335,7 @@ def project_onto_total(variables, recipe, total) -> dict | None:
         if var.fixed:
             continue
         low, high = float(var.low), float(var.high)
-        value = _amount(recipe.get(var.name))
+        value = _amount(recipe.get(var.name, var.absent))
         names.append(var.name)
         lows.append(low)
         caps.append(max(0.0, high - low))
@@ -383,8 +387,10 @@ def at_total(variables, recipe, total) -> dict:
     factor = float(total) / own
     out = dict(recipe)
     for var in variables:
-        value = float(recipe.get(var.name, 0.0))
-        out[var.name] = value * factor if var.kind == "ingredient" else value
+        if var.kind == "ingredient":
+            out[var.name] = amount(var, recipe) * factor
+        else:
+            out[var.name] = float(recipe.get(var.name, 0.0))
     return out
 
 

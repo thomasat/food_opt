@@ -153,25 +153,50 @@ class Optimizer:
         if newly:
             raise ValueError(f"{newly[0]} (with {name} fixed at {_num(low)})")
 
-    def add_ingredient(self, name, min_val, max_val, keep_lowest=False) -> None:
-        """Add an ingredient or change its range. Mid-run, a new ingredient's min resets to 0 (past recipes lacked it) unless `keep_lowest`. Drops the open batch."""
+    def add_ingredient(self, name, min_val, max_val, keep_lowest=False,
+                       baseline=None) -> None:
+        """Add an ingredient or change its range. Mid-run, a new ingredient's min resets to 0 (past recipes lacked it) unless `keep_lowest`, or unless `baseline` gives the amount every recorded formulation already used (within min..max; 0 is none). Drops the open batch."""
         name = self._check_new_variable(name, min_val, max_val, "ingredient")
         low, high = float(min_val), float(max_val)
+        # A baseline of 0 is none: the past formulations had none of it.
+        cleared = baseline is not None and float(baseline) == 0.0
+        baseline = None if baseline is None or cleared else float(baseline)
         var = self._var(name)
         if var is not None:
+            stored = float(var.absent) or None
+            if baseline is not None and stored is None:
+                raise ValueError(
+                    f"{name}: no baseline to set; it was in every recorded "
+                    "formulation at its own amounts")
+            moved = baseline is not None and baseline != stored
+            if moved and not low <= baseline <= high:
+                raise ValueError(f"{name}: baseline {_num(baseline)} is "
+                                 f"outside {_num(low)} to {_num(high)}")
+            absent = (baseline if moved else 0.0 if cleared
+                      else float(var.absent))
             self._check_total_stays_reachable(
-                [dataclasses.replace(v, low=low, high=high) if v is var else v
-                 for v in self.variables], name, low, high)
+                [dataclasses.replace(v, low=low, high=high, absent=absent)
+                 if v is var else v for v in self.variables], name, low, high)
             self._check_fixed_feasible(name, low, high, "ingredient")
-            var.low, var.high = low, high
+            var.low, var.high, var.absent = low, high, absent
         else:
-            if self.recipes and not keep_lowest:
+            if baseline is not None:
+                if not self.recipes:
+                    raise ValueError(
+                        f"{name}: baseline {_num(baseline)} is the amount "
+                        "recorded formulations used, and 0 formulations are "
+                        "recorded")
+                if not low <= baseline <= high:
+                    raise ValueError(f"{name}: baseline {_num(baseline)} is "
+                                     f"outside {_num(low)} to {_num(high)}")
+            elif self.recipes and not keep_lowest:
                 low = 0.0                  # absent from past recipes is 0
-            self._check_total_stays_reachable(
-                self.variables + [Variable(name, low, high, "ingredient")],
-                name, low, high)
+            new = Variable(name, low, high, "ingredient",
+                           absent=0.0 if baseline is None else baseline)
+            self._check_total_stays_reachable(self.variables + [new],
+                                              name, low, high)
             self._check_fixed_feasible(name, low, high, "ingredient")
-            self.variables.append(Variable(name, low, high, "ingredient"))
+            self.variables.append(new)
         self._sync_formulation_total()
         self.discard_pending()
 
