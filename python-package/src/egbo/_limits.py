@@ -188,7 +188,7 @@ def _property_limit_refusal(variables, properties, pl):
     return None
 
 
-def _quantity_limit_refusal(variables, ql):
+def _quantity_limit_refusal(variables, ql, pinned="fixed amounts"):
     names = set(ql.ingredients)
     lo, hi = _form_reach(variables, {n: 1.0 for n in names})
     broken = ((ql.min_val is not None and hi < ql.min_val)
@@ -201,7 +201,7 @@ def _quantity_limit_refusal(variables, ql):
         return (f"The limit on {label} cannot be met: the amounts allowed "
                 f"only reach {hi:.4g} at most")
     if ql.max_val is not None and lo > ql.max_val:
-        return (f"The limit on {label} cannot be met: the fixed amounts "
+        return (f"The limit on {label} cannot be met: the {pinned} "
                 f"add up to {lo:.4g}")
     return None
 

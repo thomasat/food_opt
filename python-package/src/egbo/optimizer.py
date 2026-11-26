@@ -107,6 +107,14 @@ class Optimizer:
         name = str(name).strip()
         if not name:
             raise ValueError("A variable needs a name")
+        # An amount does not go below nothing; a min already on file (an
+        # older project) is let stand so the row can still be edited.
+        editing = self._var(name)
+        if (kind == "ingredient" and float(min_val) < 0
+                and not (editing is not None
+                         and float(editing.low) == float(min_val))):
+            raise ValueError(f"{name}: min {_num(min_val)} is below 0; "
+                             "amounts start at 0")
         if float(min_val) > float(max_val):
             raise ValueError(f"{name}: min {_num(min_val)} is above max "
                              f"{_num(max_val)}")
@@ -122,14 +130,14 @@ class Optimizer:
                 raise ValueError(f"{name} is already a measurement")
         return name
 
-    def _limit_refusals(self):
+    def _limit_refusals(self, pinned="fixed amounts"):
         refusals = {}
         for pl in self.property_limits:
             message = _property_limit_refusal(self.variables, self.properties, pl)
             if message:
                 refusals[("property", pl.metric)] = message
         for ql in self.quantity_limits:
-            message = _quantity_limit_refusal(self.variables, ql)
+            message = _quantity_limit_refusal(self.variables, ql, pinned)
             if message:
                 key = (("total",) if ql.source == _TOTAL
                        else ("quantity", tuple(ql.ingredients)))
@@ -137,28 +145,39 @@ class Optimizer:
         return refusals
 
     def _check_fixed_feasible(self, name, low, high, kind):
-        """_check_fixed_feasible 10060: fixing a variable may not break a
-        limit that held before."""
-        if float(low) != float(high):
+        """_check_fixed_feasible 10424: fixing a variable, or moving an
+        existing one's range, may not break a limit that held before. One
+        already out of reach is not this edit's doing and does not block it."""
+        fixing = float(low) == float(high)
+        var = self._var(name)
+        moved = var is not None and (float(var.low), float(var.high)) != (
+            float(low), float(high))
+        if not (fixing or moved):
             return
         before = self._limit_refusals()
-        var = self._var(name)
+        pinned = "fixed amounts" if fixing else "lowest amounts"
         if var is None:
             self.variables.append(Variable(name, float(low), float(high), kind))
             try:
-                after = self._limit_refusals()
+                after = self._limit_refusals(pinned)
             finally:
                 self.variables.pop()
         else:
             was = (var.low, var.high)
             var.low, var.high = float(low), float(high)
             try:
-                after = self._limit_refusals()
+                after = self._limit_refusals(pinned)
             finally:
                 var.low, var.high = was
+        if not fixing:
+            # The total's own reach is checked by _check_total_stays_reachable.
+            after.pop(("total",), None)
         newly = [message for key, message in after.items() if key not in before]
-        if newly:
+        if newly and fixing:
             raise ValueError(f"{newly[0]} (with {name} fixed at {_num(low)})")
+        if newly:
+            raise ValueError(f"{newly[0]} (with {name} at {_num(low)} to "
+                             f"{_num(high)})")
 
     def add_ingredient(self, name, min_val, max_val, keep_lowest=False,
                        baseline=None) -> None:

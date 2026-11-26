@@ -284,3 +284,21 @@ def test_parity_finalists_prefer_corroborated(tmp_path, monkeypatch, robust,
     assert_same_predictions(app, opt)
     if not robust and bo_config is None:
         assert opt.finalists(1)[0] in range(1, 7)
+
+
+def test_parity_range_edit_refusals(pair):
+    """Both refuse a negative ingredient min and a narrowing that newly
+    strands a limit, and both allow an edit when the limit was already out
+    of reach."""
+    app, opt = build_ab(pair)
+    for o in (app, opt):
+        with pytest.raises(ValueError):
+            o.add_ingredient("C", -1, 5)
+        o.add_quantity_constraint(["A", "B"], min_val=70)
+        with pytest.raises(ValueError):
+            o.add_ingredient("A", 0, 15)        # reaches 65 < 70
+        o.add_ingredient("A", 0, 30)            # reaches 80
+        o.add_quantity_constraint(["A", "B"], min_val=90)   # already out
+        o.add_ingredient("B", 0, 45)            # not this edit's doing
+    assert [tuple(v["bounds"]) for v in app.variables] == [
+        (v.low, v.high) for v in opt.variables]
