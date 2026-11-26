@@ -44,8 +44,8 @@ batch = opt.ask(3)
 
 | Method | Does |
 |---|---|
-| `add_ingredient(name, min_val, max_val, baseline=)` | Add an ingredient, or change its range |
-| `add_process_parameter(name, min_val, max_val, step=)` | Add a setting, e.g. mix time |
+| `add_ingredient(name, min_val, max_val, keep_lowest=, baseline=)` | Add an ingredient, or change its range |
+| `add_process_parameter(name, min_val, max_val, baseline=, step=)` | Add a setting, e.g. mix time |
 | `add_objective(name, weight, goal=, target=, min_val=, max_val=)` | Goal `"max"`, `"min"` or `"target"` |
 | `fix(name, value)` / `set_range(name, min_val, max_val)` | Stop varying / vary again |
 | `add_quantity_constraint([names], min_val=, max_val=)` | Limit a sum of amounts |

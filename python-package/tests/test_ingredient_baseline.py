@@ -76,7 +76,8 @@ def test_baseline_before_any_result_refused():
 
 def test_baseline_of_zero_is_none():
     opt = _project()
-    opt.add_ingredient("Salt", 0.5, 1.2, baseline=0)
+    with pytest.warns(UserWarning, match="Salt: min 0.5 lowered to 0"):
+        opt.add_ingredient("Salt", 0.5, 1.2, baseline=0)
     assert (opt.variables[-1].low, opt.variables[-1].absent) == (0.0, 0.0)
     opt.add_ingredient("Sugar", 0.5, 1.2, keep_lowest=True, baseline=0)
     assert (opt.variables[-1].low, opt.variables[-1].absent) == (0.5, 0.0)

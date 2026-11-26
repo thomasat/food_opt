@@ -246,8 +246,15 @@ class Optimizer:
                 if not low <= baseline <= high:
                     raise ValueError(f"{name}: baseline {_num(baseline)} is "
                                      f"outside {_num(low)} to {_num(high)}")
-            elif self.recipes and not keep_lowest:
-                low = 0.0                  # absent from past recipes is 0
+            elif self.recipes and not keep_lowest and low > 0:
+                # Absent from past recipes is 0, so the min is 0 as in the
+                # app; a script would not see that, so say it.
+                warnings.warn(
+                    f"{name}: min {_num(low)} lowered to 0, because the "
+                    f"{len(self.recipes)} recorded formulations had none; "
+                    f"pass keep_lowest=True to keep {_num(low)}",
+                    UserWarning, stacklevel=2)
+                low = 0.0
             new = Variable(name, low, high, "ingredient",
                            absent=0.0 if baseline is None else baseline)
             self._check_total_stays_reachable(self.variables + [new],
@@ -284,7 +291,9 @@ class Optimizer:
                 raise ValueError(f"{name}: baseline {_num(carried)} is outside "
                                  f"{_num(low)} to {_num(high)}")
             self._check_fixed_feasible(name, low, high, "setting")
-            var.low, var.high, var.step = low, high, step
+            var.low, var.high = low, high
+            if step is not None:
+                var.step = step
             if carried is not None:
                 var.absent = float(carried)
             self.discard_pending()
@@ -729,17 +738,29 @@ class Optimizer:
             raise ValueError("Add an ingredient or a process setting first")
         if not self.active_variables():
             raise ValueError("Every variable is fixed; widen a range to search")
+        if self.recipes and not self.objectives:
+            raise ValueError("No measurement to learn from: add one with "
+                             f"add_objective() ({len(self.recipes)} "
+                             "formulations recorded)")
+        # A refused ask leaves the open batch as it was, so its rows can
+        # still be recorded under their numbers.
+        open_rows, retired = list(self.open_rows), list(self.retired)
         self.discard_pending()
-        spans = search_bounds(self.variables, self.recipes,
-                              [self._model_row(i) for i in range(len(self.recipes))])
-        bounds = bounds_tensor(spans)
         try:
-            rows = self._generate(n, spans, bounds)
-        except ValueError as exc:
-            # The app shows why on its Limits screen; a script only has this.
-            reasons = list(self._limit_refusals().values())
-            if str(exc).startswith(NO_FORMULATION) and reasons:
-                raise ValueError(f"{exc}. {reasons[0]}") from exc
+            spans = search_bounds(
+                self.variables, self.recipes,
+                [self._model_row(i) for i in range(len(self.recipes))])
+            bounds = bounds_tensor(spans)
+            try:
+                rows = self._generate(n, spans, bounds)
+            except ValueError as exc:
+                # The app shows why on its Limits screen; a script only has this.
+                reasons = list(self._limit_refusals().values())
+                if str(exc).startswith(NO_FORMULATION) and reasons:
+                    raise ValueError(f"{exc}. {reasons[0]}") from exc
+                raise
+        except BaseException:
+            self.open_rows, self.retired = open_rows, retired
             raise
         for rec in rows:
             self.open_rows.append({"formulation": int(self.next_formulation_no),

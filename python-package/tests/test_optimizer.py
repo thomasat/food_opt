@@ -165,7 +165,8 @@ def test_fix_drops_open_batch():
 def test_mid_run_ingredient_absent_in_past():
     opt = _two()
     _record(opt, 2)
-    opt.add_ingredient("Inulin", 1, 3)
+    with pytest.warns(UserWarning, match="Inulin: min 1 lowered to 0"):
+        opt.add_ingredient("Inulin", 1, 3)
     inulin = opt.variables[-1]
     assert (inulin.low, inulin.high) == (0.0, 3.0)    # Lowest forced to 0
     assert all("Inulin" not in h["recipe"] for h in opt.history())
