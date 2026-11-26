@@ -8848,7 +8848,7 @@ class FoodOptimizer:
         differently, and suggestions moved by up to 17 %):
 
         * every restart is its own scipy problem. BoTorch otherwise sums all
-          twenty into one, whenever its batched fast path is off (always with
+          of them into one, whenever its batched fast path is off (always with
           a Formulation total, and everywhere with the locked scipy), so one
           restart's rounding moved every other's stopping point;
         * the restarts start from the best raw samples (_top_starts);
@@ -8860,8 +8860,10 @@ class FoodOptimizer:
         options = dict(
             bounds=torch.stack([torch.zeros(dim), torch.ones(dim)]).double(),
             q=1,
-            num_restarts=20,
-            raw_samples=1024,
+            # Same effort as the NeurIPS paper's EGBO runs (10 restarts, 512 raw
+            # samples); 20 x 1024 was ~2.6x slower with no tested benefit.
+            num_restarts=10,
+            raw_samples=512,
             return_best_only=False,
             inequality_constraints=self._get_botorch_constraints(),
             fixed_features=self._get_fixed_features() or None,

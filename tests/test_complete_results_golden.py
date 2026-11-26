@@ -2,12 +2,14 @@
 code BEFORE the complete-results change (0.8.0, insights-080 @ c418337).
 
 tests/fixtures/complete_results_golden.json was written on the unchanged
-code, and its suggestions re-recorded once, with the owner's approval, for
+code, and its suggestions re-recorded, with the owner's approval, for
 0.9.0's suggestion-stability change (windows-port-p1, on 834dc1b;
 tests/test_suggestion_stability.py), under the locked dependency versions
 of desktop/requirements.lock.txt, by
 
     python -m tests.test_complete_results_golden
+
+re-recorded 2026-11-25 for stable ce28d02 (10 × 512), owner-approved.
 
 It is not regenerated otherwise: every later commit on the branch keeps
 this file green, which is the proof that a project with no blanks and

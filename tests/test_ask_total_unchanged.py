@@ -10,12 +10,14 @@ rows inside the ±0.5 % band or exactly on it, one row type each, plus one
 project with no total whose Round was re-sized (not rescaled in this wave).
 
 tests/fixtures/ask_total_unchanged.json was written on insights-080 @
-0bf00ba (before any batch-size code), and re-recorded once, with the
+0bf00ba (before any batch-size code), and re-recorded, with the
 owner's approval, for 0.9.0's suggestion-stability change (windows-port-p1,
 on 834dc1b; tests/test_suggestion_stability.py), under the locked
 dependency versions of desktop/requirements.lock.txt, by
 
     python -m tests.test_ask_total_unchanged
+
+re-recorded 2026-11-25 for stable ce28d02 (10 × 512), owner-approved.
 
 It is not regenerated otherwise: every later commit keeps it green — the
 suggestions and the rows handed to the model, bit-identical on the Mac;
