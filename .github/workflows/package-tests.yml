@@ -1,0 +1,44 @@
+# Tests for the egbo package, including parity with food_bo.py.
+name: package-tests
+
+on:
+  push:
+    paths: ["python-package/**", "food_bo.py", "wording.py", "storage.py", "custom_records.py", "desktop/requirements.lock.txt", "desktop/requirements-windows.lock.txt", ".github/workflows/package-tests.yml"]
+  pull_request:
+    paths: ["python-package/**", "food_bo.py", "wording.py", "storage.py", "custom_records.py", "desktop/requirements.lock.txt", "desktop/requirements-windows.lock.txt", ".github/workflows/package-tests.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      EGBO_REQUIRE_PARITY: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13.7"
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Install the locked dependencies
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            LOCK=desktop/requirements-windows.lock.txt
+          else
+            LOCK=desktop/requirements.lock.txt
+          fi
+          uv pip install --system --require-hashes -r "$LOCK"
+          uv pip install --system pytest -e python-package
+
+      - name: Run the package tests
+        run: python -m pytest python-package/tests -q -p no:cacheprovider

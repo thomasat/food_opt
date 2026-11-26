@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "egbo"
+version = "0.1.0"
+description = "Batch Bayesian optimization of formulation recipes."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+dependencies = [
+    "torch>=2.3",
+    "botorch>=0.17.2,<0.19",
+    "gpytorch>=1.15.2",
+    "numpy>=2,<3",
+    "scipy>=1.13",
+]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/egbo"]
+
+[tool.pytest.ini_options]
+filterwarnings = ["ignore:.*torch.jit.script.* is deprecated:DeprecationWarning"]
