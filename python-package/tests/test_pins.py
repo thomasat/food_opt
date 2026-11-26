@@ -23,3 +23,18 @@ def test_pins_match_app_lock():
     assert pins
     for name, version in pins.items():
         assert lock.get(name) == version, name
+
+
+def test_pyproject_ranges_admit_the_pins():
+    """The exact-match pins install inside the package's own ranges."""
+    import tomllib
+    from packaging.requirements import Requirement
+
+    project = tomllib.loads((PINS.parent / "pyproject.toml").read_text(
+        encoding="utf-8"))["project"]
+    pins = parse(PINS)
+    declared = [Requirement(r) for r in project["dependencies"]]
+    assert {r.name for r in declared} == {"torch", "botorch", "gpytorch",
+                                          "numpy", "scipy"}
+    for req in declared:
+        assert req.specifier.contains(pins[req.name]), (req, pins[req.name])

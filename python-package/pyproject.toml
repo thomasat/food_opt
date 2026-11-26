@@ -11,9 +11,9 @@ license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
-    "torch>=2.10,<2.11",
-    "botorch>=0.17.2,<0.18",
-    "gpytorch>=1.15.2,<1.16",
+    "torch>=2.3",
+    "botorch>=0.17.2,<0.19",
+    "gpytorch>=1.15.2",
     "numpy>=2,<3",
     "scipy>=1.13",
 ]

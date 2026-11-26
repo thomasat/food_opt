@@ -4,7 +4,7 @@ Suggests formulations to try next, from your tasting results. You choose what va
 
 ## Install
 
-Python 3.11 or newer:
+Python 3.11 or newer. Needs PyTorch wheels: Apple Silicon Macs, Windows, Linux; not Intel Macs.
 
 ```
 pip install "git+https://github.com/thomasat/food_opt#subdirectory=python-package"
