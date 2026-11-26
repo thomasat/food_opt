@@ -80,9 +80,14 @@ def _property_coeff(variables, properties, metric, limit):
                          if name in names else 0.0)
 
 
-def _form_over_columns(variables, terms):
+def _form_over_columns(variables, terms, frame=None):
     """(columns, coefficients, offset) in the [0, 1] frame; a fixed variable
-    moves the offset rather than riding in the form."""
+    moves the offset rather than riding in the form.
+
+    `frame` is the search span per column (search_bounds). A variable the
+    frame widened (added mid-run with its min kept above 0) is decoded over
+    the widened span, so its coefficients are written over it too: over its
+    own range, "D >= 8" on D in 4..10 widened to 0..10 would mean D >= 6.67."""
     by_name = {v.name: (col, v) for col, v in enumerate(variables)}
     indices, coeffs, offset = [], [], 0.0
     for name, coeff in terms.items():
@@ -93,10 +98,21 @@ def _form_over_columns(variables, terms):
         col, var = by_name[name]
         v_min, v_max = float(var.low), float(var.high)
         if v_max != v_min:
+            f_min, f_max = (v_min, v_max) if frame is None else frame[col]
             indices.append(col)
-            coeffs.append(coeff * (v_max - v_min))
-        offset += coeff * v_min
+            coeffs.append(coeff * (f_max - f_min))
+            offset += coeff * f_min
+        else:
+            offset += coeff * v_min
     return indices, coeffs, offset
+
+
+def widened(variables, frame) -> list[tuple[int, Variable]]:
+    """(column, variable) of each searched variable whose frame is wider
+    than its own range."""
+    return [(col, v) for col, v in enumerate(variables)
+            if not v.fixed
+            and tuple(map(float, frame[col])) != (float(v.low), float(v.high))]
 
 
 def _form_reach(variables, terms):
@@ -190,7 +206,10 @@ def _quantity_limit_refusal(variables, ql):
     return None
 
 
-def linear_constraints(variables, quantity_limits, property_limits, properties):
+def linear_constraints(variables, quantity_limits, property_limits, properties,
+                       frame=None):
+    """BoTorch inequality constraints over the [0, 1] search frame. `frame`
+    is search_bounds' span per column; None is each variable's own range."""
     out = []
     known = {v.name for v in variables}
 
@@ -202,7 +221,7 @@ def linear_constraints(variables, quantity_limits, property_limits, properties):
             terms = _property_terms(
                 variables, _property_coeff(variables, properties, pl.metric,
                                            limit))
-            indices, coeffs, offset = _form_over_columns(variables, terms)
+            indices, coeffs, offset = _form_over_columns(variables, terms, frame)
             if not indices:
                 message = _property_limit_refusal(variables, properties, pl)
                 if message:
@@ -218,7 +237,7 @@ def linear_constraints(variables, quantity_limits, property_limits, properties):
         for name in ql.ingredients:
             if name in known:
                 terms[name] = terms.get(name, 0.0) + 1.0
-        indices, coeffs, offset = _form_over_columns(variables, terms)
+        indices, coeffs, offset = _form_over_columns(variables, terms, frame)
         if not indices:
             message = _quantity_limit_refusal(variables, ql)
             if message:
@@ -230,6 +249,20 @@ def linear_constraints(variables, quantity_limits, property_limits, properties):
             out.append((t_idx, t_coeffs, ql.min_val - offset))
         if ql.max_val is not None:
             out.append((t_idx, -t_coeffs, -(ql.max_val - offset)))
+
+    # A widened variable's own min and max: the box the acquisition searches
+    # is the whole frame, so without these a suggestion could fall to 0.
+    for col, var in ([] if frame is None else widened(variables, frame)):
+        low, high = float(var.low), float(var.high)
+        f_low, f_high = frame[col]
+        span = f_high - f_low
+        idx = torch.tensor([col], dtype=torch.long)
+        if low > f_low:
+            out.append((idx, torch.tensor([1.0], dtype=torch.double),
+                        (low - f_low) / span))
+        if high < f_high:
+            out.append((idx, torch.tensor([-1.0], dtype=torch.double),
+                        -(high - f_low) / span))
     return out
 
 

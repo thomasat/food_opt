@@ -158,3 +158,37 @@ def test_parity_mid_run_variables_and_own_formulation(pair):
     for o in (app, opt):
         o.add_objective("Taste", 2, goal="target", target=8)
     ask_both(app, opt, 3)
+
+
+def build_ab(pair):
+    app, opt = pair
+    for o in (app, opt):
+        o.add_ingredient("A", 0, 60)
+        o.add_ingredient("B", 0, 50)
+        o.add_objective("Taste", 1)
+    return app, opt
+
+
+def test_parity_mid_run_kept_lowest_with_a_limit_on_it(pair):
+    """D added mid-run keeping its Lowest 4: the frame widens to 0 for the
+    past rows, but suggestions stay in 4..10 and "D >= 8" means 8."""
+    app, opt = build_ab(pair)
+    round_both(app, opt, 5)
+    for o in (app, opt):
+        o.add_ingredient("D", 4, 10, keep_lowest=True)
+        o.add_quantity_constraint(["D"], min_val=8)
+    _, rows = ask_both(app, opt, 3)
+    for r in rows:
+        assert 8 - 1e-6 <= r["D"] <= 10 + 1e-6, r
+
+
+def test_parity_mid_run_kept_lowest_opening_round(pair):
+    """The same in an opening Round: Sobol points outside D's own 4..10
+    are dropped, as the app drops them."""
+    app, opt = build_ab(pair)
+    round_both(app, opt, 3)
+    for o in (app, opt):
+        o.add_ingredient("D", 4, 10, keep_lowest=True)
+    _, rows = ask_both(app, opt, 2)
+    for r in rows:
+        assert 4 - 1e-9 <= r["D"] <= 10 + 1e-9, r

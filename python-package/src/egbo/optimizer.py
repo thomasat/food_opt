@@ -27,6 +27,7 @@ from egbo._limits import (
     snapped_if_it_still_fits,
     total_band,
     total_reach,
+    widened,
 )
 from egbo._model import check_bo_config, suggest, validate_bo_config
 from egbo import _state
@@ -509,9 +510,9 @@ class Optimizer:
                       fixed_features=fixed_features(self.variables, spans))
         return [decode(self.variables, out[i].tolist()) for i in range(n)]
 
-    def _linear_constraints(self):
+    def _linear_constraints(self, spans):
         return linear_constraints(self.variables, self.quantity_limits,
-                                  self.property_limits, self.properties)
+                                  self.property_limits, self.properties, spans)
 
     def _ask_cold_start(self, n, spans, bounds):
         """_ask_cold_start 8154: the next points of the one Sobol sequence."""
@@ -519,12 +520,20 @@ class Optimizer:
         fixed = fixed_features(self.variables, spans)
         already = max(0, int(self.next_formulation_no) - 1)
         results, repeats, chosen = [], [], []
+        outside = [v for _, v in widened(self.variables, spans)]
         for size in COLD_START_POOLS:
             pool = sobol_pool(size, len(self.variables), self.sobol_seed,
                               already, fixed)
             candidates = [decode(self.variables,
                                  unnormalize(pool[i], bounds).numpy().flatten())
                           for i in range(size)]
+            # A widened variable decodes anywhere in its frame; a point
+            # outside its own range is not a formulation it may be given.
+            if outside:
+                candidates = [c for c in candidates if all(
+                    float(v.low) - 1e-9 * (1 + abs(float(v.low))) <= float(c[v.name])
+                    <= float(v.high) + 1e-9 * (1 + abs(float(v.high)))
+                    for v in outside)]
             if self.formulation_total is not None:
                 candidates = [c for c in (
                     project_onto_total(self.variables, rec, self.formulation_total)
@@ -536,7 +545,7 @@ class Optimizer:
         if self.recipes:
             try:
                 picked = self._ask_optimize(n, spans, bounds,
-                                            self._linear_constraints())
+                                            self._linear_constraints(spans))
             except Exception:
                 picked = []
             if picked:
@@ -599,7 +608,7 @@ class Optimizer:
         if len(self.recipes) < self.n_init:
             rows = self._ask_cold_start(n, spans, bounds)
         else:
-            constraints = self._linear_constraints()
+            constraints = self._linear_constraints(spans)
             try:
                 rows = self._ask_optimize(n, spans, bounds, constraints)
             except (BotorchError, torch.linalg.LinAlgError) as exc:

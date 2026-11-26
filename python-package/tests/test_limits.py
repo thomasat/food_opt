@@ -28,6 +28,21 @@ def test_fixed_ingredient_moves_to_offset():
     assert rhs == -(12 - 4)
 
 
+def test_widened_frame_writes_limits_over_it_and_keeps_own_range():
+    """D in 4..10 searched over the frame 0..10: "D >= 8" is u >= 0.8, and
+    D's own range adds u >= 0.4 (u <= 1 is the box itself)."""
+    v = [Variable("A", 0, 10), Variable("D", 4, 10)]
+    frame = [(0.0, 10.0), (0.0, 10.0)]
+    rows = linear_constraints(v, [QuantityLimit(["D"], min_val=8)], [], {},
+                              frame)
+    assert [(i.tolist(), c.tolist(), r) for i, c, r in rows] == [
+        ([1], [10.0], 8.0), ([1], [1.0], pytest.approx(0.4))]
+    # Without a frame, each variable's own range, as before.
+    (idx, coeffs, rhs), = linear_constraints(
+        v, [QuantityLimit(["D"], min_val=8)], [], {})
+    assert coeffs.tolist() == [6.0] and rhs == 8 - 4
+
+
 def test_property_limit_per_100g():
     v = two(0, 100)
     props = {"A": {"protein": 80.0}, "B": {"protein": 0.0}}
