@@ -880,9 +880,12 @@ def round_compare(opt, scale_to=None):
     if with_total:
         one = opt.one_amount_unit()
         if limit is not None and one is not None:
+            # At the size the amounts are shown at: a 250 g round of a
+            # 100 g project reads "set to 250.00 g" over its 250.00s.
+            k = opt.amount_scale(scale_to)
             total_label = wording.total_row(
-                None if limit[0] is None else f"{float(limit[0]):.2f}",
-                None if limit[1] is None else f"{float(limit[1]):.2f}", one)
+                None if limit[0] is None else f"{float(limit[0]) * k:.2f}",
+                None if limit[1] is None else f"{float(limit[1]) * k:.2f}", one)
         else:
             total_label = wording.total_row(unit=one or "")
 
