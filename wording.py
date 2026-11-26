@@ -2880,6 +2880,13 @@ def fixed_rows_tail(names_text):
 # "Rule cells".
 # ------------------------------------------------------------------ #
 FORMULA_LABEL = "Calculation"
+
+# A Baseline typed on a row that is calculated: the row has no amount of its
+# own to have been made with, and "between Lowest 0 and Highest 0" said
+# nothing about why. Both ways out named, as only_a_setting_has names them.
+CALCULATED_ROW_HAS_NO_BASELINE = (f"Clear {BASELINE_LABEL}, or clear "
+                                  f"{FORMULA_LABEL}.")
+
 FORMULA_IN_RANGE = "calculation"
 # The word for a row filled in from its rule rather than typed by hand.
 # One word, spelled once, for the range cell's own marker and every sheet
@@ -3377,6 +3384,12 @@ def file_amounts_not_numbers(name, typed=()):
 
 def file_lowest_above_highest(name, low, high):
     return named_row_error(name, lowest_above_highest(low, high))
+
+
+def file_lowest_below_zero(name, low):
+    """An ingredient-file row whose Lowest is below 0, refused in the grid's
+    own words (lowest_below_zero), on the row it names."""
+    return named_row_error(name, lowest_below_zero(low))
 
 
 # An uploaded results sheet.

@@ -219,3 +219,106 @@ def test_grid_still_refuses_a_baseline_on_an_ingredient_without_one(
     errors, _ = app.apply_ingredient_grid(frame)
     assert [message for _, message in errors] == [
         wording.only_a_setting_has(wording.BASELINE_LABEL)]
+
+
+# ---- a Baseline of 0 is no baseline (stable e2752b7) ---------------- #
+
+def test_baseline_zero_is_no_baseline(tmp_path, monkeypatch):
+    app = _project(tmp_path, monkeypatch)
+    before = [dict(r) for r in app.recipe_history]
+    app.add_ingredient("Sorbate", 0.5, 1.2, baseline=0)
+    var = app._var_by_name("Sorbate")
+    assert "_absent_value" not in var
+    # As with no baseline at all: absent-in-past is 0, so the Lowest is 0.
+    assert var["bounds"] == (0.0, 1.2)
+    col = _column(app, "Sorbate")
+    assert [row[col] for row in app.X_history] == [0.0] * 5
+    assert app.recipe_history == before
+
+
+def test_baseline_zero_keeps_the_lowest_when_asked(tmp_path, monkeypatch):
+    app = _project(tmp_path, monkeypatch)
+    app.add_ingredient("Sorbate", 0.5, 1.2, keep_lowest=True, baseline=0.0)
+    var = app._var_by_name("Sorbate")
+    assert "_absent_value" not in var
+    assert var["bounds"] == (0.5, 1.2)
+    # The past rows at none widen the frame, exactly as keep_lowest does.
+    assert app._search_bounds()[_column(app, "Sorbate")] == (0.0, 1.2)
+
+
+def test_baseline_zero_clears_a_stored_baseline(tmp_path, monkeypatch):
+    app = _project(tmp_path, monkeypatch)
+    app.add_ingredient("Sorbate", 0.5, 1.2, baseline=0.8)
+    before = [dict(r) for r in app.recipe_history]
+    app.add_ingredient("Sorbate", 0.5, 1.2, baseline=0)
+    var = app._var_by_name("Sorbate")
+    assert "_absent_value" not in var
+    assert var["bounds"] == (0.5, 1.2)
+    col = _column(app, "Sorbate")
+    assert [row[col] for row in app.X_history] == [0.0] * 5
+    assert app.recipe_history == before
+
+
+def test_grid_baseline_zero_on_a_new_row_is_no_baseline(tmp_path,
+                                                        monkeypatch):
+    app = _project(tmp_path, monkeypatch)
+    errors, _ = app.apply_ingredient_grid(_add_row(
+        app.ingredient_grid_frame(),
+        **_ing_row("Sorbate", 0.5, 1.2, **{wording.BASELINE_LABEL: 0})))
+    assert errors == []
+    var = app._var_by_name("Sorbate")
+    assert "_absent_value" not in var
+    assert var["bounds"] == (0.5, 1.2)
+
+
+def test_grid_baseline_zero_on_a_row_without_one_is_not_refused(
+        tmp_path, monkeypatch):
+    app = _project(tmp_path, monkeypatch)
+    frame = app.ingredient_grid_frame()
+    frame.loc[1, wording.BASELINE_LABEL] = 0
+    errors, _ = app.apply_ingredient_grid(frame)
+    assert errors == []
+    assert "_absent_value" not in app._var_by_name("A")
+
+
+def test_grid_baseline_zero_clears_a_stored_one(tmp_path, monkeypatch):
+    app = _project(tmp_path, monkeypatch)
+    app.add_ingredient("Sorbate", 0.5, 1.2, baseline=0.8)
+    frame = app.ingredient_grid_frame()
+    row = list(frame[wording.NAME_LABEL]).index("Sorbate") + 1
+    frame.loc[row, wording.BASELINE_LABEL] = 0
+    errors, _ = app.apply_ingredient_grid(frame)
+    assert errors == []
+    assert "_absent_value" not in app._var_by_name("Sorbate")
+    col = _column(app, "Sorbate")
+    assert [r[col] for r in app.X_history] == [0.0] * 5
+
+
+# ---- a Baseline on a calculated row ---------------------------------- #
+
+def test_grid_refuses_a_baseline_on_a_new_calculated_row(tmp_path,
+                                                         monkeypatch):
+    app = _project(tmp_path, monkeypatch)
+    errors, _ = app.apply_ingredient_grid(_add_row(
+        app.ingredient_grid_frame(),
+        **_ing_row("Salt", None, None, **{wording.FORMULA_LABEL: "= 0.1 * A",
+                                          wording.BASELINE_LABEL: 2})))
+    assert [message for _, message in errors] == [
+        wording.CALCULATED_ROW_HAS_NO_BASELINE]
+    assert "Salt" not in [v["name"] for v in app.variables]
+
+
+# ---- a baseline for an ingredient that has none ---------------------- #
+
+def test_engine_refuses_a_baseline_on_an_ingredient_without_one(
+        tmp_path, monkeypatch):
+    """The grid's own refusal, at the single-row door: A was in every
+    formulation at its recorded amounts, so a baseline for it reads
+    nothing, and dropping it in silence loses what was typed."""
+    app = _project(tmp_path, monkeypatch)
+    before = json.dumps(app.export_json(), sort_keys=True, default=str)
+    with pytest.raises(ValueError) as e:
+        app.add_ingredient("A", 0, 60, baseline=2.0)
+    assert str(e.value) == wording.only_a_setting_has(wording.BASELINE_LABEL)
+    assert json.dumps(app.export_json(), sort_keys=True,
+                      default=str) == before

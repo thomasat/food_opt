@@ -189,3 +189,14 @@ def test_grid_fixing_alone_keeps_its_own_sentence(opt):
 def test_the_changing_lead_is_short_and_specific():
     assert wording.changing_rows("A and B") == "Changing A and B"
     assert len(wording.lowest_below_zero(-1).split()) <= 10
+
+
+def test_ingredient_file_refuses_a_negative_lowest(opt):
+    import pandas as pd
+    before = _state(opt)
+    with pytest.raises(ValueError) as caught:
+        opt.load_ingredients_from_csv(pd.DataFrame({
+            "Name": ["Oil", "Salt"], "Lowest": [0, -2], "Highest": [10, 5]}))
+    assert str(caught.value) == wording.file_lowest_below_zero("Salt", -2)
+    assert wording.lowest_below_zero(-2) in str(caught.value)
+    assert _state(opt) == before

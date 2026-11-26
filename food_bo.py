@@ -2086,15 +2086,30 @@ class FoodOptimizer:
         ingredient that was not there at all, exactly as before.
 
         On a row that already carries one, `baseline` corrects it and the
-        history is read again, as a process setting's is.
+        history is read again, as a process setting's is. On a row that
+        has none it is refused, as the grid refuses it: that ingredient was
+        in every formulation at its own recorded amounts, so a baseline
+        would read nothing, and dropping it in silence loses what was typed.
+
+        A baseline of 0 is no baseline (stable e2752b7): the formulations
+        already made had none of it, which is what an ingredient without one
+        already reads. Nothing is stored, the Lowest follows `keep_lowest`
+        as it would with none, and on a row that carries one it clears it.
         """
         name = self._check_new_variable(name, min_val, max_val, 'ingredient')
         min_val, max_val = float(min_val), float(max_val)
+        cleared = baseline is not None and float(baseline) == 0.0
+        if cleared:
+            baseline = None
         for var in self.variables:
             if var['name'] == name:
                 stored = var.get('_absent_value')
-                moved = (baseline is not None and stored is not None
+                if baseline is not None and stored is None:
+                    raise ValueError(wording.only_a_setting_has(
+                        wording.BASELINE_LABEL))
+                moved = (baseline is not None
                          and float(baseline) != float(stored))
+                unset = cleared and stored is not None
                 if moved and not min_val <= float(baseline) <= max_val:
                     raise ValueError(_baseline_outside_message(
                         baseline, min_val, max_val))
@@ -2104,6 +2119,9 @@ class FoodOptimizer:
                     var['unit'] = str(unit).strip()
                 if moved:
                     var['_absent_value'] = float(baseline)
+                    self._reencode_history()
+                elif unset:
+                    del var['_absent_value']
                     self._reencode_history()
                 removed = self.prune_amount_limits()
                 self._drop_pending_batch()
@@ -2420,6 +2438,12 @@ class FoodOptimizer:
             if min_val > max_val:
                 raise ValueError(wording.file_lowest_above_highest(
                     name, min_val, max_val))
+            # The grid's and the single-row door's own rule (stable
+            # 940a0ce): an amount does not go below nothing. Every row of
+            # this file is an ingredient; settings never come through it.
+            if min_val < 0:
+                raise ValueError(wording.file_lowest_below_zero(name,
+                                                                min_val))
         var = {
             'name': name,
             'type': 'continuous',
@@ -2609,12 +2633,14 @@ class FoodOptimizer:
         absent = var.get('_absent_value', 0.0 if continuous else None)
         seen = []
         for r in self.recipe_history:
-            value = r.get(name, absent)
             if continuous:
-                value = float(value)
+                # Tolerant, as the amounts are read: an older file's blank
+                # or text cell is not a traceback.
+                value = _amount_of(r, name, absent)
                 new = not any(abs(value - s) <= self.REPEAT_TOLERANCE
                               for s in seen)
             else:
+                value = r.get(name, absent)
                 new = value not in seen
             if new:
                 seen.append(value)
@@ -12698,6 +12724,13 @@ class FoodOptimizer:
         if not baseline_ok:
             return None, _number_cells_refusal(row, (wording.BASELINE_LABEL,))
         stored = None if var is None else var.get('_absent_value')
+        # A Baseline of 0 on an ingredient is no baseline (stable e2752b7):
+        # nothing is stored for it, and on a row that carries one it clears
+        # it — so it is kept here only where it moves something.
+        zero = (category == 'ingredient' and baseline is not None
+                and baseline == 0.0)
+        if zero and stored is None:
+            baseline = None
         # An ingredient takes a Baseline in two places: a row added after
         # results, at the amount every formulation already made used
         # (stable e2752b7), and a row that already carries one, which can be
@@ -12721,7 +12754,12 @@ class FoodOptimizer:
         # for (see add_process_parameter).
         moved = (baseline is not None
                  and (stored is None or float(stored) != baseline))
-        if moved and not (low <= baseline <= high):
+        if moved and formula:
+            # A calculated row is worked out, so there is no amount it was
+            # made with; read against its dormant (0, 0) the sentence was
+            # "must be between Lowest 0 and Highest 0".
+            return None, wording.CALCULATED_ROW_HAS_NO_BASELINE
+        if moved and not zero and not (low <= baseline <= high):
             return None, _baseline_outside_message(baseline, low, high)
         return {
             'var': var, 'id': row_id if (var is not None or premix_was is not None) else None,
@@ -13067,8 +13105,13 @@ class FoodOptimizer:
         """What _row_state would say about this row once the grid is saved.
         A baseline the grid does not ask for is the one the row already
         carries."""
-        baseline = (var.get('_absent_value') if spec['baseline'] is None
-                    else float(spec['baseline']))
+        if spec['baseline'] is None:
+            baseline = var.get('_absent_value')
+        elif (spec['category'] == 'ingredient'
+              and float(spec['baseline']) == 0.0):
+            baseline = None     # a Baseline of 0 clears, and stores nothing
+        else:
+            baseline = float(spec['baseline'])
         return (spec['name'], spec['category'],
                 (float(spec['low']), float(spec['high'])), spec['unit'],
                 spec['vendor'], spec['sku'], baseline,

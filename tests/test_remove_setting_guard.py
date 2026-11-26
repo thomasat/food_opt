@@ -101,3 +101,14 @@ def test_constant_categorical_removes_without_force(tmp_path, monkeypatch):
     o = _with_choice(tmp_path, monkeypatch, ["steel", "steel"])
     o.remove_process_parameter("Pan")
     assert _names(o) == ["A"]
+
+
+def test_an_older_files_blank_or_text_value_does_not_raise(opt):
+    """A recorded value written by an older file can be a blank or a
+    string; the count reads it the tolerant way the amounts are read."""
+    opt.tell({"A": 1.0, "T": 150.0}, {"Taste": 5.0})
+    opt.tell({"A": 1.0, "T": 150.0}, {"Taste": 6.0})
+    opt.recipe_history[0]["T"] = ""
+    opt.recipe_history[1]["T"] = "n/a"
+    opt.remove_process_parameter("T")
+    assert _names(opt) == ["A"]
