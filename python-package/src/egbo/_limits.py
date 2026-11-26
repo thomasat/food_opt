@@ -180,11 +180,13 @@ def _property_limit_refusal(variables, properties, pl):
         return None
     lo, hi = _achievable_property(variables, properties, pl.metric)
     if pl.min_val is not None and hi < pl.min_val:
-        return (f"The limit on {pl.metric} cannot be met: the amounts "
-                f"allowed only reach {hi:.4g} per 100 g at most")
+        return (f"The limit on {pl.metric} (at least {pl.min_val:g} per "
+                f"100 g) cannot be met: the amounts allowed only reach "
+                f"{hi:.4g} per 100 g at most")
     if pl.max_val is not None and lo > pl.max_val:
-        return (f"The limit on {pl.metric} cannot be met: the amounts "
-                f"allowed never get below {lo:.4g} per 100 g")
+        return (f"The limit on {pl.metric} (at most {pl.max_val:g} per "
+                f"100 g) cannot be met: the amounts allowed never get below "
+                f"{lo:.4g} per 100 g")
     return None
 
 
@@ -198,11 +200,11 @@ def _quantity_limit_refusal(variables, ql, pinned="fixed amounts"):
                 if broken else None)
     label = " + ".join(ql.ingredients)
     if ql.min_val is not None and hi < ql.min_val:
-        return (f"The limit on {label} cannot be met: the amounts allowed "
-                f"only reach {hi:.4g} at most")
+        return (f"The limit on {label} (at least {ql.min_val:g}) cannot be "
+                f"met: the amounts allowed only reach {hi:.4g} at most")
     if ql.max_val is not None and lo > ql.max_val:
-        return (f"The limit on {label} cannot be met: the {pinned} "
-                f"add up to {lo:.4g}")
+        return (f"The limit on {label} (at most {ql.max_val:g}) cannot be "
+                f"met: the {pinned} add up to {lo:.4g}")
     return None
 
 

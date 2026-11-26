@@ -6,10 +6,11 @@ import math
 import numbers
 import dataclasses
 import os
+import warnings
 
 import numpy as np
 import torch
-from botorch.exceptions.errors import BotorchError
+from botorch.exceptions.errors import BotorchError, InfeasibilityError
 from botorch.fit import fit_gpytorch_mll
 from botorch.utils.transforms import normalize, unnormalize
 from gpytorch.mlls import ExactMarginalLogLikelihood
@@ -191,9 +192,12 @@ class Optimizer:
         if var is not None:
             stored = float(var.absent) or None
             if baseline is not None and stored is None:
+                if not self.recipes:
+                    raise ValueError(self._baseline_too_early(name, baseline))
                 raise ValueError(
-                    f"{name}: no baseline to set; it was in every recorded "
-                    "formulation at its own amounts")
+                    f"{name}: baseline {_num(baseline)} refused; all "
+                    f"{len(self.recipes)} recorded formulations hold their "
+                    f"own {name} amounts")
             moved = baseline is not None and baseline != stored
             if moved and not low <= baseline <= high:
                 raise ValueError(f"{name}: baseline {_num(baseline)} is "
@@ -208,10 +212,7 @@ class Optimizer:
         else:
             if baseline is not None:
                 if not self.recipes:
-                    raise ValueError(
-                        f"{name}: baseline {_num(baseline)} is the amount "
-                        "recorded formulations used, and 0 formulations are "
-                        "recorded")
+                    raise ValueError(self._baseline_too_early(name, baseline))
                 if not low <= baseline <= high:
                     raise ValueError(f"{name}: baseline {_num(baseline)} is "
                                      f"outside {_num(low)} to {_num(high)}")
@@ -225,6 +226,11 @@ class Optimizer:
             self.variables.append(new)
         self._sync_formulation_total()
         self.discard_pending()
+
+    @staticmethod
+    def _baseline_too_early(name, baseline):
+        return (f"{name}: baseline {_num(baseline)} is the amount recorded "
+                "formulations used, and 0 formulations are recorded")
 
     def add_process_parameter(self, name, min_val, max_val, baseline=None,
                               step=None) -> None:
@@ -657,7 +663,12 @@ class Optimizer:
                 if len(out) >= n:
                     break
             return out
-        except Exception:
+        except InfeasibilityError:
+            return []       # the limits leave nothing: the refusal says so
+        except Exception as exc:
+            # The Round comes back short or refused; say why it did.
+            warnings.warn(f"feasible sampler failed: {exc!r}", RuntimeWarning,
+                          stacklevel=2)
             return []
 
     def ask(self, n: int = 1) -> list[dict[str, float]]:
@@ -810,6 +821,11 @@ class Optimizer:
 
     def finalists(self, k: int = 3) -> list[int]:
         """Positions in `history()` of the `k` formulations the model predicts highest (ties, and fewer than 5 recorded, fall back to the observed score)."""
+        if (isinstance(k, bool) or not isinstance(k, numbers.Real)
+                or not math.isfinite(k) or k != int(k) or int(k) < 1):
+            raise ValueError(f"Ask for a whole number of finalists, at "
+                             f"least 1, not {k!r}")
+        k = int(k)
         pool = list(range(len(self.scores)))
         pred = self.predicted_utilities()
         if pred is None:

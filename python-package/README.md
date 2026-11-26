@@ -44,7 +44,7 @@ batch = opt.ask(3)
 
 | Method | Does |
 |---|---|
-| `add_ingredient(name, min_val, max_val, baseline=)` | Add an ingredient, or change its range; `baseline` is what past rows used |
+| `add_ingredient(name, min_val, max_val, baseline=)` | Add an ingredient, or change its range |
 | `add_process_parameter(name, min_val, max_val, step=)` | Add a setting, e.g. mix time |
 | `add_objective(name, weight, goal=, target=)` | Goal `"max"`, `"min"` or `"target"` |
 | `fix(name, value)` / `set_range(name, min_val, max_val)` | Stop varying / vary again |
@@ -54,7 +54,7 @@ batch = opt.ask(3)
 | `add_constraint(metric, min_val=, max_val=)` | Limit a property of the formulation |
 | `ask(n)` / `tell(recipe, results)` | Get a batch / record one result |
 | `history()` / `pending()` | Recorded rows / suggestions not yet recorded |
-| `finalists(k=3)` | The k recorded rows the model predicts best |
+| `finalists(k=3)` | Positions in `history()` of the k rows predicted best |
 | `save(path)` / `Optimizer.load(path)` | Keep the project in a JSON file |
 
 ## Good to know

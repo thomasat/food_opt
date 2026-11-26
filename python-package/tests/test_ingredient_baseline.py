@@ -69,6 +69,9 @@ def test_baseline_before_any_result_refused():
         opt.add_ingredient("Sorbate", 0.5, 1.2, baseline=0.8)
     opt.add_ingredient("Sorbate", 0.5, 1.2, baseline=0)    # 0 is none
     assert opt.variables[-1].absent == 0.0
+    with pytest.raises(ValueError, match="Sorbate: baseline 0.9 .* 0 "
+                                         "formulations are recorded"):
+        opt.add_ingredient("Sorbate", 0.5, 1.2, baseline=0.9)   # existing
 
 
 def test_baseline_of_zero_is_none():
@@ -81,8 +84,10 @@ def test_baseline_of_zero_is_none():
 
 def test_baseline_on_an_existing_ingredient():
     opt = _project()
-    with pytest.raises(ValueError, match="A: no baseline to set"):
+    with pytest.raises(ValueError) as err:
         opt.add_ingredient("A", 0, 60, baseline=10)
+    assert str(err.value) == ("A: baseline 10 refused; all 5 recorded "
+                              "formulations hold their own A amounts")
     opt.add_ingredient("Sorbate", 0.5, 1.2, baseline=0.8)
     opt.add_ingredient("Sorbate", 0.5, 1.2, baseline=0.9)      # corrected
     assert opt.variables[-1].absent == 0.9

@@ -77,3 +77,11 @@ def test_predicted_utilities_mean_and_sd_and_rng_untouched():
     assert len(pred) == 6 and all(sd >= 0 for _, sd in pred)
     assert sorted(opt.finalists(10)) == list(range(6))
     assert len(opt.finalists()) == 3
+
+
+@pytest.mark.parametrize("k", [0, -1, 2.5, True, "3"])
+def test_finalists_refuses_a_k_that_is_not_a_whole_number_of_at_least_1(k):
+    opt = _scored([(1, 1, 2.0), (5, 5, 7.0)])
+    with pytest.raises(ValueError, match="Ask for a whole number of "
+                                         "finalists, at least 1, not "):
+        opt.finalists(k)

@@ -214,8 +214,9 @@ def test_impossible_property_limit_says_why_at_cold_start():
     with pytest.raises(ValueError) as err:
         opt.ask(2)
     assert str(err.value) == (
-        "No formulation meets all the limits. The limit on Protein cannot be "
-        "met: the amounts allowed only reach 0.8 per 100 g at most")
+        "No formulation meets all the limits. The limit on Protein (at least "
+        "3 per 100 g) cannot be met: the amounts allowed only reach 0.8 per "
+        "100 g at most")
 
 
 def test_impossible_quantity_limit_says_why_after_the_first_rounds():

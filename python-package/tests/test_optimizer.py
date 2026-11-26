@@ -367,4 +367,6 @@ def test_feasible_sampler_failure_is_an_empty_list(monkeypatch):
         raise RuntimeError("no constraints today")
 
     monkeypatch.setattr(opt, "_linear_constraints", _broken)
-    assert opt._sample_feasible(3, spans, bounds_tensor(spans), []) == []
+    with pytest.warns(RuntimeWarning, match="feasible sampler failed: "
+                                            "RuntimeError"):
+        assert opt._sample_feasible(3, spans, bounds_tensor(spans), []) == []

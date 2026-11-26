@@ -46,8 +46,8 @@ def test_narrowing_that_strands_a_quantity_limit_refused():
     with pytest.raises(ValueError) as err:
         opt.set_range("A", 0, 4)
     assert str(err.value) == (
-        "The limit on A + B cannot be met: the amounts allowed only reach 14 "
-        "at most (with A at 0 to 4)")
+        "The limit on A + B (at least 15) cannot be met: the amounts allowed "
+        "only reach 14 at most (with A at 0 to 4)")
     assert (opt.variables[0].low, opt.variables[0].high) == (0, 10)
     assert opt.pending() == pending
     opt.set_range("A", 0, 6)             # still reaches 16
@@ -60,15 +60,15 @@ def test_raising_a_min_that_strands_a_max_limit_refused():
     with pytest.raises(ValueError) as err:
         opt.set_range("B", 5, 10)
     assert str(err.value) == (
-        "The limit on A + B cannot be met: the lowest amounts add up to 13 "
-        "(with B at 5 to 10)")
+        "The limit on A + B (at most 12) cannot be met: the lowest amounts add "
+        "up to 13 (with B at 5 to 10)")
 
 
 def test_narrowing_that_strands_a_property_limit_refused():
     opt = _two()
     opt.set_property_values("Protein", {"A": 20, "B": 0})
     opt.add_constraint("Protein", min_val=10)
-    with pytest.raises(ValueError, match="The limit on Protein cannot be met"
+    with pytest.raises(ValueError, match="The limit on Protein \\(at least 10 per 100 g\\) cannot be met"
                                          ".*\\(with B at 15 to 20\\)"):
         opt.set_range("B", 15, 20)
     assert opt.variables[1].low == 0
