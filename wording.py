@@ -2074,13 +2074,18 @@ def fixed_amounts_do_not_add_up(made_text, total_text):
             f"one, or the {FORMULATION_TOTAL_NOUN}, in Set up.")
 
 
-def fixing_breaks_the_total(total_text):
+def fixing_breaks_the_total(total_text, lead=None):
     """A row whose Lowest is its Highest is one amount, and one amount can
     put the batch size out of reach of the rows still moving. The two ways
     back are the size and the allowed values — not the eight ingredients the size's
-    own limit happens to name."""
-    return (f"Fixing these leaves no formulation at {total_text}; change "
-            f"the {BATCH_SIZE_NOUN} or let more {INGREDIENT}s vary.")
+    own limit happens to name.
+
+    `lead` is what this save did. A narrowed row says so by name
+    (changing_rows): "Fixing these" of a row nobody fixed sends the reader
+    looking for a pin that is not there."""
+    return (f"{lead or 'Fixing these'} leaves no formulation at "
+            f"{total_text}; change the {BATCH_SIZE_NOUN} or let more "
+            f"{INGREDIENT}s vary.")
 
 
 def formulation_total_gone_unit(total_text):
@@ -3268,6 +3273,13 @@ def lowest_above_highest(low, high):
             f"{float(high):g}; swap them.")
 
 
+def lowest_below_zero(low):
+    """'Lowest -1 is below 0; amounts start at 0.' — an ingredient's
+    amount, refused in its own number (stable 940a0ce). A process setting
+    may go below 0: a freezer runs at -18 °C."""
+    return f"{LOWEST_LABEL} {float(low):g} is below 0; amounts start at 0."
+
+
 def scale_ends_error(low, high):
     """The measurement grid's two scale cells, refused in their numbers:
     equal is a scale of nothing, reversed is a swap."""
@@ -3481,26 +3493,37 @@ def setting_took_several_values(name, count):
             f"{DELETE_EVEN_IF_USED}.")
 
 
-def limit_unreachable_above(what, most_text):
+def limit_unreachable_above(what, most_text, lead=None):
     """'Fixing these would make the limit on Fat impossible to meet: the
     ingredients that can still vary only reach 10 per 100 g at most. Loosen
     the limit first.' — a limit's At least, put out of reach by the rows
-    this save is about to pin."""
-    return (f"Fixing these breaks the {LIMIT} on {what}: only {most_text} "
-            "is reachable; loosen it first.")
+    this save is about to pin, or by a row it narrows (`lead`, see
+    changing_rows)."""
+    return (f"{lead or 'Fixing these'} breaks the {LIMIT} on {what}: only "
+            f"{most_text} is reachable; loosen it first.")
 
 
-def limit_unreachable_below(what, least_text):
+def limit_unreachable_below(what, least_text, lead=None):
     """The same for a limit's At most that the pinned rows already exceed."""
-    return (f"Fixing these breaks the {LIMIT} on {what}: nothing gets "
+    return (f"{lead or 'Fixing these'} breaks the {LIMIT} on {what}: nothing gets "
             f"below {least_text}; loosen it first.")
 
 
-def limit_pinned_amounts_exceed(what, pinned_text):
+def limit_pinned_amounts_exceed(what, pinned_text, lead=None):
     """An amount limit whose At most is already passed by the amounts this
-    save pins — nothing that can still vary is even involved."""
-    return (f"Fixing these breaks the {LIMIT} on {what}: the fixed amounts "
-            f"add up to {pinned_text}; loosen it first.")
+    save pins — nothing that can still vary is even involved. Under a
+    changing_rows lead the rows were moved, not fixed, and what adds up
+    is their Lowest."""
+    amounts = "fixed amounts" if lead is None else f"{LOWEST_LABEL} amounts"
+    return (f"{lead or 'Fixing these'} breaks the {LIMIT} on {what}: the "
+            f"{amounts} add up to {pinned_text}; loosen it first.")
+
+
+def changing_rows(names_text):
+    """'Changing Salt' — the lead of a limit refusal when the save moved a
+    row's Lowest or Highest rather than fixing it (stable 940a0ce). The
+    rows are named in it, so no tail is needed."""
+    return f"Changing {names_text}"
 
 
 LOOSEN_THE_LIMIT_FIRST = "Loosen the limit first."

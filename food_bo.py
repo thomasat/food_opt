@@ -898,6 +898,15 @@ def _file_range(row):
     return out[0], out[1]
 
 
+def _without_the_total(refusals):
+    """A _limit_refusals answer less the batch size's own limit. A range
+    edit that puts the batch size out of reach is not refused: the size is
+    cleared and the screen says so (_sync_formulation_total, reason
+    'unreachable'). Only fixing a row is refused for it, as it always was."""
+    return {key: message for key, message in refusals.items()
+            if key != ('total',)}
+
+
 def _range_from_cells(row):
     """(Lowest, Highest, whether both cells hold something readable) for one
     row of the ingredients grid.
@@ -2029,6 +2038,14 @@ class FoodOptimizer:
         # The row this add is really an edit of, if there is one: it is
         # allowed to go on wearing its own name.
         editing = next((v for v in self.variables if v['name'] == name), None)
+        # An ingredient's amount does not go below nothing (stable 940a0ce).
+        # A Lowest already on file is not this save's doing: a project saved
+        # before this check may hold one, and refusing every later edit of
+        # the row for it would leave no way to correct its Highest.
+        if (category == 'ingredient' and float(min_val) < 0
+                and not (editing is not None
+                         and float(editing['bounds'][0]) == float(min_val))):
+            raise ValueError(wording.lowest_below_zero(min_val))
         self._name_is_free(name, skip=editing)
         return name
 
@@ -10321,7 +10338,7 @@ class FoodOptimizer:
             highest = over
         return lowest, highest
 
-    def _property_limit_refusal(self, constr):
+    def _property_limit_refusal(self, constr, lead=None):
         """Why this property limit cannot be met by any formulation the
         allowed amounts describe, or None while one can."""
         metric = constr['metric']
@@ -10330,12 +10347,14 @@ class FoodOptimizer:
         per = self.per_amount_text()
         lo, hi = self._achievable_property(metric)
         if constr['min'] is not None and hi < constr['min']:
-            return wording.limit_unreachable_above(metric, f"{hi:.4g} {per}")
+            return wording.limit_unreachable_above(metric, f"{hi:.4g} {per}",
+                                                   lead=lead)
         if constr['max'] is not None and lo > constr['max']:
-            return wording.limit_unreachable_below(metric, f"{lo:.4g} {per}")
+            return wording.limit_unreachable_below(metric, f"{lo:.4g} {per}",
+                                                   lead=lead)
         return None
 
-    def _quantity_limit_refusal(self, qc):
+    def _quantity_limit_refusal(self, qc, lead=None):
         """The same question of one amount limit. The batch size's own limit
         answers in its own words: it is one number the user typed, not a rule
         about a list, and naming its eight ingredients helped nobody."""
@@ -10346,13 +10365,16 @@ class FoodOptimizer:
         if qc.get('source') == 'formulation_total':
             if broken:
                 return wording.fixing_breaks_the_total(
-                    self.batch_total_text(self.formulation_total))
+                    self.batch_total_text(self.formulation_total),
+                    lead=lead)
             return None
         label = " + ".join(qc['ingredients'])
         if qc['min'] is not None and hi < qc['min']:
-            return wording.limit_unreachable_above(label, f"{hi:.4g}")
+            return wording.limit_unreachable_above(label, f"{hi:.4g}",
+                                                   lead=lead)
         if qc['max'] is not None and lo > qc['max']:
-            return wording.limit_pinned_amounts_exceed(label, f"{lo:.4g}")
+            return wording.limit_pinned_amounts_exceed(label, f"{lo:.4g}",
+                                                       lead=lead)
         return None
 
     @staticmethod
@@ -10365,9 +10387,10 @@ class FoodOptimizer:
             return ('total',)
         return ('quantity', tuple(qc['ingredients']))
 
-    def _limit_refusals(self):
+    def _limit_refusals(self, lead=None):
         """{key: sentence} for every limit the allowed amounts, as they
-        stand, cannot meet.
+        stand, cannot meet. `lead` opens each sentence in place of "Fixing
+        these" (wording.changing_rows); None keeps it.
 
         Per limit rather than first-one-wins, because the question every
         caller really asks is "did THIS save break something": a limit
@@ -10376,11 +10399,11 @@ class FoodOptimizer:
         back out."""
         refusals = {}
         for constr in self.constraints:
-            message = self._property_limit_refusal(constr)
+            message = self._property_limit_refusal(constr, lead)
             if message:
                 refusals[('property', constr['metric'])] = message
         for qc in getattr(self, 'quantity_constraints', []):
-            message = self._quantity_limit_refusal(qc)
+            message = self._quantity_limit_refusal(qc, lead)
             if message:
                 refusals[self._limit_key(qc)] = message
         return refusals
@@ -10399,20 +10422,28 @@ class FoodOptimizer:
             number_list(list(fixed_names)))
 
     def _check_fixed_feasible(self, name, min_val, max_val, category):
-        """Refuse a save that would fix `name` at one amount where nothing
-        could then be made.
+        """Refuse a save that would fix `name` at one amount, or move an
+        existing row's Lowest or Highest, where nothing could then be made.
 
         Asked before the write, with the amounts the form is proposing put in
         place for the length of the question and then taken out again: the
         refusal has to name the amounts the user just typed, and a project
         left half-written by a refusal is worse than the refusal.
 
-        Only a save that FIXES a row is asked, and only a limit that passes
-        BEFORE and fails AFTER earns the refusal. Narrowing a range is the
-        user's own business and has always been allowed to strand a limit; a
-        save blamed for one it did not break is a save with no way back.
+        A save that FIXES a row is asked, and so is one that edits an
+        existing row's allowed amounts (stable 940a0ce `set_variable_bounds`:
+        a narrowing used to be let through, and the next Generate then died
+        on an empty search space). Only a limit that passes BEFORE and fails
+        AFTER earns the refusal: one already out of reach is not this save's
+        doing, and a save blamed for it is a save with no way back.
         """
-        if float(min_val) != float(max_val):
+        fixing = float(min_val) == float(max_val)
+        index = next((i for i, v in enumerate(self.variables)
+                      if v['name'] == name), None)
+        moved = index is not None and tuple(
+            float(b) for b in self.variables[index]['bounds']) != (
+                float(min_val), float(max_val))
+        if not (fixing or moved):
             return
         # A grid Save asks this question ONCE, over the finished grid, and
         # compares the answer with the one the project already gives (see
@@ -10421,8 +10452,9 @@ class FoodOptimizer:
         if getattr(self, '_in_grid_apply', False):
             return
         before = self._limit_refusals()
-        index = next((i for i, v in enumerate(self.variables)
-                      if v['name'] == name), None)
+        # A fixed row keeps the sentence it has always had, the row named at
+        # the end; a moved one is named in the lead.
+        lead = None if fixing else wording.changing_rows(name)
         added = index is None
         if added:
             # Appended, and removed again BY INDEX: two rows of a project can
@@ -10437,13 +10469,16 @@ class FoodOptimizer:
             was = self.variables[index]['bounds']
             self.variables[index]['bounds'] = (float(min_val), float(max_val))
         try:
-            after = self._limit_refusals()
+            after = self._limit_refusals(lead)
         finally:
             if added:
                 self.variables.pop(index)
             else:
                 self.variables[index]['bounds'] = was
-        message = self._broken_by_this_save(before, after, [name])
+        if not fixing:
+            after = _without_the_total(after)
+        message = self._broken_by_this_save(before, after,
+                                            [name] if fixing else [])
         if message is not None:
             raise ValueError(message)
 
@@ -12503,6 +12538,12 @@ class FoodOptimizer:
             # Only Lowest ABOVE Highest is a range with nothing in it.
             if low > high:
                 return None, wording.lowest_above_highest(low, high)
+            # The single-row door's own rule (_check_new_variable), asked
+            # here so the refusal lands on the row and before anything is
+            # written: a Lowest already on file is let stand.
+            if (category == 'ingredient' and low < 0
+                    and not (kept is not None and kept[0] == low)):
+                return None, wording.lowest_below_zero(low)
         unit = _text_cell(row, wording.UNIT_LABEL)
         if category == 'ingredient' and not unit:
             # An ingredient's amounts are added up, averaged and printed. A
@@ -12610,16 +12651,21 @@ class FoodOptimizer:
         return None
 
     def _grid_feasibility_error(self, rows, deleted=()):
-        """The fixed-feasibility question, asked ONCE over the finished grid.
+        """The feasibility question, asked ONCE over the finished grid.
 
         Two rulings live in these lines. It is asked once rather than per
         row, because a grid is saved whole and a row half way through it is
         not a state the project ever sits in. And it compares BEFORE with
         AFTER, limit by limit, through the same `_broken_by_this_save` the
-        single-row door uses: a limit that was already impossible — after a
-        range narrowed last week, which has always been allowed — is not this
-        save's doing, and refusing the save for it would leave the reader
-        with no way to edit their way back out.
+        single-row door uses: a limit that was already impossible — put out
+        of reach before this save, by a file or an older version — is not
+        this save's doing, and refusing the save for it would leave the
+        reader with no way to edit their way back out.
+
+        It is asked of a save that fixes a row, and of one that moves an
+        existing row's Lowest or Highest (stable 940a0ce): a narrowing that
+        strands a limit used to be let through, and the next Generate then
+        died on an empty search space.
         """
         # A worked-out row is neither pinned nor searched: its Lowest and
         # Highest are not enforced at all, so it is no more fixed than the
@@ -12627,7 +12673,13 @@ class FoodOptimizer:
         fixed = [spec['name'] for _, spec in rows
                  if spec['is_row'] and not spec['formula']
                  and spec['low'] == spec['high']]
-        if not fixed:
+        narrowed = [spec['name'] for _, spec in rows
+                    if spec['is_row'] and not spec['formula']
+                    and spec['var'] is not None
+                    and spec['low'] != spec['high']
+                    and tuple(float(b) for b in spec['var']['bounds'])
+                    != (float(spec['low']), float(spec['high']))]
+        if not fixed and not narrowed:
             return None
         # ...and the tail names only what THIS save did. A row pinned at one
         # amount last week is not the cell the reader just changed, and a
@@ -12643,11 +12695,22 @@ class FoodOptimizer:
         changed += [spec['name'] for _, spec in rows
                     if spec['is_row'] and spec['formula']
                     and spec['name'] not in before_calculated]
-        return self._broken_by_this_save(
-            self._limit_refusals(), self._refusals_with(rows, deleted),
-            list(dict.fromkeys(changed)))
+        changed = list(dict.fromkeys(changed))
+        if not narrowed:
+            return self._broken_by_this_save(
+                self._limit_refusals(), self._refusals_with(rows, deleted),
+                changed)
+        # A row narrowed is not a row fixed, so "Fixing these …" would send
+        # the reader to the wrong cell: the lead names every row this save
+        # moved instead, and no tail is needed.
+        lead = wording.changing_rows(number_list(
+            list(dict.fromkeys(changed + narrowed))))
+        after = self._refusals_with(rows, deleted, lead)
+        if not changed:
+            after = _without_the_total(after)
+        return self._broken_by_this_save(self._limit_refusals(), after)
 
-    def _refusals_with(self, rows, deleted=()):
+    def _refusals_with(self, rows, deleted=(), lead=None):
         """The same question with the finished grid in place, and the project
         put back exactly as it was afterwards.
 
@@ -12657,7 +12720,7 @@ class FoodOptimizer:
         renamed row read as having none, which refused a save that was
         perfectly legal."""
         with self._as_proposed(rows, deleted):
-            return self._limit_refusals()
+            return self._limit_refusals(lead)
 
     def _apply_ingredient_plan(self, plan, force=()):
         """Write the plan through the paths the form used, in the one order
