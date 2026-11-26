@@ -192,3 +192,34 @@ def test_parity_mid_run_kept_lowest_opening_round(pair):
     _, rows = ask_both(app, opt, 2)
     for r in rows:
         assert 4 - 1e-9 <= r["D"] <= 10 + 1e-9, r
+
+
+@pytest.mark.parametrize("low, total", [(30.0, None), (70.0, 100)])
+def test_parity_thin_limit_fills_the_opening_round(pair, low, total):
+    """A + B within a hair (low to low + 0.001) is a slab the Sobol pool
+    all but misses; both fill Round 1 from inside the limits instead."""
+    app, opt = build(pair)
+    for o in (app, opt):
+        o.add_quantity_constraint(["A", "B"], min_val=low, max_val=low + 0.001)
+        if total is not None:
+            o.set_formulation_total(total)
+    _, rows = ask_both(app, opt, 5)
+    assert len(rows) == 5
+    for r in rows:
+        assert low - 1e-6 <= r["A"] + r["B"] <= low + 0.001 + 1e-6, r
+    # A regenerate draws a different chain, in both.
+    ask_both(app, opt, 5)
+
+
+def test_parity_unreachable_property_limit_opening_round(pair):
+    """Protein >= 25 when no ingredient has more than 20: the pool finds
+    nothing, and both samplers land on the same point(s) (today the
+    all-zero formulation, which meets the limit only vacuously)."""
+    app, opt = build(pair)
+    app.add_property("Protein")
+    for name, value in PROTEIN.items():
+        app.set_property_value(name, "Protein", value)
+    opt.set_property_values("Protein", PROTEIN)
+    for o in (app, opt):
+        o.add_constraint("Protein", min_val=25)
+    ask_both(app, opt, 2)

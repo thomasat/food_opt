@@ -320,3 +320,51 @@ def test_settings_snapped_to_step():
     for recipe in opt.ask(4):
         assert recipe["Bake time"] == round(recipe["Bake time"])
         assert 8 <= recipe["Bake time"] <= 14
+
+
+def _thin(low=3.0, high=3.0005):
+    opt = _two()
+    opt.add_ingredient("Salt", 0, 4)
+    opt.add_quantity_constraint(["Pea protein", "Oil"], min_val=low,
+                                max_val=high)
+    return opt
+
+
+def test_thin_limit_fills_the_opening_round():
+    opt = _thin()
+    rows = opt.ask(5)
+    assert len(rows) == 5
+    for r in rows:
+        assert 3.0 - 1e-6 <= r["Pea protein"] + r["Oil"] <= 3.0005 + 1e-6
+    vectors = {tuple(round(r[k], 9) for k in sorted(r)) for r in rows}
+    assert len(vectors) == 5
+
+
+def test_feasible_sampler_only_when_the_pool_falls_short(monkeypatch):
+    opt = _thin(1.0, 6.0)
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("the pool fills this Round on its own")
+
+    monkeypatch.setattr(opt, "_sample_feasible", _boom)
+    assert len(opt.ask(5)) == 5
+
+
+def test_feasible_sampler_leaves_the_torch_rng_alone():
+    import torch
+    opt = _thin()
+    spans = search_bounds(opt.variables, [], [])
+    before = torch.random.get_rng_state().clone()
+    assert opt._sample_feasible(3, spans, bounds_tensor(spans), [])
+    assert torch.equal(torch.random.get_rng_state(), before)
+
+
+def test_feasible_sampler_failure_is_an_empty_list(monkeypatch):
+    opt = _thin()
+    spans = search_bounds(opt.variables, [], [])
+
+    def _broken(spans):
+        raise RuntimeError("no constraints today")
+
+    monkeypatch.setattr(opt, "_linear_constraints", _broken)
+    assert opt._sample_feasible(3, spans, bounds_tensor(spans), []) == []

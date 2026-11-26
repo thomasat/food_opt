@@ -5,11 +5,15 @@ from typing import Callable
 
 import numpy as np
 import torch
+from botorch.utils.sampling import get_polytope_samples
 from torch.quasirandom import SobolEngine
 
 COLD_START_RUNS = 5
 COLD_START_POOLS = (2048, 8192)
 REPEAT_TOLERANCE = 1e-9
+# Points the feasible sampler draws per formulation asked for: some fail the
+# snap onto the total or repeat a formulation already issued.
+FEASIBLE_SAMPLE_DRAWS = 4
 
 
 def sobol_pool(size: int, dim: int, sobol_seed: int, already: int,
@@ -72,3 +76,20 @@ def fill_from_repeats(repeat_recipes: list[dict], chosen, k: int,
             first.append(rec)
             seen.append(vector)
     return (first + rest)[:k]
+
+
+def polytope_points(n: int, dim: int, inequalities, fixed: dict[int, float],
+                    seed: int) -> torch.Tensor:
+    """`FEASIBLE_SAMPLE_DRAWS * n` normalized points from a hit-and-run chain
+    inside the limits (`inequalities`, over the [0, 1] frame), with each
+    fixed column pinned as an equality. Run in its own torch random state."""
+    equalities = [(torch.tensor([col], dtype=torch.long),
+                   torch.tensor([1.0], dtype=torch.double), float(z))
+                  for col, z in fixed.items()] or None
+    with torch.random.fork_rng(devices=[]):
+        return get_polytope_samples(
+            n=FEASIBLE_SAMPLE_DRAWS * n,
+            bounds=torch.stack([torch.zeros(dim), torch.ones(dim)]).double(),
+            inequality_constraints=inequalities or None,
+            equality_constraints=equalities,
+            seed=int(seed), n_burnin=2000, n_thinning=64)

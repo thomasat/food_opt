@@ -46,6 +46,8 @@ from egbo._start import (
     COLD_START_POOLS,
     COLD_START_RUNS,
     fill_from_repeats,
+    polytope_points,
+    repeats as _repeats,
     select,
     sobol_pool,
 )
@@ -555,6 +557,11 @@ class Optimizer:
         if len(results) + len(repeats) >= n:
             return results + fill_from_repeats(repeats, chosen, n - len(results),
                                                self._as_issued)
+        # Limits too thin for any pool to land in often (A + B within a
+        # hair): sample inside them instead. Only here, where the Round would
+        # otherwise come back short or be refused.
+        results = results + self._sample_feasible(n - len(results), spans,
+                                                  bounds, chosen)
         if results:
             return results
         if self.formulation_total is not None:
@@ -567,6 +574,40 @@ class Optimizer:
             raise ValueError(f"{NO_FORMULATION} at the formulation total "
                              f"{_num(self.formulation_total)}")
         raise ValueError(NO_FORMULATION)
+
+    def _sample_feasible(self, n, spans, bounds, chosen):
+        """Up to `n` new formulations from a hit-and-run chain inside the
+        limits, seeded on the next formulation number. Each point is snapped
+        onto the total only where that keeps every limit, checked, and
+        passed over if it repeats an issued formulation, `chosen` or an
+        earlier point. Any failure is an empty list: the refusal stands."""
+        if n <= 0:
+            return []
+        try:
+            points = polytope_points(
+                n, len(self.variables), self._linear_constraints(spans),
+                fixed_features(self.variables, spans),
+                int(self.next_formulation_no))
+            issued = self._issued_matrix()
+            seen = list(chosen)
+            out = []
+            for i in range(points.shape[0]):
+                rec = decode(self.variables,
+                             unnormalize(points[i], bounds).numpy().flatten())
+                if self.formulation_total is not None:
+                    rec = self._snap_to_total(rec)
+                if not self._feasible(rec):
+                    continue
+                vector = self._as_issued(rec)
+                if _repeats(vector, issued) or _repeats(vector, seen):
+                    continue
+                out.append(rec)
+                seen.append(vector)
+                if len(out) >= n:
+                    break
+            return out
+        except Exception:
+            return []
 
     def ask(self, n: int = 1) -> list[dict[str, float]]:
         """Suggest `n` formulations and hold them as the open batch. A second `ask` discards the open rows still unrecorded. The first rounds (`n_init` recorded) are a Sobol design; later ones come from a fitted model. Does not change the global torch RNG."""
