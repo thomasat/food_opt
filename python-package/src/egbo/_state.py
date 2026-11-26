@@ -80,7 +80,7 @@ def save(opt, path) -> None:
                                 prefix=".egbo-", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(to_dict(opt), fh, indent=2)
+            json.dump(to_dict(opt), fh, indent=2, allow_nan=False)
         os.replace(temp, path)
     except BaseException:
         if os.path.exists(temp):

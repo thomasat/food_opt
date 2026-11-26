@@ -298,7 +298,7 @@ def test_reweight_recomputes_scores():
     opt.tell(batch[0], {"Taste": 8, "Texture": 6})
     opt.tell(batch[1], {"Taste": 2, "Texture": 10})
     before = [h["score"] for h in opt.history()]
-    assert opt.add_objective("Taste", weight=3) is True
+    assert opt.add_objective("Taste", weight=3) is None
     after = [h["score"] for h in opt.history()]
     assert after != before
     assert after == [score(opt.objectives, h["results"]) for h in opt.history()]

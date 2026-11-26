@@ -68,12 +68,39 @@ def _num(value) -> str:
     return f"{float(value):g}"
 
 
+def _finite(label, value) -> float:
+    """`value` as a float, or a refusal naming `label`: a bool, a
+    non-number, NaN and inf are not amounts, weights or limits."""
+    if (isinstance(value, bool) or not isinstance(value, numbers.Real)
+            or not math.isfinite(value)):
+        raise ValueError(f"{label} {value!r} is not a finite number")
+    return float(value)
+
+
+def _optional(label, value) -> float | None:
+    return None if value is None else _finite(label, value)
+
+
+def _known(names, singular, plural=None) -> str:
+    """'; the 2 ingredients are A, B', for a refusal of an unknown name."""
+    names = list(names)
+    if not names:
+        return f"; there are no {plural or singular + 's'} yet"
+    if len(names) == 1:
+        return f"; the 1 {singular} is {names[0]}"
+    return f"; the {len(names)} {plural or singular + 's'} are {', '.join(names)}"
+
+
 class Optimizer:
     """Expert-guided batch Bayesian optimizer: you choose the variables, `ask` suggests a batch, `tell` records a result."""
 
     def __init__(self, seed: int | None = None, *, robust: bool = False,
                  bo_config: dict | None = None, n_init: int = COLD_START_RUNS):
         # seed is the Sobol scramble only; warm rounds seed on the counter.
+        if seed is not None and (
+                isinstance(seed, bool) or not isinstance(seed, numbers.Real)
+                or not math.isfinite(seed) or seed != int(seed)):
+            raise ValueError(f"seed must be a whole number, not {seed!r}")
         self.sobol_seed = (int.from_bytes(os.urandom(4), "big") if seed is None
                            else int(seed))
         self.robust = bool(robust)
@@ -108,6 +135,8 @@ class Optimizer:
         name = str(name).strip()
         if not name:
             raise ValueError("A variable needs a name")
+        min_val = _finite(f"{name}: min", min_val)
+        max_val = _finite(f"{name}: max", max_val)
         # An amount does not go below nothing; a min already on file (an
         # older project) is let stand so the row can still be edited.
         editing = self._var(name)
@@ -180,11 +209,12 @@ class Optimizer:
             raise ValueError(f"{newly[0]} (with {name} at {_num(low)} to "
                              f"{_num(high)})")
 
-    def add_ingredient(self, name, min_val, max_val, keep_lowest=False,
+    def add_ingredient(self, name, min_val, max_val, *, keep_lowest=False,
                        baseline=None) -> None:
         """Add an ingredient or change its range. Mid-run, a new ingredient's min resets to 0 (past recipes lacked it) unless `keep_lowest`, or unless `baseline` gives the amount every recorded formulation already used (within min..max; 0 is none). Drops the open batch."""
         name = self._check_new_variable(name, min_val, max_val, "ingredient")
         low, high = float(min_val), float(max_val)
+        baseline = _optional(f"{name}: baseline", baseline)
         # A baseline of 0 is none: the past formulations had none of it.
         cleared = baseline is not None and float(baseline) == 0.0
         baseline = None if baseline is None or cleared else float(baseline)
@@ -232,12 +262,15 @@ class Optimizer:
         return (f"{name}: baseline {_num(baseline)} is the amount recorded "
                 "formulations used, and 0 formulations are recorded")
 
-    def add_process_parameter(self, name, min_val, max_val, baseline=None,
+    def add_process_parameter(self, name, min_val, max_val, *, baseline=None,
                               step=None) -> None:
         """Add a process setting; once recipes exist it needs a `baseline` (the value past runs used). Results are snapped to `step`. Drops the open batch."""
         name = self._check_new_variable(name, min_val, max_val, "setting")
         low, high = float(min_val), float(max_val)
-        step = None if step is None else float(step)
+        baseline = _optional(f"{name}: baseline", baseline)
+        step = _optional(f"{name}: step", step)
+        if step is not None and step <= 0:
+            raise ValueError(f"{name}: step {_num(step)} must be above 0")
         var = self._var(name)
         if var is not None:
             stored = var.absent
@@ -274,7 +307,9 @@ class Optimizer:
         """Change the range of an ingredient or setting. Drops the open batch."""
         var = self._var(name)
         if var is None:
-            raise ValueError(f"No variable named '{name}'")
+            raise ValueError(f"No variable named '{name}'"
+                             + _known([v.name for v in self.variables],
+                                      "variable"))
         if var.kind == "ingredient":
             self.add_ingredient(name, min_val, max_val)
         else:
@@ -294,7 +329,7 @@ class Optimizer:
         self.scores = [score(self.objectives, r) for r in self.results]
 
     def add_objective(self, name, weight, goal="max", target=None,
-                      min_val=None, max_val=None) -> bool:
+                      min_val=None, max_val=None) -> None:
         """Add or replace a measurement. Weights are relative; the scale `min_val`..`max_val` defaults to 0..10. Not allowed once results exist, except to replace one."""
         name = str(name).strip()
         if not name:
@@ -304,11 +339,11 @@ class Optimizer:
         for obj in self.objectives:
             if obj.name != name and obj.name.lower() == name.lower():
                 raise ValueError(f"{name}: already added as '{obj.name}'")
-        weight = float(weight)
+        weight = _finite(f"{name}: weight", weight)
         if weight <= 0:
             raise ValueError(f"{name}: weight {_num(weight)} must be above 0")
-        min_val = float(min_val) if min_val is not None else 0.0
-        max_val = float(max_val) if max_val is not None else 10.0
+        min_val = 0.0 if min_val is None else _finite(f"{name}: scale min", min_val)
+        max_val = 10.0 if max_val is None else _finite(f"{name}: scale max", max_val)
         if min_val >= max_val:
             raise ValueError(f"{name}: scale min {_num(min_val)} must be below "
                              f"max {_num(max_val)}")
@@ -318,7 +353,7 @@ class Optimizer:
         if goal == "target":
             if target is None:
                 raise ValueError(f"{name}: a target goal needs a target")
-            target = float(target)
+            target = _finite(f"{name}: target", target)
             if not min_val <= target <= max_val:
                 raise ValueError(f"{name}: target {_num(target)} is outside the "
                                  f"scale {_num(min_val)} to {_num(max_val)}")
@@ -332,12 +367,13 @@ class Optimizer:
         self.objectives.append(Objective(name, weight, goal, target,
                                          min_val, max_val))
         self._recompute_scores()
-        return replaced
 
     def remove_objective(self, name) -> None:
         """Drop a measurement; the remaining weights are rescaled to sum to 100."""
         if not any(obj.name == name for obj in self.objectives):
-            raise ValueError(f"No measurement named '{name}'")
+            raise ValueError(f"No measurement named '{name}'"
+                             + _known([o.name for o in self.objectives],
+                                      "measurement"))
         self.objectives = [obj for obj in self.objectives if obj.name != name]
         # _shares_to_100 3200: what is left shares the whole 100.
         total = sum(float(obj.weight) for obj in self.objectives)
@@ -358,6 +394,8 @@ class Optimizer:
 
     def _add_quantity_limit(self, names, min_val, max_val, source):
         label = " + ".join(names)
+        min_val = _optional(f"{label}: limit min", min_val)
+        max_val = _optional(f"{label}: limit max", max_val)
         if (min_val is not None and max_val is not None
                 and float(min_val) >= float(max_val)):
             raise ValueError(f"{label}: min {_num(min_val)} must be below max "
@@ -381,13 +419,15 @@ class Optimizer:
     def add_quantity_constraint(self, ingredients, min_val=None,
                                 max_val=None) -> None:
         """Limit the summed amount of some ingredients. Does not drop the open batch."""
-        names = list(ingredients)
+        names = [ingredients] if isinstance(ingredients, str) else list(ingredients)
         if not names:
             raise ValueError("A quantity limit needs at least one ingredient")
         known = set(self._ingredient_names())
         for name in names:
             if name not in known:
-                raise ValueError(f"No ingredient named '{name}'")
+                raise ValueError(f"No ingredient named '{name}'"
+                                 + _known(self._ingredient_names(),
+                                          "ingredient"))
         self._add_quantity_limit(names, min_val, max_val, None)
 
     def add_total_mass_constraint(self, min_val=None, max_val=None) -> None:
@@ -405,7 +445,7 @@ class Optimizer:
 
     def set_formulation_total(self, total) -> None:
         """Fix the total of all ingredients. It is enforced as a +-0.5 % band, and suggestions are snapped to the exact total when that still meets every limit. Refused if the ranges or limits cannot reach it."""
-        value = float(total)
+        value = _finite("Formulation total", total)
         lowest, highest = total_reach(self.variables)
         if value > highest or value < lowest:
             raise ValueError(f"Formulation total {_num(value)} is out of reach: "
@@ -473,12 +513,10 @@ class Optimizer:
         known = set(self._ingredient_names())
         for name, value in values.items():
             if name not in known:
-                raise ValueError(f"No ingredient named '{name}'")
-            if value is not None and (not isinstance(value, numbers.Real)
-                                      or isinstance(value, bool)
-                                      or not math.isfinite(value)):
-                raise ValueError(f"{name}: {metric} value {value!r} is not a "
-                                 "finite number")
+                raise ValueError(f"No ingredient named '{name}'"
+                                 + _known(self._ingredient_names(),
+                                          "ingredient"))
+            _optional(f"{name}: {metric} value", value)
         wanted = str(metric).strip().lower()
         for name, value in values.items():
             props = self.properties.setdefault(name, {})
@@ -489,6 +527,8 @@ class Optimizer:
 
     def add_constraint(self, metric, min_val=None, max_val=None) -> None:
         """Limit a property of the whole formulation: its mass-weighted average over the ingredients, using the per-100 g values. Replaces a limit on the same metric; a refused replacement keeps the old one."""
+        min_val = _optional(f"{metric}: limit min", min_val)
+        max_val = _optional(f"{metric}: limit max", max_val)
         if (min_val is not None and max_val is not None
                 and float(min_val) >= float(max_val)):
             raise ValueError(f"{metric}: min {_num(min_val)} must be below max "
