@@ -46,7 +46,7 @@ batch = opt.ask(3)
 |---|---|
 | `add_ingredient(name, min_val, max_val, baseline=)` | Add an ingredient, or change its range |
 | `add_process_parameter(name, min_val, max_val, step=)` | Add a setting, e.g. mix time |
-| `add_objective(name, weight, goal=, target=)` | Goal `"max"`, `"min"` or `"target"` |
+| `add_objective(name, weight, goal=, target=, min_val=, max_val=)` | Goal `"max"`, `"min"` or `"target"` |
 | `fix(name, value)` / `set_range(name, min_val, max_val)` | Stop varying / vary again |
 | `add_quantity_constraint([names], min_val=, max_val=)` | Limit a sum of amounts |
 | `set_formulation_total(total)` | All ingredients add up to this |
@@ -59,7 +59,7 @@ batch = opt.ask(3)
 
 ## Good to know
 
-- Score: each measurement counts 0–1 on its scale, times its weight.
+- Score: each measurement counts 0–1 on its scale (`min_val`..`max_val`, default 0–10), times its weight. A result off its scale is refused.
 - `tell()` can't be undone. Re-running that notebook cell records the rows again.
 - `ask()` again replaces the suggestions not yet recorded.
 - Rounded amounts are fine: a recipe that matches no suggestion counts as your own formulation.

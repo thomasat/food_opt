@@ -80,10 +80,11 @@ def test_remove_unknown_objective_refused():
 def test_tell_missing_no_baseline_setting_refused():
     opt = _two()
     opt.add_process_parameter("Bake", 10, 20)
-    with pytest.raises(ValueError, match="Missing value for 'Bake'"):
+    with pytest.raises(ValueError, match="Missing amounts for Oil, Bake "
+                                         "\\(3 variables: "):
         opt.tell({"Pea protein": 1.0}, {"Taste": 5})
     assert opt.history() == [] and opt.next_formulation_no == 1
-    opt.tell({"Pea protein": 1.0, "Bake": 12.0}, {"Taste": 5})
+    opt.tell({"Pea protein": 1.0, "Oil": 0.0, "Bake": 12.0}, {"Taste": 5})
     assert len(opt.history()) == 1
 
 

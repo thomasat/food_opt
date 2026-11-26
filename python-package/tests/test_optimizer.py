@@ -100,12 +100,25 @@ def test_tell_missing_result_refused():
     assert opt.history() == []
 
 
-def test_tell_recipe_missing_a_variable_reads_absent():
+def test_tell_recipe_missing_a_variable_refused():
     opt = _two()
-    opt.tell({"Pea protein": 2.0}, {"Taste": 4})
-    entry = opt.history()[0]
-    assert entry["recipe"] == {"Pea protein": 2.0}
-    assert entry["score"] == score(opt.objectives, {"Taste": 4})
+    opt.fix("Oil", 2)
+    with pytest.raises(ValueError) as err:
+        opt.tell({"Pea protein": 2.0}, {"Taste": 4})
+    assert str(err.value) == ("Missing amount for Oil (2 variables: Pea "
+                              "protein, Oil)")
+    assert opt.history() == [] and opt.next_formulation_no == 1
+
+
+def test_rows_recorded_before_a_variable_existed_still_read_absent():
+    opt = _two()
+    opt.tell({"Pea protein": 2.0, "Oil": 1.0}, {"Taste": 4})
+    opt.add_ingredient("Salt", 0, 1)
+    assert opt.history()[0]["recipe"] == {"Pea protein": 2.0, "Oil": 1.0}
+    with pytest.raises(ValueError, match="Missing amount for Salt"):
+        opt.tell({"Pea protein": 2.0, "Oil": 1.0}, {"Taste": 4})
+    opt.tell({"Pea protein": 2.0, "Oil": 1.0, "Salt": 0.5}, {"Taste": 4})
+    assert len(opt.history()) == 2
 
 
 def test_warm_round_after_n_init(monkeypatch):

@@ -778,36 +778,52 @@ class Optimizer:
         """Record a result. If the recipe equals an open row exactly (same amounts) that row is closed; otherwise it is recorded as your own formulation under a new number. Permanent in this version. Returns the formulation number."""
         if not self.objectives:
             raise ValueError("Add a measurement before recording results")
-        names = {v.name for v in self.variables}
+        if not isinstance(recipe, dict):
+            raise ValueError("recipe must be a dict of amounts by variable "
+                             f"name, not {type(recipe).__name__}")
+        if not isinstance(results, dict):
+            raise ValueError("results must be a dict of values by measurement "
+                             f"name, not {type(results).__name__}")
+        all_names = [v.name for v in self.variables]
+        kinds = {v.name: v.kind for v in self.variables}
         amounts = {}
         for key, value in recipe.items():
-            if key not in names:
-                raise ValueError(f"'{key}' is not a variable")
-            if (not isinstance(value, numbers.Real) or isinstance(value, bool)
-                    or not math.isfinite(value)):
-                raise ValueError(f"{key}: amount {value!r} is not a number")
-            amounts[key] = float(value)
-        measured = {obj.name for obj in self.objectives}
+            if key not in kinds:
+                raise ValueError(f"'{key}' is not a variable"
+                                 + _known(all_names, "variable"))
+            amounts[key] = _finite(f"{key}: amount", value)
+            if kinds[key] == "ingredient" and amounts[key] < 0:
+                raise ValueError(f"{key}: amount {_num(value)} is below 0; "
+                                 "amounts start at 0")
+        measured = [obj.name for obj in self.objectives]
         for key in results:
             if key not in measured:
-                raise ValueError(f"'{key}' is not a measurement")
+                raise ValueError(f"'{key}' is not a measurement"
+                                 + _known(measured, "measurement"))
         values = {}
         for obj in self.objectives:
             value = results.get(obj.name)
-            if value is None:
+            if value is None or (isinstance(value, numbers.Real)
+                                 and not isinstance(value, bool)
+                                 and math.isnan(value)):
                 raise ValueError(f"Missing result for '{obj.name}'")
-            if not isinstance(value, numbers.Real) or isinstance(value, bool):
-                raise ValueError(f"Result for '{obj.name}' is not a number: "
-                                 f"{value!r}")
-            if math.isnan(value):
-                raise ValueError(f"Missing result for '{obj.name}'")
-            if not math.isfinite(value):
-                raise ValueError(f"Result for '{obj.name}' is not finite: "
-                                 f"{value!r}")
-            values[obj.name] = float(value)
-        for v in self.variables:
-            if v.absent is None and v.name not in amounts:
-                raise ValueError(f"Missing value for '{v.name}'")
+            value = _finite(f"Result for '{obj.name}':", value)
+            if not obj.min_val <= value <= obj.max_val:
+                raise ValueError(
+                    f"{obj.name}: {_num(value)} is outside its scale "
+                    f"{_num(obj.min_val)} to {_num(obj.max_val)}; set the "
+                    f"scale with add_objective({obj.name!r}, ..., min_val=, "
+                    "max_val=)")
+            values[obj.name] = value
+        # Every current variable: an amount left out would be recorded as
+        # its absent value for good. (Absent values are for rows recorded
+        # before a variable existed.)
+        missing = [name for name in all_names if name not in amounts]
+        if missing:
+            raise ValueError(
+                f"Missing amount{'s' if len(missing) > 1 else ''} for "
+                f"{', '.join(missing)} ({len(all_names)} variables: "
+                f"{', '.join(all_names)})")
         vector = encode(self.variables, amounts)
         number = None
         for k, row in enumerate(self.open_rows):
