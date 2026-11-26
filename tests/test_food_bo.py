@@ -9984,11 +9984,10 @@ class TestTheFormulaColumn:
         # The head names the number it fills to AND where that number is
         # set, so the line is read the same on a round made to another size.
         # The rest row's own Lowest and Highest hold (stable e2752b7), so
-        # its amounts are clipped to its own 60.00 g Highest, and the line
-        # says which of the two clips them.
+        # its amounts are clipped to its own 60.00 g Highest.
         assert opt.worked_out_captions() == [
             "Water fills to the 100 g default "
-            "batch size: between 40.00 and 60.00 g (its own Highest)."]
+            "batch size: between 40.00 and 60.00 g."]
 
     def test_the_caption_never_offers_an_amount_below_nothing(
             self, tmp_path, monkeypatch):
