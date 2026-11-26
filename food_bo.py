@@ -24,6 +24,7 @@ from botorch.acquisition import (
     qLogNoisyExpectedImprovement,
 )
 from botorch.acquisition.monte_carlo import qUpperConfidenceBound
+from botorch.exceptions.errors import InfeasibilityError
 from botorch.fit import fit_gpytorch_mll
 from botorch.models import SingleTaskGP
 from botorch.models.transforms.input import Warp
@@ -7987,10 +7988,15 @@ class FoodOptimizer:
     #  Internal: Constraint Helpers
     # ------------------------------------------------------------------ #
 
-    def _get_botorch_constraints(self):
+    def _get_botorch_constraints(self, frame=None, rest_range=True):
         """Build BoTorch inequality constraints from property + quantity
         constraints, the floor every formula row carries, and the rest row's
         own Lowest and Highest where they bind.
+
+        `frame` and `rest_range` are for _solve_rest_reach alone: the same
+        rows over each row's own allowed amounts rather than the search's
+        frame, and without the rest row's own range — the rows that range is
+        read against, never the rows it decides.
 
         Every limit is written out through _linear_form before it meets a
         column, so a limit that names a row which is worked out becomes
@@ -8000,7 +8006,7 @@ class FoodOptimizer:
         fixed rows feed has always taken."""
         constraints_list = []
         columns = self._search_columns()
-        frame = self._search_frame()
+        frame = self._search_frame() if frame is None else frame
         known = {var['name'] for var in self.variables
                  if var['type'] == 'continuous'}
 
@@ -8080,7 +8086,7 @@ class FoodOptimizer:
                     self._refuse_unreachable_limit(wording.formula_below_zero(
                         var['name'], self._unit_of(var)))
                 continue
-            held = self._held_rest_range(var)
+            held = self._held_rest_range(var) if rest_range else None
             own, reach = (None, None) if held is None else held
             t_idx = torch.tensor(indices, dtype=torch.long)
             t_coeffs = torch.tensor(coeffs, dtype=torch.double)
@@ -8264,7 +8270,15 @@ class FoodOptimizer:
                 recipes = self._ask_cold_start(n_suggestions, bounds_tensor, dim)
             else:
                 # Warm: GP-based Bayesian optimization
-                recipes = self._ask_optimize(n_suggestions, bounds_tensor, dim)
+                try:
+                    recipes = self._ask_optimize(n_suggestions, bounds_tensor,
+                                                 dim)
+                except InfeasibilityError:
+                    # BoTorch found no point inside the limits at all, and
+                    # its own sentence ("Constraint polytope appears empty")
+                    # reached the screen word for word.
+                    raise ValueError(wording.limits_leave_no_formulation(
+                        self._limit_count())) from None
                 if self.has_formulation_total():
                     recipes = [self._snapped_if_it_still_fits(rec)
                                for rec in recipes]
@@ -8280,6 +8294,18 @@ class FoodOptimizer:
         # today is a fact about the round.
         self._snapshot_premixes(self.pending_batch_no, makeups)
         return recipes
+
+    def _limit_count(self):
+        """How many limits the reader wrote: every amount and property limit
+        with a side set, but not the batch size's own, which is the box on
+        tab 1 rather than a limit in the list."""
+        amounts = [qc for qc in getattr(self, 'quantity_constraints', [])
+                   if qc.get('source') != 'formulation_total'
+                   and (qc.get('min') is not None
+                        or qc.get('max') is not None)]
+        properties = [c for c in self.constraints
+                      if c.get('min') is not None or c.get('max') is not None]
+        return len(amounts) + len(properties)
 
     def _settings_on_their_step(self, recipe):
         """One suggestion with every process setting moved onto the step its
@@ -9733,15 +9759,115 @@ class FoodOptimizer:
         leave the row. A range wholly outside that reach — Water 0..100 g
         once the batch size is raised to 120 g and Water can only be
         106..114 g — cannot be met by any formulation, so it stays dormant
-        as it always was, and the caption names it instead."""
+        as it always was, and the caption names it instead. So does a range
+        the other limits rule out (_rest_range_ruling)."""
+        return self._rest_range_ruling(var)[0]
+
+    def _rest_range_ruling(self, var):
+        """(held, limited): _held_rest_range's answer, and what the other
+        limits leave the rest row when it is THEY that rule its own range
+        out (else None).
+
+        The reach is first read off the allowed amounts, as it always was,
+        and the sides that bind are decided from it, so the rows the search
+        is handed do not move. Only a range that binds there is read again
+        against every other row and limit (_rest_reach_with_limits): 'A + B
+        at least 600 g' leaves Water at most 400 g of a 1000 g formulation,
+        and its own 450..700 g then holds nowhere, however much room A and B
+        alone would leave it. Held, it made the search's region empty and a
+        project that generated before refused Generate."""
         own = self._rest_row_range(var)
         if own is None:
-            return None
+            return None, None
         reach = self._form_reach(self._linear_form(var['name']),
                                  self._batch_size())
         if max(own[0], reach[0]) > min(own[1], reach[1]):
+            return None, None
+        if own[0] <= reach[0] and reach[1] <= own[1]:
+            # Wider than anything the amounts leave it: the limits can only
+            # take the reach further inside, so they are not read.
+            return (own, reach), None
+        limited = self._rest_reach_with_limits(var)
+        if limited is not None and (max(own[0], limited[0])
+                                    > min(own[1], limited[1])):
+            return None, limited
+        return (own, reach), None
+
+    def _rest_reach_with_limits(self, var):
+        """_solve_rest_reach, kept against the project state it was solved
+        for. _check_constraints asks for the held range once per candidate
+        of the opening's pool, and a linear programme per candidate was the
+        slowest thing in a Round."""
+        key = repr((var['name'], self.variables, self.constraints,
+                    getattr(self, 'quantity_constraints', []),
+                    self._batch_size(), self.ingredient_properties,
+                    self.premixes))
+        cached = getattr(self, '_rest_reach_cache', None)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        answer = self._solve_rest_reach(var)
+        self._rest_reach_cache = (key, answer)
+        return answer
+
+    def _solve_rest_reach(self, var):
+        """(lowest, highest) the rest row can come to while every other row
+        and limit the search is handed holds — or None when no formulation
+        meets those at all, or one of them is refused outright (Generate
+        says which, in its own words).
+
+        The rows are _get_botorch_constraints' own, so the search, the
+        check and the caption read the same region: every amount and
+        property limit and every worked-out row's floor, but not the rest
+        row's own range, which is the thing being decided. They are written
+        over each row's own Lowest and Highest rather than the search's
+        frame: the frame only ever widens a row and then holds it back to
+        those two, so the answer is the same without a frame that moves
+        with the history. A fixed row is one number, and rides in each
+        row's offset. One small linear programme each way (HiGHS, which is
+        deterministic)."""
+        from scipy.optimize import linprog
+        columns = self._search_columns()
+        by_name = self._by_name()
+        own_frame = {name: tuple(float(b) for b in by_name[name]['bounds'])
+                     for name in columns}
+        try:
+            rows = self._get_botorch_constraints(frame=own_frame,
+                                                 rest_range=False)
+        except ValueError:
             return None
-        return own, reach
+        indices, coeffs, offset = self._form_over_columns(
+            self._linear_form(var['name']), columns, by_name=by_name,
+            frame=own_frame)
+        if not indices:
+            return None
+        used = sorted(set(indices).union(
+            *(set(idx.tolist()) for idx, _, _ in rows)))
+        place = {col: i for i, col in enumerate(used)}
+        a_ub, b_ub = [], []
+        for idx, row_coeffs, rhs in rows:
+            # BoTorch's rows read Σ c·x ≥ rhs; linprog's read A·x ≤ b.
+            line = [0.0] * len(used)
+            for col, c in zip(idx.tolist(), row_coeffs.tolist()):
+                line[place[col]] -= c
+            a_ub.append(line)
+            b_ub.append(-float(rhs))
+        objective = [0.0] * len(used)
+        for col, c in zip(indices, coeffs):
+            objective[place[col]] += c
+        ends = []
+        for sign in (1.0, -1.0):
+            try:
+                answer = linprog([sign * c for c in objective],
+                                 A_ub=a_ub or None, b_ub=b_ub or None,
+                                 bounds=[(0.0, 1.0)] * len(used),
+                                 method='highs')
+            except ValueError:
+                return None
+            if answer.status != 0:
+                return None
+            # To the nanogram, as _limited_total_reach reads its own.
+            ends.append(round(offset + sign * float(answer.fun), 9))
+        return ends[0], ends[1]
 
     def _formula_names(self, skip=None):
         """The names a formula on row `skip` may read: every other row of
@@ -9917,9 +10043,11 @@ class FoodOptimizer:
         Information, not enforcement: nothing here refuses the save.
 
         The rest row is the exception: its own Lowest and Highest hold
-        (_held_rest_range), so its line gives the amounts clipped to them.
-        Only where the two overlap the reach at all; a range nothing can
-        meet keeps the reach and names the range.
+        (_held_rest_range), so its line gives the amounts clipped to them,
+        and says which of the two clip them. Only where the two overlap the
+        reach at all; a range nothing can meet keeps the reach and names the
+        range — and a range the other limits rule out says what they leave
+        the row instead (_rest_range_ruling).
         """
         lines = []
         for var in self._formula_rows():
@@ -9935,17 +10063,24 @@ class FoodOptimizer:
             except (FormulaError, ValueError):
                 continue
             low = max(low, 0.0)
-            held = self._held_rest_range(var)
+            unit = self._unit_of(var)
+            held, limited = self._rest_range_ruling(var)
+            clipped = limited_text = ""
             if held is not None:
                 own = held[0]
+                clipped = wording.rest_range_clips(own[0] > low + 1e-9,
+                                                   own[1] < high - 1e-9)
                 low, high = max(low, own[0]), min(high, own[1])
-            unit = self._unit_of(var)
+            if limited is not None:
+                limited_text = join_unit(
+                    f"{max(limited[0], 0.0):.2f} to {limited[1]:.2f}", unit)
             lines.append(wording.worked_out_caption(
                 name, self._formula_text(var), f"{low:.2f}",
                 join_unit(f"{high:.2f}", unit),
                 self.batch_total_text(self.formulation_total),
                 rest=bool(var.get('balance')),
-                outside_text=self._outside_its_own_range(var, low, high)))
+                outside_text=self._outside_its_own_range(var, low, high),
+                clipped_text=clipped, limited_text=limited_text))
         return lines
 
     def _outside_its_own_range(self, var, low, high):
