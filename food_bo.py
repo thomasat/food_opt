@@ -8330,9 +8330,16 @@ class FoodOptimizer:
         # A tolerance rides on the size of the numbers, so a candidate that
         # lands exactly on the limit is not rejected by the last bit of a float.
         scale = 1.0 + sum(abs(float(a or 0.0)) for a in recipe_dict.values())
+        # A formulation with no ingredients in it has no amount per 100 g, so
+        # it meets no property limit. The linear form reads it as 0 ≥ 0 and
+        # would let it through: with a minimum nothing can reach, it is the
+        # one point left, and the opening-Round sampler finds it.
+        empty = self.ingredient_total(recipe_dict) <= 1e-9 * scale
         for constr in self.constraints:
             metric = constr['metric']
-            if (constr['min'] is not None or constr['max'] is not None) and self.ingredients_without_property(metric):
+            if constr['min'] is None and constr['max'] is None:
+                continue
+            if empty or self.ingredients_without_property(metric):
                 return False
             if constr['min'] is not None:
                 slack = 1e-9 * scale * (1.0 + abs(float(constr['min'])))
