@@ -34,7 +34,8 @@ For real results:
 4. Review the imported values and click “Save uploaded results.”
 5. Open 3 · Results for Round 6's ratings against their targets, then
    4 · Review for the best so far.
-6. Under What next?, “Start Round 7” has the app suggest Round 7.
+6. Under What next?, click “Start Round 7,” then “Generate
+   formulations” for the app's Round 7 suggestions.
    “See the pilot's Rounds 7–10” opens “Yogurt pilot - all 10 Rounds”:
    what the pilot made next.
 To try it again, open Manage project and click “Start this example over.”
@@ -117,8 +118,9 @@ Type Food Optimizer in Start to open the app again. Close the window to
 quit. View → Bigger Text increases the text size.
 
 For help: email sohum.patnaik@fsi.org
-Describe what happened and what you expected. Help → Show Log File opens
-the startup log; attach it to your email. If the app cannot open, paste
+Describe what happened and what you expected. Help → Show Log File shows
+launcher.log in File Explorer; attach it to your email. If the app cannot
+open, paste
 %LOCALAPPDATA%\FoodOptimizer into File Explorer's address bar and attach
 launcher.log.
 

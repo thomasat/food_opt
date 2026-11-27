@@ -14,7 +14,8 @@ MAC = REPO / "desktop" / "start_here.txt"
 WIN = REPO / "desktop" / "windows" / "start_here.txt"
 # 2026-11-24: plain-language pass (M1 chip, home folder, Go to Folder,
 # named options, property limits, percentages, calculations).
-MAC_SHA256 = "6753eddba893dfa28bc7d34112dfc3c727e06ebe6d2203a504be589429e8f9d4"
+# 2026-11-26: "Start Round 7" then Generate; Show Log File shows launcher.log.
+MAC_SHA256 = "4cc66ee9e0e1c4aab4e4bdccd3a4828240c67a99b24d0637efa40a7d8440f2e7"
 
 
 def _module():
