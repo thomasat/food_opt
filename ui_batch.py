@@ -192,15 +192,15 @@ def _unreachable(opt, typed):
     lowest, highest = opt.total_reach()
     stays = opt.batch_total_text(opt.open_round_size())
     if typed > highest:
-        return wording.batch_size_too_big(opt.batch_total_text(highest),
+        return wording.batch_size_too_big(opt.size_bound_text(highest, up=False),
                                           stays)
     if typed < lowest:
         balance = opt.balance_row_name()
         if balance is not None:
             return wording.batch_size_leaves_rest_below_zero(
-                balance, opt.batch_total_text(lowest),
+                balance, opt.size_bound_text(lowest, up=True),
                 opt.unit_of(balance), stays)
-        return wording.batch_size_too_small(opt.batch_total_text(lowest),
+        return wording.batch_size_too_small(opt.size_bound_text(lowest, up=True),
                                             stays)
     # Inside the allowed amounts, and still past what the Limits let them
     # add up to: 'Butter + Sugar at most 45 g' holds 50 + 30 + 25 g to 95 g.
@@ -208,10 +208,10 @@ def _unreachable(opt, typed):
     if limited is not None:
         if typed > limited[1] + 1e-9:
             return wording.batch_size_past_limits(
-                opt.batch_total_text(limited[1]), stays)
+                opt.size_bound_text(limited[1], up=False), stays)
         if typed < limited[0] - 1e-9:
             return wording.batch_size_under_limits(
-                opt.batch_total_text(limited[0]), stays)
+                opt.size_bound_text(limited[0], up=True), stays)
     return ""
 
 

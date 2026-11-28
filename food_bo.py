@@ -3301,6 +3301,19 @@ class FoodOptimizer:
             return ""
         return join_unit(f"{float(total):g}", self.one_amount_unit() or "")
 
+    def size_bound_text(self, total, up):
+        """'98.69 g' — the smallest (up=True) or largest size a refusal asks
+        for, at two decimals and rounded inward, so the number said is one
+        the box accepts. Written out whole it read '98.6905 g' (WIN11 smoke
+        2026-11-27) beside sizes said to two decimals."""
+        cents = float(total) * 100
+        near = round(cents)
+        if abs(cents - near) < 1e-6:
+            cents = near
+        else:
+            cents = math.ceil(cents) if up else math.floor(cents)
+        return self.batch_total_text(cents / 100)
+
     def has_ingredients(self):
         """True when anything is weighed out. A project of process settings
         alone — incubation temperature, time, culture dose — has no amounts,
@@ -7384,11 +7397,11 @@ class FoodOptimizer:
             if value > highest:
                 raise ValueError(wording.total_not_reachable_at_most(
                     self.batch_total_text(value),
-                    self.batch_total_text(highest)))
+                    self.size_bound_text(highest, up=False)))
             if value < lowest:
                 raise ValueError(wording.total_not_reachable_at_least(
                     self.batch_total_text(value),
-                    self.batch_total_text(lowest)))
+                    self.size_bound_text(lowest, up=True)))
             # Inside the allowed amounts, and still past what the Limits
             # let them add up to (the limits written as a % of the default
             # move with it, so they are not asked).
@@ -7396,10 +7409,10 @@ class FoodOptimizer:
             if limited is not None:
                 if value > limited[1] + 1e-9:
                     raise ValueError(wording.limits_allow_at_most(
-                        self.batch_total_text(limited[1])))
+                        self.size_bound_text(limited[1], up=False)))
                 if value < limited[0] - 1e-9:
                     raise ValueError(wording.limits_allow_at_least(
-                        self.batch_total_text(limited[0])))
+                        self.size_bound_text(limited[0], up=True)))
         else:
             # With a balance row every formulation adds up to the batch size
             # by construction, so the reach is that number at both ends and
@@ -7424,7 +7437,7 @@ class FoodOptimizer:
             if value < least + floor - 1e-9:
                 raise ValueError(wording.balance_would_go_negative(
                     balance['name'], self.batch_total_text(value),
-                    self.batch_total_text(least + floor), unit=unit,
+                    self.size_bound_text(least + floor, up=True), unit=unit,
                     floor_text=(join_unit(_fmt_g(floor), unit) if floor > 0
                                 else None)))
         # A project every one of whose amounts can be 0 reaches 0, so the
