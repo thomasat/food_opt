@@ -87,6 +87,20 @@ def test_a_set_total_reads_as_its_one_number():
     assert ui_batch.round_compare(opt).rows[-1] == "Total (set to 100.00 g)"
 
 
+def test_a_resized_round_names_the_total_it_was_resized_to():
+    """The Batch size box scales every amount in the table; the Total row's
+    label is scaled with them, so a 250 g round does not read "set to
+    100.00 g" over a column of 250.00s."""
+    opt = _burger(rounds=1)
+    ui_batch.ask_alone(opt, n_suggestions=2)
+    opt.scale_round(250.0)       # what the round screen's Batch size box does
+    table = ui_batch.round_compare(opt, opt.open_round_size())
+    assert table.rows[-1] == "Total (set to 250.00 g)"
+    c = _cells(table)
+    suggested = [k for k in table.columns if k.startswith("F")]
+    assert suggested and all(c[k][table.rows[-1]].text == "250.00" for k in suggested)
+
+
 def test_no_total_limit_reads_total_in_its_unit():
     opt = _burger(rounds=3, fill=False)
     opt.quantity_constraints = []

@@ -18,6 +18,10 @@ ALLOWED_CHANGES = {
     # Removed in 0.9.0: the Round table names unmade suggestions F19, not
     # "Suggestion 1", so this "?" has nothing to say (owner, 2026-11-16).
     "SUGGESTION_NUMBERS_HELP",
+    # The Fill to total row now keeps its own Lowest and Highest (algorithm
+    # alignment with the web app, owner-approved wording 2026-11-24).
+    "INGREDIENT_MIN_HELP",
+    "INGREDIENT_MAX_HELP",
     # An ingredient added after results can take a Baseline too, the amount
     # every earlier formulation used (stable e2752b7 port, 2026-11-25).
     "BASELINE_HELP",

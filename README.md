@@ -35,7 +35,7 @@ To see real results, choose **Try the yogurt pilot**. It opens **Yogurt pilot - 
 2. Choose **Browse files** and open **Round 6 results (pilot).xlsx**: it is already in your **FoodOptimizer** folder. Or choose **Download the pilot's Round 6 results**, then upload that file.
 3. Review the imported values and choose **Save uploaded results**.
 4. Open **3 · Results** for Round 6's ratings against their targets, then **4 · Review** for the best so far.
-5. Under **What next?**, choose **Start Round 7** to have the app suggest Round 7, or **See the pilot's Rounds 7–10** to open **Yogurt pilot - all 10 Rounds**: what the pilot made next.
+5. Under **What next?**, choose **Start Round 7**, then **Generate formulations** for the app's Round 7 suggestions, or **See the pilot's Rounds 7–10** to open **Yogurt pilot - all 10 Rounds**: what the pilot made next.
 
 To try it again, choose **Manage project → Start this example over**. Your version is kept in **Saved copies**.
 

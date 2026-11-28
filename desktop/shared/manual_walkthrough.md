@@ -13,8 +13,8 @@ from a file", click "Browse files" and choose "Round 6 results
 (pilot).xlsx" in the FoodOptimizer folder (Mac: in your home folder; Windows: Quick access) (it is already there; "Download the
 pilot's Round 6 results" is the other way), then click "Save uploaded
 results". "3 · Results" shows "Round 6 results" (F16, F17 new best, tied);
-on "4 · Review", "Start Round 7" opens "2 · Make a round" with
-F19–F21, and "See the pilot's Rounds 7–10" opens "Yogurt pilot
+on "4 · Review", "Start Round 7" opens "2 · Make a round", where
+"Generate formulations" makes F19–F21, and "See the pilot's Rounds 7–10" opens "Yogurt pilot
 - all 10 Rounds" on "4 · Review". Manage project → "Start this example over" puts Round 6 back
 to waiting and the results file back in the FoodOptimizer folder (Mac: in your home folder; Windows: Quick access), shows one
 line ("… is back as shipped. Your version is in Saved copies."), and
@@ -30,9 +30,10 @@ only." with "Try the yogurt pilot". It never appears unless opened.
 
 UI walkthrough on a project of your own: create one with a default
 batch size of 100 g, Lot and actual amounts recorded (Preparation and
-records), and a Water row whose Rule cell says "= rest", so its
-Highest reads "calculated" and one line under the grid gives
-what it comes to in numbers. On "1 · Set up", type
+records), and a Water row set to Edit calculation → "Fill to total"
+(its Calculation cell reads "= rest"), Lowest and Highest blank. One
+line under the grid gives what it comes to in numbers ("Water fills to
+the 100 g default batch size: between … and … g"). On "1 · Set up", type
 into the ingredients grid and check that "Save changes" lights up and
 "Discard changes" puts the grid back; open "Preparation and records" and
 "Advanced" and check nothing else sits on the tab. In "Preparation and records",
@@ -42,29 +43,31 @@ least", "At most", "Between" or "Exactly" - one box, or two for
 and that "Write it as" offers "% of default batch size" (it is
 there only while a default batch size is set), and that picking an
 ingredient does not close "Preparation and records" under you. Go to "2 · Make a
-round", generate one, check every row of the round table totals the
-batch size and that Water's column is headed "Water · calculated (g)",
-change "Batch size (g)" to 250 and watch every amount
-in the round table follow it, download the Round workbook (Excel) and
-open it: the sheets
+round", generate one, check every formulation column of the round
+table reads the batch size on its "Total (set to 100.00 g)" row and
+that Water's row is named "Water · calculated", change "Batch size (g)"
+to 250 and watch every amount in the round table follow it, the Total
+row with them ("Total (set to 250.00 g)"), download the Round workbook (Excel) and
+open it ("Round overview" and "Results" tabs): the sheets
 are protected, only the cells the instruction line names take a value,
 and a printed greyscale copy makes clear which they are — every one of
 them is boxed, and boxed and shaded are the one treatment: there is no
-second, shaded-but-locked kind of cell. Each formulation page has an
-"Actual (g)" column beside its amounts, with a "Lot" cell per
-ingredient on the "Round 1" page. Water is printed as "Water ·
-calculated" on the formulation pages and "Water · calculated (g)" on the
-round sheet — the mark on the name, the unit behind it, one shape
-everywhere, with the line "Water is calculated: = rest
-(batch size − every other ingredient). Weigh the amount printed."
-under the amounts. Record a result (or mark one Not
+second, shaded-but-locked kind of cell. "Round overview" has a "Lot"
+column beside the ingredients. Tick "Include individual formulation
+pages for printing" and download again: each formulation page has an
+"Actual (g)" column beside its amounts, and the "Lot" column is on the
+"Round 1" page. Water is printed as "Water · calculated" on the
+formulation pages and "Water · calculated (g)" on the round sheet — the
+mark on the name, the unit behind it, one shape everywhere, with the
+line "Water is calculated: Fill to total (batch size − every other
+ingredient). Weigh the amount printed." under the amounts. Record a result (or mark one Not
 scored and score it later from Results), and confirm the `.pkl` appears
 in the FoodOptimizer folder (Mac: in your home folder; Windows: Quick access).
 
 ## The all-formulations workbook
 
 On "3 · Results", click "Download all formulations (Excel)" and open
-it: the "Set up" sheet in THAT file is the one with the Rule column,
-and it spells Water out as "= rest (batch size − every other
-ingredient)" with "calculated" in its Status cell. (The round sheets
+it: the "Set up" sheet in THAT file is the one with the Calculation
+column, and it spells Water out as "Fill to total (batch size − every
+other ingredient)" with "calculated" in its Status cell. (The round sheets
 in "A project of your own" are a different download and carry no Set-up sheet.)

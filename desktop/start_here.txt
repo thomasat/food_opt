@@ -7,13 +7,13 @@ INSTALL
    software (about 1 GB). Progress appears in the window.
    Setup time depends on your connection and computer.
 
-You need a Mac with Apple silicon (M1 or newer), macOS 13 Ventura or newer,
+You need a Mac with an M1 chip or newer, macOS 13 Ventura or newer,
 about 6 GB of free space, and internet for first-time setup. Check your chip
 in Apple menu → About This Mac. You can use the app offline after setup;
 an app update may need another software download.
 
 Updating? Quit the old app, then replace it in Applications. Your saved
-projects are stored separately and are retained.
+projects are stored separately and are kept.
 
 TRY THE SAMPLES
 “Open the burger example” opens an example set-up on 1 · Set up, with
@@ -30,7 +30,8 @@ For real results:
 4. Review the imported values and click “Save uploaded results.”
 5. Open 3 · Results for Round 6's ratings against their targets, then
    4 · Review for the best so far.
-6. Under What next?, “Start Round 7” has the app suggest Round 7.
+6. Under What next?, click “Start Round 7,” then “Generate
+   formulations” for the app's Round 7 suggestions.
    “See the pilot's Rounds 7–10” opens “Yogurt pilot - all 10 Rounds”:
    what the pilot made next.
 To try it again, open Manage project and click “Start this example over.”
@@ -87,48 +88,49 @@ app or on the workbook’s Results tab. These records do not affect scores.
 Use Measurements and targets for outcomes you want scored. Ingredient
 limits are optional restrictions such as a maximum fat content; the sample
 limits its ingredient total. An empty minimum or maximum adds no
-restriction on that side. Missing ingredient property values must be
-filled in before generating with a property limit.
+restriction on that side. If you set a limit on an ingredient property,
+such as fat, fill in that property for every ingredient first.
 
 For a fermentation study, add numeric process settings such as temperature
 and time. A project containing only process settings uses trials and does
-not need a batch size. Named categories such as strain are not varied by
-this version. Different time points can be separate measurements, such as
-pH at 6 h and pH at 24 h.
+not need a batch size. The app cannot vary named options, such as strain,
+yet. Different time points can be separate measurements, such as pH at 6 h
+and pH at 24 h.
 
 You can edit an unrecorded formulation in the round table before making it.
 Use actual amounts/settings to record what you made if it differs from the
 plan. New projects start with optional records turned off.
 
 YOUR FILES AND HELP
-Projects are saved on your Mac in ~/FoodOptimizer. File → Open Projects
-Folder opens that folder. Use “Save a copy of this project” before a major
-change. “Clear project contents,” under Manage project, empties the project
-while keeping its name and saving a copy first; it is not needed to start
-a new round.
+Projects are saved on your Mac in the FoodOptimizer folder in your home
+folder. File → Open Projects Folder opens that folder. Use “Save a copy of
+this project” before a major change. “Clear project contents,” under
+Manage project, empties the project while keeping its name and saving a
+copy first; it is not needed to start a new round.
 
 Open the app again from Applications. Close its window to quit.
 View → Bigger Text increases the text size.
 
 For help: email sohum.patnaik@fsi.org
-Describe what happened and what you expected. Help → Show Log File opens
-the startup log; attach it to your email. If the app cannot open, find
-the log at:
-~/Library/Application Support/FoodOptimizer/launcher.log
+Describe what happened and what you expected. Help → Show Log File shows
+launcher.log in Finder; attach it to your email. If the app cannot open, in
+Finder choose Go → Go to Folder, paste
+~/Library/Application Support/FoodOptimizer and attach launcher.log.
 
 REVIEWING RESULTS
 Results opens on the last Round's results: Overall scores and ratings
 against their targets: orange above a target, purple below. How the score is
 worked out shows one formulation's points. Use View formulation to inspect
 another recorded formulation, including one without a score. Amount and % of
-formulation appear together. Percentages exclude process settings and are
-unavailable for ingredients in different units. All formulations compares
-results in the app; Show amounts adds ingredient amounts to that table.
+formulation appear together. Percentages do not include process settings
+and are not shown when ingredients use different units.
+All formulations compares results in the app; Show amounts adds ingredient
+amounts to that table.
 
 EDITING CALCULATIONS
 Calculation sits beside the ingredient name. Type directly in the cell,
 or select Edit calculation for a larger editor with ingredient suggestions.
 Choose Vary between limits, Fill to total, or Calculate an amount.
 Batch size is the total ingredient amount for one formulation. Fill to total
-adds the remaining amount. Use the chosen calculation,
-then select Save changes. Examples explain arithmetic, not recommended ratios.
+adds the remaining amount. Then select Save changes. The examples show how
+the arithmetic works; they are not recommended amounts.

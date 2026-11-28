@@ -762,17 +762,6 @@ GENERATE_FAILED = ("Could not make formulations. Ask for fewer, or widen a "
                    f"{LIMIT} in Set up.")
 
 
-def limits_leave_no_formulation(count):
-    """'No formulation meets all 3 limits at once. Widen one in Set up.' —
-    the model's search found the limits leave no room at all (BoTorch's
-    empty polytope). With fewer than two limits there is no "at once" to
-    name, and the general sentence says it."""
-    if count < 2:
-        return GENERATE_FAILED
-    return (f"No {FORMULATION} meets all {count} {LIMIT}s at once. Widen one "
-            "in Set up.")
-
-
 def repeat_of_formulation(no):
     return f"Repeat of {FORMULATION_CAP} {no}"
 
@@ -2057,6 +2046,14 @@ def total_not_reachable_at_all(total_text, noun=FORMULATION_TOTAL_NOUN):
     return f"Enter a {noun} above 0."
 
 
+def no_formulation_meets_limits(total_text):
+    """'No formulation meets every limit at 100 g. Widen a limit or the
+    amounts.' — Generate found nothing at a default batch size the allowed
+    amounts do reach: the limits are what cannot be met."""
+    return (f"No {FORMULATION} meets every {LIMIT} at {total_text}. Widen a "
+            f"{LIMIT} or the amounts.")
+
+
 def no_formulation_reaches_total(total_text):
     """Generate found nothing that adds up to the default batch size. It is
     that size that is impossible, so the sentence names it and the two ways
@@ -2896,8 +2893,8 @@ FORMULA_IN_RANGE = "calculation"
 WORKED_OUT = "calculated"
 CALCULATED_RANGE = "Calculated"
 RULE_GUIDE_LABEL = "Calculation help"
-INGREDIENT_MIN_HELP = "Minimum amount the app may suggest. For a calculation-based ingredient, its calculation determines the amount."
-INGREDIENT_MAX_HELP = "Maximum amount the app may suggest for an ingredient without a calculation. Calculated amounts follow their calculation."
+INGREDIENT_MIN_HELP = "Minimum amount the app may suggest. Fill to total also keeps this minimum."
+INGREDIENT_MAX_HELP = "Maximum amount the app may suggest. Fill to total also keeps this maximum."
 MEASUREMENT_MIN_HELP = "Lower end of the measurement scale used to score and check results. This is not a target."
 MEASUREMENT_MAX_HELP = "Upper end of the measurement scale used to score and check results. Widen the scale if a genuine result falls outside it; scores will be recalculated."
 OLD_VARIABLE_BLEND_MODE = "ingredients varied separately"
@@ -3742,7 +3739,7 @@ def formula_below_zero(name, unit):
 
 
 def balance_would_go_negative(name, size_text, least_text, unit="",
-                              noun=None):
+                              noun=None, floor_text=None):
     """'A default batch size of 60 g leaves Water below 0 g. The other
     ingredients need at least 70 g.' — the = rest row is whatever is left
     of the batch size, and there is nothing left.
@@ -3751,10 +3748,55 @@ def balance_would_go_negative(name, size_text, least_text, unit="",
     one going without. And the noun is the box that asked — the Default
     batch size box on Set up, the Batch size box on Make a round — because
     wave 1 settled those as two names for two things."""
-    zero = f"0 {unit}".strip()
+    zero = f"0 {unit}".strip() if floor_text is None else floor_text
     return (f"{(noun or FORMULATION_TOTAL_NOUN).capitalize()} {size_text} "
             f"leaves {name} below {zero}; enter at least "
             f"{least_text}.")
+
+
+def at_most_text(amount_text):
+    return f"at most {amount_text}"
+
+
+def at_least_text(amount_text):
+    return f"at least {amount_text}"
+
+
+def fill_range_text(low_text, high_text, unit=""):
+    """'20–40 g', 'at least 20 g', 'at most 40 g' — the Fill to total row's
+    own range. None for a side with no limit."""
+    if low_text is None:
+        return at_most_text(f"{high_text} {unit}".strip())
+    if high_text is None:
+        return at_least_text(f"{low_text} {unit}".strip())
+    return f"{low_text}–{high_text} {unit}".strip()
+
+
+def _fill_range_phrase(range_text):
+    """'within 20–40 g', or a one-sided range as it is ('at least 20 g')."""
+    if range_text.startswith(("at least ", "at most ")):
+        return range_text
+    return f"within {range_text}"
+
+
+def fill_outside_its_range(name, range_text, reach_text):
+    """'Water must stay within 20–40 g; the other ingredients leave it at
+    least 60 g. Widen an amount or change the batch size.' — the Fill to
+    total row held to its own Lowest and Highest, and no allowed amounts of
+    the other rows put it there. `range_text` is fill_range_text;
+    `reach_text` is at_most_text / at_least_text."""
+    return (f"{name} must stay {_fill_range_phrase(range_text)}; the other "
+            f"{INGREDIENT}s leave it {reach_text}. Widen an amount or change "
+            f"the {BATCH_SIZE_NOUN}.")
+
+
+def no_formulation_with_fill_range(total_text, name, range_text):
+    """'No formulation reaches 100 g with Water within 20–40 g. Widen the
+    amounts or change the batch size.' — Generate found nothing at the
+    default batch size with the Fill to total row inside its own range."""
+    return (f"No {FORMULATION} reaches {total_text} with {name} "
+            f"{_fill_range_phrase(range_text)}. Widen the amounts or change "
+            f"the {BATCH_SIZE_NOUN}.")
 
 
 def formula_reads_this_row(name, row):
@@ -3814,8 +3856,7 @@ def one_balance_only(names_text, many=False):
 
 
 def worked_out_caption(name, formula_text, low_text, high_text, size_text,
-                       rest=False, outside_text="", clipped_text="",
-                       limited_text=""):
+                       rest=False, outside_text=""):
     """'Water is calculated as batch size − Pea protein − Salt: between
     40.00 and 62.00 g in a 100 g formulation.' — one line under the grid per
     row that is calculated rather than typed, so the calculation shows its
@@ -3836,14 +3877,7 @@ def worked_out_caption(name, formula_text, low_text, high_text, size_text,
     `outside_text` is the row's own Lowest and Highest when the calculation takes
     it past them. They are dormant on a worked-out row — the calculation decides
     the amount, not the range — but a calculation that puts Salt at 16 g over a
-    cap of 3 g was landing with nothing said at all. The rest row's own two
-    hold, so its amounts arrive already clipped to them and this is blank.
-
-    `clipped_text` names which of the rest row's own two clip its amounts
-    ("its own Highest"), from rest_range_clips. `limited_text` is what the
-    limits leave a rest row whose own range they rule out ("300.00 to
-    400.00 g"): the range is dormant for them, not for the amounts, and the
-    line says so in the limits' own numbers.
+    cap of 3 g was landing with nothing said at all.
     """
     text = str(formula_text).strip()
     if rest:
@@ -3857,24 +3891,10 @@ def worked_out_caption(name, formula_text, low_text, high_text, size_text,
             else f"{head}: between {low_text} and {high_text}")
     if size_text and not rest:
         span = f"{span} in a {size_text} {FORMULATION}"
-    if clipped_text:
-        span = f"{span} ({clipped_text})"
-    if outside_text and limited_text:
-        return (f"{span}. Its own {LOWEST_LABEL} and {HIGHEST_LABEL} "
-                f"({outside_text}) do not apply: the {LIMIT}s leave it "
-                f"{limited_text}.")
     if outside_text:
         return (f"{span}. Its own {LOWEST_LABEL} and {HIGHEST_LABEL} "
                 f"({outside_text}) do not apply while the calculation does.")
     return f"{span}."
-
-
-def rest_range_clips(low, high):
-    """'its own Lowest and Highest' — which of the rest row's own two the
-    amounts under the grid are clipped to, or "" when neither."""
-    ends = [label for label, clips in ((LOWEST_LABEL, low),
-                                       (HIGHEST_LABEL, high)) if clips]
-    return f"its own {' and '.join(ends)}" if ends else ""
 
 
 def rest_row_keeps_the_others(size_text):

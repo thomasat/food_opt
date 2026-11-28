@@ -139,7 +139,8 @@ version X.Y.Z:
 1. Ahead of time: the Mac's Developer ID identity and notary profile work
    (step 5). Windows ships unsigned until Food System Innovations' Artifact
    Signing is set up; an unsigned release's page and download email say
-   `"Unknown publisher."` (`tests/test_release_texts.py`).
+   `"Windows protected your PC"`: More info, then Run anyway; it shows
+   "Unknown publisher" until signing (`tests/test_release_texts.py`).
 2. Only if `requirements.txt` changed since the last release: run
    `./desktop/update_lock.sh` (it rewrites the Mac lock only when packages
    changed) and commit the result. Then re-measure `EXPECTED_SETUP_MB` in
@@ -237,8 +238,9 @@ Notes:
 - The repo is public, so the links work for anyone — no GitHub account needed.
 - An unsigned Mac build is for internal testers only: never send one
   (Gatekeeper calls it damaged; see below). Windows ships unsigned until
-  Artifact Signing is set up: SmartScreen says "Unknown publisher", and the
-  release page and download email say what to click.
+  Artifact Signing is set up: SmartScreen says "Windows protected your PC"
+  (More info, then Run anyway; it shows "Unknown publisher" until signing),
+  and the release page and download email say what to click.
 - To replace a release's file (e.g. after signing):
   `gh release upload vX.Y.Z <file> --clobber`
 

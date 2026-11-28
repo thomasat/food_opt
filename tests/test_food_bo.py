@@ -1099,20 +1099,35 @@ class TestActiveSet:
         assert opt_configured._get_fixed_features() == {1: 0.0}
         assert [v["name"] for v in opt_configured.fixed_variables()] == ["Flour"]
 
-    def test_a_fixed_column_is_pinned_inside_a_frame_that_has_a_width(
+    def test_a_fixed_column_is_pinned_inside_the_range_it_varied_over(
+            self, opt_configured):
+        """As in the web app: a row fixed after it varied keeps the range it
+        varied over as its frame, and is pinned inside it."""
+        opt_configured.add_ingredient("Flour", 12.5, 12.5)  # was (0, 50)
+        assert opt_configured._var_by_name("Flour")["search_range"] == [0.0, 50.0]
+        assert opt_configured._get_fixed_features() == {1: 0.25}
+        bounds = opt_configured._get_bounds()
+        assert bounds[0][1].item() == 0.0 and bounds[1][1].item() == 50.0
+
+    def test_a_never_varied_fixed_column_is_pinned_inside_a_frame_that_has_a_width(
             self, opt_configured):
         """A point has no frame of its own: normalizing by a zero span is a
         division by zero, and it is the history that goes through it."""
-        opt_configured.add_ingredient("Flour", 12.5, 12.5)  # was (0, 50)
-        assert opt_configured._get_fixed_features() == {1: 0.0}
+        opt_configured.add_ingredient("Salt", 12.5, 12.5)  # new, never varied
+        assert "search_range" not in opt_configured._var_by_name("Salt")
+        assert opt_configured._get_fixed_features() == {3: 0.0}
         bounds = opt_configured._get_bounds()
-        assert bounds[0][1].item() == 12.5 and bounds[1][1].item() == 13.5
+        assert bounds[0][3].item() == 12.5 and bounds[1][3].item() == 13.5
 
     def test_the_frame_stretches_to_cover_what_was_already_recorded(
             self, opt_configured):
+        """A row fixed by 0.9.0 or earlier carries no memory of its range:
+        its frame is still the span of what was recorded, so its suggestions
+        do not move."""
         opt_configured.tell({"Water": 50.0, "Flour": 40.0, "Sugar": 5.0},
                             {"Taste": 7.0})
         opt_configured.add_ingredient("Flour", 10, 10)
+        opt_configured._var_by_name("Flour").pop("search_range")
         bounds = opt_configured._get_bounds()
         assert bounds[0][1].item() == 10.0 and bounds[1][1].item() == 40.0
         # ...and the fixed value still lands on its own amount.
@@ -1205,7 +1220,7 @@ class TestActiveSet:
         clone = FoodOptimizer(project_name="clone_project")
         clone.import_json(state)
         assert [v["name"] for v in clone.fixed_variables()] == ["Flour"]
-        assert clone._get_fixed_features() == {1: 0.0}
+        assert clone._get_fixed_features() == {1: 0.25}
 
     def test_legacy_variables_default_to_varying(self, opt_configured):
         """Projects saved before pruning existed must load fully in play."""
@@ -8456,6 +8471,10 @@ def test_a_fixed_columns_frame_survives_a_history_that_barely_moved(
     for i in range(5):
         opt.tell({"Water": 40.0 + i, "Salt": 2.0 + i * 1e-13}, {"Taste": 5.0})
     opt.add_ingredient("Salt", 2.0, 2.0)
+    # The floor is for a row with no remembered range (fixed by 0.9.0 or
+    # earlier); one remembered is the range itself.
+    assert opt._search_bounds()[1] == (0.0, 10.0)
+    opt._var_by_name("Salt").pop("search_range")
     low, high = opt._search_bounds()[1]
     assert high - low == pytest.approx(1.0)
     assert all(row["Salt"] == pytest.approx(2.0)
@@ -9495,10 +9514,12 @@ class TestFormulaRows:
             **{wording.LOWEST_LABEL: 20.0, wording.HIGHEST_LABEL: 25.0}))
         assert opt.total_reach() == (20.0, float('inf'))
         assert opt.balance_row_name() == "Water"
+        # Water's own Lowest (30 g in the file) is enforced on the rest row,
+        # so the floor is the 20 g the others need plus those 30 g.
         with pytest.raises(ValueError) as caught:
             opt.set_formulation_total(15.0)
         assert str(caught.value) == wording.balance_would_go_negative(
-            "Water", "15 g", "20 g", unit="g")
+            "Water", "15 g", "50 g", unit="g", floor_text="30 g")
 
     def test_changing_the_default_says_what_the_rest_row_now_takes(
             self, tmp_path, monkeypatch):
@@ -9888,13 +9909,16 @@ class TestTheFormulaColumn:
         """One word doing one job twice on two cells side by side. Lowest
         is left blank and Highest carries the mark, so the pair reads as
         one fact about the row."""
+        # A calculation other than Fill to total: that row's own range is
+        # enforced and shown (tests/test_balance_range.py).
         opt = self._opt(tmp_path, monkeypatch)
         opt.apply_ingredient_grid(self._formula(
-            opt.ingredient_grid_frame(), 1, "= rest"))
+            opt.ingredient_grid_frame(), 1,
+            "= batch size − Pea protein − Salt"))
         frame = opt.ingredient_grid_frame()
         assert list(frame.columns)[-1] == wording.FORMULA_LABEL
         row = frame.loc[1]
-        assert row[wording.FORMULA_LABEL] == "= rest"
+        assert row[wording.FORMULA_LABEL] == "= batch size − Pea protein − Salt"
         assert row[wording.LOWEST_LABEL] == ""
         assert row[wording.HIGHEST_LABEL] == ""
         # Every other row carries the two-decimal text a number column used
@@ -9983,12 +10007,12 @@ class TestTheFormulaColumn:
             opt.ingredient_grid_frame(), 1, "= rest"))
         # The head names the number it fills to AND where that number is
         # set, so the line is read the same on a round made to another size.
-        # The rest row's own Lowest and Highest hold (stable e2752b7), so
-        # its amounts are clipped to its own 60.00 g Highest, and the line
-        # says which of the two clips them.
+        # The Fill to total row's own range is what its two cells hold, and
+        # they were blank under the calculation it replaced: no limit, and
+        # nothing said about a range not applying.
         assert opt.worked_out_captions() == [
             "Water fills to the 100 g default "
-            "batch size: between 40.00 and 60.00 g (its own Highest)."]
+            "batch size: between 40.00 and 62.00 g."]
 
     def test_the_caption_never_offers_an_amount_below_nothing(
             self, tmp_path, monkeypatch):
@@ -10583,8 +10607,9 @@ class TestTheFormulaColumnFixes:
             self, tmp_path, monkeypatch):
         """Ignored means ignored: the row's amount is its formula, so a
         word left in the cell beside it is not a number the reader owes."""
+        # A calculation other than Fill to total, whose cells ARE read.
         opt = self._opt(tmp_path, monkeypatch)
-        opt.set_formula("Water", "= rest")
+        opt.set_formula("Water", "= batch size − Pea protein − Salt")
         errors, _ = opt.apply_ingredient_grid(_edit(
             opt.ingredient_grid_frame(), 1,
             **{wording.LOWEST_LABEL: "about a cup",
@@ -10674,9 +10699,9 @@ class TestTheFormulaColumnFixes:
 
     def test_a_rest_rows_water_keeps_the_range_its_formula_covers(
             self, tmp_path, monkeypatch):
-        """A worked-out row may carry a dormant range: the grid shows the
-        word, and rubbing the formula out gives the row its amounts back
-        rather than a row pinned at nothing."""
+        """The Fill to total row shows the range it is held inside, and
+        rubbing the formula out gives the row its amounts back rather than a
+        row pinned at nothing."""
         monkeypatch.chdir(tmp_path)
         opt = FoodOptimizer("sample_range", robust=False)
         opt.set_amount_unit("g")
@@ -10689,12 +10714,15 @@ class TestTheFormulaColumnFixes:
         assert water['bounds'] == (0.0, 100.0)
         frame = opt.ingredient_grid_frame()
         row = frame[frame[wording.NAME_LABEL] == "Remaining water"].iloc[0]
+        # The file gave the '= rest' row 0 and 100: its range is at most
+        # 100 g (a Lowest of 0 is the floor every calculated row keeps).
         assert row[wording.LOWEST_LABEL] == ""
-        assert row[wording.HIGHEST_LABEL] == ""
+        assert row[wording.HIGHEST_LABEL] == "100.00"
         at = int(frame.index[frame[wording.NAME_LABEL] == "Remaining water"][0])
         errors, _ = opt.apply_ingredient_grid(_edit(
             frame, at, **{wording.FORMULA_LABEL: ""}))
         assert errors == []
+        # The blank Lowest cell is the row's own 0 again (its kept range).
         back = opt.ingredient_grid_frame()
         row = back[back[wording.NAME_LABEL] == "Remaining water"].iloc[0]
         assert (row[wording.LOWEST_LABEL], row[wording.HIGHEST_LABEL]) == \

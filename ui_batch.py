@@ -192,15 +192,15 @@ def _unreachable(opt, typed):
     lowest, highest = opt.total_reach()
     stays = opt.batch_total_text(opt.open_round_size())
     if typed > highest:
-        return wording.batch_size_too_big(opt.batch_total_text(highest),
+        return wording.batch_size_too_big(opt.size_bound_text(highest, up=False),
                                           stays)
     if typed < lowest:
         balance = opt.balance_row_name()
         if balance is not None:
             return wording.batch_size_leaves_rest_below_zero(
-                balance, opt.batch_total_text(lowest),
+                balance, opt.size_bound_text(lowest, up=True),
                 opt.unit_of(balance), stays)
-        return wording.batch_size_too_small(opt.batch_total_text(lowest),
+        return wording.batch_size_too_small(opt.size_bound_text(lowest, up=True),
                                             stays)
     # Inside the allowed amounts, and still past what the Limits let them
     # add up to: 'Butter + Sugar at most 45 g' holds 50 + 30 + 25 g to 95 g.
@@ -208,10 +208,10 @@ def _unreachable(opt, typed):
     if limited is not None:
         if typed > limited[1] + 1e-9:
             return wording.batch_size_past_limits(
-                opt.batch_total_text(limited[1]), stays)
+                opt.size_bound_text(limited[1], up=False), stays)
         if typed < limited[0] - 1e-9:
             return wording.batch_size_under_limits(
-                opt.batch_total_text(limited[0]), stays)
+                opt.size_bound_text(limited[0], up=True), stays)
     return ""
 
 
@@ -551,6 +551,14 @@ def _add_own(opt):
     cautions = ([] if _prefilled_unchanged(opt) else
                 [c for c in (bounds_caution(opt, v['name'], recipe[v['name']])
                              for v in opt.varying_variables()) if c])
+    # The Fill to total row is not typed but is held inside its own range:
+    # what it filled to is cautioned the same way.
+    filler = opt.balance_row_name()
+    if not _prefilled_unchanged(opt) and filler is not None:
+        filled = (opt.pending_batch or [{}])[-1].get('recipe', {})
+        caution = bounds_caution(opt, filler, filled.get(filler))
+        if caution:
+            cautions.append(caution)
     _clear_own(opt)
     flash("success", wording.own_formulation_added(number, opt.pending_batch_no))
     for caution in cautions:
@@ -872,9 +880,12 @@ def round_compare(opt, scale_to=None):
     if with_total:
         one = opt.one_amount_unit()
         if limit is not None and one is not None:
+            # At the size the amounts are shown at: a 250 g round of a
+            # 100 g project reads "set to 250.00 g" over its 250.00s.
+            k = opt.amount_scale(scale_to)
             total_label = wording.total_row(
-                None if limit[0] is None else f"{float(limit[0]):.2f}",
-                None if limit[1] is None else f"{float(limit[1]):.2f}", one)
+                None if limit[0] is None else f"{float(limit[0]) * k:.2f}",
+                None if limit[1] is None else f"{float(limit[1]) * k:.2f}", one)
         else:
             total_label = wording.total_row(unit=one or "")
 

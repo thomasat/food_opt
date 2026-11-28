@@ -320,7 +320,7 @@ def check_rules_premix_sample_draft(app_path):
 Textured pea protein,,,4,6,,,g,6.0
 Textured soy protein,,,4,6,,,g,6.0
 Hydration water,,,0,100,,= 2.2 * (Textured pea protein + Textured soy protein),g,0.0
-Remaining water,,,0,100,,= rest,g,0.0
+Remaining water,,,,,,= rest,g,0.0
 Dry blend,,Pre-mix: keep proportions fixed,15,18,,,g,
 Pea protein isolate,Dry blend,,,,66,,g,8.0
 Potato starch,Dry blend,,,,26,,g,0.1
@@ -369,9 +369,9 @@ Sunflower oil,Fats and oils,,2,5,,,g,100.0
     assert columns[-1] == wording.FORMULA_LABEL, columns
 
     # Remaining water takes the rest of the batch size, so its amount is not
-    # typed: the Calculation cell says Fill to total, the two range cells are
-    # blank beside it, and one caption under the grid says what it fills to
-    # and what that comes to in numbers.
+    # typed: the Calculation cell says Fill to total, the two range cells
+    # beside it are blank (no range typed for it), and one caption under the
+    # grid says what it fills to and what that comes to in numbers.
     water = grid[grid[wording.NAME_LABEL] == "Remaining water"]
     assert len(water) == 1, list(grid[wording.NAME_LABEL])
     assert water.iloc[0][wording.FORMULA_LABEL] == wording.FILL_TO_TOTAL, \

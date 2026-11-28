@@ -4,9 +4,10 @@ page (desktop/release_notes/<version>.md), the Windows download email
 
 Owner, 2026-10-25: the main thing sent is a download link. The page holds
 the two download links, three "what is new" lines, one update line and
-about five lines for IT teams; the email is five lines; the README's
-Windows section is the link and one requirements line. Every claim left is
-read here from the code or the test that backs it."""
+about five lines for IT teams; the email is the link, the three download
+warnings (2026-11-24) and where to ask; the README's Windows section is
+the link and one requirements line. Every claim left is read here from the
+code or the test that backs it."""
 import ast
 import json
 import pathlib
@@ -45,22 +46,44 @@ def _section(text, heading):
     return text[start:] if end < 0 else text[start:end]
 
 
-def _start_here_smartscreen():
-    text = flowed(read_lf(WINDOWS / "start_here.txt"))
-    return re.search(r"Windows may say .*?Run anyway\.", text).group(0)
-
-
-# 0.9.0 ships unsigned (owner, 2026-11-16): SmartScreen names no publisher,
-# so the line says what it does show. Owner-approved words.
-SMARTSCREEN = 'Windows may say "Unknown publisher." Click More info, then Run anyway.'
+# The three warnings an unsigned 0.9.0 download shows, in order: Edge's
+# downloads panel, Edge's next box, SmartScreen. Every sent text carries
+# these words. Recorded on WIN11-VM (Edge, Windows 11, unsigned installer)
+# 2026-11-24; owner-approved. "…" is Edge's own More actions button.
+WARNINGS_INTRO = "Windows warns about new apps it doesn't know yet. This is expected. To continue:"
+WARNINGS = ("In Edge's download list: point at the file, click \u2026, then Keep.",
+            "In the box that opens: click the arrow beside Delete, then Keep anyway.",
+            'On the blue "Windows protected your PC" screen: click More info, then Run anyway.')
+# The release page's markdown of the same steps, as on the draft release.
+NOTES_WARNINGS = ("1. **In Edge's download list:** point at the file, click **\u2026**, then **Keep**.",
+                  "2. **In the box that opens:** click the **arrow beside Delete**, then **Keep anyway**.",
+                  '3. **On the blue "Windows protected your PC" screen:** click **More info**, '
+                  "then **Run anyway**.")
 # Until the build is signed, no sent text may promise a publisher.
 SENT_TEXTS = (NOTES, EMAIL, README, WINDOWS / "start_here.txt",
               REPO / "desktop" / "shared" / "start_here.src.md")
-# Edge's keep path, recorded at checklist W1 (WIN11-VM, Edge 157, unsigned
-# installer, 2026-11-16); owner-approved words. "…" is Edge's own button.
-EDGE = ("If Edge warns about the download, click \u2026 then Keep.",
-        "Then click the arrow beside Delete, then Keep anyway.")
 REQUIREMENTS = "Needs 64-bit Windows 10 (22H2) or Windows 11 and 2 GB free."
+
+
+def _numbered(labels):
+    return [f"{label}. {step}" for label, step in zip(labels, WARNINGS)]
+
+
+def _install_step_one():
+    """The lines under Start Here's INSTALL step 1, up to step 2."""
+    lines = read_lf(WINDOWS / "start_here.txt").splitlines()
+    first = lines.index("1. Open the Food Optimizer installer you downloaded.") + 1
+    last = next(i for i in range(first, len(lines)) if lines[i].startswith("2. "))
+    return lines[first:last]
+
+
+def _start_here_warnings():
+    """Start Here's intro and its three steps, labels a./b./c. taken off;
+    lines wrapped at 80 columns are joined."""
+    text = " ".join(line.strip() for line in _install_step_one())
+    m = re.fullmatch(r"(.*?) a\. (.*?) b\. (.*?) c\. (.*)", text)
+    assert m, text
+    return m.group(1), m.groups()[1:]
 
 
 def _requirements():
@@ -91,10 +114,12 @@ def _url(role):
 
 # ---------- the release page ----------
 
-# Under the Mac link (owner, 2026-10-25): who can install it. The Mac
-# launcher refuses anything else (arm64, macOS 13+; desktop/README.md's
-# requirements block says the same).
-MAC_NEEDS = "Needs a Mac with Apple silicon, macOS 13 or later."
+# Under the Mac link (owner, 2026-10-25; reworded on the draft release
+# 2026-11-24): how to install, then who can. The Mac launcher refuses
+# anything else (arm64, macOS 13+; desktop/README.md's requirements block
+# and Mac Start Here say the same).
+MAC_NEEDS = ("Open it, then drag Food Optimizer into Applications. Needs a Mac with an "
+             "M1 chip or newer and macOS 13 or later. The first opening needs internet.")
 
 
 def test_mac_requirement_line_is_what_the_mac_app_enforces():
@@ -102,11 +127,27 @@ def test_mac_requirement_line_is_what_the_mac_app_enforces():
     assert "Apple silicon" in readme and "macOS 13" in readme
     launcher = (REPO / "desktop" / "launcher.sh").read_text(encoding="utf-8")
     assert '"arm64"' in launcher and "-lt 13" in launcher
+    mac_start_here = flowed(read_lf(REPO / "desktop" / "start_here.txt"))
+    assert "Drag Food Optimizer into Applications." in mac_start_here
+    assert "M1 chip or newer, macOS 13 Ventura or newer," in mac_start_here
+    assert "internet for first-time setup" in mac_start_here
 
-def test_start_here_smartscreen_is_the_owners_sentence():
-    assert _start_here_smartscreen() == SMARTSCREEN
-    lines = [line.strip() for line in read_lf(WINDOWS / "start_here.txt").splitlines()]
-    assert lines[lines.index(EDGE[0]):lines.index(EDGE[0]) + 3] == [*EDGE, SMARTSCREEN]
+def test_start_here_warnings_are_the_owners_steps():
+    """Under INSTALL step 1, indented to match it, lettered so they do not
+    read as steps 1-3 again; step 2 follows."""
+    assert _start_here_warnings() == (WARNINGS_INTRO, WARNINGS)
+    lines = _install_step_one()
+    labelled = [i for i, line in enumerate(lines) if re.match(r"   [abc]\. ", line)]
+    assert [lines[i][3:5] for i in labelled] == ["a.", "b.", "c."], lines
+    for i, line in enumerate(lines):
+        indent = len(line) - len(line.lstrip())
+        # The intro and the labels at step 1's text; a wrapped step under its own text.
+        assert indent == (3 if i < labelled[0] or i in labelled else 6), line
+
+
+def test_notes_warnings_are_the_same_steps_in_markdown():
+    assert tuple(line[3:].replace("*", "") for line in NOTES_WARNINGS) == WARNINGS
+    assert [line[:3] for line in NOTES_WARNINGS] == ["1. ", "2. ", "3. "]
 
 
 def test_notes_are_the_owners_five_parts():
@@ -116,15 +157,16 @@ def test_notes_are_the_owners_five_parts():
     assert re.findall(r"^## (.+)$", text, re.M) == [f"What is new in {VERSION}", "For IT teams"]
     head = text[:text.index("## What is new")]
     assert _lines(head) == [f"**[Download for Mac]({_url('dmg')})**", MAC_NEEDS,
-                            f"**[Download for Windows]({_url('exe')})**", *EDGE, SMARTSCREEN]
+                            f"**[Download for Windows]({_url('exe')})**",
+                            WARNINGS_INTRO, *NOTES_WARNINGS]
     for gone in ("{{", "MB", "Assets", "Checksums", "SHA-256", "Source code", "IT sheet", "SBOM"):
         assert gone not in text, gone
 
 
-def test_notes_say_what_changed_in_three_lines():
+def test_notes_say_what_changed_in_four_lines():
     section = _section(_visible(NOTES.read_text(encoding="utf-8")), "## What is new in")
     bullets = [line[2:] for line in section.splitlines() if line.startswith("- ")]
-    assert len(bullets) == 3, bullets
+    assert len(bullets) == 4, bullets
     for bullet in bullets:
         for sentence in _sentences(bullet):
             assert len(sentence.split()) <= 15, sentence
@@ -155,17 +197,17 @@ IT_UNSIGNED = "Unsigned: allow-list it by file hash, not by publisher."
 
 def test_it_unsigned_line_matches_the_readme():
     assert _it_lines()[4] == IT_UNSIGNED
-    assert SMARTSCREEN in NOTES.read_text(encoding="utf-8")
+    assert NOTES_WARNINGS[2] in NOTES.read_text(encoding="utf-8")
     text = " ".join(WIN_README.read_text(encoding="utf-8").split())
     allow = text[text.index("### Allow-listing"):text.index("## Test")]
     assert "allow it by hash or path, not by publisher" in allow
 
 
-def test_notes_bullet_three_names_csv_and_get_help():
+def test_notes_last_two_bullets_name_csv_and_get_help():
     section = _section(_visible(NOTES.read_text(encoding="utf-8")), "## What is new in")
     bullets = [line[2:] for line in section.splitlines() if line.startswith("- ")]
-    assert bullets[2] == ("CSV files from Excel in other languages upload correctly. "
-                          "Get Help now gives an email address.")
+    assert bullets[-2:] == ["CSV files saved from Excel in other languages now upload correctly.",
+                            "Get Help now gives an email address."]
 
 
 def test_it_exit_line_names_the_documented_codes():
@@ -248,12 +290,14 @@ def test_notes_sentences_are_short():
 
 # ---------- the download email ----------
 
-def test_email_is_five_lines():
-    """The direct .exe link, the two Edge lines, Start Here's SmartScreen
-    sentence and where to ask: no size, steps, subject or attachment lines."""
+def test_email_is_six_lines():
+    """The direct .exe link, the three warnings (Start Here's steps) under
+    their intro line, and where to ask: no size, install steps, subject or
+    attachment lines."""
     lines = _lines(EMAIL.read_text(encoding="utf-8"))
-    assert lines == [f"Food Optimizer for Windows: {_url('exe')}", *EDGE, _start_here_smartscreen(),
-                     f"Questions: {CONTACT}"]
+    assert _start_here_warnings() == (WARNINGS_INTRO, WARNINGS)
+    assert lines == [f"Food Optimizer for Windows: {_url('exe')}", WARNINGS_INTRO,
+                     *_numbered("123"), f"Questions: {CONTACT}"]
 
 
 def test_email_links_straight_to_the_exe():

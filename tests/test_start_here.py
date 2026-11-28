@@ -12,8 +12,10 @@ from tests.shared_texts import REPO, flowed, read_lf
 SRC = REPO / "desktop" / "shared" / "start_here.src.md"
 MAC = REPO / "desktop" / "start_here.txt"
 WIN = REPO / "desktop" / "windows" / "start_here.txt"
-# 0.9.0 (owner, 2026-11-16): "Round workbook" and three lines rewrapped.
-MAC_SHA256 = "ef8f36f66c6b32628bfb6dbfbd3de591dfe1b631dde389465d3e493edf411648"
+# 2026-11-24: plain-language pass (M1 chip, home folder, Go to Folder,
+# named options, property limits, percentages, calculations).
+# 2026-11-26: "Start Round 7" then Generate; Show Log File shows launcher.log.
+MAC_SHA256 = "4cc66ee9e0e1c4aab4e4bdccd3a4828240c67a99b24d0637efa40a7d8440f2e7"
 
 
 def _module():
@@ -69,12 +71,20 @@ def test_windows_start_here_says_what_the_spec_requires():
                    "First opening takes longer. Keep the app's window open.",
                    "Quick access",
                    "Enable Editing",
-                   'Windows may say "Unknown publisher." Click More info, then Run anyway.',
                    "Download the Round workbook (Excel).",
-                   "If Edge warns about the download, click \u2026 then Keep. "
-                   "Then click the arrow beside Delete, then Keep anyway.",
+                   # The three download warnings (tests/test_release_texts.py),
+                   # lettered under INSTALL step 1.
+                   "1. Open the Food Optimizer installer you downloaded. "
+                   "Windows warns about new apps it doesn't know yet. This is expected. "
+                   "To continue: "
+                   "a. In Edge's download list: point at the file, click \u2026, then Keep. "
+                   "b. In the box that opens: click the arrow beside Delete, then Keep anyway. "
+                   "c. On the blue \"Windows protected your PC\" screen: click More info, "
+                   "then Run anyway. "
+                   "2. Click Install.",
                    wording.SUPPORT_EMAIL,
-                   "AppData\\Local\\FoodOptimizer\\launcher.log"):
+                   "paste %LOCALAPPDATA%\\FoodOptimizer into File Explorer's address bar "
+                   "and attach launcher.log."):
         assert needed in text, needed
     assert "Setup time depends on your connection and computer." not in text
     for banned in ("Finder", "Applications", "⌘", "~/", r"\bMac\b", r"\bNumbers\b", "Apple"):

@@ -606,7 +606,8 @@ def test_windows_requirements_name_the_disk_figure():
     from tests.shared_texts import flowed, read_lf
     n = json.loads(SIZE_GATE.read_text(encoding="utf-8"))["disk_free_gb"]
     text = flowed(read_lf(WINDOWS / "start_here.txt"))
-    assert f"You need a 64-bit PC with Windows 10 (22H2) or Windows 11 and {n} GB free." in text
+    assert (f"You need a PC with Windows 11, or Windows 10 kept up to date, and {n} GB of "
+            "free space.") in text
 
 
 def test_dist_is_ignored():
